@@ -48,6 +48,19 @@ from urllib.parse import urlparse
 
 DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
 DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE)
+# __PHASE3_STRICT_PG__
+if not DATABASE_URL.startswith(("postgres:", "postgresql:", "postgresql+")):
+    import sys as _sys_ph3
+    print(
+        '[db_compat] PHASE-3: SQLite is quarantined. '
+        'DATABASE_URL must be PostgreSQL, got ' + repr(DATABASE_URL),
+        file=_sys_ph3.stderr,
+    )
+    raise RuntimeError(
+        'SQLite is no longer permitted. Set DATABASE_URL=postgresql://...'
+    )
+
+
 
 
 def is_sqlite() -> bool:
