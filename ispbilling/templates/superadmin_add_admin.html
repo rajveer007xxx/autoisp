@@ -1,0 +1,637 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Add New Admin - Superadmin{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css">
+<style>
+    .form-section {
+        background: #fff;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+    }
+    .form-section h4 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #3c8dbc;
+        color: #3c8dbc;
+    }
+    .required-field::after {
+        content: " *";
+        color: red;
+    }
+    .file-preview {
+        max-width: 200px;
+        max-height: 200px;
+        margin-top: 10px;
+        display: none;
+    }
+    .file-preview img {
+        max-width: 100%;
+        max-height: 100%;
+        border: 1px solid #ddd;
+        padding: 5px;
+    }
+    #endDateDisplay {
+        font-weight: bold;
+        color: #3c8dbc;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Add New Admin<small>Create a new admin account</small></h1>
+    <ol class="breadcrumb">
+        <li><a href="/superadmin/dashboard"><i class="fa fa-dashboard"></i> Dashboard</a></li>
+        <li><a href="/superadmin/admins">Admin Management</a></li>
+        <li class="active">Add Admin</li>
+    </ol>
+</section>
+
+<section class="content">
+    <form id="addAdminForm" enctype="multipart/form-data">
+        <!-- Company Details -->
+        <div class="form-section">
+            <h4>Company Details</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Company ID (Auto-generated)</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="companyId" name="company_id" readonly>
+                            <span class="input-group-btn">
+                                <button type="button" class="btn btn-default" id="regenerateBtn">
+                                    <i class="fa fa-refresh"></i> Regenerate
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">Company Name</label>
+                        <input type="text" class="form-control" name="company_name" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Company Logo</label>
+                        <input type="file" class="form-control" name="company_logo" accept="image/*" id="companyLogo">
+                        <small class="text-muted">Max 2MB</small>
+                        <div class="file-preview" id="logoPreview">
+                            <img src="" alt="Logo Preview">
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">Company Address</label>
+                        <textarea class="form-control" name="company_address" rows="3" required></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Country</label>
+                        <input type="text" class="form-control" name="country" value="India" required>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">State</label>
+                        <select class="form-control select2" name="state" id="stateSelect" required>
+                            <option value="">Select State</option>
+                            <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                            <option value="Assam">Assam</option>
+                            <option value="Bihar">Bihar</option>
+                            <option value="Chhattisgarh">Chhattisgarh</option>
+                            <option value="Goa">Goa</option>
+                            <option value="Gujarat">Gujarat</option>
+                            <option value="Haryana">Haryana</option>
+                            <option value="Himachal Pradesh">Himachal Pradesh</option>
+                            <option value="Jharkhand">Jharkhand</option>
+                            <option value="Karnataka">Karnataka</option>
+                            <option value="Kerala">Kerala</option>
+                            <option value="Madhya Pradesh">Madhya Pradesh</option>
+                            <option value="Maharashtra">Maharashtra</option>
+                            <option value="Manipur">Manipur</option>
+                            <option value="Meghalaya">Meghalaya</option>
+                            <option value="Mizoram">Mizoram</option>
+                            <option value="Nagaland">Nagaland</option>
+                            <option value="Odisha">Odisha</option>
+                            <option value="Punjab">Punjab</option>
+                            <option value="Rajasthan">Rajasthan</option>
+                            <option value="Sikkim">Sikkim</option>
+                            <option value="Tamil Nadu">Tamil Nadu</option>
+                            <option value="Telangana">Telangana</option>
+                            <option value="Tripura">Tripura</option>
+                            <option value="Uttar Pradesh">Uttar Pradesh</option>
+                            <option value="Uttarakhand">Uttarakhand</option>
+                            <option value="West Bengal">West Bengal</option>
+                            <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                            <option value="Chandigarh">Chandigarh</option>
+                            <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                            <option value="Delhi">Delhi</option>
+                            <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                            <option value="Ladakh">Ladakh</option>
+                            <option value="Lakshadweep">Lakshadweep</option>
+                            <option value="Puducherry">Puducherry</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">City</label>
+                        <input type="text" class="form-control" name="city" required>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Pincode</label>
+                        <input type="text" class="form-control" name="pincode" pattern="[0-9]{6}" maxlength="6" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>GST Number</label>
+                        <input type="text" class="form-control" name="gst_number" maxlength="15">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">GST Invoice Needed</label>
+                        <select class="form-control" name="gst_invoice_needed" required>
+                            <option value="1">Yes</option>
+                            <option value="0">No</option>
+                        </select>
+                        <small class="text-muted">If Yes, GST numbers will be shown on invoice and tax will be added to the amount</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Details -->
+        <div class="form-section">
+            <h4>Admin Details</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Admin ID (Auto-generated)</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="adminId" name="admin_id" readonly>
+                            <span class="input-group-btn">
+                                <button type="button" class="btn btn-default" id="regenerateAdminIdBtn">
+                                    <i class="fa fa-refresh"></i> Regenerate
+                                </button>
+                            </span>
+                        </div>
+                        <small class="text-muted">Format: Company prefix + 4 digits (e.g., FIBER1234)</small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">Admin Name</label>
+                        <input type="text" class="form-control" name="admin_name" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Profile Image</label>
+                        <input type="file" class="form-control" name="profile_image" accept="image/*" id="profileImage">
+                        <small class="text-muted">Upload your profile image (Max 2MB)</small>
+                        <div class="file-preview" id="profilePreview">
+                            <img src="" alt="Profile Preview">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label class="required-field">Password</label>
+                        <input type="password" class="form-control" name="password" id="password" required minlength="6">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label class="required-field">Confirm Password</label>
+                        <input type="password" class="form-control" name="confirm_password" id="confirmPassword" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">Email</label>
+                        <input type="email" class="form-control" name="admin_email" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="required-field">Mobile</label>
+                        <input type="text" class="form-control" name="admin_mobile" pattern="[0-9]{10}" maxlength="10" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Subscription Details -->
+        <div class="form-section">
+            <h4>Subscription Details</h4>
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Package</label>
+                        <select class="form-control" name="package" id="packageSelect" required>
+                            <option value="">Loading packages...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Admin Type</label>
+                        <select class="form-control" name="admin_type" id="adminType" required>
+                            <option value="Trial">Trial</option>
+                            <option value="Regular">Regular</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Start Date</label>
+                        <input type="date" class="form-control" name="start_date" id="startDate" required>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label class="required-field">Period (Months)</label>
+                        <select class="form-control" name="period_months" id="periodMonths" required>
+                            <option value="1">1 Month</option>
+                            <option value="2">2 Months</option>
+                            <option value="3">3 Months</option>
+                            <option value="4">4 Months</option>
+                            <option value="5">5 Months</option>
+                            <option value="6">6 Months</option>
+                            <option value="7">7 Months</option>
+                            <option value="8">8 Months</option>
+                            <option value="9">9 Months</option>
+                            <option value="10">10 Months</option>
+                            <option value="11">11 Months</option>
+                            <option value="12">12 Months</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label>End Date (Calculated)</label>
+                        <div class="form-control-static" id="endDateDisplay">-</div>
+                        <input type="hidden" name="end_date" id="endDate">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label>Package Price</label>
+                        <div class="form-control-static" id="packagePriceDisplay">₹0.00</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label>Due Balance</label>
+                        <div class="form-control-static" id="dueBalanceDisplay">₹0.00</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bank Details -->
+        <div class="form-section">
+            <h4>Bank Details</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Bank Name</label>
+                        <input type="text" class="form-control" name="bank_name">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Branch Code</label>
+                        <input type="text" class="form-control" name="branch_code">
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Account Number</label>
+                        <input type="text" class="form-control" name="account_number">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>Branch Location</label>
+                        <input type="text" class="form-control" name="branch_location">
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>IFSC Code</label>
+                        <input type="text" class="form-control" name="branch_ifsc" maxlength="11">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>UPI ID</label>
+                        <input type="text" class="form-control" name="upi_id">
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label>QR Code</label>
+                        <input type="file" class="form-control" name="qr_code" accept="image/*" id="qrCode">
+                        <small class="text-muted">Upload payment QR code (Max 2MB)</small>
+                        <div class="file-preview" id="qrPreview">
+                            <img src="" alt="QR Code Preview">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="form-group">
+                        <label>Declaration</label>
+                        <textarea class="form-control" name="declaration" rows="3" placeholder="Enter declaration text"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="form-group">
+                        <label>Terms & Conditions</label>
+                        <textarea class="form-control" name="terms_conditions" rows="3" placeholder="Enter terms and conditions"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Acceptance -->
+        <div class="form-section">
+            <h4>Acceptance</h4>
+            <div class="checkbox">
+                <label>
+                    <input type="checkbox" name="accept_terms" id="acceptTerms" required>
+                    I accept the <a href="/terms" target="_blank">Terms & Conditions</a>
+                </label>
+            </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-section">
+            <div class="row">
+                <div class="col-md-12">
+                    <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                        <i class="fa fa-save"></i> Create Admin
+                    </button>
+                    <a href="/superadmin/admins" class="btn btn-default btn-lg">
+                        <i class="fa fa-times"></i> Cancel
+                    </a>
+                </div>
+            </div>
+        </div>
+    </form>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+<script>
+var packages = [];
+
+$(document).ready(function() {
+    $('.select2').select2();
+    
+    // Set today's date as default start date
+    var today = new Date().toISOString().split('T')[0];
+    $('#startDate').val(today);
+    
+    // Generate initial company ID
+    generateCompanyId();
+    
+    // Load packages from database
+    loadPackages();
+    
+    // Calculate end date
+    calculateEndDate();
+    
+    // Regenerate company ID button
+    $('#regenerateBtn').click(function() {
+        generateCompanyId();
+    });
+    
+    // Auto-generate admin ID when company name changes
+    $('input[name="company_name"]').on('blur', function() {
+        var companyName = $(this).val();
+        if (companyName && !$('#adminId').val()) {
+            generateAdminId(companyName);
+        }
+    });
+    
+    // Regenerate admin ID button
+    $('#regenerateAdminIdBtn').click(function() {
+        var companyName = $('input[name="company_name"]').val();
+        if (!companyName) {
+            alert('Please enter company name first');
+            return;
+        }
+        generateAdminId(companyName);
+    });
+    
+    // Calculate end date when start date, period, or admin type changes
+    $('#startDate, #periodMonths, #adminType').change(function() {
+        calculateEndDate();
+    });
+    
+    // Update package price and due balance when package changes
+    $('#packageSelect').change(function() {
+        updatePackagePriceAndBalance();
+    });
+    
+    // File preview handlers
+    $('#companyLogo').change(function() {
+        previewFile(this, '#logoPreview');
+    });
+    
+    $('#profileImage').change(function() {
+        previewFile(this, '#profilePreview');
+    });
+    
+    $('#qrCode').change(function() {
+        previewFile(this, '#qrPreview');
+    });
+    
+    // Form submission
+    $('#addAdminForm').submit(function(e) {
+        e.preventDefault();
+        
+        // Validate passwords match
+        if ($('#password').val() !== $('#confirmPassword').val()) {
+            alert('Passwords do not match!');
+            return false;
+        }
+        
+        // Validate file sizes
+        var files = ['companyLogo', 'profileImage', 'qrCode'];
+        for (var i = 0; i < files.length; i++) {
+            var file = document.getElementById(files[i]).files[0];
+            if (file && file.size > 2 * 1024 * 1024) {
+                alert('File size must be less than 2MB: ' + files[i]);
+                return false;
+            }
+        }
+        
+        var formData = new FormData(this);
+        
+        $('#submitBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
+        
+        $.ajax({
+            url: '/api/superadmin/admins',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                alert('Admin created successfully!');
+                window.location.href = '/superadmin/admins';
+            },
+            error: function(xhr) {
+                $('#submitBtn').prop('disabled', false).html('<i class="fa fa-save"></i> Create Admin');
+                var errorMsg = 'Failed to create admin';
+                if (xhr.responseJSON && xhr.responseJSON.detail) {
+                    errorMsg = xhr.responseJSON.detail;
+                } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                alert('Error: ' + errorMsg);
+            }
+        });
+    });
+});
+
+function generateCompanyId() {
+    $.ajax({
+        url: '/api/superadmin/company-id/new',
+        type: 'GET',
+        success: function(response) {
+            $('#companyId').val(response.company_id);
+        },
+        error: function() {
+            // Fallback: generate random 8-digit ID
+            var randomId = Math.floor(10000000 + Math.random() * 90000000);
+            $('#companyId').val(randomId);
+        }
+    });
+}
+
+function generateAdminId(companyName) {
+    $.ajax({
+        url: '/api/superadmin/admins/generate-admin-id',
+        type: 'GET',
+        data: { company_name: companyName },
+        headers: {
+            'Authorization': 'Bearer ' + localStorage.getItem('superadmin_token')
+        },
+        xhrFields: {
+            withCredentials: true
+        },
+        success: function(response) {
+            $('#adminId').val(response.admin_id);
+        },
+        error: function(xhr) {
+            var errorMsg = 'Failed to generate Admin ID';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMsg = xhr.responseJSON.error;
+            }
+            alert('Error: ' + errorMsg);
+        }
+    });
+}
+
+function loadPackages() {
+    $.ajax({
+        url: '/api/superadmin/packages',
+        type: 'GET',
+        success: function(response) {
+            packages = response.packages || [];
+            var options = '<option value="">Select Package</option>';
+            packages.forEach(function(pkg) {
+                options += '<option value="' + pkg.package_name + '" data-price="' + pkg.package_price + '">' + 
+                          pkg.package_name + ' - ₹' + Math.round(pkg.package_price).toLocaleString('en-IN') + '</option>';
+            });
+            $('#packageSelect').html(options);
+        },
+        error: function() {
+            $('#packageSelect').html('<option value="">Error loading packages</option>');
+        }
+    });
+}
+
+function updatePackagePriceAndBalance() {
+    var selectedOption = $('#packageSelect option:selected');
+    var price = parseFloat(selectedOption.data('price')) || 0;
+    
+    $('#packagePriceDisplay').text('₹' + Math.round(price).toLocaleString('en-IN'));
+    $('#dueBalanceDisplay').text('₹' + Math.round(price).toLocaleString('en-IN'));
+}
+
+function calculateEndDate() {
+    var startDate = $('#startDate').val();
+    var adminType = $('#adminType').val();
+    var periodMonths = parseInt($('#periodMonths').val());
+    
+    if (startDate) {
+        var start = new Date(startDate);
+        var end = new Date(start);
+        
+        // If admin type is Trial, calculate 7 days from start date
+        if (adminType === 'Trial') {
+            end.setDate(end.getDate() + 7);
+        } else {
+            // Otherwise, calculate based on period months
+            end.setMonth(end.getMonth() + periodMonths);
+        }
+        
+        var endDateStr = end.toISOString().split('T')[0];
+        $('#endDate').val(endDateStr);
+        $('#endDateDisplay').text(end.toLocaleDateString('en-GB'));
+    }
+}
+
+function previewFile(input, previewId) {
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            $(previewId).show().find('img').attr('src', e.target.result);
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
+{% endblock %}

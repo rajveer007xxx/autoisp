@@ -1,0 +1,315 @@
+{% extends "base_user.html" %}
+{% block title %}WiFi Settings - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.wf-card{background:#fff;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.wf-input{width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:15px;color:#0b1120;background:#fff;}
+.wf-input:read-only{color:#0b1120 !important;background:#f1f5f9 !important;font-weight:600;}
+.wf-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:768px){.wf-grid{grid-template-columns:1fr;}}
+.wf-band{border:2px solid #e2e8f0;border-radius:14px;padding:18px;}
+.wf-band.b24{border-color:#3b82f6;background:linear-gradient(135deg,#eff6ff,#fff);}
+.wf-band.b5{border-color:#8b5cf6;background:linear-gradient(135deg,#f5f3ff,#fff);}
+.wf-band h4{margin:0 0 12px;font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px;}
+.wf-band.b24 h4{color:#1d4ed8;}
+.wf-band.b5 h4{color:#6d28d9;}
+.wf-toggle{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-weight:600;}
+.wf-pwd-row{position:relative;}
+.wf-pwd-row .show-btn{position:absolute;right:10px;top:10px;background:none;border:none;cursor:pointer;font-size:12px;color:#6366f1;}
+.wf-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:14px 28px;border-radius:12px;font-weight:700;cursor:pointer;font-size:15px;}
+.wf-btn:disabled{opacity:.5;cursor:not-allowed;}
+.wf-info{background:#fef3c7;color:#92400e;padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:18px;}
+.wf-warning{background:#fee2e2;color:#991b1b;padding:14px 18px;border-radius:10px;text-align:center;}
+label{display:block;font-weight:600;font-size:13px;margin-bottom:5px;color:#475569;}
+.wf-status{display:flex;align-items:center;gap:6px;color:#10b981;font-weight:600;}
+</style>
+
+<section class="content-header" style="padding-bottom:6px;">
+  <h2 style="margin:0;font-size:18px;font-weight:700;color:#0b1120;">
+    Change your router's WiFi name &amp; password
+  </h2>
+  <p style="margin:4px 0 0;color:#64748b;font-size:13px;">
+    Applies wirelessly via remote management — no router access needed.
+  </p>
+</section>
+
+{% if recover_mode %}
+<section class="content" style="padding-top:0;">
+  <div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;color:#92400e;padding:14px 18px;border-radius:14px;margin-bottom:0;font-size:14px;display:flex;align-items:center;gap:12px;">
+    <i class="bi bi-shield-lock-fill" style="font-size:22px;"></i>
+    <div style="flex:1;">
+      <b>Read-only WiFi Recovery</b><br>
+      You're viewing your WiFi password via a one-time WhatsApp link. Editing is disabled. This link expires automatically.
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="content">
+<div id="wfRoot"><div style="text-align:center;padding:60px;color:#94a3b8">Loading WiFi settings…</div></div>
+</section>
+
+<script>
+let _wifi = null; window._wifi = null;
+
+async function loadWifi(){
+  const r=await fetch('/api/customer/me/wifi',{credentials:'include'});
+  const d=await r.json();
+  if(d.no_onu){
+    document.getElementById('wfRoot').innerHTML=`
+      <div class="wf-card wf-warning" data-testid="wf-no-onu">
+        <h3 style="margin:0 0 6px;">No router linked yet</h3>
+        <p style="margin:0;font-size:14px;">Your account does not currently have a router/ONU linked. Please contact your ISP to enable remote WiFi management.</p>
+      </div>`;
+    return;
+  }
+  if(!d.success){
+    document.getElementById('wfRoot').innerHTML=`<div class="wf-card wf-warning">Error: ${d.message||'Failed to load'}</div>`;
+    return;
+  }
+  _wifi = d; window._wifi = d;
+  render();
+}
+
+function render(){
+  const w = _wifi;
+  document.getElementById('wfRoot').innerHTML=`
+    <div class="wf-card">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+        <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
+          <i class="bi bi-wifi" style="color:#6366f1;font-size:24px;"></i>
+          Your Router
+        </h3>
+        <span class="wf-status" data-testid="wf-online"><i class="bi bi-circle-fill" style="font-size:8px;"></i> Online</span>
+        <small style="color:#64748b;margin-left:auto;">Serial: <code>${w.serial||'-'}</code></small>
+      </div>
+      <p style="color:#475569;font-size:13px;margin:0;">
+        Changes are pushed to your router instantly via TR-069 remote management. New WiFi name &amp; password will be active in ~30 seconds.
+      </p>
+    </div>
+
+    <div class="wf-info" data-testid="wf-info">
+      <i class="bi bi-info-circle-fill"></i> <b>Tip:</b>
+      Use a strong password (8+ characters, mix of letters &amp; numbers). Your devices will need to reconnect after changing the WiFi name.
+    </div>
+
+    <div class="wf-toggle">
+      <label class="switch" style="display:inline-flex;align-items:center;gap:10px;">
+        <input type="checkbox" id="wfBandSplit" ${w.band_split?'checked':''} onchange="render5G()" data-testid="wf-band-split" />
+        <span>Use a different WiFi name for 5 GHz (advanced)</span>
+      </label>
+    </div>
+
+    <div class="wf-grid">
+      <!-- 2.4 GHz -->
+      <div class="wf-band b24">
+        <h4><i class="bi bi-broadcast"></i> 2.4 GHz Band <small id="b24Note" style="color:#64748b;font-weight:500;">(default — works on all devices)</small></h4>
+        <label>WiFi Name (SSID)</label>
+        <input id="ssid24" class="wf-input" placeholder="My Home WiFi" value="${w.ssid_24||''}" maxlength="32" data-testid="wf-ssid-24" />
+        <label style="margin-top:10px;">WiFi Password</label>
+        <div class="wf-pwd-row">
+          <input id="pw24" class="wf-input" type="password" placeholder="Min 8 characters" value="${w.password_24||''}" minlength="8" maxlength="63" data-testid="wf-pw-24" />
+          <button type="button" class="show-btn" onclick="togglePw('pw24')">Show</button>
+        </div>
+      </div>
+
+      <!-- 5 GHz -->
+      <div class="wf-band b5" id="band5">
+        <h4><i class="bi bi-broadcast-pin"></i> 5 GHz Band <small style="color:#64748b;font-weight:500;">(faster, shorter range)</small></h4>
+        <label>WiFi Name (SSID)</label>
+        <input id="ssid5" class="wf-input" placeholder="My Home WiFi 5G" value="${w.ssid_5||''}" maxlength="32" data-testid="wf-ssid-5" />
+        <label style="margin-top:10px;">WiFi Password</label>
+        <div class="wf-pwd-row">
+          <input id="pw5" class="wf-input" type="password" placeholder="Min 8 characters" value="${w.password_5||''}" minlength="8" maxlength="63" data-testid="wf-pw-5" />
+          <button type="button" class="show-btn" onclick="togglePw('pw5')">Show</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;text-align:center;">
+      {% if recover_mode %}
+      <button class="wf-btn" disabled style="opacity:.55;cursor:not-allowed;" data-testid="wf-save-btn-disabled">Editing disabled — read-only recovery</button>
+      {% else %}
+      <button class="wf-btn" onclick="saveWifi()" data-testid="wf-save-btn">Apply &amp; Push to Router</button>
+      {% endif %}
+    </div>
+
+    <!-- WiFi QR code -->
+    <div class="wf-card" id="wfQrCard" style="margin-top:18px;display:none;">
+      <h3 style="margin:0 0 14px;display:flex;align-items:center;gap:10px;">
+        <i class="bi bi-qr-code" style="color:#6366f1;font-size:22px;"></i>
+        Share Your WiFi
+        <small style="font-weight:400;color:#64748b;font-size:13px;margin-left:auto;">
+          Guests scan this QR with their phone camera to connect instantly
+        </small>
+      </h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;justify-items:center;" id="wfQrGrid"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button class="wf-btn" style="background:#475569;padding:10px 22px;font-size:14px;" onclick="printQr()" data-testid="wf-qr-print"><i class="bi bi-printer"></i> Print</button>
+        <button class="wf-btn" style="background:#10b981;padding:10px 22px;font-size:14px;" onclick="downloadQr(0)" data-testid="wf-qr-download"><i class="bi bi-download"></i> Download PNG</button>
+      </div>
+    </div>`;
+  render5G();
+}
+function render5G(){
+  const split = document.getElementById('wfBandSplit').checked;
+  document.getElementById('band5').style.display = split ? '' : 'none';
+  document.getElementById('b24Note').textContent = split
+    ? '(separate from 5 GHz)' : '(same SSID applied to 5 GHz too)';
+}
+function togglePw(id){
+  const el=document.getElementById(id);
+  el.type = (el.type==='password' ? 'text' : 'password');
+}
+async function saveWifi(){
+  const ssid24 = document.getElementById('ssid24').value.trim();
+  const pw24   = document.getElementById('pw24').value.trim();
+  const split  = document.getElementById('wfBandSplit').checked;
+  const ssid5  = split ? document.getElementById('ssid5').value.trim() : '';
+  const pw5    = split ? document.getElementById('pw5').value.trim() : '';
+  if(!ssid24 || !pw24){alert('Please enter both SSID and password');return;}
+  if(pw24.length < 8){alert('Password must be at least 8 characters');return;}
+  if(split && (!ssid5 || !pw5 || pw5.length < 8)){alert('Please enter valid 5 GHz SSID/password (min 8 chars)');return;}
+  if(!confirm('Apply these WiFi settings to your router? Your devices will disconnect briefly.')) return;
+  const btn=event.target;
+  btn.disabled=true; btn.textContent='Pushing to router…';
+  const r=await fetch('/api/customer/me/wifi',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ssid_24:ssid24, password_24:pw24,
+                         band_split:split, ssid_5:ssid5, password_5:pw5})});
+  const d=await r.json();
+  btn.disabled=false; btn.textContent='Apply & Push to Router';
+  if(d.success){
+    const ok = d.tr069 && d.tr069.ok;
+    alert(ok
+      ? '✅ WiFi settings applied!\\nYour router will update in ~30 seconds.\\nDevices need to reconnect with the new password.'
+      : '✅ Settings saved on our system.\\n⚠️ Your router is currently offline; settings will apply when it comes back online.');
+    loadWifi();
+  } else alert('Error: '+(d.message||'Unknown'));
+}
+
+function _wifiQrPayload(ssid, password){
+  // WPA2 standard: WIFI:T:WPA;S:<ssid>;P:<password>;H:false;;
+  const esc = v => String(v||'').replace(/([\\;,:"])/g, '\\$1');
+  return `WIFI:T:WPA;S:${esc(ssid)};P:${esc(password)};H:false;;`;
+}
+function renderQrs(){
+  if(!_wifi || !_wifi.success) return;
+  const ssid24 = (document.getElementById('ssid24')||{}).value || _wifi.ssid_24;
+  const pw24   = (document.getElementById('pw24')||{}).value   || _wifi.password_24;
+  const split  = (document.getElementById('wfBandSplit')||{}).checked || _wifi.band_split;
+  const ssid5  = (document.getElementById('ssid5')||{}).value  || _wifi.ssid_5;
+  const pw5    = (document.getElementById('pw5')||{}).value    || _wifi.password_5;
+  if(!ssid24 || !pw24 || pw24.length < 8){
+    document.getElementById('wfQrCard').style.display='none';
+    return;
+  }
+  document.getElementById('wfQrCard').style.display='';
+  const grid = document.getElementById('wfQrGrid');
+  grid.innerHTML = '';
+  const make = (label, ssid, pw, color) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText='text-align:center;background:#fff;padding:18px;border:1.5px solid '+color+';border-radius:14px;min-width:240px;';
+    wrap.innerHTML = `
+      <div style="font-weight:700;color:${color};margin-bottom:6px;font-size:14px;">${label}</div>
+      <div class="qr-target" style="display:flex;justify-content:center;margin:6px 0;"></div>
+      <div style="font-size:13px;font-weight:600;margin-top:8px;color:#0b1120;word-break:break-all;">${ssid}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px;">Tap or scan with your phone camera</div>
+    `;
+    grid.appendChild(wrap);
+    new QRCode(wrap.querySelector('.qr-target'), {
+      text: _wifiQrPayload(ssid, pw),
+      width: 180, height: 180,
+      colorDark: '#0b1120', colorLight: '#fff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  };
+  if(split && ssid5 && pw5 && pw5.length >= 8){
+    make('2.4 GHz · ' + ssid24, ssid24, pw24, '#3b82f6');
+    make('5 GHz · '   + ssid5,  ssid5,  pw5,  '#8b5cf6');
+  } else {
+    make('Your WiFi · ' + ssid24, ssid24, pw24, '#6366f1');
+  }
+}
+function printQr(){
+  const card = document.getElementById('wfQrCard');
+  if(!card) return;
+  const w = window.open('', '_blank', 'width=720,height=900');
+  w.document.write(`<html><head><title>WiFi QR</title>
+    <style>
+      body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:40px;text-align:center;}
+      h1{font-size:22px;margin:0 0 6px;} p{color:#64748b;margin:0 0 20px;}
+      .qr-target img,.qr-target canvas{width:280px !important;height:280px !important;}
+    </style></head><body>
+    <h1>📶 Your Home WiFi</h1>
+    <p>Open your phone camera and point at the QR code below to connect.</p>
+    ${card.querySelector('#wfQrGrid').outerHTML.replace(/grid-template-columns[^;]+;/, 'grid-template-columns:1fr 1fr;')}
+    </body></html>`);
+  setTimeout(()=>{ w.print(); w.close(); }, 600);
+}
+function downloadQr(idx){
+  const targets = document.querySelectorAll('#wfQrGrid .qr-target img, #wfQrGrid .qr-target canvas');
+  const t = targets[idx] || targets[0];
+  if(!t){ alert('QR not ready'); return; }
+  const a = document.createElement('a');
+  a.href = (t.tagName === 'CANVAS') ? t.toDataURL('image/png') : t.src;
+  a.download = 'wifi-qr.png';
+  a.click();
+}
+// Re-render QR live when SSID/password fields change
+document.addEventListener('input', e => {
+  if(['ssid24','pw24','ssid5','pw5'].includes(e.target.id)) renderQrs();
+});
+document.addEventListener('change', e => {
+  if(e.target.id === 'wfBandSplit') setTimeout(renderQrs, 50);
+});
+// Hook renderQrs into loadWifi so it fires after initial data load + render()
+const _origRender = render;
+render = function(){
+  _origRender.apply(this, arguments);
+  setTimeout(renderQrs, 100);
+};
+
+// _S40zκ_ Recover-mode hardening
+(function(){
+  const ro = {{ 'true' if recover_mode else 'false' }};
+  if(!ro) return;
+  function lock(){
+    // Repopulate values from _wifi cache if empty (in case render override missed)
+    if(window._wifi && window._wifi.success){
+      const w = window._wifi;
+      const setIfEmpty = (id, val) => {
+        const el = document.getElementById(id);
+        if(el && !el.value && val) el.value = val;
+      };
+      setIfEmpty('ssid24', w.ssid_24);
+      setIfEmpty('pw24',   w.password_24);
+      setIfEmpty('ssid5',  w.ssid_5);
+      setIfEmpty('pw5',    w.password_5);
+    }
+    document.querySelectorAll('#ssid24,#pw24,#ssid5,#pw5').forEach(el=>{
+      if(el){
+        el.readOnly = true;
+        el.style.background = '#f1f5f9';
+        el.style.cursor = 'not-allowed';
+      }
+    });
+    const sw = document.getElementById('wfBandSplit');
+    if(sw){ sw.disabled = true; }
+    ['pw24','pw5'].forEach(id=>{ const el=document.getElementById(id); if(el) el.type='text'; });
+    document.querySelectorAll('.show-btn').forEach(b=>b.style.display='none');
+  }
+  if(document.readyState!=='loading') setTimeout(lock,200);
+  else document.addEventListener('DOMContentLoaded', ()=>setTimeout(lock,200));
+  // Re-lock after dynamic render() repopulates the form
+  const _origRender = window.render;
+  if(typeof _origRender === 'function'){
+    window.render = function(){ _origRender.apply(this, arguments); setTimeout(lock,150); };
+  }
+  setInterval(lock, 1500);
+})();
+
+loadWifi();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+{% endblock %}

@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing - Auto Renew Expired Admins (daily)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling/superadmin-portal
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling/superadmin-portal:/opt/ispbilling
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/superadmin-portal/auto_renew_cron.py
+StandardOutput=append:/var/log/autoispbilling/auto-renew.log
+StandardError=append:/var/log/autoispbilling/auto-renew.log
+User=root

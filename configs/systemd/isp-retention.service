@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing - 2-Year Retention Sweeper (daily)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling:/opt/ispbilling/admin-portal
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/retention_cron.py
+StandardOutput=append:/var/log/autoispbilling/retention.log
+StandardError=append:/var/log/autoispbilling/retention.log
+User=root

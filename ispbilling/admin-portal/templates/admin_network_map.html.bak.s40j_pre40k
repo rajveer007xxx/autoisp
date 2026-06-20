@@ -1,0 +1,399 @@
+{% extends layout_template %}
+{# _S40j_  Network GIS Map page — Leaflet, satellite/streets toggle, deploy
+   hardware, draw fiber lines, show customer pins and OLT/ONU pins. #}
+
+{% block title %}Network Map{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+<style>
+  /* Use the full content area — sidebar already provided by layout */
+  #netmap-shell{position:relative; width:100%; height:calc(100vh - 70px);
+                background:#0f172a; color:#e2e8f0; overflow:hidden;}
+  #netmap{position:absolute; inset:0; z-index:1;}
+  /* Floating control panel — top-left */
+  .nm-ctrls{position:absolute; top:14px; left:14px; z-index:5;
+            display:flex; gap:8px; flex-wrap:wrap;}
+  .nm-btn{padding:10px 16px; border-radius:10px; border:none;
+          background:rgba(15,23,42,.85); color:#fff; font-weight:600;
+          font-size:13px; cursor:pointer; backdrop-filter:blur(8px);
+          box-shadow:0 4px 14px rgba(0,0,0,.35);}
+  .nm-btn.active{background:#6366f1;}
+  .nm-btn.satellite{background:#4f46e5;}
+  .nm-btn.danger{background:#dc2626;}
+  .nm-btn.warn{background:#f59e0b; color:#1a1a1a;}
+  /* Hardware panel — left rail under the controls */
+  .nm-hw-panel{position:absolute; top:74px; left:14px; z-index:5;
+               width:240px; background:rgba(15,23,42,.92); padding:14px;
+               border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.4);
+               backdrop-filter:blur(8px); color:#e2e8f0;
+               border:1px solid rgba(99,102,241,.25);}
+  .nm-hw-panel h4{margin:0 0 10px; font-size:11px; font-weight:700;
+                  letter-spacing:.12em; color:#94a3b8; text-transform:uppercase;}
+  .nm-hw-btn{display:flex; align-items:center; gap:10px; width:100%;
+             padding:9px 12px; margin:6px 0; border-radius:8px;
+             border:1px solid rgba(99,102,241,.18);
+             background:rgba(30,41,59,.6); color:#e2e8f0; cursor:pointer;
+             font-size:13px; transition:transform .12s, background .12s;}
+  .nm-hw-btn:hover{background:rgba(99,102,241,.22); transform:translateX(2px);}
+  .nm-hw-btn.deploy{background:#6366f1; color:#fff; font-weight:700;
+                    justify-content:center; padding:11px;}
+  .nm-hw-btn.deploy:hover{background:#4f46e5;}
+  .nm-hw-icon{width:22px; height:22px; display:inline-flex; align-items:center;
+              justify-content:center; border-radius:5px; flex-shrink:0;}
+  .nm-hw-icon.olt{background:#7c3aed;}
+  .nm-hw-icon.onu{background:#10b981;}
+  .nm-hw-icon.jc_box{background:#fcd34d; color:#1a1a1a;}
+  .nm-hw-icon.splitter_1x4,
+  .nm-hw-icon.splitter_1x8,
+  .nm-hw-icon.splitter_1x16{background:#f59e0b; color:#1a1a1a;}
+  .nm-hw-icon.pole{background:#94a3b8;}
+  .nm-hw-icon.manhole{background:#475569;}
+  /* Splice panel right side */
+  .nm-side{position:absolute; top:14px; right:14px; z-index:5;
+           width:300px; background:rgba(15,23,42,.94); padding:16px;
+           border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.4);
+           backdrop-filter:blur(8px); color:#e2e8f0;
+           border:1px solid rgba(99,102,241,.25); display:none;}
+  .nm-side.show{display:block;}
+  .nm-side h3{font-size:14px; margin:0 0 10px; color:#a5b4fc;}
+  .nm-side label{display:block; font-size:11px; color:#94a3b8;
+                  text-transform:uppercase; letter-spacing:.08em; margin-top:8px;}
+  .nm-side input, .nm-side select{width:100%; margin-top:4px; padding:8px;
+                                   border-radius:6px; border:1px solid #334155;
+                                   background:#0f172a; color:#e2e8f0;
+                                   font-size:13px;}
+  .nm-color-pills{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;}
+  .nm-pill{width:30px; height:30px; border-radius:50%; cursor:pointer;
+            border:3px solid transparent; transition:.15s;}
+  .nm-pill.active{border-color:#fff; transform:scale(1.15);}
+  /* Mode banner — when in deploy/splice mode */
+  .nm-banner{position:absolute; top:14px; left:50%; transform:translateX(-50%);
+             z-index:6; background:rgba(245,158,11,.95); color:#1a1a1a;
+             padding:9px 18px; border-radius:9999px; font-weight:700;
+             font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.4); display:none;}
+  .nm-banner.show{display:block;}
+  /* Legend */
+  .nm-legend{position:absolute; bottom:14px; right:14px; z-index:5;
+             background:rgba(15,23,42,.9); padding:10px 14px;
+             border-radius:10px; font-size:12px; color:#e2e8f0;
+             border:1px solid rgba(99,102,241,.25);}
+  .nm-legend .row{display:flex; align-items:center; gap:8px; margin:3px 0;}
+  .nm-legend .dot{width:12px; height:12px; border-radius:50%;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="netmap-shell" data-testid="netmap-shell">
+  <div id="netmap"></div>
+
+  <!-- Top-left controls -->
+  <div class="nm-ctrls">
+    <button class="nm-btn" data-testid="netmap-tile-streets"
+            onclick="nmSetLayer('streets')">STREETS</button>
+    <button class="nm-btn satellite active" id="nm-sat-btn"
+            data-testid="netmap-tile-satellite"
+            onclick="nmSetLayer('satellite')">SATELLITE</button>
+    <button class="nm-btn warn" id="nm-fiber-btn"
+            data-testid="netmap-fiber-mode"
+            onclick="nmToggleFiberMode()">DRAW FIBER</button>
+  </div>
+
+  <!-- Mode banner -->
+  <div class="nm-banner" id="nm-banner" data-testid="netmap-banner">
+    Click on map to drop the selected hardware
+  </div>
+
+  <!-- Hardware deploy panel -->
+  <div class="nm-hw-panel" data-testid="netmap-hw-panel">
+    <h4>Deploy Hardware</h4>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('jc_box')"
+            data-testid="hw-jc-box">
+      <span class="nm-hw-icon jc_box">▣</span> JC Box (Joint)
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x4')"
+            data-testid="hw-splitter-1x4">
+      <span class="nm-hw-icon splitter_1x4">⌬</span> 1:4 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x8')"
+            data-testid="hw-splitter-1x8">
+      <span class="nm-hw-icon splitter_1x8">⌬</span> 1:8 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x16')"
+            data-testid="hw-splitter-1x16">
+      <span class="nm-hw-icon splitter_1x16">⌬</span> 1:16 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('pole')"
+            data-testid="hw-pole">
+      <span class="nm-hw-icon pole">▌</span> Pole
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('manhole')"
+            data-testid="hw-manhole">
+      <span class="nm-hw-icon manhole">◯</span> Manhole
+    </button>
+    <hr style="border-color:#334155; margin:10px 0;"/>
+    <button class="nm-hw-btn deploy" onclick="nmCancelMode()"
+            data-testid="hw-cancel">CANCEL MODE</button>
+  </div>
+
+  <!-- Right-side panel (selected item details) -->
+  <div class="nm-side" id="nm-side" data-testid="netmap-side"></div>
+
+  <!-- Legend -->
+  <div class="nm-legend">
+    <div class="row"><span class="dot" style="background:#7c3aed;"></span> OLT Hub</div>
+    <div class="row"><span class="dot" style="background:#10b981;"></span> ONU (Online)</div>
+    <div class="row"><span class="dot" style="background:#dc2626;"></span> ONU (Issue)</div>
+    <div class="row"><span class="dot" style="background:#f59e0b;"></span> Splitter</div>
+    <div class="row"><span class="dot" style="background:#fcd34d;"></span> JC Box</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const NM_PREFIX = "{{ network_map_url_prefix }}";
+const NM_API    = "/api/admin/network-map";
+
+let nmMap, nmTileSat, nmTileStr, nmCurrTile = "satellite";
+let nmHwLayer, nmFiberLayer, nmCustLayer;
+let nmDeployKind = null;       // hardware kind being placed
+let nmFiberMode  = false;      // drawing a fiber polyline
+let nmFiberPts   = [];
+let nmFiberTmpLayer = null;
+let nmFocusOnu = null;         // optional ?focus_onu= for "Place on map"
+
+// Init
+(function() {
+  // Pick up ?focus_onu= from URL (used when an admin clicks "Place on map"
+  // from the ONU table)
+  const u = new URLSearchParams(location.search);
+  nmFocusOnu = u.get("focus_onu");
+  // Default centre: Sitapur, UP, India (matches user's existing tenant area)
+  nmMap = L.map("netmap", { zoomControl:true })
+            .setView([27.5, 80.7], 13);
+  nmTileSat = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution:"Tiles &copy; Esri", maxZoom:19, minZoom:3 });
+  nmTileStr = L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { attribution:"&copy; OpenStreetMap", maxZoom:19, minZoom:3 });
+  nmTileSat.addTo(nmMap);
+
+  nmHwLayer    = L.layerGroup().addTo(nmMap);
+  nmFiberLayer = L.layerGroup().addTo(nmMap);
+  nmCustLayer  = L.layerGroup().addTo(nmMap);
+
+  nmMap.on("click", nmOnMapClick);
+  nmRefreshAll();
+})();
+
+function nmSetLayer(kind) {
+  if (kind === nmCurrTile) return;
+  nmCurrTile = kind;
+  document.querySelectorAll(".nm-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector(`[data-testid="netmap-tile-${kind}"]`).classList.add("active");
+  if (kind === "satellite") { nmMap.removeLayer(nmTileStr); nmTileSat.addTo(nmMap); }
+  else                       { nmMap.removeLayer(nmTileSat); nmTileStr.addTo(nmMap); }
+}
+
+function nmShowBanner(text, color) {
+  const b = document.getElementById("nm-banner");
+  b.textContent = text;
+  b.classList.add("show");
+  if (color) b.style.background = color;
+}
+function nmHideBanner() {
+  document.getElementById("nm-banner").classList.remove("show");
+}
+
+function nmStartDeploy(kind) {
+  nmFiberMode = false;
+  nmDeployKind = kind;
+  const labels = { jc_box:"JC Box", splitter_1x4:"1:4 Splitter",
+                   splitter_1x8:"1:8 Splitter", splitter_1x16:"1:16 Splitter",
+                   pole:"Pole", manhole:"Manhole" };
+  nmShowBanner(`Click anywhere on the map to drop a ${labels[kind] || kind}`,
+               "rgba(99,102,241,.95)");
+  document.getElementById("nm-banner").style.color = "#fff";
+}
+function nmToggleFiberMode() {
+  if (nmFiberMode) { nmCancelMode(); return; }
+  nmDeployKind = null;
+  nmFiberMode = true;
+  nmFiberPts = [];
+  if (nmFiberTmpLayer) { nmMap.removeLayer(nmFiberTmpLayer); nmFiberTmpLayer = null; }
+  nmShowBanner("Click points along the fiber path. Double-click to finish.",
+               "rgba(245,158,11,.95)");
+  document.getElementById("nm-banner").style.color = "#1a1a1a";
+  document.getElementById("nm-fiber-btn").classList.add("active");
+  nmMap.on("dblclick", nmFinishFiber);
+}
+function nmCancelMode() {
+  nmDeployKind = null;
+  nmFiberMode = false;
+  nmFiberPts = [];
+  if (nmFiberTmpLayer) { nmMap.removeLayer(nmFiberTmpLayer); nmFiberTmpLayer = null; }
+  nmHideBanner();
+  document.getElementById("nm-fiber-btn").classList.remove("active");
+  nmMap.off("dblclick", nmFinishFiber);
+}
+async function nmOnMapClick(e) {
+  if (nmDeployKind) {
+    const name = prompt("Name for this " + nmDeployKind + " (optional):", "");
+    const body = { kind:nmDeployKind, name:name || null,
+                   lat:e.latlng.lat, lng:e.latlng.lng };
+    const r = await fetch(NM_API + "/hardware", {
+      method:"POST", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body) });
+    const j = await r.json();
+    if (j.ok) { nmDeployKind = null; nmHideBanner(); await nmRefreshAll(); }
+    else alert("Failed: " + JSON.stringify(j));
+    return;
+  }
+  if (nmFiberMode) {
+    nmFiberPts.push([e.latlng.lat, e.latlng.lng]);
+    if (nmFiberTmpLayer) nmMap.removeLayer(nmFiberTmpLayer);
+    nmFiberTmpLayer = L.polyline(nmFiberPts, { color:"#f59e0b", weight:4,
+                                                  dashArray:"6 6" }).addTo(nmMap);
+    return;
+  }
+}
+async function nmFinishFiber() {
+  if (!nmFiberMode || nmFiberPts.length < 2) return;
+  const color = prompt(
+    "Fiber tube color? (blue / orange / green / brown / red / yellow)",
+    "blue") || "blue";
+  const cores = parseInt(prompt("Core count (4 / 8 / 12 / 24)?", "12") || "12", 10);
+  const body = { color:color.toLowerCase(), core_count:cores,
+                  polyline: nmFiberPts };
+  const r = await fetch(NM_API + "/fiber", {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body) });
+  const j = await r.json();
+  nmCancelMode();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+// ─── Render hardware/fibers/customers ──────────────────────────────────
+function nmIcon(kind, status) {
+  // Returns a divIcon that matches our color scheme.
+  const colors = {
+    olt:"#7c3aed", onu: status === "offline" ? "#dc2626" : "#10b981",
+    jc_box:"#fcd34d", splitter_1x4:"#f59e0b", splitter_1x8:"#f59e0b",
+    splitter_1x16:"#f59e0b", pole:"#94a3b8", manhole:"#475569",
+    customer: status === "active" ? "#22c55e" : "#94a3b8",
+  };
+  const sym = {
+    olt:"B", onu:"⌂", jc_box:"▣", splitter_1x4:"⌬", splitter_1x8:"⌬",
+    splitter_1x16:"⌬", pole:"▌", manhole:"◯", customer:"●",
+  };
+  const c = colors[kind] || "#6366f1";
+  return L.divIcon({
+    className:"nm-divicon",
+    html:`<div style="background:${c}; width:28px; height:28px;
+                      border-radius:6px; display:flex; align-items:center;
+                      justify-content:center; color:#fff; font-weight:700;
+                      box-shadow:0 2px 8px rgba(0,0,0,.4);
+                      border:2px solid #fff; font-size:14px;">${sym[kind]||"?"}</div>`,
+    iconSize:[28,28], iconAnchor:[14,14],
+  });
+}
+async function nmRefreshAll() {
+  nmHwLayer.clearLayers();
+  nmFiberLayer.clearLayers();
+  nmCustLayer.clearLayers();
+  let r;
+  try { r = await fetch(NM_API + "/items", { credentials:"include" }); }
+  catch(e) { console.warn("netmap fetch failed", e); return; }
+  if (!r.ok) return;
+  const j = await r.json();
+  // Hardware
+  (j.hardware || []).forEach(h => {
+    const m = L.marker([h.lat, h.lng], { icon: nmIcon(h.kind) })
+                .bindPopup(nmHwPopup(h)).addTo(nmHwLayer);
+  });
+  // Fibers
+  (j.fibers || []).forEach(f => {
+    const colorMap = {blue:"#3b82f6", orange:"#f97316", green:"#22c55e",
+                      brown:"#92400e", red:"#dc2626", yellow:"#eab308",
+                      slate:"#64748b", white:"#e5e7eb"};
+    L.polyline(f.polyline,
+               { color: colorMap[f.color] || "#3b82f6", weight:4 })
+     .bindPopup(`<b>Fiber ${f.color || ""}</b><br>Cores: ${f.core_count || "—"}<br>
+                 <button class="nm-btn danger" style="margin-top:6px;
+                  padding:4px 10px;font-size:11px"
+                  onclick="nmDeleteFiber(${f.id})">Delete</button>`)
+     .addTo(nmFiberLayer);
+  });
+  // Customers (small green/grey dots; max 5000)
+  (j.customers || []).forEach(c => {
+    L.circleMarker([c.lat, c.lng],
+        { radius:4, color:"#fff", weight:1,
+          fillColor: c.status === "active" ? "#22c55e" : "#94a3b8",
+          fillOpacity:.9 })
+     .bindPopup(`<b>${c.name || c.id}</b><br>Customer ID: ${c.id}<br>
+                 Status: ${c.status || "—"}`)
+     .addTo(nmCustLayer);
+  });
+  // Auto-pan to focus_onu if requested
+  if (nmFocusOnu) {
+    const tgt = (j.hardware || []).find(h =>
+      h.ref_onu_id == nmFocusOnu);
+    if (tgt) { nmMap.setView([tgt.lat, tgt.lng], 18);
+                L.popup().setLatLng([tgt.lat, tgt.lng])
+                  .setContent(nmHwPopup(tgt)).openOn(nmMap); }
+    else {
+      nmShowBanner("ONU not yet placed — click on the map to drop it.",
+                    "rgba(245,158,11,.95)");
+      // Fall into deploy mode for ONU placement, hitting the ONU place API
+      nmMap.off("click", nmOnMapClick);
+      nmMap.once("click", async function(e){
+        const r = await fetch(`/api/admin/network-map/onus/${nmFocusOnu}/place`, {
+          method:"POST", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({lat:e.latlng.lat, lng:e.latlng.lng}) });
+        const j = await r.json();
+        if (j.ok) { nmFocusOnu = null; nmHideBanner();
+                    nmMap.on("click", nmOnMapClick); await nmRefreshAll(); }
+        else alert("Failed: " + JSON.stringify(j));
+      });
+    }
+  }
+}
+function nmHwPopup(h) {
+  const props = h.props || {};
+  const title = h.name || h.kind.toUpperCase();
+  const sub = h.kind === "olt" ?
+    `Vendor: ${props.vendor || "—"}<br>Status: ${props.status || "—"}` :
+    h.kind === "onu" ?
+    `Customer: ${props.customer_id || "—"}<br>OLT: ${props.olt_id || "—"}` :
+    "";
+  const isAuto = !!props.auto;   // Auto-pinned OLT → can't delete from here
+  const delBtn = isAuto ? "" :
+    `<button class="nm-btn danger" style="padding:4px 10px;font-size:11px;
+       margin-top:6px" onclick="nmDeleteHw(${h.id})">Delete</button>`;
+  return `<b>${title}</b><br><small>${h.kind}</small><br>${sub}<br>${delBtn}`;
+}
+async function nmDeleteHw(id) {
+  if (!confirm("Delete this hardware? This will also remove any fiber " +
+               "lines connected to it.")) return;
+  const r = await fetch(`${NM_API}/hardware/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+async function nmDeleteFiber(id) {
+  if (!confirm("Delete this fiber line?")) return;
+  const r = await fetch(`${NM_API}/fiber/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+</script>
+{% endblock %}

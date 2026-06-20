@@ -1,0 +1,2146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- E1_MODERN_OVERLAY_BOOT --><script>(function(){try{document.documentElement.classList.add("e1-dark");document.documentElement.setAttribute("data-e1-theme","dark");localStorage.setItem("e1-theme","dark");}catch(e){}})();</script>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/favicon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <title>{% block title %}Auto ISP Billing{% endblock %}</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <!-- Bootstrap 3.3.7 (kept for compatibility with existing modals/grids/forms) -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <!-- Font Awesome 4.7.0 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- AdminLTE 2.4.18 (still loaded so existing widgets render; overridden below) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/AdminLTE.min.css">
+    <link rel="stylesheet" href="/static/css/list_headers.css" data-tag="_S39R5A_TBL_HEADERS">
+    <!-- Bootstrap Toggle -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/css/bootstrap-toggle.min.css">
+
+    {# jQuery loaded in head so inline scripts inside the content block have `$` available #}
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+    {% block extra_css %}{% endblock %}
+
+    <style>
+        :root {
+            --bg: #f4f6fb;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --sidebar-bg: #0f172a;
+            --sidebar-bg-2: #111827;
+            --sidebar-fg: #cbd5e1;
+            --sidebar-muted: #94a3b8;
+            --sidebar-active: #1e293b;
+            --sidebar-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --primary-soft: #eef2ff;
+            --success: #10b981;
+            --success-soft: #ecfdf5;
+            --warning: #f59e0b;
+            --warning-soft: #fffbeb;
+            --danger: #ef4444;
+            --danger-soft: #fef2f2;
+            --info: #0ea5e9;
+            --info-soft: #f0f9ff;
+            --border: #e5e7eb;
+            --border-strong: #d1d5db;
+            --text: #0f172a;
+            --text-2: #334155;
+            --muted: #64748b;
+            --radius-sm: 8px;
+            --radius: 14px;
+            --radius-lg: 20px;
+            --shadow-xs: 0 1px 2px rgba(15,23,42,.04);
+            --shadow-sm: 0 2px 6px rgba(15,23,42,.05);
+            --shadow: 0 10px 30px rgba(15,23,42,.06);
+            --shadow-lg: 0 20px 40px rgba(15,23,42,.1);
+            --sidebar-w: 260px;
+            --topbar-h: 64px;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            margin: 0;
+        }
+        body.hold-transition { overflow-x: hidden; }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { color: var(--primary-dark); text-decoration: none; }
+        h1,h2,h3,h4,h5,h6 { color: var(--text); font-weight: 700; letter-spacing: -0.01em; }
+
+        /* ==== Layout shell ==== */
+        .wrapper { min-height: 100vh; background: var(--bg); }
+        .main-header { background: transparent !important; border: 0 !important; position: fixed; top: 0; left: 0; right: 0; z-index: 1040; height: var(--topbar-h); }
+        .main-header .logo, .main-header .navbar { height: 72px; line-height: 1; }
+        .main-header .logo {
+            width: var(--sidebar-w);
+            background: var(--sidebar-bg) !important;
+            color: #f8fafc !important;
+            font-weight: 800;
+            font-size: 16px;
+            letter-spacing: 0.02em;
+            display: flex; align-items: center; justify-content: center;
+            border-bottom: 0 !important;
+            padding: 0 16px;
+        }
+        .main-header .logo b { color: #f8fafc; font-weight: 800; }
+        .main-header .logo .logo-mini {
+            width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 10px;
+            font-weight: 800; font-size: 18px;
+            color: #fff !important; -webkit-text-fill-color: #fff !important;
+            background: var(--sidebar-accent);
+            box-shadow: 0 6px 16px rgba(99,102,241,.45);
+        }
+        .main-header .logo .logo-lg {
+            display: flex; align-items: center; justify-content: center;
+            width: 100%; height: 100%;
+        }
+        .main-header .logo .logo-lg img { max-height: 60px; max-width: 240px; object-fit: contain; display: block; }
+        .sidebar-mini:not(.sidebar-collapse) .main-header .logo .logo-mini { display: none; }
+        .sidebar-mini:not(.sidebar-collapse) .main-header .logo .logo-lg { display: flex; }
+
+        .main-header .navbar {
+            margin-left: var(--sidebar-w);
+            background: var(--surface) !important;
+            border-bottom: 1px solid var(--border) !important;
+            box-shadow: var(--shadow-xs);
+            display: flex; align-items: center; padding: 0 24px;
+            min-height: var(--topbar-h);
+        }
+        .main-header .sidebar-toggle {
+            color: var(--text-2) !important;
+            padding: 8px 12px !important;
+            margin: 0 !important;
+            font-size: 18px;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            transition: background .15s;
+        }
+        .main-header .sidebar-toggle:hover { background: var(--primary-soft); color: var(--primary) !important; }
+        .main-header .sidebar-toggle::before { font-family: 'bootstrap-icons'; content: '\F479'; }
+
+        /* Company info in header */
+
+        /* __S39G__ Portal-lens badge */
+        .portal-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            margin-left: 10px;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font-size: 11px; font-weight: 700;
+            letter-spacing: .35px;
+            text-transform: uppercase;
+            line-height: 1.4;
+            border: 1px solid transparent;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        .portal-badge i { font-size: 11px; }
+        .portal-badge--admin    { background: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }
+        .portal-badge--sub-lco  { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+        .portal-badge--employee { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+        @media (max-width: 991px) { .portal-badge { display: none; } }
+        /* /__S39G__ */
+        .company-info {
+            pointer-events: none; cursor: default;
+            padding: 8px 14px; line-height: 1.3;
+            display: flex; flex-direction: column;
+            border-left: 1px solid var(--border);
+            margin-left: 8px;
+        }
+        .company-info .company-name {
+            font-weight: 700; font-size: 13px; color: var(--text) !important; display: block;
+        }
+        .company-info .company-id {
+            font-size: 12px; color: var(--muted) !important; display: block;
+        }
+
+        .navbar-custom-menu { margin-left: auto; }
+        .navbar-custom-menu.nav-left { margin-left: 0; margin-right: auto; }
+        .navbar-custom-menu .nav > li > a { padding: 8px 12px !important; color: var(--text-2) !important; }
+        .navbar-custom-menu .notifications-menu .dropdown-toggle {
+            display: flex; align-items: center; gap: 6px;
+            padding: 8px 10px !important; border-radius: var(--radius-sm);
+            background: transparent;
+        }
+        .navbar-custom-menu .notifications-menu .dropdown-toggle:hover { background: var(--primary-soft); color: var(--primary) !important; }
+        .navbar-custom-menu .notifications-menu .dropdown-toggle .label-warning {
+            background: var(--warning) !important; color: #fff !important;
+            border-radius: 999px; font-weight: 700; font-size: 10.5px; padding: 2px 7px;
+        }
+        .navbar-custom-menu .notifications-menu .dropdown-menu {
+            border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: var(--shadow-lg); padding: 0; overflow: hidden; margin-top: 8px;
+            min-width: 280px;
+        }
+        .navbar-custom-menu .notifications-menu .dropdown-menu > li.header {
+            padding: 12px 16px; font-weight: 700; font-size: 12px; color: var(--muted);
+            letter-spacing: 0.06em; text-transform: uppercase;
+            background: var(--surface-2); border-bottom: 1px solid var(--border);
+        }
+        .navbar-custom-menu .notifications-menu .dropdown-menu > li.footer a {
+            display: block; padding: 10px 16px; text-align: center; font-weight: 600;
+            color: var(--primary); border-top: 1px solid var(--border); background: var(--surface-2);
+        }
+        .navbar-custom-menu .user-menu .dropdown-toggle {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 10px !important;
+            border-radius: 999px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+        }
+        .navbar-custom-menu .user-menu .dropdown-toggle:hover { background: var(--primary-soft); border-color: #c7d2fe; }
+        .navbar-custom-menu .user-menu .user-image {
+            width: 32px !important; height: 32px !important; border-radius: 50%;
+            margin: 0 !important; object-fit: cover; background: var(--sidebar-accent);
+        }
+        .navbar-custom-menu .user-menu .dropdown-menu {
+            border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: var(--shadow-lg); padding: 0; overflow: hidden; margin-top: 8px;
+            min-width: 200px;
+        }
+        .navbar-custom-menu .user-menu .dropdown-menu a {
+            display: block; padding: 10px 16px !important; color: var(--text-2) !important;
+            font-weight: 500; font-size: 13px;
+        }
+        .navbar-custom-menu .user-menu .dropdown-menu a:hover { background: var(--primary-soft); color: var(--primary) !important; }
+        .navbar-custom-menu .user-menu .dropdown-menu li + li a { border-top: 1px solid var(--border); }
+
+        /* ==== Sidebar ==== */
+        .main-sidebar {
+            background: var(--sidebar-bg) !important;
+            width: var(--sidebar-w);
+            padding-top: var(--topbar-h);
+            position: fixed; top: 0; left: 0; bottom: 0;
+            z-index: 1030;
+            overflow: hidden;
+            box-shadow: 2px 0 20px rgba(15,23,42,.08);
+        }
+        .main-sidebar .sidebar {
+            height: calc(100vh - var(--topbar-h));
+            overflow-y: auto; overflow-x: hidden;
+            padding: 16px 12px;
+            scrollbar-width: thin; scrollbar-color: #334155 transparent;
+        }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 6px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+        .sidebar-menu { padding: 0; margin: 0; list-style: none; }
+        .sidebar-menu > li.header {
+            color: var(--sidebar-muted) !important;
+            font-size: 10px; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            padding: 16px 14px 8px !important;
+            background: transparent !important;
+        }
+        .sidebar-menu > li > a {
+            display: flex !important; align-items: center; gap: 12px;
+            color: var(--sidebar-fg) !important;
+            padding: 11px 14px !important;
+            border-radius: var(--radius-sm);
+            margin: 2px 0; font-weight: 500; font-size: 14px;
+            border-left: 0 !important;
+            transition: background .15s, color .15s;
+        }
+        .sidebar-menu > li > a > i {
+            font-size: 16px; width: 22px; text-align: center;
+            color: var(--sidebar-muted);
+            transition: color .15s;
+        }
+        .sidebar-menu > li > a:hover { background: rgba(99,102,241,.10) !important; color: #fff !important; }
+        .sidebar-menu > li > a:hover > i { color: #a5b4fc; }
+        .sidebar-menu > li.active > a {
+            background: var(--sidebar-active) !important;
+            color: #fff !important;
+            position: relative;
+            border-left: 0 !important;
+        }
+        .sidebar-menu > li.active > a::before {
+            content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px;
+            width: 4px; border-radius: 0 4px 4px 0;
+            background: var(--sidebar-accent);
+        }
+        .sidebar-menu > li.active > a > i { color: #a5b4fc; }
+        /* __S38T_SIDEBAR_REORG__: collapsible group */
+        .sidebar-menu > li.s38t-group > a.s38t-tog {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar-menu > li.s38t-group > a.s38t-tog .s38t-caret {
+            transition: transform 0.18s ease;
+            font-size: 11px;
+            opacity: 0.75;
+        }
+        .sidebar-menu > li.s38t-group.s38t-open > a.s38t-tog .s38t-caret {
+            transform: rotate(90deg);
+        }
+        .sidebar-menu > li.s38t-group > ul.s38t-sub {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.28s ease;
+            background: rgba(0, 0, 0, 0.12);
+        }
+        .sidebar-menu > li.s38t-group.s38t-open > ul.s38t-sub {
+            max-height: 800px;
+        }
+        .sidebar-menu > li.s38t-group > ul.s38t-sub > li > a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px 10px 44px;
+            color: #cbd5e1;
+            text-decoration: none;
+            font-size: 13.5px;
+            border-left: 3px solid transparent;
+            transition: background 0.12s, color 0.12s, border-color 0.12s;
+        }
+        .sidebar-menu > li.s38t-group > ul.s38t-sub > li > a:hover {
+            background: rgba(99, 102, 241, 0.10);
+            color: #fff;
+            border-left-color: #6366f1;
+        }
+        .sidebar-menu > li.s38t-group > ul.s38t-sub > li.active > a {
+            background: rgba(99, 102, 241, 0.18);
+            color: #fff;
+            border-left-color: #a5b4fc;
+            font-weight: 600;
+        }
+        .sidebar-menu > li.s38t-group > ul.s38t-sub > li > a > i {
+            width: 18px;
+            font-size: 14px;
+            opacity: 0.85;
+        }
+
+
+        /* ==== Content area ==== */
+        /* Scope the sidebar offset to the DIRECT child of .wrapper so child
+           templates that nest their own <div class="content-wrapper"> don't
+           re-apply the margin and push content off the right edge. */
+        .wrapper > .content-wrapper {
+            margin-left: var(--sidebar-w) !important;
+            padding-top: calc(var(--topbar-h) + 8px);
+            background: var(--bg) !important;
+            min-height: 100vh;
+            transition: margin-left .2s ease;
+        }
+        /* Nested .content-wrapper inside a page template is just a plain block */
+        .wrapper > .content-wrapper .content-wrapper {
+            margin-left: 0 !important;
+            padding-top: 0 !important;
+            min-height: 0 !important;
+            background: transparent !important;
+        }
+        .wrapper > .main-footer {
+            margin-left: var(--sidebar-w) !important;
+            background: transparent !important;
+            border-top: 1px solid var(--border) !important;
+            color: var(--muted); font-size: 13px;
+            padding: 16px 24px !important;
+            transition: margin-left .2s ease;
+        }
+
+        /* ==== Page header ==== */
+        .content-header {
+            padding: 20px 24px 8px !important;
+            background: transparent !important;
+            border: 0 !important;
+            position: relative;
+        }
+        .content-header > h1 {
+            margin: 0 !important;
+            font-size: 24px !important; font-weight: 800 !important;
+            color: var(--text) !important;
+            letter-spacing: -0.015em;
+            display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+        }
+        .content-header > h1 > small {
+            color: var(--muted) !important;
+            font-weight: 500; font-size: 13px !important;
+            letter-spacing: 0;
+        }
+        .content-header .breadcrumb {
+            background: transparent; padding: 0; margin: 8px 0 0;
+            font-size: 12px;
+        }
+
+        .content { padding: 12px 24px 24px !important; }
+
+        /* ==== Modern card system (overrides AdminLTE .box) ==== */
+        .box {
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius) !important;
+            box-shadow: var(--shadow-xs) !important;
+            margin-bottom: 20px !important;
+            border-top: 1px solid var(--border) !important;
+            overflow: hidden;
+        }
+        .box.box-primary { border-top: 3px solid var(--primary) !important; }
+        .box.box-success { border-top: 3px solid var(--success) !important; }
+        .box.box-info    { border-top: 3px solid var(--info) !important; }
+        .box.box-warning { border-top: 3px solid var(--warning) !important; }
+        .box.box-danger  { border-top: 3px solid var(--danger) !important; }
+        .box .box-header {
+            padding: 16px 20px !important;
+            border-bottom: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        }
+        .box .box-header.with-border { border-bottom: 1px solid var(--border) !important; }
+        .box .box-header .box-title {
+            font-size: 16px !important; font-weight: 700 !important;
+            color: var(--text) !important;
+            margin: 0 !important; line-height: 1.3;
+        }
+        .box .box-header .box-tools { margin-left: auto; }
+        .box .box-body { padding: 20px !important; background: var(--surface) !important; color: var(--text-2); }
+        .box .box-footer { padding: 14px 20px !important; background: var(--surface-2) !important; border-top: 1px solid var(--border) !important; }
+
+        /* ==== Stat cards (.small-box) ==== */
+        .small-box {
+            position: relative; overflow: hidden;
+            border-radius: var(--radius) !important;
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            box-shadow: var(--shadow-xs) !important;
+            border: 1px solid var(--border) !important;
+            margin-bottom: 20px !important;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .small-box:hover { transform: translateY(-2px); box-shadow: var(--shadow) !important; }
+        .small-box > .inner { padding: 20px 24px !important; position: relative; z-index: 2; }
+        .small-box h3 {
+            font-size: 32px !important; font-weight: 800 !important;
+            margin: 0 0 4px !important; color: var(--text) !important;
+            letter-spacing: -0.02em;
+        }
+        .small-box p { color: var(--muted) !important; font-weight: 600; font-size: 13px; margin: 0; letter-spacing: 0.01em; }
+        .small-box > .icon {
+            position: absolute; top: 18px; right: 18px; z-index: 1;
+            width: 52px; height: 52px; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; color: #fff;
+        }
+        .small-box > .icon > i { font-size: 22px !important; top: auto !important; right: auto !important; position: static !important; }
+        .small-box > .small-box-footer {
+            position: relative; z-index: 2;
+            background: var(--surface-2) !important;
+            color: var(--text-2) !important;
+            border-top: 1px solid var(--border) !important;
+            padding: 10px 24px !important;
+            font-weight: 600; font-size: 12.5px;
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
+        }
+        .small-box > .small-box-footer:hover { background: var(--primary-soft) !important; color: var(--primary) !important; }
+        .small-box.bg-aqua > .icon { background: linear-gradient(135deg, #06b6d4, #0ea5e9); box-shadow: 0 10px 20px rgba(14,165,233,.25); }
+        .small-box.bg-green > .icon { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px rgba(16,185,129,.25); }
+        .small-box.bg-yellow > .icon { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 10px 20px rgba(245,158,11,.25); }
+        .small-box.bg-red > .icon { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 10px 20px rgba(239,68,68,.25); }
+        .small-box.bg-blue > .icon { background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 10px 20px rgba(99,102,241,.25); }
+        .small-box.bg-aqua, .small-box.bg-green, .small-box.bg-yellow, .small-box.bg-red, .small-box.bg-blue { background: var(--surface) !important; color: var(--text) !important; }
+
+        /* ==== Forms ==== */
+        .form-control {
+            border-radius: var(--radius-sm) !important;
+            border: 1px solid var(--border-strong) !important;
+            box-shadow: none !important;
+            padding: 8px 12px !important;
+            height: 40px;
+            font-size: 14px;
+            background: var(--surface);
+            color: var(--text);
+            transition: border-color .15s, box-shadow .15s;
+        }
+        textarea.form-control { height: auto; min-height: 80px; }
+        select.form-control { padding-right: 28px !important; }
+        .form-control:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(79,70,229,.15) !important;
+        }
+        .form-group > label { font-weight: 600; color: var(--text-2); margin-bottom: 6px; font-size: 13px; }
+        .input-group-addon {
+            background: var(--surface-2) !important;
+            border-color: var(--border-strong) !important;
+            color: var(--text-2);
+            border-radius: var(--radius-sm) !important;
+        }
+
+        /* ==== Buttons ==== */
+        .btn {
+            border-radius: var(--radius-sm) !important;
+            font-weight: 600; font-size: 13px;
+            padding: 8px 16px !important;
+            border: 1px solid transparent;
+            transition: background .15s, color .15s, border-color .15s, box-shadow .15s, transform .05s;
+            letter-spacing: 0.01em;
+            line-height: 1.4;
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn-sm { padding: 6px 12px !important; font-size: 12px; }
+        .btn-xs { padding: 4px 8px !important; font-size: 11px; }
+        .btn-lg { padding: 10px 20px !important; font-size: 15px; }
+        .btn-primary { background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important; }
+        .btn-primary:hover, .btn-primary:focus { background: var(--primary-dark) !important; border-color: var(--primary-dark) !important; box-shadow: 0 6px 14px rgba(79,70,229,.28); color: #fff !important; }
+        .btn-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; }
+        .btn-success:hover { background: #059669 !important; border-color: #059669 !important; color: #fff !important; }
+        .btn-info { background: var(--info) !important; border-color: var(--info) !important; color: #fff !important; }
+        .btn-info:hover { background: #0284c7 !important; border-color: #0284c7 !important; color: #fff !important; }
+        .btn-warning { background: var(--warning) !important; border-color: var(--warning) !important; color: #fff !important; }
+        .btn-warning:hover { background: #d97706 !important; border-color: #d97706 !important; color: #fff !important; }
+        .btn-danger { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
+        .btn-danger:hover { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; }
+        .btn-default {
+            background: var(--surface) !important; color: var(--text-2) !important;
+            border: 1px solid var(--border-strong) !important;
+        }
+        .btn-default:hover { background: var(--surface-2) !important; border-color: var(--primary) !important; color: var(--primary) !important; }
+        .btn-flat { border-radius: var(--radius-sm) !important; }
+
+        /* ==== Tables ==== */
+        .table { margin-bottom: 0; background: var(--surface); border-radius: var(--radius-sm); overflow: hidden; }
+        .table > thead > tr > th {
+            background: var(--surface-2);
+            color: var(--muted);
+            font-weight: 700;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--border) !important;
+            border-top: 0 !important;
+            padding: 12px 16px !important;
+            white-space: nowrap;
+        }
+        .table > tbody > tr > td {
+            padding: 14px 16px !important;
+            border-top: 1px solid var(--border) !important;
+            color: var(--text-2);
+            font-size: 13.5px;
+            vertical-align: middle;
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) { background: #fafbfd; }
+        .table-hover > tbody > tr:hover { background: #f1f5f9 !important; }
+        .table-bordered { border: 1px solid var(--border) !important; }
+        .table-bordered > thead > tr > th, .table-bordered > tbody > tr > td { border: 1px solid var(--border) !important; }
+        .table-responsive { border: 0 !important; }
+
+        /* DataTables tweaks */
+        .dataTables_wrapper .dataTables_length select,
+        .dataTables_wrapper .dataTables_filter input {
+            border: 1px solid var(--border-strong) !important;
+            border-radius: var(--radius-sm) !important;
+            padding: 6px 10px !important;
+            font-size: 13px;
+            background: var(--surface);
+        }
+        .dataTables_wrapper .dataTables_length, .dataTables_wrapper .dataTables_filter,
+        .dataTables_wrapper .dataTables_info, .dataTables_wrapper .dataTables_paginate {
+            padding: 8px 0 !important; font-size: 13px; color: var(--muted);
+        }
+        .dataTables_wrapper .paginate_button {
+            border-radius: var(--radius-sm) !important;
+            padding: 6px 10px !important; border: 1px solid var(--border) !important;
+            background: var(--surface) !important; color: var(--text-2) !important;
+            margin-left: 2px; font-size: 12.5px;
+        }
+        .dataTables_wrapper .paginate_button.current,
+        .dataTables_wrapper .paginate_button.current:hover {
+            background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important;
+        }
+        .dataTables_wrapper .paginate_button:hover {
+            background: var(--primary-soft) !important; border-color: #c7d2fe !important; color: var(--primary) !important;
+        }
+        /* Hide DataTables sorting icons globally */
+        table.dataTable thead .sorting,
+        table.dataTable thead .sorting_asc,
+        table.dataTable thead .sorting_desc { background-image: none !important; }
+        table.dataTable thead .sorting:before, table.dataTable thead .sorting:after,
+        table.dataTable thead .sorting_asc:before, table.dataTable thead .sorting_asc:after,
+        table.dataTable thead .sorting_desc:before, table.dataTable thead .sorting_desc:after { display: none !important; }
+
+        /* ==== Labels / Badges ==== */
+        .label {
+            font-weight: 600; padding: 4px 10px !important;
+            border-radius: 999px !important;
+            font-size: 11.5px; letter-spacing: 0.02em;
+            display: inline-block;
+        }
+        .label-default { background: #e5e7eb !important; color: #374151 !important; }
+        .label-primary { background: var(--primary-soft) !important; color: var(--primary) !important; }
+        .label-success { background: var(--success-soft) !important; color: #047857 !important; }
+        .label-info    { background: var(--info-soft) !important; color: #0369a1 !important; }
+        .label-warning { background: var(--warning-soft) !important; color: #b45309 !important; }
+        .label-danger  { background: var(--danger-soft) !important; color: #b91c1c !important; }
+
+        /* ==== Modals ==== */
+        .modal-content {
+            border: 0 !important;
+            border-radius: var(--radius) !important;
+            box-shadow: 0 30px 60px rgba(15,23,42,.3) !important;
+            overflow: hidden;
+        }
+        .modal-header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border) !important;
+            padding: 18px 24px !important;
+        }
+        .modal-header .modal-title { font-weight: 700; font-size: 17px; color: var(--text); }
+        .modal-header .close { font-size: 22px; opacity: 0.6; }
+        .modal-header .close:hover { opacity: 1; }
+        .modal-body { padding: 20px 24px !important; color: var(--text-2); }
+        .modal-footer { background: var(--surface-2); border-top: 1px solid var(--border) !important; padding: 14px 24px !important; }
+
+        /* ==== Alerts ==== */
+        .alert { border-radius: var(--radius-sm); border: 1px solid transparent; padding: 12px 16px; font-size: 13px; }
+        .alert-success { background: var(--success-soft); border-color: #bbf7d0; color: #047857; }
+        .alert-info    { background: var(--info-soft); border-color: #bae6fd; color: #0369a1; }
+        .alert-warning { background: var(--warning-soft); border-color: #fde68a; color: #b45309; }
+        .alert-danger  { background: var(--danger-soft); border-color: #fecaca; color: #b91c1c; }
+
+        /* Nav tabs */
+        .nav-tabs { border-bottom: 1px solid var(--border); }
+        .nav-tabs > li > a {
+            border: 0 !important; border-radius: 0 !important;
+            color: var(--muted) !important; font-weight: 600; font-size: 13px;
+            padding: 10px 14px !important;
+            border-bottom: 2px solid transparent !important;
+        }
+        .nav-tabs > li.active > a, .nav-tabs > li > a:hover {
+            color: var(--primary) !important;
+            background: transparent !important;
+            border-bottom: 2px solid var(--primary) !important;
+        }
+
+        /* Utility */
+        .info-row { background: var(--surface-2) !important; border-left: 3px solid var(--primary) !important; border-radius: var(--radius-sm); padding: 10px 14px !important; margin-bottom: 10px; }
+        .info-label { color: var(--muted) !important; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-right: 6px; }
+
+        /* ==== Mobile responsiveness ==== */
+        @media (max-width: 991px) {
+            .main-header .navbar { margin-left: 0 !important; padding-left: 12px; }
+            .main-header .logo { position: absolute; left: 0; right: 0; width: auto; text-align: center; }
+            .main-header .sidebar-toggle { margin-left: 0 !important; }
+            .company-info { display: none; }
+            .content-wrapper, .main-footer { margin-left: 0 !important; }
+            .main-sidebar {
+                width: var(--sidebar-w);
+                transform: translateX(-100%);
+                transition: transform .25s ease;
+                box-shadow: 4px 0 24px rgba(0,0,0,.3);
+            }
+            body.sidebar-open .main-sidebar { transform: translateX(0); }
+            body.sidebar-open::after {
+                content: ''; position: fixed; inset: 0; background: rgba(15,23,42,.45);
+                z-index: 1025; backdrop-filter: blur(2px);
+            }
+            .content-header > h1 { font-size: 20px !important; }
+            .content { padding: 8px 16px 16px !important; }
+        }
+        @media (max-width: 575px) {
+            .content-header { padding: 16px 16px 4px !important; }
+            .box .box-header, .box .box-body { padding: 14px 16px !important; }
+            .small-box > .inner { padding: 16px 18px !important; }
+            .small-box h3 { font-size: 26px !important; }
+            .btn { padding: 8px 12px !important; font-size: 12.5px; }
+            .navbar-custom-menu .user-menu .dropdown-toggle .hidden-xs { display: none !important; }
+        }
+
+        /* ==== Desktop sidebar collapse (narrow rail with icons only) ==== */
+        @media (min-width: 992px) {
+            body.sidebar-collapse .main-sidebar {
+                width: 68px !important;
+                transform: none !important;
+            }
+            body.sidebar-collapse .main-header .logo {
+                width: 68px !important;
+            }
+            body.sidebar-collapse .main-header .logo .logo-lg { display: none !important; }
+            body.sidebar-collapse .main-header .logo .logo-mini { display: flex !important; }
+            body.sidebar-collapse .main-header .navbar { margin-left: 68px !important; }
+            body.sidebar-collapse .wrapper > .content-wrapper,
+            body.sidebar-collapse .wrapper > .main-footer { margin-left: 68px !important; }
+            body.sidebar-collapse .sidebar-menu > li > a > span,
+            body.sidebar-collapse .sidebar-menu > li.header { display: none !important; }
+            body.sidebar-collapse .sidebar-menu > li > a {
+                justify-content: center;
+                padding: 12px 0 !important;
+            }
+            body.sidebar-collapse .sidebar-menu > li > a > i { width: auto; font-size: 18px; }
+            body.sidebar-collapse .sidebar-menu > li.active > a::before { left: 0; }
+            body.sidebar-collapse .main-sidebar .sidebar { padding: 16px 6px; }
+        }
+        /* __s56AA_sidebar_collapse__ — when the rail collapses to 68px,
+           the content + footer must hug it (was wrongly set to 260px,
+           leaving a dead zone that made icons appear cropped). */
+        .sidebar-mini.sidebar-collapse .content-wrapper,
+        .sidebar-mini.sidebar-collapse .main-footer { margin-left: 68px !important; }
+
+        /* Also guarantee the collapsed sidebar itself never clips icons. */
+        body.sidebar-collapse .main-sidebar { overflow-x: visible !important; }
+        body.sidebar-collapse .sidebar-menu > li > a { overflow: visible !important; }
+        body.sidebar-collapse .sidebar-menu > li > a > i {
+            margin: 0 !important; min-width: 24px; text-align: center;
+        }
+
+    /* S27.2 status pills — unified colour system */
+    .status-pill {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 11.5px;
+        letter-spacing: 0.02em;
+        border: 1px solid transparent;
+        line-height: 1.4;
+        white-space: nowrap;
+    }
+    .status-pill-active      { background:#dcfce7; color:#166534; border-color:#bbf7d0; }
+    .status-pill-auto_renew  { background:#dbeafe; color:#1e40af; border-color:#bfdbfe; }
+    .status-pill-pending     { background:#dbeafe; color:#1e40af; border-color:#bfdbfe; }
+    .status-pill-expired     { background:#fee2e2; color:#991b1b; border-color:#fecaca; }
+    .status-pill-parked      { background:linear-gradient(135deg,#fef2f2,#fff7ed); color:#9a3412; border-color:#fb923c; font-weight:600; }
+    .status-pill-suspended   { background:#fef3c7; color:#92400e; border-color:#fde68a; }
+    .status-pill-deactive,
+    .status-pill-deactivated { background:#ffedd5; color:#9a3412; border-color:#fed7aa; }
+    .status-pill-disabled    { background:#e5e7eb; color:#374151; border-color:#d1d5db; }
+    .status-pill-terminated  { background:#1f2937; color:#f9fafb; border-color:#111827; }
+    .status-pill-unknown     { background:#f3f4f6; color:#6b7280; border-color:#e5e7eb; }
+    /* end S27.2 */
+    
+        /* S39LOGO_FIX — sidebar-collapse spacing + bigger logo */
+        body.sidebar-collapse .main-header .logo { width: 50px !important; }
+        body.sidebar-collapse .main-header .navbar { margin-left: 50px !important; }
+        body.sidebar-collapse .wrapper > .content-wrapper,
+        body.sidebar-collapse .wrapper > .main-footer { margin-left: 50px !important; }
+        body.sidebar-collapse .main-sidebar { width: 50px !important; }
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a > span,
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li.header,
+        body.sidebar-collapse .user-panel .info { display: none !important; }
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a { padding-left: 14px !important; padding-right: 14px !important; text-align: center; }
+        .main-header .logo .logo-lg img.logo-primary,
+        .main-header .logo .logo-lg img.logo-fallback {
+            max-height: 60px; max-width: 240px; object-fit: contain; display: inline-block;
+        }
+        /* __s56AB_sidebar_final__  — end-of-stylesheet override to defeat the
+       legacy 50px collapsed sidebar that clipped Bootstrap-icon glyphs.
+       Widen the rail to 68px and give the menu links room to centre the
+       icons properly. We use plain rules (no !important needed here
+       because this rule block is the last one in the file). */
+    @media (min-width: 992px) {
+        body.sidebar-collapse .main-sidebar          { width: 68px !important; }
+        body.sidebar-collapse .main-header .logo     { width: 68px !important; }
+        body.sidebar-collapse .main-header .navbar   { margin-left: 68px !important; }
+        body.sidebar-collapse .wrapper > .content-wrapper,
+        body.sidebar-collapse .wrapper > .main-footer { margin-left: 68px !important; }
+        body.sidebar-collapse .sidebar-mini.sidebar-collapse .content-wrapper,
+        body.sidebar-collapse .sidebar-mini.sidebar-collapse .main-footer { margin-left: 68px !important; }
+        /* Give every menu link a clean centred icon, no clipping. */
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 12px 6px !important;
+            margin: 2px 4px !important;
+            gap: 0 !important;
+            overflow: visible !important;
+        }
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a > i {
+            width: 28px !important;
+            min-width: 28px !important;
+            font-size: 18px !important;
+            line-height: 1 !important;
+            text-align: center !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        body.sidebar-collapse .main-sidebar .sidebar {
+            padding: 14px 0 !important;
+            overflow-x: visible !important;
+        }
+        /* Hide the textual labels and badges cleanly when collapsed. */
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a > span,
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a > .badge,
+        body.sidebar-collapse .main-sidebar .sidebar-menu > li > a > .pull-right-container {
+            display: none !important;
+        }
+    }
+    
+        /* OLT-3.3 — submenu (treeview) items: white text, cyan when active */
+        /* __s56j_olt_bold__ : full white + 600 weight (no transparency) */
+        .sidebar-menu .treeview-menu > li > a {
+            color: #fff !important; opacity: 1 !important;
+            font-size: 13px; font-weight: 600 !important;
+            padding: 9px 14px 9px 38px !important;
+            display: flex; align-items: center; gap: 10px;
+            border-radius: 6px; margin: 1px 8px;
+            transition: background .15s, color .15s, opacity .15s;
+        }
+        .sidebar-menu .treeview-menu > li > a > i {
+            font-size: 15px; width: 18px; text-align: center;
+            color: #fff !important; opacity: 1 !important;
+        }
+        .sidebar-menu .treeview-menu > li > a:hover {
+            color: #67E8F9 !important; opacity: 1;
+            background: rgba(99,102,241,.10);
+        }
+        .sidebar-menu .treeview-menu > li > a:hover > i {
+            color: #67E8F9 !important; opacity: 1;
+        }
+        .sidebar-menu .treeview-menu > li.active > a,
+        .sidebar-menu .treeview-menu > li.active > a > i {
+            color: #67E8F9 !important; opacity: 1;
+            background: rgba(0,229,255,.08);
+        }
+</style>
+
+    <!-- S32 DataTables (global) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap.min.css">
+
+<!-- __S39I_RESPONSIVE_FIXES__ — auto-injected by Session 39I -->
+<style id="aib-responsive-fixes">
+  /* Universal table horizontal scroll on small screens */
+  .autoispbilling-table-wrap,
+  .table-responsive {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 6px;
+  }
+  .autoispbilling-table-wrap > table,
+  .table-responsive > table {
+      margin-bottom: 0;
+      /* Make sure the table can grow wider than the wrap so the
+         horizontal scrollbar actually has content to scroll. */
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+  }
+  /* Force EVERY column to stay visible inside our wrap — overrides
+     Bootstrap 3 .hidden-xs/.hidden-sm/.hidden-md and any per-page
+     @media (max-width: …) td/th { display: none } rules. The user
+     can scroll horizontally to see every column instead of having
+     them hidden on smaller screens. */
+  .autoispbilling-table-wrap > table > thead > tr > th,
+  .autoispbilling-table-wrap > table > tbody > tr > td,
+  .autoispbilling-table-wrap > table > tbody > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > td,
+  .table-responsive > table > thead > tr > th,
+  .table-responsive > table > tbody > tr > td,
+  .table-responsive > table > tbody > tr > th,
+  .table-responsive > table > tfoot > tr > th,
+  .table-responsive > table > tfoot > tr > td {
+      display: table-cell !important;
+      visibility: visible !important;
+  }
+  /* Same for the row itself in case any rule hides whole rows. */
+  .autoispbilling-table-wrap > table > tbody > tr,
+  .autoispbilling-table-wrap > table > thead > tr,
+  .autoispbilling-table-wrap > table > tfoot > tr,
+  .table-responsive > table > tbody > tr,
+  .table-responsive > table > thead > tr,
+  .table-responsive > table > tfoot > tr {
+      display: table-row !important;
+  }
+  /* Truncated cells (max-width + ellipsis) become normal-wrap so users
+     can read full content while still scrolling. */
+  @media (max-width: 991.98px) {
+      .autoispbilling-table-wrap > table td,
+      .table-responsive > table td {
+          white-space: nowrap;          /* keep on one line so column width fits */
+      }
+  }
+  /* Make any container that holds wide stuff stay inside the viewport */
+  body, html { max-width: 100%; overflow-x: hidden; }
+
+  /* Page-level fluid content (kills the "half blank white" issue) */
+  @media (max-width: 991.98px) {
+      .wrapper > .content-wrapper,
+      .wrapper > .main-footer { margin-left: 0 !important; }
+      .content-wrapper, .content {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+      }
+      .content > .row,
+      .content > .container,
+      .content > .container-fluid {
+          margin-right: 0 !important;
+          margin-left: 0 !important;
+      }
+      /* Tighter padding for mobile */
+      .content { padding: 10px !important; }
+      .box .box-body { padding: 12px !important; }
+      .box-header h3.box-title { font-size: 15px !important; }
+      .users-panel,
+      .panel,
+      .card { padding: 10px !important; }
+
+      /* Make form rows wrap nicely */
+      .form-inline .form-group { display: block !important; margin-bottom: 8px !important; }
+      .form-inline .form-control { width: 100% !important; }
+
+      /* Buttons in the user toolbar wrap to next line instead of overflow */
+      .users-panel { flex-wrap: wrap !important; }
+      .btn { white-space: normal !important; }
+
+      /* Hide secondary chrome that doesn't fit */
+      .hidden-xs-mobile, .desktop-only { display: none !important; }
+  }
+
+  /* Even smaller screens (phones in portrait) */
+  @media (max-width: 575.98px) {
+      .content { padding: 8px !important; }
+      .box .box-body { padding: 10px !important; }
+      .h1, h1 { font-size: 20px !important; }
+      .h2, h2 { font-size: 17px !important; }
+      .modal-dialog { margin: 8px !important; }
+      .modal-dialog.modal-lg-wide,
+      .modal-dialog.modal-lg { width: auto !important; max-width: 96% !important; }
+
+      /* Two-column form rows collapse to one */
+      .col-sm-6, .col-md-6, .col-lg-6 { width: 100% !important; float: none !important; }
+  }
+
+  /* Modal content also scrolls horizontally if it has a wide table */
+  .modal-body { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* Charts inside cards never overflow the card */
+  .box canvas, .card canvas { max-width: 100%; height: auto; }
+
+  /* Sticky table headers when scrolling vertically (desktop & mobile) */
+  .autoispbilling-table-wrap thead th,
+  .table-responsive thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface, #fff);
+      z-index: 5;
+  }
+</style>
+<script id="aib-responsive-fixes-js">
+(function () {
+  function wrapTable(tbl) {
+    try {
+      if (!tbl || !tbl.parentNode) return;
+      var p = tbl.parentNode;
+      // Already wrapped?
+      if (p && p.classList && (
+          p.classList.contains('autoispbilling-table-wrap') ||
+          p.classList.contains('table-responsive') ||
+          p.classList.contains('table-responsive-sm'))) {
+        return;
+      }
+      // Avoid wrapping tables inside <thead><tr>/<tfoot> (pivots) — only
+      // wrap top-level tables.
+      var wrap = document.createElement('div');
+      wrap.className = 'autoispbilling-table-wrap';
+      p.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    } catch (e) { /* silent */ }
+  }
+  function wrapAll() {
+    var tbls = document.querySelectorAll('table');
+    for (var i = 0; i < tbls.length; i++) wrapTable(tbls[i]);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrapAll);
+  } else {
+    wrapAll();
+  }
+  // Also catch dynamically-rendered tables (DataTables, AJAX list refresh).
+  try {
+    var mo = new MutationObserver(function (muts) {
+      var dirty = false;
+      for (var i = 0; i < muts.length; i++) {
+        for (var j = 0; j < muts[i].addedNodes.length; j++) {
+          var n = muts[i].addedNodes[j];
+          if (n.nodeType !== 1) continue;
+          if (n.tagName === 'TABLE') { wrapTable(n); dirty = true; }
+          else if (n.querySelectorAll) {
+            var sub = n.querySelectorAll('table');
+            for (var k = 0; k < sub.length; k++) { wrapTable(sub[k]); dirty = true; }
+          }
+        }
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) { /* MutationObserver not available — DOMContentLoaded covered the rest */ }
+})();
+</script>
+<!-- /__S39I_RESPONSIVE_FIXES__ -->
+    <style>/* _S39R5M_GLOBAL_ 80% desktop zoom + sidebar overflow fix v2 */
+      @media (min-width: 992px){
+        html { zoom: 0.8; }
+        /* Force sidebar wrapper to be sized purely by height (drop bottom:0
+           which interacts badly with html { zoom }). */
+        aside.main-sidebar,
+        .main-sidebar {
+          top: 0 !important;
+          bottom: auto !important;
+          height: 100vh !important;
+          max-height: 100vh !important;
+          padding-top: var(--topbar-h, 64px) !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+        }
+        /* Inner scrollable panel — fill available space below the topbar */
+        .main-sidebar > .sidebar,
+        aside.main-sidebar .sidebar {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+        }
+        /* Visible scrollbar against dark sidebar */
+        .main-sidebar .sidebar { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; border: 1px solid rgba(0,0,0,.2); }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      }
+    </style>
+<!-- _S40zμ_  Profanity shield -->    <!-- E1_MODERN_OVERLAY_CSS -->
+    <link rel="stylesheet" href="/static/css/e1-modern.css" data-tag="e1-modern">
+
+<!-- __S55C_NOTIF_TIME_AND_LAYOUT__ -->
+<style>
+  /* Brighten dropdown text on dark theme. */
+  .navbar-custom-menu .notifications-menu .dropdown-menu .menu li a.item .t {
+    color: #F1F5F9 !important; font-weight: 600 !important;
+  }
+  .navbar-custom-menu .notifications-menu .dropdown-menu .menu li a.item .s {
+    color: #CBD5E1 !important;
+  }
+  .navbar-custom-menu .notifications-menu .dropdown-menu .menu li a.item .w {
+    color: #94A3B8 !important; font-size: 11px !important;
+  }
+  /* Dropdown header — switch from float-right to flex so Mark-as-read button
+     doesn't overlap the title text. */
+  .navbar-custom-menu .notifications-menu .dropdown-menu > li.header,
+  .navbar-custom-menu .notifications-menu .dropdown-menu > li#bellHeader {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding: 10px 14px !important;
+    line-height: 1.4 !important;
+    color: #E2E8F0 !important;
+    font-size: 12.5px !important;
+  }
+  .navbar-custom-menu .notifications-menu .dropdown-menu > li.header > span {
+    flex: 1 1 auto; min-width: 0; color: #E2E8F0 !important;
+  }
+  .navbar-custom-menu .notifications-menu .dropdown-menu > li.header > span strong {
+    color: #FBBF24 !important;
+  }
+  #bellMarkRead {
+    float: none !important; flex: 0 0 auto !important;
+    background: rgba(99,102,241,.15) !important; color: #A5B4FC !important;
+    padding: 4px 10px !important; border-radius: 999px !important;
+    font-size: 11px !important; font-weight: 600 !important;
+    text-decoration: none !important;
+    border: 1px solid rgba(99,102,241,.35) !important; white-space: nowrap !important;
+  }
+  #bellMarkRead:hover { background: rgba(99,102,241,.30) !important; color: #fff !important; }
+  @media (max-width: 767px){
+    .navbar-custom-menu .notifications-menu .dropdown-menu {
+      width: calc(100vw - 24px) !important; max-width: 360px !important;
+      right: 8px !important; left: auto !important;
+    }
+  }
+</style>
+
+
+
+<!-- __S55C_PWA_INSTALL__ -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#1e293b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ISP Billing">
+<link rel="apple-touch-icon" href="/static/img/pwa-192.png">
+<style>
+  .e1-pwa-banner{
+    position:fixed; left:12px; right:12px; bottom:78px; z-index:9999;
+    background:linear-gradient(135deg,#1e3a8a 0%,#312e81 100%);
+    color:#F1F5F9; border-radius:14px; padding:12px 14px;
+    box-shadow:0 14px 40px rgba(0,0,0,.5);
+    border:1px solid rgba(96,165,250,.35);
+    display:none; align-items:center; gap:12px; font-size:13px;
+    animation: e1Slide .35s ease;
+  }
+  .e1-pwa-banner.show{ display:flex; }
+  .e1-pwa-banner .ic{
+    flex:0 0 36px; width:36px; height:36px; border-radius:10px;
+    background:rgba(99,102,241,.30); display:flex; align-items:center; justify-content:center;
+    font-size:18px; color:#A5B4FC;
+  }
+  .e1-pwa-banner .tx{ flex:1; line-height:1.35; }
+  .e1-pwa-banner .tx b{ display:block; color:#fff; margin-bottom:2px; }
+  .e1-pwa-banner .tx span{ color:#CBD5E1; font-size:11.5px; }
+  .e1-pwa-banner .actions{ display:flex; gap:6px; }
+  .e1-pwa-banner button{
+    border:none; padding:8px 12px; border-radius:8px; font-size:12px;
+    font-weight:600; cursor:pointer;
+  }
+  .e1-pwa-banner .install{ background:#6366f1; color:#fff; }
+  .e1-pwa-banner .install:hover{ background:#4f46e5; }
+  .e1-pwa-banner .close{ background:transparent; color:#CBD5E1; }
+  @keyframes e1Slide{ from{transform:translateY(120%);} to{transform:translateY(0);} }
+  @media (min-width:768px){ .e1-pwa-banner{ display:none !important; } }
+</style>
+<!-- __s56AW_no_pwa_install__ — banner suppressed per operator on 2026-06-02.
+     To re-enable, remove the style="display:none" attribute below. -->
+<div class="e1-pwa-banner" id="e1PwaBanner" data-testid="pwa-install-banner" style="display:none !important">
+  <div class="ic"><i class="bi bi-phone-fill"></i></div>
+  <div class="tx">
+    <b>Install ISP Billing</b>
+    <span>Add to your home screen for one-tap access.</span>
+  </div>
+  <div class="actions">
+    <button class="install" id="e1PwaInstall" data-testid="pwa-install-btn">Install</button>
+    <button class="close" id="e1PwaDismiss" data-testid="pwa-dismiss-btn" aria-label="Dismiss">&times;</button>
+  </div>
+</div>
+<script>
+(function(){
+  // __s56AW_no_pwa_install__ — operator disabled PWA install prompt
+  return;
+  var DISMISS_KEY = 'e1PwaInstallDismissed';
+  var deferredPrompt = null;
+  var banner = document.getElementById('e1PwaBanner');
+  if (!banner) return;
+  function show(){ if (window.innerWidth <= 767) banner.classList.add('show'); }
+  function hide(){ banner.classList.remove('show'); }
+  // Chromium-style install hook
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    deferredPrompt = e;
+    if (!localStorage.getItem(DISMISS_KEY)) show();
+  });
+  // iOS Safari fallback — show a hint after 2s on first visit
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  var standalone = window.matchMedia('(display-mode: standalone)').matches ||
+                   window.navigator.standalone === true;
+  if (isIOS && !standalone && !localStorage.getItem(DISMISS_KEY)) {
+    setTimeout(function(){
+      banner.querySelector('.tx span').textContent =
+        'Tap Share, then "Add to Home Screen" for one-tap access.';
+      banner.querySelector('#e1PwaInstall').style.display = 'none';
+      show();
+    }, 1800);
+  }
+  document.getElementById('e1PwaInstall').addEventListener('click', function(){
+    if (!deferredPrompt) { hide(); return; }
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.finally(function(){
+      deferredPrompt = null;
+      localStorage.setItem(DISMISS_KEY, '1');
+      hide();
+    });
+  });
+  document.getElementById('e1PwaDismiss').addEventListener('click', function(){
+    localStorage.setItem(DISMISS_KEY, '1');
+    hide();
+  });
+})();
+</script>
+<!-- /__S55C_PWA_INSTALL__ -->
+
+</head>
+<body class="hold-transition sidebar-mini">
+    <!-- Hidden input for current user ID (used in payment popup) -->
+    <input type="hidden" id="current_user_id" value="{{ user_id }}">
+    <div class="wrapper">
+        <!-- Main Header -->
+        <header class="main-header">
+            <a href="/admin/dashboard" class="logo">
+                <span class="logo-mini"><b>{{ company_name[:1]|upper if company_name and company_name != 'N/A' else 'A' }}</b></span>
+                <span class="logo-lg">
+                    {% if company_logo %}
+                        <img src="{{ company_logo }}" alt="{{ company_name }}" class="logo-primary" onerror="this.onerror=null;this.style.display='none';var nx=this.nextElementSibling;if(nx)nx.style.display='inline-block';"><img src="/static/img/autoispbilling-logo-wide.png" alt="AutoISPBilling" class="logo-fallback" style="display:none;">
+                    {% else %}
+                        <b>Auto ISP</b>
+                    {% endif %}
+                </span>
+            </a>
+
+            <nav class="navbar navbar-static-top" role="navigation">
+                <a href="#" class="sidebar-toggle" id="sidebarToggle" data-toggle="push-menu" role="button" aria-label="Toggle sidebar">
+                    <span class="sr-only">Toggle navigation</span>
+                </a>
+
+                <!-- Center: Company Name + ID -->
+                <div class="navbar-custom-menu nav-left">
+                    <ul class="nav navbar-nav">
+
+                        <li>
+                            <div class="company-info">
+                                <span class="company-name">{{ company_name|default('N/A') }}</span>
+                                <span class="company-id">Company ID: {{ company_id|default('N/A') }}</span>
+                                </div>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Right: Notifications + Profile -->
+                <div class="navbar-custom-menu">
+                    <ul class="nav navbar-nav">
+                        <!-- S33.6 Global Search (moved before notifications bell) -->
+                        <li class="s33-global-search" style="padding: 6px 10px; display: flex; align-items: center;">
+                          <div style="position:relative;">
+                            <input type="text" id="globalSearchInput" data-testid="global-search-input"
+                                   class="form-control" autocomplete="off"
+                                   placeholder="Search customer / plan / employee…"
+                                   style="width: 260px; height: 34px; font-size: 13px; border-radius: 18px; padding-left: 32px;">
+                            <i class="fa fa-search" style="position:absolute; left:11px; top:11px; color:#9ca3af; font-size:12px;"></i>
+                            <div id="globalSearchDropdown" class="s33-gs-dd" style="display:none; position:absolute; top:40px; right:0; background:#fff; border:1px solid #e5e7eb; border-radius:6px; box-shadow:0 12px 32px rgba(0,0,0,0.15); min-width:320px; max-height:420px; overflow-y:auto; z-index:9999;"></div>
+                          </div>
+                        </li>
+                                                <li class="dropdown notifications-menu" id="bellDD">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-bell"></i>
+                                <span class="label label-warning" id="bellCount" data-testid="bell-count">0</span>
+                            </a>
+                            <ul class="dropdown-menu" style="min-width: 340px;">
+                                <li class="header" id="bellHeader">Loading notifications…</li>
+                                <li>
+                                  <ul class="menu" id="bellList" style="list-style:none; padding:0; margin:0; max-height:320px; overflow-y:auto;">
+                                    <li style="padding:12px; text-align:center; color:#94a3b8; font-size:12px;">Loading…</li>
+                                  </ul>
+                                </li>
+                                <li class="footer"><a href="/admin/notifications" data-testid="bell-view-all">View all notifications</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="dropdown user user-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <img src="{{ profile_image if profile_image else '/static/img/avatar-default.png' }}"
+                                     class="user-image"
+                                     alt="User Image"
+                                     onerror="this.onerror=null;this.src='/static/img/avatar-default.png';">
+                                <span class="hidden-xs">{{ admin_name|default(user_name)|default('Admin User') }}</span>
+                                <i class="bi bi-chevron-down" style="font-size: 11px; margin-left: 4px; color: var(--muted);"></i>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/admin/profile"><i class="bi bi-person-circle"></i> Profile</a></li>
+                                <li><a href="/logout"><i class="bi bi-box-arrow-right"></i> Log Out</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="main-sidebar">
+            <section class="sidebar">
+                <ul class="sidebar-menu" data-widget="tree">
+                    <!-- __S38T_SIDEBAR_REORG__: reorganised sidebar with collapsible groups -->
+                    <li class="header">Main</li>
+
+                    <li class="{% if active_page == 'dashboard' %}active{% endif %}">
+                        <a href="/admin/dashboard"><i class="bi bi-grid-1x2-fill"></i> <span>Dashboard</span></a>
+                    </li>
+
+                    <!-- Network (collapsible) -->
+                    {% set _nw_pages = ['nas_devices','ip_pools','access_request_logs','compliance'] %}  {# __S38V_ONLINE_USERS_MOVE__ #}
+                    <li class="s38t-group {% if active_page in _nw_pages %}s38t-open{% endif %}" data-testid="sidebar-network-group">
+                        <a href="#" class="s38t-tog" onclick="s38tToggleGroup(this, event)" data-testid="sidebar-network-toggle">
+                            <span><i class="bi bi-hdd-network-fill"></i> <span>Network</span></span>
+                            <i class="bi bi-chevron-right s38t-caret"></i>
+                        </a>
+                        <ul class="s38t-sub">
+                            <!-- __S38V_ONLINE_USERS_MOVE__: Online Users moved out to top-level below User Management -->
+                            <li class="{% if active_page == 'nas_devices' %}active{% endif %}"><a href="/admin/nas-devices" data-testid="sidebar-nas-devices"><i class="bi bi-router-fill"></i> <span>NAS Devices</span></a></li>
+                            <li class="{% if active_page == 'ip_pools' %}active{% endif %}"><a href="/admin/ip-pools" data-testid="sidebar-ip-pools"><i class="bi bi-diagram-3-fill"></i> <span>IP Pools</span></a></li>
+                            <!-- _S39LB_SIDEBAR -->
+                            <li class="{% if active_page == 'load_balancing' %}active{% endif %}"><a href="/admin/load-balancing" data-testid="sidebar-load-balancing"><i class="bi bi-arrow-left-right"></i> <span>Load Balancing</span></a></li>
+                            <!-- _S39NAT_SIDEBAR -->
+                            <li class="{% if active_page == 'nat_config' %}active{% endif %}"><a href="/admin/nat-config" data-testid="sidebar-nat-config"><i class="bi bi-shuffle"></i> <span>NAT (Public IP)</span></a></li>
+                            <!-- _S39BLK_SIDEBAR -->
+                            <li class="{% if active_page == 'website_blocks' %}active{% endif %}"><a href="/admin/website-blocks" data-testid="sidebar-website-blocks"><i class="bi bi-slash-circle"></i> <span>Website Blocks</span></a></li>
+                            <li class="{% if active_page == 'access_request_logs' %}active{% endif %}"><a href="/admin/access-request-logs" data-testid="sidebar-access-request-logs"><i class="bi bi-shield-lock-fill"></i> <span>Access Request Logs</span></a></li>
+                            <li class="{% if active_page == 'compliance' %}active{% endif %}"><a href="/admin/compliance" data-testid="sidebar-compliance"><i class="bi bi-shield-check"></i> <span>Compliance (DoT/TRAI)</span></a></li>
+                            <li class="{% if active_page == 'dns_profiles' %}active{% endif %}"><a href="/admin/dns-profiles" data-testid="sidebar-dns-profiles"><i class="bi bi-shield-fill-check" style="color:#6366f1"></i> <span>DNS Filter</span></a></li>
+                            <li class="{% if active_page == 'outages' %}active{% endif %}"><a href="/admin/outages" data-testid="sidebar-outages"><i class="bi bi-exclamation-triangle-fill" style="color:#ef4444"></i> <span>Outage Detector</span></a></li>
+                        </ul>
+                    </li>
+
+                    {# _OLT_SIDEBAR #}
+                    {% set _olt_pages = ['olt_dashboard','olt_onus','network_map','unmapped_onus','olt_alerts','olt_system','mdu','outages_v2'] %}
+                    <li class="treeview {% if active_page in _olt_pages %}active menu-open{% endif %}">
+                        <a href="#" data-testid="sidebar-olt-group"><i class="bi bi-broadcast-pin"></i> <span>OLT Manager</span><span class="pull-right-container"><i class="bi bi-chevron-down pull-right"></i></span></a>
+                        <ul class="treeview-menu" {% if active_page in _olt_pages %}style="display:block"{% endif %}>
+                            <li class="{% if active_page == 'olt_dashboard' %}active{% endif %}"><a href="/admin/olt/dashboard" data-testid="sidebar-olt-dashboard"><i class="bi bi-speedometer2"></i> <span>Dashboard</span></a></li>
+                            <li class="{% if active_page == 'olt_onus' %}active{% endif %}"><a href="/admin/olt/onus" data-testid="sidebar-olt-onus"><i class="bi bi-hdd-network-fill"></i> <span>ONU / ONT Manage</span></a></li>
+                            <li class="{% if active_page == 'network_map' %}active{% endif %}" data-testid="sidebar-network-map-li"><a href="/admin/network-map" data-testid="sidebar-network-map"><i class="bi bi-geo-alt-fill" style="color:#7c3aed"></i> <span>Network Map</span></a></li>
+                            <li class="{% if active_page == 'unmapped_onus' %}active{% endif %}"><a href="/admin/unmapped-onus" data-testid="sidebar-unmapped-onus"><i class="bi bi-geo-alt-fill" style="color:#10b981"></i> <span>Unmapped ONUs</span></a></li>
+                            <li class="{% if active_page == 'olt_alerts' %}active{% endif %}"><a href="/admin/olt/alerts" data-testid="sidebar-olt-alerts"><i class="bi bi-exclamation-triangle-fill"></i> <span>Alerts</span></a></li>
+                            <li class="{% if active_page == 'olt_system' %}active{% endif %}"><a href="/admin/olt/system-config" data-testid="sidebar-olt-system"><i class="bi bi-sliders"></i> <span>System Config</span></a></li>
+                            <li class="{% if active_page == 'pon_tree' %}active{% endif %}" data-testid="sidebar-pon-tree-li"><a href="/admin/olt/pon-tree" data-testid="sidebar-pon-tree"><i class="bi bi-diagram-3" style="color:#22d3ee"></i> <span>PON Tree</span></a></li><!-- _S57C_PON_TREE_MENU_ -->
+                            <li class="{% if active_page == 'noc' %}active{% endif %}" data-testid="sidebar-noc-li"><a href="/admin/noc" data-testid="sidebar-noc"><i class="bi bi-broadcast-pin" style="color:#10b981"></i> <span>NOC Live</span></a></li><!-- _S57E_NOC_MENU_ -->
+                            <li class="{% if active_page == 'mdu' %}active{% endif %}" data-testid="sidebar-mdu-li"><a href="/admin/mdu" data-testid="sidebar-mdu"><i class="bi bi-buildings-fill" style="color:#0ea5e9"></i> <span>MDU / Buildings</span></a></li>
+                            <li class="{% if active_page == 'outages_v2' %}active{% endif %}" data-testid="sidebar-outages-v2-li"><a href="/admin/outages-v2" data-testid="sidebar-outages-v2"><i class="bi bi-lightning-fill" style="color:#ef4444"></i> <span>AI Outage Detect</span></a></li>
+                        </ul>
+                    </li>
+
+
+                    <li class="{% if active_page == 'sub_lcos' %}active{% endif %}">
+                        <a href="/admin/sub-lcos" data-testid="sidebar-sub-lcos"><i class="bi bi-building-fill-gear"></i> <span>Sub-LCOs</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'users' %}active{% endif %}">
+                        <a href="/admin/users"><i class="bi bi-people-fill"></i> <span>User Management</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'online_users' %}active{% endif %}" data-testid="sidebar-online-users-li">
+                        <a href="/admin/online-users" data-testid="sidebar-online-users"><i class="bi bi-wifi"></i> <span>Online Users</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'plans' %}active{% endif %}">
+                        <a href="/admin/plans"><i class="bi bi-box-seam"></i> <span>Plans</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'locations' %}active{% endif %}">
+                        <a href="/admin/locations"><i class="bi bi-geo-alt-fill"></i> <span>Locations</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'employees' %}active{% endif %}">
+                        <a href="/admin/employees"><i class="bi bi-person-badge-fill"></i> <span>Employee Management</span></a>
+                    </li>
+
+
+                    <li class="{% if active_page == 'customer_distribution' %}active{% endif %}">
+                        <a href="/admin/customer-distribution"><i class="bi bi-map-fill"></i> <span>Customer Distribution</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'track_employee' %}active{% endif %}">
+                        <a href="/admin/track-employee"><i class="bi bi-geo-fill"></i> <span>Track Employee</span></a>
+                    </li>
+
+                    <!-- __S38U_SIDEBAR_ADJUST__: Vouchers / Redemptions / Captive Portal / Activity Log moved here, below Track Employee -->
+                    <li class="{% if active_page == 'vouchers' %}active{% endif %}">
+                        <a href="/admin/vouchers"><i class="bi bi-ticket-perforated-fill"></i> <span>Vouchers</span></a>
+                    </li>
+                    <li class="{% if active_page == 'redemptions' %}active{% endif %}"><a href="/admin/vouchers/redemptions" data-testid="sidebar-redemptions"><i class="bi bi-receipt"></i> <span>Redemptions</span></a></li>
+
+                    <li class="{% if active_page == 'captive_portal' %}active{% endif %}">
+                        <a href="/admin/captive-portal"><i class="bi bi-window-sidebar"></i> <span>Captive Portal</span></a>
+                    </li>
+                    <!-- __S38M_CLEANUP__: 2FA menu items hidden -->
+                    <li style="display:none;"><a href="/admin/security/totp" data-testid="sidebar-totp"><i class="bi bi-shield-lock"></i> <span>2FA Security</span></a></li>
+                    <li style="display:none;"><a href="/admin/security/mfa-policy" data-testid="sidebar-mfa-policy"><i class="bi bi-shield-exclamation"></i> <span>2FA Policy</span></a></li>
+
+                    <li class="{% if active_page == 'activity_log' %}active{% endif %}">
+                        <a href="/admin/activity-log"><i class="bi bi-activity"></i> <span>Activity Log</span></a>
+                    </li>
+
+
+                    <!-- Billing and Finance (collapsible) — __S38U_SIDEBAR_ADJUST__: removed duplicate small-font header -->
+                    {% set _bf_pages = ['transactions','addon_bills','send_invoices','revenue','expenses','revenue_expense'] %}
+                    <li class="s38t-group {% if active_page in _bf_pages %}s38t-open{% endif %}" data-testid="sidebar-billing-group">
+                        <a href="#" class="s38t-tog" onclick="s38tToggleGroup(this, event)" data-testid="sidebar-billing-toggle">
+                            <span><i class="bi bi-currency-rupee"></i> <span>Billing and Finance</span></span>
+                            <i class="bi bi-chevron-right s38t-caret"></i>
+                        </a>
+                        <ul class="s38t-sub">
+                            <li class="{% if active_page == 'transactions' %}active{% endif %}"><a href="/admin/transactions" data-testid="sidebar-payment-history"><i class="bi bi-arrow-left-right"></i> <span>Payment History</span></a></li>
+                            <li class="{% if active_page == 'addon_bills' %}active{% endif %}"><a href="/admin/addon-bills" data-testid="sidebar-send-manual-invoice"><i class="bi bi-file-earmark-plus"></i> <span>Send Manual Invoice</span></a></li>
+                            <li class="{% if active_page == 'send_invoices' %}active{% endif %}"><a href="/admin/send-invoices" data-testid="sidebar-sent-invoice-list"><i class="bi bi-envelope-paper"></i> <span>Sent Invoice List</span></a></li>
+                            <li class="{% if active_page == 'revenue_expense' %}active{% endif %}"><a href="/admin/revenue-expense" data-testid="sidebar-revenue-expense"><i class="bi bi-pie-chart-fill"></i> <span>Revenue &amp; Expense</span></a></li>
+                        </ul>
+                    </li>
+
+                    <li class="header">Support</li>
+
+                    <!-- __S38W_UNIFIED_COMPLAINTS__ -->
+                    <li class="{% if active_page == 'complaints' or active_page == 'support' %}active{% endif %}">
+                        <a href="/admin/complaints" data-testid="sidebar-complaints-supports"><i class="bi bi-chat-left-dots-fill"></i> <span>Complaints &amp; Supports</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'notifications' %}active{% endif %}">
+                        <a href="/admin/notifications"><i class="bi bi-bell-fill"></i> <span>Notifications</span></a>
+                    </li>
+
+                    <!-- Phase 1: Communication channel -->
+                    <li class="header">Communication</li>
+                    <li class="{% if active_page == 'sms_center' %}active{% endif %}">
+                        <a href="/admin/sms-center" data-testid="sidebar-sms-center"><i class="bi bi-chat-text-fill" style="color:#6366f1"></i> <span>SMS Center</span></a>
+                    </li>
+                    <li class="{% if active_page == 'whatsapp-campaign' %}active{% endif %}">
+                        <a href="/admin/whatsapp-campaign" data-testid="sidebar-wa-campaigns"><i class="bi bi-whatsapp" style="color:#25d366"></i> <span>WhatsApp Campaigns</span></a>
+                    </li>
+                    <!-- __WA_TEMPLATES_HIDDEN__ merged into Campaigns -->
+
+                    <li class="{% if active_page == 'sms_logs' %}active{% endif %}">
+                        <a href="/admin/sms-logs" data-testid="sidebar-sms-logs"><i class="bi bi-clock-history"></i> <span>SMS Logs</span></a>
+                    </li>
+
+                    <li class="header">Marketing</li>
+                    <li class="{% if active_page == 'lead_pipeline' %}active{% endif %}">
+                        <a href="/admin/lead-pipeline" data-testid="sidebar-lead-pipeline"><i class="bi bi-kanban-fill" style="color:#3b82f6"></i> <span>Lead Pipeline</span></a>
+                    </li>
+                    <li class="{% if active_page == 'referrals' %}active{% endif %}">
+                        <a href="/admin/referrals" data-testid="sidebar-referrals"><i class="bi bi-gift-fill" style="color:#f59e0b"></i> <span>Referrals</span></a>
+                    </li>
+
+                    <li class="header">Reports</li>
+
+                    <li class="{% if active_page == 'reports' %}active{% endif %}">
+                        <a href="/admin/reports"><i class="bi bi-bar-chart-fill"></i> <span>Reports</span></a>
+                    </li>
+
+                    <li class="{% if active_page == 'data_management' %}active{% endif %}">
+                        <a href="/admin/data-management"><i class="bi bi-database-fill"></i> <span>Data Management</span></a>
+                    </li>
+
+                    <li class="header">Connections</li>
+                    <li class="{% if active_page == 'connection_request' %}active{% endif %}">
+                        <a href="/admin/connection-request"><i class="bi bi-journal-text"></i> <span>Connection Request</span></a>
+                    </li>
+
+                    <li class="header">System</li>
+                    <!-- _S39R5J_DELETED_TO_SYSTEM_ Deleted records moved from Network to System -->
+                    <li class="{% if active_page == 'deleted_sub_lcos' %}active{% endif %}"><a href="/admin/deleted-sub-lcos" data-testid="sidebar-deleted-sub-lcos"><i class="bi bi-trash3"></i> <span>Deleted Sub-LCOs</span></a></li>
+                    <li class="{% if active_page == 'deleted_employees' %}active{% endif %}"><a href="/admin/deleted-employees" data-testid="sidebar-deleted-employees"><i class="bi bi-trash3-fill"></i> <span>Deleted Employees</span></a></li>
+                    <li class="{% if active_page == 'deleted_users' %}active{% endif %}"><a href="/admin/deleted-users" data-testid="sidebar-deleted-users"><i class="bi bi-trash-fill"></i> <span>Deleted Users</span></a></li>
+
+
+                </ul>
+                <script>
+                  /* __S38T_SIDEBAR_REORG__ toggle script */
+                  window.s38tToggleGroup = function(el, ev) {
+                      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+                      const li = el.closest('li.s38t-group');
+                      if (!li) return;
+                      li.classList.toggle('s38t-open');
+                  };
+                </script>
+            </section>
+        </aside>
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            {% set _s36g_mfa = mfa_state or (mfa_state_for(request) if mfa_state_for is defined else None) %}
+            {% if _s36g_mfa and _s36g_mfa.required and not _s36g_mfa.enabled %}
+            <div style="background:{% if _s36g_mfa.overdue %}#dc2626{% else %}#f59e0b{% endif %};color:#fff;padding:12px 20px;font-size:14px;text-align:center;" data-testid="mfa-warn-banner">
+              <i class="bi bi-shield-exclamation"></i>
+              {% if _s36g_mfa.overdue %}
+                <b>Action required:</b> Your company requires Two-Factor Authentication. Your grace period ended on {{_s36g_mfa.deadline}}.
+              {% elif _s36g_mfa.days_left is not none %}
+                Your company requires 2FA. You have <b>{{_s36g_mfa.days_left}}</b> day(s) left (by {{_s36g_mfa.deadline}}) to <a href="/admin/security/totp" style="color:#fff;text-decoration:underline;font-weight:600;">enable it now</a>.
+              {% else %}
+                Your company requires 2FA. <a href="/admin/security/totp" style="color:#fff;text-decoration:underline;font-weight:600;">Enable it now</a>.
+              {% endif %}
+            </div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </div>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="pull-right hidden-xs">
+                <b>Version</b> 4.7.55
+            </div>
+            <strong>Copyright &copy; 2025 <a href="/">Auto ISP Billing</a>.</strong> All rights reserved.
+        </footer>
+</div>
+
+    <!-- jQuery 2.2.4 -->
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+<!-- __S55C_NOTIF_TIME_AND_LAYOUT_RELOC__ -->
+<script>
+(function(){
+  // The backend stores `ts` as naive datetime in UTC. Treat as UTC.
+  window.e1FmtAgo = function(ts){
+    if (!ts) return '';
+    try{
+      var s = String(ts).replace(/Z$/,'').split('.')[0];
+      var m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+      if (!m) return '';
+      var utc = Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+      var diff = Date.now() - utc;
+      var sec = Math.max(0, Math.round(diff/1000));
+      if (sec < 60)      return sec + 's ago';
+      if (sec < 3600)    return Math.floor(sec/60)  + 'm ago';
+      if (sec < 86400)   return Math.floor(sec/3600)+ 'h ago';
+      if (sec < 2592000) return Math.floor(sec/86400)+ 'd ago';
+      if (sec < 31536000)return Math.floor(sec/2592000) + 'mo ago';
+      return Math.floor(sec/31536000) + 'y ago';
+    } catch(e){ return ''; }
+  };
+  // After every notifications feed AJAX, rewrite the rendered time text
+  // using window.e1FmtAgo(it.ts). Reliable because it runs AFTER the consumer
+  // has rendered, mutating the DOM directly.
+  if (window.jQuery){
+    function _e1RewriteBell(items){
+      try{
+        var nodes = document.querySelectorAll('#bellList li a.item .w');
+        for (var n = 0; n < nodes.length && n < items.length; n++){
+          var it = items[n];
+          if (it && it.ts){
+            var a = window.e1FmtAgo(it.ts);
+            if (a) nodes[n].textContent = a;
+          }
+        }
+      } catch(e){}
+    }
+    function _e1RewriteNotifPage(items){
+      try{
+        // Map items by URL+title (since page may show fewer/filtered)
+        var anchors = document.querySelectorAll('#s32NotifList .list-group-item');
+        anchors.forEach(function(a){
+          var title = (a.querySelector('h4')||{}).textContent || '';
+          var found = items.find(function(it){
+            return it.title === title.trim();
+          });
+          if (found && found.ts){
+            var t = window.e1FmtAgo(found.ts);
+            var sm = a.querySelector('small');
+            if (sm && t) sm.textContent = t;
+          }
+        });
+      } catch(e){}
+    }
+    // Cache last response items globally so we can re-apply on retry / observer.
+    window._e1LastNotifItems = [];
+    function _e1ApplyRewrite(){
+      try{
+        if (!window._e1LastNotifItems || !window._e1LastNotifItems.length) return;
+        _e1RewriteBell(window._e1LastNotifItems);
+        _e1RewriteNotifPage(window._e1LastNotifItems);
+      } catch(e){}
+    }
+    jQuery(document).ajaxComplete(function(ev, xhr, settings){
+      try{
+        if (!settings || !settings.url) return;
+        if (settings.url.indexOf('/notifications/feed') < 0) return;
+        var j = xhr.responseJSON || (function(){ try { return JSON.parse(xhr.responseText||'{}'); } catch(e){ return {}; } })();
+        if (!j || !j.items) return;
+        window._e1LastNotifItems = j.items;
+        console.log('[e1] ajaxComplete feed, items=' + j.items.length);
+        // Try multiple delays to outrun any later render.
+        setTimeout(_e1ApplyRewrite, 30);
+        setTimeout(_e1ApplyRewrite, 200);
+        setTimeout(_e1ApplyRewrite, 800);
+      } catch(e){ console.log('[e1] err: ' + e.message); }
+    });
+    // Also re-apply when the bell dropdown opens (covers the case where the
+    // dropdown was rendered before our rewrite ran).
+    jQuery(document).on('shown.bs.dropdown', '#bellDD', _e1ApplyRewrite);
+    jQuery(document).on('click', '#bellDD .dropdown-toggle', function(){
+      setTimeout(_e1ApplyRewrite, 50);
+    });
+  }
+})();
+</script>
+<!-- /reloc -->
+
+    <!-- Bootstrap 3.3.7 -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- Bootstrap Toggle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/js/bootstrap-toggle.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/js/adminlte.min.js"></script>
+
+    <script>
+    // Sidebar toggle: off-canvas drawer on mobile, collapse-to-rail on desktop
+    $(document).ready(function() {
+        // Prevent AdminLTE's own push-menu handler from running (it fights ours)
+        $('#sidebarToggle').off('click.pushMenu').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.innerWidth <= 991) {
+                $('body').toggleClass('sidebar-open');
+            } else {
+                $('body').toggleClass('sidebar-collapse');
+                try { localStorage.setItem('adminSidebarCollapsed', $('body').hasClass('sidebar-collapse') ? '1' : '0'); } catch(_) {}
+            }
+        });
+
+        // Restore desktop collapse state
+        try {
+            if (window.innerWidth > 991 && localStorage.getItem('adminSidebarCollapsed') === '1') {
+                $('body').addClass('sidebar-collapse');
+            }
+        } catch(_) {}
+
+        // Close mobile drawer when tapping outside
+        $(document).on('click', function(e) {
+            if (window.innerWidth <= 991 && $('body').hasClass('sidebar-open')) {
+                if (!$(e.target).closest('.main-sidebar, #sidebarToggle').length) {
+                    $('body').removeClass('sidebar-open');
+                }
+            }
+        });
+
+        // Drop mobile-only state when resizing up to desktop
+        $(window).on('resize', function() {
+            if (window.innerWidth > 991) {
+                $('body').removeClass('sidebar-open');
+            } else {
+                $('body').removeClass('sidebar-collapse');
+            }
+        });
+    });
+    </script>
+
+    {% block extra_js %}{% endblock %}
+<!-- _S40zg_  Global Processing overlay + IST DD-MM-YYYY HH:MM formatter -->
+<style id="s40zg-global-style">
+/* _S40zh_  Small non-blocking toast (top-right corner) */
+#s40zgOverlay{position:fixed;top:20px;right:20px;z-index:99999;
+    display:none;pointer-events:none}      /* never blocks clicks */
+#s40zgOverlay.show{display:block}
+#s40zgOverlay .box{background:#1f2937;color:#fff;padding:10px 18px;
+    border-radius:24px;font-weight:600;font-size:13px;
+    box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;
+    align-items:center;gap:10px;animation:s40zgFadeIn .25s ease}
+#s40zgOverlay .spin{width:14px;height:14px;border-radius:50%;
+    border:2.5px solid rgba(255,255,255,.25);border-top-color:#fff;
+    animation:s40zgSpin 0.9s linear infinite}
+@keyframes s40zgSpin{to{transform:rotate(360deg)}}
+@keyframes s40zgFadeIn{from{opacity:0;transform:translateY(-6px)}
+                       to{opacity:1;transform:translateY(0)}}
+/* _S40zg_  Show DD-MM-YYYY next to date inputs */
+.s40zg-datefmt{margin-left:6px;color:#6b7280;font-size:12px;font-weight:500}
+</style>
+<!-- _S40zi_  Processing overlay disabled per user request -->
+<script>
+/* _S40zh_  Expose admin's own company info to template substitutors */
+window.COMPANY_NAME  = {{ (company_name|default('') or '')|tojson }};
+window.COMPANY_PHONE = {{ (company_phone|default('') or '')|tojson }};
+window.COMPANY_EMAIL = {{ (company_email|default('') or '')|tojson }};
+(function(){
+  if (window.__S40ZG_INIT__) return; window.__S40ZG_INIT__ = true;
+  // _S40zi_  No-op stubs (overlay disabled).
+  window.__s40zgShow = function(){};  window.__s40zgHide = function(){};
+
+  // _S40zi_  Aggressive modal-backdrop watchdog. Every 500 ms,
+  // if there is NO visible modal but body still has modal-open
+  // class OR there are stale backdrops, clean them up.
+  function _modalHealth() {
+    const visibleModal = document.querySelector(
+      '.modal.in:not([style*="display: none"]), .modal.show:not([style*="display: none"])');
+    if (!visibleModal) {
+      const body = document.body;
+      if (body.classList.contains('modal-open')) {
+        body.classList.remove('modal-open');
+        body.style.paddingRight = '';
+        body.style.overflow = '';
+      }
+      const backdrops = document.querySelectorAll('.modal-backdrop');
+      backdrops.forEach(b => b.remove());
+    }
+  }
+  setInterval(_modalHealth, 500);
+  // Also run once on every modal-hide event for instant response.
+  if (window.jQuery) {
+    jQuery(document).on('hidden.bs.modal', () => setTimeout(_modalHealth, 50));
+    jQuery(document).on('hide.bs.modal',   () => setTimeout(_modalHealth, 350));
+  }
+
+  // ═══ IST DD-MM-YYYY HH:MM formatter ═══════════════════════════════
+  // Regex patterns we convert in-place:
+  //   A. ISO 8601 with seconds/zone:  2026-05-07T14:23:45(.123)?(Z|+05:30)?
+  //   B. SQL: 2026-05-07 14:23:45(.123)?
+  //   C. DD-MM-YYYY, DD/MM/YYYY HH:MM (strip seconds only)
+  //   D. "06 May 2026, 08:00 PM" long human style
+  function pad(n){ return n < 10 ? ('0'+n) : (''+n); }
+  // _GLOBAL_FMTIST_STR_SAFE_V1_ : fmtIST now accepts Date OR string.
+  //   - undefined / null / "" / NaN  -> '—' (never returns "null" string)
+  //   - Date object                  -> 'DD-MM-YYYY HH:MM' IST
+  //   - Already-formatted string     -> returned unchanged (backend
+  //                                     emits 'DD-MM-YYYY HH:MM' already)
+  //   - ISO 8601 / SQL UTC string    -> parsed and reformatted in IST
+  function fmtIST(d){
+    if (d === null || d === undefined || d === '') return '—';
+    if (typeof d === 'string'){
+      var s = d.trim();
+      if (!s) return '—';
+      // Already in display format (DD-MM-YYYY HH:MM [IST])? -> pass through
+      if (/^\d{2}-\d{2}-\d{4}(\s+\d{2}:\d{2})?(\s+IST)?$/.test(s)) {
+        return s.replace(/\s+IST$/,'');  // drop legacy " IST" suffix
+      }
+      // Try parsing ISO / SQL UTC strings
+      var iso = s.indexOf('T') === -1 ? s.replace(' ','T') : s;
+      if (iso.indexOf('Z') === -1 && !/[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z';
+      var dt = new Date(iso);
+      if (!isNaN(dt.getTime())) d = dt; else return s;  // unknown -> show raw
+    }
+    if (!(d instanceof Date) || isNaN(d)) return '—';
+    try {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit', hour12:false });
+      const parts = fmt.formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a), {});
+      return parts.day + '-' + parts.month + '-' + parts.year + ' ' +
+             parts.hour + ':' + parts.minute;
+    } catch(_){
+      return pad(d.getUTCDate()) + '-' + pad(d.getUTCMonth()+1) + '-'
+           + d.getUTCFullYear() + ' ' + pad(d.getUTCHours()) + ':'
+           + pad(d.getUTCMinutes());
+    }
+  }
+  window.fmtIST = fmtIST;
+  const RX_ISO    = /\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g;
+  const RX_SQL    = /\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?\b/g;
+  const RX_DATE   = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+  const RX_HUMAN  = /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)\b/g;
+  const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function convertIn(text){
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    out = out.replace(RX_ISO, (_, y,mo,d,h,mi)=> {
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_SQL, (_, y,mo,d,h,mi)=> {
+      // _S40zκ_ Stored as UTC by SQLAlchemy default=datetime.utcnow.
+      // Parse as UTC, render in IST.
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_HUMAN, (_, d,mon,y,h,mi,ampm)=> {
+      const mon0 = MONTHS[mon.slice(0,3)] || 0;
+      let H = +h % 12;
+      if (/p/i.test(ampm)) H += 12;
+      return pad(+d) + '-' + pad(mon0+1) + '-' + y + ' ' + pad(H) + ':' + pad(+mi);
+    });
+    out = out.replace(RX_DATE, (_, y,mo,d)=> d + '-' + mo + '-' + y);
+    return out;
+  }
+  function walkAndConvert(node){
+    if (!node) return;
+    if (node.nodeType === 3){
+      const orig = node.nodeValue;
+      const conv = convertIn(orig);
+      if (conv !== orig) node.nodeValue = conv;
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'CODE'
+        || tag === 'PRE'   || tag === 'TEXTAREA') return;
+    // Skip inputs/selects (they should be controlled server-side)
+    if (tag === 'INPUT' || tag === 'SELECT') return;
+    // Mark as processed to avoid re-walking via observer
+    if (node.__s40zgDone && !node.__s40zgForceRecheck) return;
+    for (let i = node.childNodes.length - 1; i >= 0; i--) {
+      walkAndConvert(node.childNodes[i]);
+    }
+  }
+  function sweep(){ try { walkAndConvert(document.body); } catch(_){} }
+
+  // Initial sweep when DOM is ready
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(sweep, 50));
+  } else { setTimeout(sweep, 50); }
+
+  // Re-sweep on every dynamic change (debounced)
+  let sweepT;
+  const obs = new MutationObserver(() => {
+    clearTimeout(sweepT);
+    sweepT = setTimeout(sweep, 120);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+  window.__s40zgSweep = sweep;
+})();
+</script>
+<!-- /_S40zg_ -->
+
+
+    <!-- S32 DataTables (global) -->
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap.min.js"></script>
+    <script>
+    (function(){
+      if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.dataTable) return;
+      /* __S38L_VOUCHER_FOLLOWUP__ */
+      // Global defaults: 15 rows per page, dropdown 10/15/20/50/100/All, clean pagination
+      jQuery.extend(true, jQuery.fn.dataTable.defaults, {
+        pageLength: 15,
+        lengthChange: true,
+        lengthMenu: [[10, 15, 20, 50, 100, -1], [10, 15, 20, 50, 100, 'All']],
+        pagingType: 'simple_numbers',
+        language: {
+          lengthMenu: 'Show _MENU_ per page',
+          info: 'Showing _START_–_END_ of _TOTAL_',
+          infoEmpty: '0 records',
+          infoFiltered: '(filtered from _MAX_)',
+          search: 'Search:',
+          paginate: { previous: '‹', next: '›' }
+        }
+      });
+
+      // Auto-init any plain listing table that isn't already a DataTable and
+      // isn't explicitly opted-out. Empty tables still get the controls so
+      // the user can choose page size / search.
+      function s32InitOne(el){
+        var $t = jQuery(el);
+        if ($t.hasClass('no-dt')) return;
+        if ($t.closest('.modal').length) return;
+        if ($t.is('[data-dt-skip]')) return;
+        if (jQuery.fn.DataTable.isDataTable(el)) return;
+        if (!$t.find('thead tr').length) return;
+        if (!$t.find('tbody').length) return;
+        // Strip placeholder Loading/No-data rows that use colspan so DT does not choke
+        var $tb = $t.find('tbody');
+        var $ph = $tb.children('tr').filter(function(){
+          return jQuery(this).children('td[colspan]').length > 0;
+        });
+        if ($ph.length && $ph.length === $tb.children('tr').length) {
+          $ph.remove();
+        }
+        try { $t.DataTable({}); } catch(e) { console.warn('[S32 DT]', e); }
+      }
+      window.S32InitDT = function(sel){
+        jQuery(sel || 'table.table').each(function(){ s32InitOne(this); });
+      };
+      // Re-init helper for AJAX-refreshed tables: destroy existing DT
+      // instance (if any), then re-init so it picks up freshly-rendered
+      // <tbody> rows.
+      window.S32ReinitDT = function(sel){
+        jQuery(sel).each(function(){
+          var t = this, $t = jQuery(this);
+          if ($t.hasClass('no-dt')) return;
+          if (jQuery.fn.DataTable.isDataTable(t)) {
+            try { jQuery(t).DataTable().destroy(); } catch(_) {}
+          }
+          s32InitOne(t);
+        });
+      };
+      jQuery(function(){
+        window.S32InitDT();
+        // Retry for AJAX-populated tables
+        setTimeout(function(){ window.S32InitDT(); }, 1500);
+        setTimeout(function(){ window.S32InitDT(); }, 3500);
+        // MutationObserver: whenever a tbody gets re-rendered, re-init its DT
+        if (window.MutationObserver) {
+          var obs = new MutationObserver(function(muts){
+            var seen = new Set();
+            muts.forEach(function(m){
+              var t = jQuery(m.target).closest('table.table')[0];
+              if (t && !seen.has(t)) { seen.add(t); s32InitOne(t); }
+            });
+          });
+          jQuery('table.table tbody').each(function(){
+            try { obs.observe(this, { childList: true }); } catch(_) {}
+          });
+          window.__s32Obs = obs;
+        }
+      });
+    })();
+    </script>
+
+    <!-- S33 Global Search + toDMY helpers -->
+    <style>
+      .s33-gs-dd a.item {
+        display:block; padding:8px 12px; border-bottom:1px solid #f1f5f9;
+        color:#111; text-decoration:none; font-size:13px;
+      }
+      .s33-gs-dd a.item:hover { background:#f8fafc; }
+      .s33-gs-dd a.item .ico { width:18px; text-align:center; margin-right:6px; color:#6366f1; }
+      .s33-gs-dd a.item .sub { color:#6b7280; font-size:11px; display:block; margin-top:2px; }
+      .s33-gs-dd .empty { padding:12px; color:#6b7280; font-size:12px; }
+      .s33-gs-dd .group { padding:4px 12px; font-size:10px; font-weight:700; color:#6366f1; background:#f8fafc; text-transform:uppercase; letter-spacing:0.05em; }
+    </style>
+    <script>
+    (function(){
+      // ---------- Date helper ----------
+      window.toDMY = function(s){
+        if (s == null) return '';
+        s = String(s).trim();
+        if (!s) return '';
+        // ISO yyyy-mm-dd (optionally with T/time)
+        var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return m[3] + '-' + m[2] + '-' + m[1];
+        // MM-DD-YYYY or MM/DD/YYYY (heuristic: first > 12 means already DMY)
+        m = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+        if (m) {
+          var a = parseInt(m[1],10), b = parseInt(m[2],10);
+          if (a > 12 && b <= 12) return m[1] + '-' + m[2] + '-' + m[3];          // already DMY
+          if (a <= 12 && b > 12) return m[2] + '-' + m[1] + '-' + m[3];          // US MDY → DMY
+          // Ambiguous; if the site's default is US (mm-dd) convert → dd-mm
+          return m[2] + '-' + m[1] + '-' + m[3];
+        }
+        return s;
+      };
+      // Sweep: rewrite [data-date] elements and any .js-date element
+      jQuery(function($){
+        $('[data-date]').each(function(){
+          var v = $(this).attr('data-date');
+          if (v) $(this).text(window.toDMY(v));
+        });
+      });
+
+      // ---------- Global Search ----------
+      if (!window.jQuery) return;
+      jQuery(function($){
+        var $inp = $('#globalSearchInput'); if (!$inp.length) return;
+        var $dd  = $('#globalSearchDropdown');
+        var t = null;
+        function render(res){
+          if (!res || !res.length) {
+            $dd.html('<div class="empty">No matches. Try a different name, ID or phone.</div>').show();
+            return;
+          }
+          var grouped = { customer: [], plan: [], employee: [] };
+          res.forEach(function(r){ (grouped[r.type] || (grouped[r.type]=[])).push(r); });
+          var html = '';
+          var labels = { customer: 'Customers', plan: 'Plans', employee: 'Employees' };
+          ['customer','plan','employee'].forEach(function(k){
+            if (!grouped[k] || !grouped[k].length) return;
+            html += '<div class="group">' + labels[k] + '</div>';
+            grouped[k].forEach(function(r){
+              html += '<a class="item" href="' + r.url + '" data-testid="gs-result">' +
+                  '<i class="' + (r.icon || 'fa fa-circle') + ' ico"></i>' +
+                  '<strong>' + $('<div/>').text(r.label).html() + '</strong>' +
+                  (r.sub ? '<span class="sub">' + $('<div/>').text(r.sub).html() + '</span>' : '') +
+                  '</a>';
+            });
+          });
+          $dd.html(html).show();
+        }
+        function trigger(){
+          var q = $inp.val().trim();
+          if (q.length < 2) { $dd.hide().empty(); return; }
+          $.get('/api/admin/global-search', { q: q, limit: 6 }, function(j){
+            if (j && j.success) render(j.results || []);
+            else $dd.html('<div class="empty">Search failed</div>').show();
+          }).fail(function(){
+            $dd.html('<div class="empty">Network error</div>').show();
+          });
+        }
+        $inp.on('input', function(){ clearTimeout(t); t = setTimeout(trigger, 180); });
+        $inp.on('focus', function(){ if ($inp.val().trim().length >= 2) trigger(); });
+        $(document).on('click', function(e){
+          if (!$(e.target).closest('.s33-global-search').length) $dd.hide();
+        });
+        $inp.on('keydown', function(e){
+          if (e.which === 27) { $inp.val(''); $dd.hide(); }
+          if (e.which === 13) {
+            var $first = $dd.find('a.item').first();
+            if ($first.length) window.location.href = $first.attr('href');
+          }
+        });
+      });
+    })();
+    </script>
+
+
+<!-- S35 Notifications bell -->
+<style>
+  /* __S55E_BELL_HOVER_DARK__ — dark hover so text stays visible */
+  #bellList a.item { display:flex; gap:8px; padding:10px 14px;
+    border-bottom: 1px solid rgba(96,165,250,.15);
+    color: #F1F5F9; text-decoration: none; font-size: 13px;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  #bellList a.item:hover,
+  #bellList a.item:focus,
+  #bellList a.item:active {
+    background: rgba(99,102,241,.14) !important;
+    border-color: rgba(99,102,241,.42) !important;
+    color: #FFFFFF !important;
+  }
+  #bellList a.item:hover .t,
+  #bellList a.item:hover .s,
+  #bellList a.item:hover .w { color: inherit !important; }
+  #bellList a.item .ico { width:22px; text-align:center; font-size:14px; }
+  #bellList a.item .body { flex:1; line-height:1.3; }
+  #bellList a.item .t { font-weight:600; font-size:12.5px; color: #F1F5F9; }
+  #bellList a.item .s { color:#CBD5E1; font-size:11.5px; margin-top:1px; }
+  #bellList a.item .w { color:#94A3B8; font-size:11px; margin-top:2px; }
+  #bellList a.item:hover .t { color: #FFFFFF; }
+  #bellList a.item:hover .s { color: #E2E8F0; }
+  #bellList a.item:hover .w { color: #CBD5E1; }
+</style>
+<script>
+(function(){
+  if (!window.jQuery) return;
+  jQuery(function($){
+    if (!$('#bellDD').length) return;
+    function esc(s){ return $('<div/>').text(s == null ? '' : s).html(); }
+    function render(items, total, unread){
+      var $c = $('#bellCount'); var $h = $('#bellHeader'); var $l = $('#bellList');
+      var label = (unread == null ? total : unread);
+      if (label > 0) {
+        $c.text(label > 99 ? '99+' : label).removeClass('hidden').show();
+      } else {
+        $c.text('0').hide();
+      }
+      if (unread > 0) {
+        $h.html('<span>You have <strong>' + unread + '</strong> new notification' + (unread===1?'':'s') + '</span>' +
+                '<a href="#" id="bellMarkRead" data-testid="bell-mark-read" style="float:right;font-size:11px;color:#6366f1;">Mark all as read</a>');
+      } else if (total > 0) {
+        $h.text('Caught up! Showing recent activity');
+      } else {
+        $h.text('No new notifications');
+      }
+      if (!items || !items.length) {
+        $l.html('<li style="padding:14px; text-align:center; color:#94a3b8; font-size:12px;">Nothing new. You are all caught up!</li>');
+        return;
+      }
+      var html = '';
+      items.slice(0, 5).forEach(function(it){
+        var dot = it.is_new ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:6px;vertical-align:middle;"></span>' : '';
+        html += '<li><a class="item" href="' + esc(it.url || '#') + '">' +
+                  '<span class="ico" style="color:' + esc(it.color || '#6366f1') + ';"><i class="fa ' + esc(it.icon || 'fa-bell') + '"></i></span>' +
+                  '<span class="body">' +
+                    '<div class="t">' + dot + esc(it.title) + '</div>' +
+                    (it.subtitle ? '<div class="s">' + esc(it.subtitle) + '</div>' : '') +
+                    '<div class="w">' + esc(it.ago || '') + '</div>' +
+                  '</span>' +
+                '</a></li>';
+      });
+      $l.html(html);
+    }
+    function load(){
+      $.get('/api/admin/notifications/feed', { limit: 5, days: 30 })
+        .done(function(j){ if (j && j.success) render(j.items, j.count, j.unread); })
+        .fail(function(){ $('#bellHeader').text('Unable to load notifications'); });
+    }
+    load();
+    setInterval(load, 60000);
+    $(document).on('click', '#bellMarkRead', function(e){
+      e.preventDefault(); e.stopPropagation();
+      $.post('/api/admin/notifications/mark-read').always(load);
+    });
+  });
+})();
+</script>
+<!-- /S35 -->
+
+<!-- __S39D__ Session-timeout (10 min idle, 60s warning) -->
+<div id="s39dTimeoutModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;width:380px;max-width:92vw;padding:22px 24px;box-shadow:0 18px 48px rgba(0,0,0,.25);">
+    <h3 style="margin:0 0 8px 0;font-size:18px;color:#0f172a;">
+      <i class="bi bi-hourglass-split" style="color:#f59e0b;"></i> Session about to expire
+    </h3>
+    <p style="margin:0 0 16px 0;color:#475569;font-size:14px;">
+      You have been inactive. You will be logged out in
+      <strong id="s39dTimeoutSecs" style="color:#dc2626;">60</strong> seconds.
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="s39dTimeoutLogout" type="button"
+              style="background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 14px;border-radius:6px;cursor:pointer;">Log out now</button>
+      <button id="s39dTimeoutStay" type="button"
+              style="background:#2563eb;border:1px solid #2563eb;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;"
+              data-testid="session-stay-signed-in-btn">Stay signed in</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+    if (window.__s39dTimeoutInstalled) return;
+    window.__s39dTimeoutInstalled = true;
+    var IDLE_MS = 10 * 60 * 1000;       // 10 min total
+    var WARN_MS = 60 * 1000;             // last 60s = warning
+    var lastActivity = Date.now();
+    var warnTimer = null, logoutTimer = null, countdownIv = null;
+    var modal = document.getElementById('s39dTimeoutModal');
+    var secsEl = document.getElementById('s39dTimeoutSecs');
+    function hideModal(){ if (modal) modal.style.display='none'; if(countdownIv){clearInterval(countdownIv);countdownIv=null;} }
+    function showModal(){
+        if (!modal) return;
+        modal.style.display='flex';
+        var secs = Math.floor(WARN_MS/1000);
+        if (secsEl) secsEl.textContent = secs;
+        if (countdownIv) clearInterval(countdownIv);
+        countdownIv = setInterval(function(){
+            secs--;
+            if (secsEl) secsEl.textContent = Math.max(secs, 0);
+            if (secs <= 0) { clearInterval(countdownIv); countdownIv=null; }
+        }, 1000);
+    }
+    function doLogout(){
+        try { hideModal(); } catch(e){}
+        // Hit the logout endpoint, then bounce to /login?reason=timeout.
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+            .catch(function(){})
+            .finally(function(){
+                window.location.replace('/login?reason=timeout');
+            });
+    }
+    function reset(){
+        lastActivity = Date.now();
+        hideModal();
+        if (warnTimer)   clearTimeout(warnTimer);
+        if (logoutTimer) clearTimeout(logoutTimer);
+        warnTimer   = setTimeout(showModal, IDLE_MS - WARN_MS);
+        logoutTimer = setTimeout(doLogout,  IDLE_MS);
+    }
+    ['mousemove','mousedown','keydown','scroll','touchstart','click'].forEach(function(ev){
+        document.addEventListener(ev, function(){ reset(); }, { passive: true });
+    });
+    document.addEventListener('DOMContentLoaded', function(){
+        var stay = document.getElementById('s39dTimeoutStay');
+        var btn  = document.getElementById('s39dTimeoutLogout');
+        if (stay) stay.addEventListener('click', function(){ reset(); /* also poke server */ fetch('/api/auth/heartbeat', {method:'POST', credentials:'same-origin'}).catch(function(){}); });
+        if (btn)  btn.addEventListener('click',  doLogout);
+    });
+    reset();
+})();
+</script>
+<!-- /__S39D__ -->
+
+<!-- __S43M_PROCESSING__ Global processing/loading modal -->
+<div id="s43mProcessing" style="display:none;position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,0.55);backdrop-filter:blur(2px);align-items:center;justify-content:center;" data-testid="s43m-processing-overlay">
+  <div style="min-width:260px;max-width:380px;background:#ffffff;color:#0f172a;border-radius:12px;padding:24px 28px;box-shadow:0 20px 48px rgba(0,0,0,.35);text-align:center;">
+    <div class="s43m-spinner" style="width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:s43mSpin 0.9s linear infinite;margin:0 auto 16px;"></div>
+    <div id="s43mProcessingLabel" style="font-weight:600;font-size:15px;color:#0f172a;" data-testid="s43m-processing-label">Processing…</div>
+    <div id="s43mProcessingDetail" style="font-size:12px;color:#64748b;margin-top:6px;">Please wait — do not close or navigate away.</div>
+  </div>
+</div>
+<style>@keyframes s43mSpin{to{transform:rotate(360deg)}}</style>
+<script>
+(function(){
+  var ov = document.getElementById('s43mProcessing');
+  var lbl= document.getElementById('s43mProcessingLabel');
+  var det= document.getElementById('s43mProcessingDetail');
+  window.showProcessing = function(label, detail){
+    if (lbl) lbl.textContent = label || 'Processing…';
+    if (det) det.textContent = detail || 'Please wait — do not close or navigate away.';
+    if (ov) ov.style.display = 'flex';
+  };
+  window.hideProcessing = function(){ if (ov) ov.style.display = 'none'; };
+  // Auto-disable click-through while overlay is up.
+  if (ov) ov.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); });
+})();
+</script>
+<!-- /__S43M_PROCESSING__ -->
+
+    <!-- E1_MODERN_OVERLAY_JS -->
+    <script defer src="/static/js/e1-modern.js?v=s55r"></script>
+</body>
+</html>

@@ -1,0 +1,351 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Dashboard - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header {
+        padding: 15px;
+        background: #fff;
+        border-bottom: 1px solid #d2d6de;
+    }
+    .service-toggle {
+        margin-bottom: 20px;
+    }
+    .service-toggle .btn {
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    .dashboard-tiles {
+        margin-top: 20px;
+    }
+    .tile-box {
+        background: #fff;
+        border: 1px solid #d2d6de;
+        border-radius: 3px;
+        padding: 15px;
+        margin-bottom: 20px;
+        min-height: 180px;
+    }
+    .tile-box.bg-teal {
+        background-color: #17a2b8;
+        color: white;
+        border-color: #17a2b8;
+    }
+    .tile-box.bg-navy {
+        background-color: #3c8dbc;
+        color: white;
+        border-color: #3c8dbc;
+    }
+    .tile-box.bg-blue {
+        background-color: #0073b7;
+        color: white;
+        border-color: #0073b7;
+    }
+    .tile-title {
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .tile-main-value {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    .tile-sub-value {
+        font-size: 14px;
+        margin: 5px 0;
+    }
+    .tile-comparison {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.3);
+    }
+    .tile-comparison i {
+        margin-right: 5px;
+    }
+    .tile-links {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.3);
+    }
+    .tile-links a {
+        color: white;
+        text-decoration: underline;
+        margin-right: 10px;
+    }
+    .tile-links a:hover {
+        color: #f0f0f0;
+    }
+    .agents-collection-form {
+        background: #fff;
+        border: 1px solid #d2d6de;
+        border-radius: 3px;
+        padding: 20px;
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Content Header -->
+<section class="content-header">
+    <h1>
+        Dashboard
+        <small>Control panel</small>
+    </h1>
+</section>
+
+<!-- Main content -->
+<section class="content">
+    <!-- Service Type Toggle -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="btn-group service-toggle">
+                <button type="button" class="btn btn-default">
+                    <i class="fa fa-tv"></i> Cable TV
+                </button>
+                <button type="button" class="btn btn-primary active">
+                    <i class="fa fa-wifi"></i> Broadband
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Tiles - Row 1 -->
+    <div class="row dashboard-tiles">
+        <!-- Collection -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Collection</div>
+                <div class="tile-main-value">
+                    Today: 0.00, Nos 0
+                </div>
+                <div class="tile-sub-value">
+                    This Month: 0.00, Nos 0
+                </div>
+                <div class="tile-comparison">
+                    <div><i class="fa fa-arrow-up"></i> 0.00 Difference</div>
+                    <div><i class="fa fa-arrow-down"></i> 0.00 Last Month, Nos 0</div>
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Chart/Graph</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Amount Due -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Amount Due</div>
+                <div class="tile-main-value">
+                    Total Dues: 2,092.40
+                </div>
+                <div class="tile-sub-value">
+                    No Of STB: 2
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Dues List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Complaints -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Complaints</div>
+                <div class="tile-main-value">
+                    This Month: 0 Complaint
+                </div>
+                <div class="tile-comparison">
+                    <div><i class="fa fa-arrow-up"></i> 0 Difference</div>
+                    <div><i class="fa fa-arrow-down"></i> 0 Last Month</div>
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Complaint List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Subscribers -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-navy">
+                <div class="tile-title">Total Subscribers</div>
+                <div class="tile-main-value" style="font-size: 48px;">
+                    2
+                </div>
+                <div class="tile-sub-value">
+                    Active STB: 2<br>
+                    Deactive STB: 0<br>
+                    Total: 2
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">List of customers</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Tiles - Row 2 -->
+    <div class="row dashboard-tiles">
+        <!-- Enrollments -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-blue">
+                <div class="tile-title">Enrollments</div>
+                <div class="tile-main-value">
+                    This Month: 0 New Customer
+                </div>
+                <div class="tile-comparison">
+                    <div><i class="fa fa-arrow-up"></i> -2 Difference</div>
+                    <div><i class="fa fa-arrow-down"></i> 2 Last Month</div>
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">New Customers</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inactive Customer List -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-blue">
+                <div class="tile-title">Inactive Customer List</div>
+                <div class="tile-main-value">
+                    Total Inactive Customers: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Inactive List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Online Payments -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-blue">
+                <div class="tile-title">Online Payments</div>
+                <div class="tile-main-value" style="font-size: 48px;">
+                    0
+                </div>
+                <div class="tile-sub-value">
+                    Monthly Online Payments: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Payment List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- SMS Balance -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-blue">
+                <div class="tile-title">SMS Balance</div>
+                <div class="tile-main-value">
+                    SMS Balance: Rs.0.00
+                </div>
+                <div class="tile-sub-value">
+                    Left SMS: NAN
+                </div>
+                <div class="tile-links">
+                    <a href="#">Login</a> | <a href="#">Check Logs Report</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Tiles - Row 3 -->
+    <div class="row dashboard-tiles">
+        <!-- Today's Expiry -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Todays Expiry</div>
+                <div class="tile-main-value">
+                    Todays Expiry: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Renewals List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Next 3 days Expiry -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Next 3 days Expiry</div>
+                <div class="tile-main-value">
+                    Next 3 days Expiry: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Nearby List</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Today's Recharged -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Todays Recharged</div>
+                <div class="tile-main-value">
+                    Todays Recharged: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Recharged</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Suspended -->
+        <div class="col-lg-3 col-md-4 col-sm-6">
+            <div class="tile-box bg-teal">
+                <div class="tile-title">Suspended</div>
+                <div class="tile-main-value">
+                    Total Suspended: 0
+                </div>
+                <div class="tile-links">
+                    <a href="#">View</a> | <a href="#">Recharged</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agents Collection Form -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="agents-collection-form">
+                <h4><strong>Agents Collection</strong></h4>
+                <form class="form-inline">
+                    <div class="form-group">
+                        <label class="radio-inline">
+                            <input type="radio" name="serviceType" value="cabletv"> Cable Tv
+                        </label>
+                        <label class="radio-inline">
+                            <input type="radio" name="serviceType" value="broadband" checked> Broadband
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-left: 20px;">
+                        <select class="form-control">
+                            <option>Select</option>
+                            <option>Today</option>
+                            <option>Last 7 Days</option>
+                            <option>Last 30 Days</option>
+                            <option>Select Custom Date</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-left: 10px;">Submit</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Service type toggle
+    $('.service-toggle .btn').click(function() {
+        $('.service-toggle .btn').removeClass('active btn-primary').addClass('btn-default');
+        $(this).removeClass('btn-default').addClass('active btn-primary');
+    });
+});
+</script>
+{% endblock %}

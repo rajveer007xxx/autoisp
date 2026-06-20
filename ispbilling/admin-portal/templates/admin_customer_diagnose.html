@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}RADIUS / NAS Diagnostic — {{ customer_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width:1180px;margin:0 auto;padding:24px 16px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+    <a href="/admin/users" class="btn btn-light btn-sm" data-testid="back-to-users-btn">
+      <i class="fa fa-arrow-left"></i> Back
+    </a>
+    <h3 style="margin:0;font-weight:600;letter-spacing:-0.01em;">
+      <i class="fa fa-stethoscope" style="color:#0ea5e9;"></i>
+      RADIUS / NAS Diagnostic
+    </h3>
+    <span class="badge" style="background:#0f172a;color:#fff;font-family:ui-monospace,monospace;font-size:12px;padding:6px 10px;border-radius:6px;">
+      {{ customer_id }}
+    </span>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button id="btn-refresh" class="btn btn-outline-primary btn-sm" data-testid="diagnose-refresh-btn">
+        <i class="fa fa-sync"></i> Re-scan
+      </button>
+      <button id="btn-apply-all" class="btn btn-primary btn-sm" data-testid="diagnose-apply-all-btn">
+        <i class="fa fa-bolt"></i> Apply Recommended Fixes
+      </button>
+    </div>
+  </div>
+
+  <p style="color:#475569;font-size:13.5px;margin-bottom:18px;max-width:780px;line-height:1.55;">
+    Probes FreeRADIUS (what reply attributes would be returned for this user) and the
+    customer's NAS (live <code>/ppp aaa</code>, local <code>/ppp secret</code> override,
+    firewall reject rules, address-list whitelisting). Findings are colour-coded by
+    severity. The <strong>Apply Recommended Fixes</strong> button executes only
+    idempotent operations: pin the static IP on the local secret, add the IP to
+    <code>allowed-static</code>, ensure forward-accept + masquerade.
+  </p>
+
+  <div id="diagnose-loading" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px;text-align:center;color:#64748b;">
+    <i class="fa fa-spinner fa-spin"></i> Running diagnostic...
+  </div>
+
+  <div id="diagnose-content" style="display:none;">
+    <!-- Customer card -->
+    <div class="card" style="border:1px solid #e2e8f0;border-radius:12px;margin-bottom:16px;">
+      <div class="card-body" style="padding:18px 22px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 22px;">
+          <div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Username</div><div id="d-username" style="font-weight:600;font-family:ui-monospace,monospace;">—</div></div>
+          <div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Auth Type</div><div id="d-authtype" style="font-weight:600;">—</div></div>
+          <div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">MAC Binding</div><div id="d-mac" style="font-weight:600;font-family:ui-monospace,monospace;">—</div></div>
+          <div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Assigned Static IP</div><div id="d-staticip" style="font-weight:600;font-family:ui-monospace,monospace;color:#0ea5e9;">—</div></div>
+          <div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Status</div><div id="d-status" style="font-weight:600;">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Findings -->
+    <h5 style="font-weight:600;margin:18px 0 10px;color:#0f172a;">
+      <i class="fa fa-list-check" style="color:#0ea5e9;"></i> Findings
+    </h5>
+    <div id="d-issues" style="display:grid;gap:10px;"></div>
+
+    <!-- Two-column: RADIUS reply / NAS state -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;">
+      <div class="card" style="border:1px solid #e2e8f0;border-radius:12px;">
+        <div class="card-body" style="padding:18px 22px;">
+          <h6 style="font-weight:600;margin:0 0 12px;color:#0f172a;">
+            <i class="fa fa-key" style="color:#10b981;"></i> RADIUS Reply
+          </h6>
+          <div id="d-radius" style="font-size:13px;color:#334155;"></div>
+        </div>
+      </div>
+      <div class="card" style="border:1px solid #e2e8f0;border-radius:12px;">
+        <div class="card-body" style="padding:18px 22px;">
+          <h6 style="font-weight:600;margin:0 0 12px;color:#0f172a;">
+            <i class="fa fa-server" style="color:#8b5cf6;"></i> NAS State
+          </h6>
+          <div id="d-nas" style="font-size:13px;color:#334155;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fix commands preview -->
+    <div class="card" style="border:1px solid #e2e8f0;border-radius:12px;margin-top:16px;">
+      <div class="card-body" style="padding:18px 22px;">
+        <h6 style="font-weight:600;margin:0 0 12px;color:#0f172a;">
+          <i class="fa fa-terminal" style="color:#f59e0b;"></i> RouterOS Commands That Would Be Applied
+        </h6>
+        <pre id="d-fixcmds" data-testid="diagnose-fix-commands" style="background:#0f172a;color:#cbd5e1;padding:14px 16px;border-radius:8px;font-size:12.5px;line-height:1.55;overflow-x:auto;margin:0;"></pre>
+      </div>
+    </div>
+
+    <!-- Apply result -->
+    <div id="d-apply-result" style="display:none;margin-top:16px;"></div>
+  </div>
+</div>
+
+<script>
+const CUSTOMER_ID = {{ customer_id|tojson }};
+const SEV_COLOR = {
+  critical: {bg:'#fee2e2', border:'#fca5a5', dot:'#dc2626', label:'CRITICAL'},
+  high:     {bg:'#fef3c7', border:'#fcd34d', dot:'#d97706', label:'HIGH'},
+  medium:   {bg:'#fef9c3', border:'#fde047', dot:'#ca8a04', label:'MEDIUM'},
+  info:     {bg:'#dbeafe', border:'#93c5fd', dot:'#2563eb', label:'INFO'},
+  low:      {bg:'#f1f5f9', border:'#cbd5e1', dot:'#64748b', label:'LOW'},
+};
+
+function severityCard(it) {
+  const s = SEV_COLOR[it.severity] || SEV_COLOR.low;
+  return `
+    <div style="background:${s.bg};border:1px solid ${s.border};border-radius:10px;padding:14px 18px;display:flex;gap:12px;align-items:flex-start;" data-severity="${it.severity}">
+      <span style="background:${s.dot};color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:0.04em;white-space:nowrap;">${s.label}</span>
+      <div style="flex:1;">
+        <div style="font-family:ui-monospace,monospace;font-size:11.5px;color:#475569;margin-bottom:4px;">${it.code}</div>
+        <div style="color:#0f172a;font-size:13.5px;line-height:1.5;">${it.msg}</div>
+      </div>
+    </div>`;
+}
+
+function kv(label, val, mono=false) {
+  if (val === null || val === undefined || val === '') val = '<span style="color:#94a3b8;">—</span>';
+  const styleFont = mono ? 'font-family:ui-monospace,monospace;' : '';
+  return `<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px dashed #e2e8f0;">
+    <span style="color:#64748b;font-size:12px;">${label}</span>
+    <span style="${styleFont}color:#0f172a;font-weight:500;">${val}</span></div>`;
+}
+
+async function loadDiagnostic() {
+  document.getElementById('diagnose-loading').style.display = 'block';
+  document.getElementById('diagnose-content').style.display = 'none';
+  try {
+    const r = await fetch(`/api/customers/${encodeURIComponent(CUSTOMER_ID)}/diagnose-radius-nas`);
+    const d = await r.json();
+    if (!d.success) { alert(d.message || 'Diagnose failed'); return; }
+    renderDiagnostic(d);
+  } catch (e) {
+    alert('Diagnose error: ' + e.message);
+  } finally {
+    document.getElementById('diagnose-loading').style.display = 'none';
+    document.getElementById('diagnose-content').style.display = 'block';
+  }
+}
+
+function renderDiagnostic(d) {
+  const c = d.customer || {};
+  document.getElementById('d-username').textContent = c.username || '—';
+  document.getElementById('d-authtype').textContent = c.auth_type || '—';
+  document.getElementById('d-mac').textContent = c.mac || '—';
+  document.getElementById('d-staticip').textContent = c.static_ip || '—';
+  document.getElementById('d-status').textContent = c.status || '—';
+
+  // Issues
+  const issues = d.issues || [];
+  const order = {critical:0,high:1,medium:2,low:3,info:4};
+  issues.sort((a,b) => (order[a.severity]??9) - (order[b.severity]??9));
+  document.getElementById('d-issues').innerHTML = issues.length
+    ? issues.map(severityCard).join('')
+    : `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:14px 18px;color:#166534;font-weight:500;"><i class="fa fa-circle-check"></i> No issues detected — RADIUS and NAS are in agreement for this customer.</div>`;
+
+  // RADIUS
+  const r = d.radius || {};
+  let rHtml = '';
+  if (r.skipped) {
+    rHtml = `<div style="color:#64748b;font-style:italic;">Skipped — ${r.reason || ''}</div>`;
+  } else if (r.error) {
+    rHtml = `<div style="color:#dc2626;">${r.error}</div>`;
+  } else {
+    rHtml = kv('Result', r.accepted ? '<span style="color:#16a34a;font-weight:600;">Access-Accept</span>' : '<span style="color:#dc2626;font-weight:600;">Access-Reject</span>')
+          + kv('Framed-IP-Address', r.framed_ip_address, true)
+          + kv('Framed-Pool', r.framed_pool, true)
+          + kv('Mikrotik-Rate-Limit', r.mikrotik_rate_limit, true)
+          + kv('Mikrotik-Group', r.mikrotik_group, true);
+  }
+  document.getElementById('d-radius').innerHTML = rHtml;
+
+  // NAS
+  const n = d.nas || {};
+  let nHtml = '';
+  if (n.skipped) {
+    nHtml = `<div style="color:#64748b;font-style:italic;">Skipped — ${n.reason || ''}</div>`;
+  } else {
+    if (n.device) {
+      nHtml += kv('NAS', `${n.device.name} (${n.device.ip})`);
+    }
+    if (n.ppp_aaa) {
+      nHtml += kv('/ppp aaa use-radius', n.ppp_aaa['use-radius']);
+      nHtml += kv('/ppp aaa accounting', n.ppp_aaa['accounting']);
+    }
+    if (n.local_ppp_secret) {
+      const s = n.local_ppp_secret;
+      nHtml += kv('Local /ppp secret', `<span style="color:#dc2626;">EXISTS</span>`);
+      nHtml += kv('  ↳ profile', s.profile, true);
+      nHtml += kv('  ↳ remote-address', s['remote-address'] || '<span style="color:#dc2626;">(none — uses profile pool)</span>', true);
+      nHtml += kv('  ↳ last caller-id', s['last-caller-id'], true);
+      nHtml += kv('  ↳ last disconnect', s['last-disconnect-reason']);
+    } else {
+      nHtml += kv('Local /ppp secret', '<span style="color:#16a34a;">absent (RADIUS is authoritative)</span>');
+    }
+    if (n.static_ip_in_pool !== undefined) {
+      nHtml += kv('Static IP in /ip pool', n.static_ip_in_pool || '<span style="color:#16a34a;">not in any pool</span>');
+    }
+    if (n.static_ip_route !== undefined) {
+      nHtml += kv('Route covering IP', n.static_ip_route || '<span style="color:#dc2626;">no route</span>', true);
+    }
+    if (n.in_allowed_static !== undefined) {
+      nHtml += kv('In allowed-static list', n.in_allowed_static ? '<span style="color:#16a34a;">yes</span>' : '<span style="color:#dc2626;">no</span>');
+    }
+    if (n.error) {
+      nHtml += `<div style="color:#dc2626;margin-top:8px;">${n.error}</div>`;
+    }
+  }
+  document.getElementById('d-nas').innerHTML = nHtml;
+
+  // Fix commands
+  const cmds = d.fix_commands || [];
+  document.getElementById('d-fixcmds').textContent = cmds.length
+    ? cmds.join('\n')
+    : '# (no fixes required)';
+  document.getElementById('btn-apply-all').disabled = cmds.length === 0;
+}
+
+document.getElementById('btn-refresh').addEventListener('click', loadDiagnostic);
+
+document.getElementById('btn-apply-all').addEventListener('click', async () => {
+  if (!confirm('Apply recommended fixes to the NAS for this customer?\\n\\n' +
+                'Operations:\\n' +
+                '  • Pin static IP on local /ppp secret (if static IP set)\\n' +
+                '  • Add IP to allowed-static address-list + accept + masquerade\\n\\n' +
+                'All operations are idempotent.')) return;
+  const btn = document.getElementById('btn-apply-all');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Applying...';
+  try {
+    const r = await fetch(`/api/customers/${encodeURIComponent(CUSTOMER_ID)}/apply-nas-fix`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({actions: ['sync_static_ip_on_secret', 'allow_static_ip_firewall']}),
+    });
+    const d = await r.json();
+    const wrap = document.getElementById('d-apply-result');
+    wrap.style.display = 'block';
+    if (d.success) {
+      wrap.innerHTML = `
+        <div style="background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 18px;">
+          <div style="font-weight:600;color:#166534;margin-bottom:8px;"><i class="fa fa-circle-check"></i> Applied successfully</div>
+          <pre style="background:#fff;border:1px solid #d1fae5;padding:10px;border-radius:6px;font-size:12px;color:#0f172a;margin:0;max-height:280px;overflow:auto;">${JSON.stringify(d.results, null, 2)}</pre>
+          <div style="margin-top:8px;font-size:12.5px;color:#166534;">Ask the customer to disconnect & reconnect to pick up the new IP.</div>
+        </div>`;
+      setTimeout(loadDiagnostic, 1200);
+    } else {
+      wrap.innerHTML = `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:14px;color:#991b1b;">${d.message || 'Apply failed'}</div>`;
+    }
+  } catch (e) {
+    alert('Apply error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-bolt"></i> Apply Recommended Fixes';
+  }
+});
+
+loadDiagnostic();
+</script>
+{% endblock %}

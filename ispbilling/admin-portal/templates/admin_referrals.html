@@ -1,0 +1,97 @@
+{% extends base_template|default("base_admin.html") %}
+{% block title %}Referrals - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.rf-card{background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.rf-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:1024px){.rf-grid{grid-template-columns:1fr;}}
+.rf-input{width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;}
+.rf-btn{background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}
+.rf-btn.green{background:#10b981;}
+.code-pill{font-family:monospace;background:#fef3c7;color:#a16207;padding:4px 10px;border-radius:6px;font-weight:700;font-size:13px;}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;}
+table td{padding:10px;border-bottom:1px solid #e2e8f0;font-size:13px;}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;}
+.tag.pending{background:#fef3c7;color:#a16207;}
+.tag.paid{background:#dcfce7;color:#15803d;}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+</style>
+
+<section class="content-header"><h1>Referral & Loyalty<small>Reward customers who bring you new subscribers</small></h1></section>
+
+<section class="content">
+<div class="rf-grid">
+  <div class="rf-card">
+    <h3 style="margin:0 0 12px;">Issue Referral Code</h3>
+    <div style="display:flex;gap:8px;">
+      <input id="rfCustId" class="rf-input" placeholder="Customer ID (e.g. 87498740)" data-testid="ref-customer-id" />
+      <input id="rfReward" class="rf-input" type="number" placeholder="₹ Reward (default 100)" value="100" style="max-width:170px;" data-testid="ref-reward" />
+      <button class="rf-btn" onclick="issueCode()" data-testid="ref-issue-btn">Issue Code</button>
+    </div>
+    <div id="rfMsg" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="rf-card">
+    <h3 style="margin:0 0 12px;">Active Codes <button class="rf-btn green" style="float:right;" onclick="loadCodes()">Refresh</button></h3>
+    <div id="rfCodes" style="max-height:340px;overflow:auto;"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+
+<div class="rf-card">
+  <h3 style="margin:0 0 12px;">Referral Log <button class="rf-btn green" style="float:right;" onclick="loadLog()">Refresh</button></h3>
+  <div id="rfLog"><div class="empty">Loading…</div></div>
+</div>
+</section>
+
+<script>
+async function issueCode(){
+  const cid=document.getElementById('rfCustId').value.trim();
+  const rw=parseFloat(document.getElementById('rfReward').value)||100;
+  if(!cid){alert('Customer ID required');return;}
+  const r=await fetch('/api/admin/referrals/issue',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({customer_id:cid,reward_per_signup:rw})});
+  const d=await r.json();
+  if(d.success){
+    document.getElementById('rfMsg').innerHTML=`<span class="tag paid">Code: <b>${d.code}</b></span> ${d.existing?'(already existed)':'(new)'}`;
+    document.getElementById('rfCustId').value='';
+    loadCodes();
+  } else alert(d.message);
+}
+async function loadCodes(){
+  const r=await fetch('/api/admin/referrals/codes',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){document.getElementById('rfCodes').innerHTML='<div class="empty">Error</div>';return;}
+  if(d.items.length===0){document.getElementById('rfCodes').innerHTML='<div class="empty">No codes yet</div>';return;}
+  document.getElementById('rfCodes').innerHTML='<table><thead><tr><th>Customer</th><th>Code</th><th>Uses</th><th>Reward</th></tr></thead><tbody>'+
+    d.items.map(c=>`<tr data-testid="ref-row-${c.id}">
+      <td><b>${c.name||c.customer_id}</b><br><small>${c.phone||''}</small></td>
+      <td><span class="code-pill">${c.code}</span></td>
+      <td><b>${c.uses}</b></td>
+      <td>₹${c.reward_per_signup}</td>
+    </tr>`).join('')+'</tbody></table>';
+}
+async function loadLog(){
+  const r=await fetch('/api/admin/referrals/log',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){return;}
+  if(d.items.length===0){document.getElementById('rfLog').innerHTML='<div class="empty">No referrals yet</div>';return;}
+  document.getElementById('rfLog').innerHTML='<table><thead><tr><th>When</th><th>Referrer</th><th>Referee</th><th>Code</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+
+    d.items.map(r=>`<tr data-testid="ref-log-${r.id}">
+      <td>${r.created_at.substring(0,16)}</td>
+      <td>${r.referrer_name||r.referrer}</td>
+      <td>${r.referee_name||r.referee}</td>
+      <td><span class="code-pill">${r.code}</span></td>
+      <td>₹${r.amount}</td>
+      <td><span class="tag ${r.status}">${r.status}</span></td>
+      <td>${r.status==='pending'?'<button class="rf-btn green" onclick="payout('+r.id+')" data-testid="ref-payout-'+r.id+'">Mark Paid</button>':'-'}</td>
+    </tr>`).join('')+'</tbody></table>';
+}
+async function payout(id){
+  if(!confirm('Mark this referral as rewarded?')) return;
+  const r=await fetch('/api/admin/referrals/'+id+'/payout',{method:'POST',credentials:'include'});
+  if((await r.json()).success) loadLog();
+}
+loadCodes(); loadLog();
+</script>
+{% endblock %}

@@ -1,0 +1,970 @@
+{% extends base_template|default("base_admin.html") %}
+
+{# __ADMIN_PROFILE_PWD_GATE__ Demo-account: disable own-password change for company 94685303 #}
+{% if company_id|string == '94685303' %}
+<style>
+  /* Hide the Old/Password/Confirm rows on this profile page for the demo
+     company.  We target the .form-group containing the named inputs. */
+  .form-group:has(input[name="old_password"]),
+  .form-group:has(input[name="password"]),
+  .form-group:has(input[name="confirm_password"]) {
+    display: none !important;
+  }
+  /* Container rows that become empty after the 2-col hides — collapse them. */
+  .row:has(input[name="old_password"]):not(:has(input:not([name="old_password"]):not([type="hidden"]))),
+  .row:has(input[name="password"]):not(:has(input[name="confirm_password"])) {
+    display: none !important;
+  }
+  /* Defensive: a notice tells the demo user why password change is unavailable. */
+  .demo-pwd-notice {
+    display: block;
+    margin: 8px 0 18px;
+    padding: 10px 14px;
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.30);
+    border-radius: 10px;
+    color: #FCD34D;
+    font-size: 13px;
+  }
+</style>
+<script>
+  /* Hard-block password-change submit on the demo company even if user
+     somehow shows the fields. */
+  (function () {
+    function strip() {
+      ['old_password','password','confirm_password'].forEach(n => {
+        document.querySelectorAll('input[name="'+n+'"]').forEach(i => {
+          var fg = i.closest('.form-group') || i.parentElement;
+          if (fg) fg.style.display = 'none';
+          // Also remove value so it can't be submitted.
+          i.value = '';
+          i.disabled = true;
+          i.removeAttribute('required');
+        });
+      });
+      // Inject notice once
+      if (!document.getElementById('demo-pwd-notice')) {
+        var n = document.createElement('div');
+        n.id = 'demo-pwd-notice';
+        n.className = 'demo-pwd-notice';
+        n.innerHTML = '<i class="fa fa-info-circle"></i> Password change is disabled for the public demo account.';
+        var form = document.querySelector('form');
+        if (form) form.insertBefore(n, form.firstChild);
+      }
+      // Strip password fields from any submitted form data
+      document.querySelectorAll('form').forEach(f => {
+        f.addEventListener('submit', function (ev) {
+          ['old_password','password','confirm_password'].forEach(n => {
+            var i = f.querySelector('input[name="'+n+'"]');
+            if (i) { i.value = ''; i.disabled = true; }
+          });
+        }, true);
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', strip);
+    } else { strip(); }
+    setTimeout(strip, 600);
+  })();
+</script>
+{% endif %}
+
+
+{% block title %}Update Profile - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Update Profile
+        <small>Manage your profile and company details</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box box-primary">
+        <div class="box-body">
+            <form id="profileForm" method="POST" enctype="multipart/form-data">
+                <!-- Profile Image -->
+                <div class="text-center" style="margin-bottom: 30px;">
+                    <img src="{{ profile_image if profile_image else '/static/img/avatar-default.png' }}" 
+                         class="img-circle" 
+                         alt="Profile Image" 
+                         style="width: 150px; height: 150px; border: 3px solid #d2d6de;"
+                         onerror="this.onerror=null;this.src='/static/img/avatar-default.png';">
+                </div>
+
+                <!-- User Profile Section -->
+                <div class="row">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-user"></i> User Profile
+                        </h3>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Name *</label>
+                            <input type="text" class="form-control" name="name" placeholder="Enter your name" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Old Password</label>
+                            <input type="password" class="form-control" name="old_password" placeholder="Enter old password">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" class="form-control" name="password" placeholder="Enter new password">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Confirm Password</label>
+                            <input type="password" class="form-control" name="confirm_password" placeholder="Confirm new password">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Email *</label>
+                            <input type="email" class="form-control" name="email" placeholder="Enter email address" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Mobile *</label>
+                            <input type="tel" class="form-control" name="mobile" placeholder="Enter mobile number" required>
+                        </div>
+                    </div>
+                </div>
+
+                {% if user_type != 'employee' %}
+                <!-- Company Detail Section -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-building"></i> Company Detail
+                        </h3>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Company ID</label>
+                            <input type="text" class="form-control" name="company_id" value="{{ company_id|default('N/A') }}" readonly style="background-color: #f4f4f4; cursor: not-allowed;">
+                            <p class="help-block">This ID is generated by superadmin and cannot be changed</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Company Name *</label>
+                            <input type="text" class="form-control" name="company_name" placeholder="Enter company name" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Company Logo</label>
+                            <input type="file" class="form-control" name="company_logo" accept="image/*">
+                            <p class="help-block">Upload company logo (Max 2MB)</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Profile Image</label>
+                            <input type="file" class="form-control" name="profile_image" id="profile_image" accept="image/*">
+                            <p class="help-block">Upload your profile image (Max 2MB)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- _S39R5U_ — Seal & signature for invoice PDFs -->
+                <div class="row">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px; margin-top: 14px;">
+                            <i class="fa fa-pencil-square-o"></i> Seal &amp; Signature (for Invoices)
+                        </h3>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Upload Seal &amp; Signature (PNG)</label>
+                            <input type="file" class="form-control" id="seal_signature_input"
+                                   name="seal_signature" accept="image/png,image/jpeg" data-testid="seal-upload">
+                            <p class="help-block">
+                                PNG with transparent background recommended (Max 2&nbsp;MB).
+                                This will appear above "Authorised Signatory" on every invoice PDF.
+                            </p>
+                        </div>
+                        <div class="form-group" id="seal_preview_container" style="display: none;">
+                            <label>Current Seal &amp; Signature</label>
+                            <div style="border: 2px solid #ddd; padding: 10px; background-color: #f9f9f9; text-align: center; border-radius: 4px;">
+                                <img id="seal_preview_image" src=""
+                                     alt="Seal &amp; Signature Preview"
+                                     style="max-width: 240px; max-height: 110px; display: block; margin: 0 auto;"
+                                     data-testid="seal-preview">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- /_S39R5U_ -->
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Company Address *</label>
+                            <input type="text" class="form-control" name="company_address" placeholder="Enter complete address" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>Country *</label>
+                            <select class="form-control" id="country" name="country" required>
+                                <option value="">Select Country</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>State *</label>
+                            <select class="form-control" id="state" name="state" required disabled>
+                                <option value="">Select State</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label>City *</label>
+                            <select class="form-control" id="city" name="city" required disabled>
+                                <option value="">Select City</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Pincode *</label>
+                            <input type="text" class="form-control" name="pincode" placeholder="Enter pincode" required maxlength="6">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>GST Number</label>
+                            <input type="text" class="form-control" name="gst_number" placeholder="Enter GST number" maxlength="15">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bank Details Section -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-bank"></i> Bank Details
+                        </h3>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Bank Name</label>
+                            <input type="text" class="form-control" name="bank_name" placeholder="Enter bank name">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Branch Code</label>
+                            <input type="text" class="form-control" name="branch_code" placeholder="Enter branch code">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Account No</label>
+                            <input type="text" class="form-control" name="account_no" placeholder="Enter account number">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Branch Location</label>
+                            <input type="text" class="form-control" name="branch_location" placeholder="Enter branch location">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>IFSC Code</label>
+                            <input type="text" class="form-control" name="ifsc" placeholder="Enter IFSC code">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>UPI ID</label>
+                            <input type="text" class="form-control" name="upi_id" placeholder="Enter UPI ID (e.g., yourname@upi)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- __S43ZW__ Account holder name (shown on customer pay page) -->
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Account Holder Name <small style="color:#64748b;">(displayed to customers on the pay page)</small></label>
+                            <input type="text" class="form-control" name="account_holder_name"
+                                   placeholder="e.g., FIBERNET CABLE & DATACOM" data-testid="bank-account-holder-name">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QR Code For Payments Section -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-qrcode"></i> QR Code For Payments
+                        </h3>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>QR Code</label>
+                            <input type="file" class="form-control" id="qr_code_input" name="qr_code" accept="image/*">
+                            <p class="help-block">Upload payment QR code (Max 2MB)</p>
+                        </div>
+                        <!-- QR Code Preview -->
+                        <div class="form-group" id="qr_preview_container" style="display: none;">
+                            <label>QR Code Preview</label>
+                            <div style="border: 2px solid #ddd; padding: 10px; background-color: #f9f9f9; text-align: center; border-radius: 4px;">
+                                <img id="qr_preview_image" src="" alt="QR Code Preview" style="max-width: 200px; max-height: 200px; display: block; margin: 0 auto;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Invoice Terms Section -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-file-text"></i> Invoice Terms & Conditions
+                        </h3>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Declaration</label>
+                            <textarea class="form-control" name="declaration" rows="4" placeholder="Enter declaration text for invoices (e.g., 'We declare that this invoice shows the actual price of the goods described...')"></textarea>
+                            <p class="help-block">This text will appear on invoices as a declaration statement</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="form-group">
+                            <label>Terms & Conditions</label>
+                            <textarea class="form-control" name="terms_conditions" rows="4" placeholder="Enter terms and conditions for invoices (e.g., 'Payment is due within 30 days...')"></textarea>
+                            <p class="help-block">This text will appear on invoices as terms and conditions</p>
+                        </div>
+                    </div>
+                </div>
+                                <!-- === S41Y-UI Auto-email toggles per company === -->
+                <div class="row" style="margin-top:18px;">
+                  <div class="col-md-12">
+                    <h4 style="font-weight:700; border-bottom:1px solid #eee; padding-bottom:6px;">
+                      <i class="fa fa-envelope"></i> Auto-Email Settings
+                    </h4>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6">
+                    <div class="form-group" style="padding:8px; background:#fafafa; border:1px solid #eee; border-radius:4px;">
+                      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin:0;">
+                        <input type="checkbox" name="auto_email_invoices" id="auto_email_invoices" value="1">
+                        <span><strong>Auto-email Invoices</strong></span>
+                      </label>
+                      <p class="help-block" style="margin:6px 0 0 26px;">
+                        Send invoice PDFs by email automatically on
+                        new customer, manual renew, auto-renew and plan-change.
+                        Admins can always trigger manually from the per-invoice "Send Email" button.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="form-group" style="padding:8px; background:#fafafa; border:1px solid #eee; border-radius:4px;">
+                      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin:0;">
+                        <input type="checkbox" name="auto_email_receipts" id="auto_email_receipts" value="1">
+                        <span><strong>Auto-email Payment Receipts</strong></span>
+                      </label>
+                      <p class="help-block" style="margin:6px 0 0 26px;">
+                        Default is OFF. When ON, every recorded payment
+                        triggers a receipt email automatically. Admins can
+                        always trigger manually from the "Send Receipt" button.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {% endif %}
+
+                <!-- Submit Button -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fa fa-save"></i> Update
+                        </button>
+                        <a href="{{ '/employee/dashboard' if user_type == 'employee' else '/admin/dashboard' }}" class="btn btn-default btn-lg">
+                            <i class="fa fa-times"></i> Cancel
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- __S43ZQ_GW_SECTION__ Payment Gateway — admin-only, gated by superadmin -->
+    {% if (company and (company.payment_gateway_enabled or company.enable_online_payment)) %}
+    <div class="box box-warning" id="pgSection" data-testid="payment-gateway-section">
+      <div class="box-header with-border">
+        <h3 class="box-title" style="color:#c47f00;border-bottom:2px solid #c47f00;padding-bottom:10px;width:100%;margin:0;">
+          <i class="fa fa-credit-card"></i> Payment Gateway
+          <small style="color:#64748b;font-weight:400;font-size:12px;">Configure your own merchant account — payments go directly to you.</small>
+        </h3>
+      </div>
+      <div class="box-body">
+        <div class="row">
+          <div class="col-md-4">
+            <div class="form-group">
+              <label>Choose Gateway</label>
+              <select class="form-control" id="pgSelect" data-testid="pg-select">
+                <option value="">-- Select gateway --</option>
+              </select>
+              <small id="pgConfiguredHint" style="color:#0ea5e9;display:none;">
+                <i class="fa fa-check-circle"></i> Already configured
+              </small>
+            </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="pgIsDefault" data-testid="pg-is-default">
+                Set as default for online payments
+              </label>
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select class="form-control" id="pgStatus" data-testid="pg-status">
+                <option value="Active">Active</option>
+                <option value="Disabled">Disabled</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <div id="pgDynFields"></div>
+            <div id="pgEmptyHint" style="color:#64748b;padding:14px 0;">
+              <i class="fa fa-info-circle"></i> Choose a gateway from the left to see its credential fields.
+            </div>
+            <div id="pgActions" style="display:none;margin-top:10px;">
+              <button type="button" class="btn btn-primary" id="pgSaveBtn" data-testid="pg-save-btn">
+                <i class="fa fa-save"></i> Save Gateway
+              </button>
+              <button type="button" class="btn btn-default" id="pgTestBtn" data-testid="pg-test-btn">
+                <i class="fa fa-flask"></i> Test Credentials
+              </button>
+              <button type="button" class="btn btn-danger pull-right" id="pgDeleteBtn" data-testid="pg-delete-btn"
+                      style="display:none;">
+                <i class="fa fa-trash"></i> Remove
+              </button>
+            </div>
+            <div id="pgFlash" style="margin-top:10px;"></div>
+            <div id="pgLastTest" style="margin-top:6px;color:#64748b;font-size:12px;"></div>
+            <div style="margin-top:14px;padding:10px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e;">
+              <i class="fa fa-shield"></i> Secrets are encrypted with AES (Fernet) before being stored. They are never shown back in plain text — only the last 4 characters as a hint.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+</section>
+
+<style>
+    .box-primary {
+        border-top-color: #00a65a;
+    }
+    .form-control {
+        border-radius: 3px;
+    }
+    .btn-primary {
+        background-color: #00a65a;
+        border-color: #00a65a;
+    }
+    .btn-primary:hover {
+        background-color: #008d4c;
+        border-color: #008d4c;
+    }
+    .help-block {
+        color: #999;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Load countries on page load
+    $.getJSON('/static/data/countries.json', function(countries) {
+        var countrySelect = $('#country');
+        $.each(countries, function(index, country) {
+            countrySelect.append($('<option>', {
+                value: country.code,
+                text: country.name
+            }));
+        });
+    }).fail(function() {
+        console.error('Failed to load countries');
+        alert('Failed to load countries. Please refresh the page.');
+    });
+
+    // When country changes, load states
+    $('#country').change(function() {
+        var countryCode = $(this).val();
+        var stateSelect = $('#state');
+        var citySelect = $('#city');
+        
+        // Reset and disable state and city dropdowns
+        stateSelect.html('<option value="">Select State</option>').prop('disabled', true);
+        citySelect.html('<option value="">Select City</option>').prop('disabled', true);
+        
+        if (countryCode) {
+            // Load states for selected country
+            $.getJSON('/static/data/states_' + countryCode + '.json', function(states) {
+                $.each(states, function(index, state) {
+                    stateSelect.append($('<option>', {
+                        value: state.code,
+                        text: state.name
+                    }));
+                });
+                stateSelect.prop('disabled', false);
+            }).fail(function() {
+                console.error('Failed to load states for country: ' + countryCode);
+                alert('Failed to load states. Please try again.');
+            });
+        }
+    });
+
+    // When state changes, load cities
+    $('#state').change(function() {
+        var countryCode = $('#country').val();
+        var stateCode = $(this).val();
+        var citySelect = $('#city');
+        
+        // Reset and disable city dropdown
+        citySelect.html('<option value="">Select City</option>').prop('disabled', true);
+        
+        if (stateCode && countryCode) {
+            // Load cities for selected state from single JSON file
+            $.getJSON('/static/data/cities_' + countryCode + '.json', function(allCities) {
+                var cities = allCities[stateCode] || [];
+                $.each(cities, function(index, city) {
+                    citySelect.append($('<option>', {
+                        value: city,
+                        text: city
+                    }));
+                });
+                citySelect.prop('disabled', false);
+                if (cities.length === 0) {
+                    console.warn('No cities found for state: ' + stateCode);
+                }
+            }).fail(function() {
+                console.error('Failed to load cities for country: ' + countryCode);
+                alert('Failed to load cities. Please try again.');
+            });
+        }
+    });
+
+    // Profile image preview
+    $('#profile_image').change(function() {
+        var file = this.files[0];
+        if (file) {
+            // Check file size (2MB = 2097152 bytes)
+            if (file.size > 2097152) {
+                alert('File size must be less than 2MB');
+                $(this).val('');
+                return;
+            }
+            
+            // Check file type
+            if (!file.type.match('image.*')) {
+                alert('Please select an image file');
+                $(this).val('');
+                return;
+            }
+            
+            // Show preview
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                $('.img-circle').attr('src', e.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // QR Code image preview
+    $('#qr_code_input').change(function() {
+        var file = this.files[0];
+        if (file) {
+            // Check file size (2MB = 2097152 bytes)
+            if (file.size > 2097152) {
+                alert('File size must be less than 2MB');
+                $(this).val('');
+                $('#qr_preview_container').hide();
+                return;
+            }
+            
+            // Check file type
+            if (!file.type.match('image.*')) {
+                alert('Please select an image file');
+                $(this).val('');
+                $('#qr_preview_container').hide();
+                return;
+            }
+            
+            // Show preview
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                $('#qr_preview_image').attr('src', e.target.result);
+                $('#qr_preview_container').show();
+            };
+            reader.readAsDataURL(file);
+        } else {
+            $('#qr_preview_container').hide();
+        }
+    });
+
+    // _S39R5U_ — Seal & signature image preview (PNG)
+    $('#seal_signature_input').change(function() {
+        var file = this.files[0];
+        if (!file) { $('#seal_preview_container').hide(); return; }
+        if (file.size > 2097152) {
+            alert('File size must be less than 2MB');
+            $(this).val(''); $('#seal_preview_container').hide(); return;
+        }
+        if (!file.type.match('image.*')) {
+            alert('Please select an image (PNG recommended)');
+            $(this).val(''); $('#seal_preview_container').hide(); return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            $('#seal_preview_image').attr('src', e.target.result);
+            $('#seal_preview_container').show();
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Load profile data on page load
+    $.ajax({
+        url: '/api/profile/get',
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                console.error('Error loading profile:', data.error);
+                return;
+            }
+            
+            // Populate admin fields
+            $('input[name="name"]').val(data.admin.admin_name);
+            $('input[name="email"]').val(data.admin.admin_email);
+            $('input[name="mobile"]').val(data.admin.admin_mobile);
+            
+            // Populate company fields
+            $('input[name="company_name"]').val(data.company.company_name);
+            $('input[name="company_address"]').val(data.company.company_address);
+            $('input[name="pincode"]').val(data.company.pincode);
+            $('input[name="gst_number"]').val(data.company.gst_number);
+            $('input[name="bank_name"]').val(data.company.bank_name);
+            $('input[name="branch_code"]').val(data.company.branch_code);
+            $('input[name="account_no"]').val(data.company.account_number);
+            $('input[name="branch_location"]').val(data.company.branch_location);
+            $('input[name="ifsc"]').val(data.company.branch_ifsc);
+            $('input[name="upi_id"]').val(data.company.upi_id);
+            $('input[name="account_holder_name"]').val(data.company.account_holder_name || '');
+            $('textarea[name="declaration"]').val(data.company.declaration || '');
+            $('textarea[name="terms_conditions"]').val(data.company.terms_conditions || '');
+            // === S41Y-UI load auto-email toggles ===
+            $('#auto_email_invoices').prop('checked',
+                Number(data.company.auto_email_invoices || 0) === 1);
+            $('#auto_email_receipts').prop('checked',
+                Number(data.company.auto_email_receipts || 0) === 1);
+            
+            // Set profile image if exists
+            if (data.admin.profile_image_path) {
+                $('.img-circle').attr('src', data.admin.profile_image_path);
+            } else {
+                $('.img-circle').attr('src', '/static/img/avatar-default.png');
+            }
+            
+            // Set QR code preview if exists
+            if (data.company.bank_qr_code) {
+                $('#qr_preview_image').attr('src', data.company.bank_qr_code);
+                $('#qr_preview_container').show();
+            } else {
+                $('#qr_preview_container').hide();
+            }
+
+            // _S39R5U_ — Seal & signature preview from saved path
+            if (data.admin.seal_signature_path) {
+                $('#seal_preview_image').attr('src', data.admin.seal_signature_path);
+                $('#seal_preview_container').show();
+            } else {
+                $('#seal_preview_container').hide();
+            }
+            
+            // Set location dropdowns
+            if (data.company.country) {
+                $('#country').val(data.company.country).trigger('change');
+                setTimeout(function() {
+                    if (data.company.state) {
+                        $('#state').val(data.company.state).trigger('change');
+                        setTimeout(function() {
+                            if (data.company.city) {
+                                $('#city').val(data.company.city);
+                            }
+                        }, 500);
+                    }
+                }, 500);
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Failed to load profile:', error);
+        }
+    });
+
+    // Form validation and submission
+    $('#profileForm').submit(function(e) {
+        e.preventDefault();
+        
+        var password = $('input[name="password"]').val();
+        var confirmPassword = $('input[name="confirm_password"]').val();
+        
+        if (password && password !== confirmPassword) {
+            alert('Passwords do not match!');
+            return false;
+        }
+        
+        // If old password is provided, new password must also be provided
+        var oldPassword = $('input[name="old_password"]').val();
+        if (oldPassword && !password) {
+            alert('Please enter a new password');
+            return false;
+        }
+        
+        // Submit form via AJAX
+        var formData = new FormData(this);
+        
+        $.ajax({
+            url: '/api/profile/update',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                if (response.error) {
+                    alert('Error: ' + response.error);
+                } else {
+                    alert('Profile updated successfully!');
+                    location.reload();
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Failed to update profile: ' + error);
+            }
+        });
+        
+        return false;
+    });
+});
+</script>
+
+{# __S43ZQ_GW_JS__ #}
+{% if (company and (company.payment_gateway_enabled or company.enable_online_payment)) %}
+<script>
+(function(){
+  var SCHEMAS = null, CURRENT = null;
+
+  function el(tag, attrs, kids){ var n=document.createElement(tag); for(var k in (attrs||{})){ if(k==='style'){ n.style.cssText = attrs[k]; } else if(k==='html'){ n.innerHTML = attrs[k]; } else { n.setAttribute(k, attrs[k]); } } (kids||[]).forEach(function(c){ n.appendChild(c); }); return n; }
+  function flash(msg, ok){ var f = document.getElementById('pgFlash'); if(!f) return; f.innerHTML = '<div class="alert alert-'+(ok?'success':'danger')+'" style="padding:8px 12px;margin:0;">'+ (msg||'') +'</div>'; setTimeout(function(){ f.innerHTML=''; }, 6000); }
+
+  function renderFields(gw){
+    var holder = document.getElementById('pgDynFields');
+    var emptyHint = document.getElementById('pgEmptyHint');
+    var actions = document.getElementById('pgActions');
+    holder.innerHTML = '';
+    if(!gw || !SCHEMAS[gw]){ emptyHint.style.display=''; actions.style.display='none'; return; }
+    emptyHint.style.display='none';
+    actions.style.display='';
+    var schema = SCHEMAS[gw];
+    var configured = (CURRENT.configured || {})[gw];
+    var hint = document.getElementById('pgConfiguredHint');
+    hint.style.display = configured ? 'inline-block' : 'none';
+    document.getElementById('pgDeleteBtn').style.display = configured ? 'inline-block' : 'none';
+    document.getElementById('pgIsDefault').checked = !!(configured && configured.is_default);
+    document.getElementById('pgStatus').value = (configured && configured.status) || 'Active';
+    var lt = document.getElementById('pgLastTest');
+    if(configured && configured.last_tested_at){
+      lt.innerHTML = '<i class="fa fa-clock-o"></i> Last test: ' + (configured.last_test_result || 'pass');
+    } else { lt.innerHTML = ''; }
+
+    schema.fields.forEach(function(fld){
+      var grp = document.createElement('div'); grp.className='form-group';
+      var label = document.createElement('label'); label.textContent = fld.label + (fld.required ? ' *' : '');
+      var input = document.createElement('input');
+      input.className = 'form-control'; input.id = 'pgFld_' + fld.name;
+      input.name = fld.name;
+      input.type = fld.type === 'password' ? 'password' : 'text';
+      input.setAttribute('data-testid', 'pg-fld-' + fld.name);
+      input.setAttribute('autocomplete','off');
+      var placeholder = fld.placeholder || '';
+      if(configured && configured.fields && configured.fields[fld.name] && configured.fields[fld.name].set){
+        placeholder = 'Saved (' + (configured.fields[fld.name].masked || '••••') + ') — leave blank to keep';
+      }
+      input.placeholder = placeholder;
+      grp.appendChild(label); grp.appendChild(input);
+      if(fld.help){
+        var h = document.createElement('small'); h.style.color = '#64748b'; h.textContent = fld.help;
+        grp.appendChild(h);
+      }
+      holder.appendChild(grp);
+    });
+    var docs = schema.docs ? '<a href="'+schema.docs+'" target="_blank" rel="noopener">'+schema.label+' dashboard ↗</a>' : '';
+    if(docs){
+      var docNote = document.createElement('div');
+      docNote.style.cssText = 'margin-top:4px;font-size:12px;color:#64748b;';
+      docNote.innerHTML = '<i class="fa fa-external-link"></i> Get your credentials from ' + docs;
+      holder.appendChild(docNote);
+    }
+    // __S43ZU__ Webhook URL helper — shown for every gateway.
+    if (CURRENT && CURRENT.webhook_urls && CURRENT.webhook_urls[gw]) {
+      var url = CURRENT.webhook_urls[gw];
+      var box = document.createElement('div');
+      box.style.cssText = 'margin-top:14px;padding:12px 14px;background:#0b1f33;border:1px solid #1e3a5f;border-radius:8px;color:#cbd5e1;';
+      var note = (gw === 'ccavenue')
+        ? '<i class="fa fa-info-circle"></i> CCAvenue uses a per-transaction redirect URL (not a dashboard-configured webhook). The URL below is set automatically by our system when creating each order — no admin action needed.'
+        : (gw === 'stripe')
+        ? '<i class="fa fa-info-circle"></i> Copy this URL into your Stripe dashboard <b>Developers → Webhooks → Add endpoint</b>, and paste the resulting <code>whsec_…</code> into the Webhook Secret field above.'
+        : '<i class="fa fa-info-circle"></i> Paste this URL into your '+schema.label+' dashboard&apos;s webhook configuration. Our system will then receive payment confirmations automatically.';
+      box.innerHTML =
+        '<div style="font-size:12px;color:#94a3b8;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">'+
+          '<i class="fa fa-link"></i> Webhook URL for '+schema.label+
+        '</div>'+
+        '<div style="display:flex;gap:8px;align-items:stretch;">'+
+          '<input class="form-control" readonly value="'+url+'" id="pgWhUrl" data-testid="pg-webhook-url" style="font-family:monospace;font-size:12px;">'+
+          '<button type="button" class="btn btn-default" id="pgWhCopyBtn" data-testid="pg-webhook-copy" style="white-space:nowrap;">'+
+            '<i class="fa fa-clipboard"></i> Copy'+
+          '</button>'+
+        '</div>'+
+        '<div style="font-size:11px;color:#94a3b8;margin-top:8px;line-height:1.5;">'+ note +'</div>';
+      holder.appendChild(box);
+      // Wire copy button
+      setTimeout(function(){
+        var btn = document.getElementById('pgWhCopyBtn');
+        var inp = document.getElementById('pgWhUrl');
+        if(btn && inp){
+          btn.addEventListener('click', function(){
+            try { navigator.clipboard.writeText(inp.value); }
+            catch(e){ inp.select(); document.execCommand('copy'); }
+            btn.innerHTML = '<i class="fa fa-check"></i> Copied!';
+            setTimeout(function(){ btn.innerHTML = '<i class="fa fa-clipboard"></i> Copy'; }, 1800);
+          });
+        }
+      }, 50);
+    }
+  }
+
+  function loadAll(){
+    fetch('/api/admin/payment-gateway').then(function(r){return r.json();}).then(function(d){
+      if(!d.success){ flash(d.message||'Failed to load gateways', false); return; }
+      CURRENT = d; SCHEMAS = d.schemas;
+      var sel = document.getElementById('pgSelect');
+      sel.innerHTML = '<option value="">-- Select gateway --</option>';
+      (d.options||[]).forEach(function(o){
+        var opt = document.createElement('option');
+        opt.value = o.name;
+        opt.textContent = o.label + (o.active ? '' : ' (configure-only)');
+        if(d.configured && d.configured[o.name]) opt.textContent += '  ✓';
+        sel.appendChild(opt);
+      });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    if(!document.getElementById('pgSelect')) return;
+    loadAll();
+    document.getElementById('pgSelect').addEventListener('change', function(e){
+      renderFields(e.target.value);
+    });
+    document.getElementById('pgSaveBtn').addEventListener('click', function(){
+      var gw = document.getElementById('pgSelect').value;
+      if(!gw){ flash('Pick a gateway first', false); return; }
+      var body = { gateway_name: gw,
+                   is_default: document.getElementById('pgIsDefault').checked ? 1 : 0,
+                   status: document.getElementById('pgStatus').value };
+      SCHEMAS[gw].fields.forEach(function(fld){
+        var v = (document.getElementById('pgFld_'+fld.name)||{}).value;
+        if(v && v.length) body[fld.name] = v;
+      });
+      fetch('/api/admin/payment-gateway', { method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(body) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ flash(d.message || (d.success?'Saved':'Failed'), !!d.success); if(d.success) loadAll(); });
+    });
+    document.getElementById('pgTestBtn').addEventListener('click', function(){
+      var gw = document.getElementById('pgSelect').value;
+      if(!gw){ flash('Pick a gateway first', false); return; }
+      flash('Testing…', true);
+      fetch('/api/admin/payment-gateway/test', { method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ gateway_name: gw }) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ flash(d.message || (d.success?'OK':'Failed'), !!d.success); loadAll(); });
+    });
+    document.getElementById('pgDeleteBtn').addEventListener('click', function(){
+      var gw = document.getElementById('pgSelect').value;
+      if(!gw) return;
+      if(!confirm('Remove '+gw+' credentials? Customers won\'t be able to pay via this gateway until you re-add it.')) return;
+      fetch('/api/admin/payment-gateway/delete', { method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ gateway_name: gw }) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ flash(d.message || (d.success?'Removed':'Failed'), !!d.success); loadAll(); renderFields(''); document.getElementById('pgSelect').value=''; });
+    });
+  });
+})();
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,190 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Add Employee - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<div class="content-wrapper" style="margin-left: 0; padding: 20px;">
+    <section class="content-header" style="margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">
+            Add Employee
+            <small style="font-size: 14px; color: #666; margin-left: 10px;">Create new employee with permissions</small>
+        </h1>
+    </section>
+
+    <section class="content">
+        <form id="addEmployeeForm">
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Employee Profile
+                </h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Name <span style="color: red;">*</span></label>
+                        <input type="text" id="employee_name" name="employee_name" class="form-control" placeholder="Enter employee name" required style="padding: 8px; font-size: 14px;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Password <span style="color: red;">*</span></label>
+                        <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required style="padding: 8px; font-size: 14px;">
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Employee Detail
+                </h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Employee ID</label>
+                        <input type="text" class="form-control" value="Auto-generated" readonly style="padding: 8px; font-size: 14px; background: #f5f5f5;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Mobile <span style="color: red;">*</span></label>
+                        <input type="tel" id="mobile" name="mobile" class="form-control" placeholder="Enter mobile number" required style="padding: 8px; font-size: 14px;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Email</label>
+                        <input type="email" id="email" name="email" class="form-control" placeholder="Enter email (optional)" style="padding: 8px; font-size: 14px;">
+                    </div>
+                </div>
+                
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Address</label>
+                    <textarea id="address" name="address" class="form-control" placeholder="Enter address (optional)" rows="3" style="padding: 8px; font-size: 14px;"></textarea>
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Feature Accessibility
+                </h3>
+                
+                <div id="featurePermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    App Permission
+                </h3>
+                
+                <div id="appPermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Report Accessibility Permission
+                </h3>
+                
+                <div id="reportPermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary" style="background: #667eea; border: none; padding: 10px 30px; font-size: 14px; font-weight: 600;">
+                    Create Employee
+                </button>
+                <a href="{{ path_prefix|default('/admin') }}/employees" class="btn btn-default" style="padding: 10px 30px; font-size: 14px; font-weight: 600; border: 1px solid #ddd;">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $.ajax({
+        url: '/api/permissions/list',
+        type: 'GET',
+        success: function(response) {
+            if (response.success) {
+                const permissions = response.permissions;
+                
+                permissions.feature.forEach(function(perm) {
+                    $('#featurePermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+                
+                permissions.app.forEach(function(perm) {
+                    $('#appPermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+                
+                permissions.report.forEach(function(perm) {
+                    $('#reportPermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+            } else {
+                alert('Failed to load permissions: ' + response.message);
+            }
+        },
+        error: function() {
+            alert('Failed to load permissions');
+        }
+    });
+
+    $('#addEmployeeForm').submit(function(e) {
+        e.preventDefault();
+        
+        const permissions = [];
+        $('input[name="permissions"]:checked').each(function() {
+            permissions.push(parseInt($(this).val()));
+        });
+        
+        const data = {
+            employee_name: $('#employee_name').val().trim(),
+            password: $('#password').val(),
+            mobile: $('#mobile').val().trim(),
+            email: $('#email').val().trim(),
+            address: $('#address').val().trim(),
+            permissions: permissions
+        };
+        
+        if (!data.employee_name || !data.password || !data.mobile) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/employees/create',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                if (response.success) {
+                    alert('Employee created successfully! Employee ID: ' + response.employee_code);
+                    window.location.href = '{{ path_prefix|default("/admin") }}/employees';
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                alert('Failed to create employee: ' + (response ? response.message : 'Unknown error'));
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

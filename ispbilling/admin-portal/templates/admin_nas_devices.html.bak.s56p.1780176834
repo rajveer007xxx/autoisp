@@ -1,0 +1,2531 @@
+{% extends "base_admin.html" %}
+
+{% block title %}NAS Devices - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header { padding: 15px; background: #fff; border-bottom: 1px solid #d2d6de; }
+    .content-header h1 { margin: 0; font-size: 22px; font-weight: 500; }
+    .btn-bar { float: right; margin-top: -5px; display: flex; gap: 6px; }
+    .btn-bar .btn { font-size: 13px; padding: 7px 14px; }
+    .btn-add { background: #17a2b8; color: #fff; border: none; }
+    .btn-add:hover { background: #138496; color: #fff; }
+    .btn-sync { background: #6f42c1; color: #fff; border: none; }
+    .btn-sync:hover { background: #5a34a6; color: #fff; }
+    .data-table th, .data-table td { vertical-align: middle !important; text-align: center !important; font-size: 13px; }
+    .data-table td.nowrap { white-space: nowrap; }
+    .badge-active  { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-inactive { background: #6c757d; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .status-ok    { color: #28a745; font-weight: 600; }
+    .status-err   { color: #dc3545; font-weight: 600; }
+    .status-unk   { color: #adb5bd; }
+    .btn-action { padding: 3px 8px; font-size: 11px; margin: 1px; }
+    .btn-configure { background: #fd7e14; color: #fff; border: none; }
+    .btn-configure:hover { background: #e06b0c; color: #fff; }
+    .btn-test { background: #0d6efd; color: #fff; border: none; }
+    .btn-secrets { background: #198754; color: #fff; border: none; }
+    .modal-header { background: #3c8dbc; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-header .close { color: #fff; opacity: 1; }
+    .form-group label { font-weight: 600; color: #555; font-size: 12px; margin-bottom: 3px; }
+    .modal-lg-wide .modal-dialog { width: 95%; max-width: 900px; }
+    .cmd-output { background: #0d1117; color: #d1d9e1; padding: 14px; border-radius: 6px; font-family: monospace; font-size: 12px; max-height: 380px; overflow-y: auto; white-space: pre-wrap; }
+    .cmd-output .cli { color: #7ee787; }
+    .task-pill { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; margin: 1px; background: #e9ecef; color: #343a40; }
+    .transport-pill { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; background: #cfe2ff; color: #084298; }
+    .muted { color: #6c757d; font-size: 11px; }
+    .form-section { background: #f8f9fa; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 5px; margin-bottom: 12px; }
+    .form-section h5 { margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: #334155; }
+    .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        NAS Devices
+        <span class="btn-bar">
+            <button type="button" class="btn btn-add" data-toggle="modal" data-target="#nasModal" onclick="openAddNas()" data-testid="nas-add-btn">
+                <i class="fa fa-plus"></i> Add NAS Device
+            </button>
+            <button type="button" class="btn" style="background:#0ea5e9;color:#fff;border:none;margin-left:6px;" onclick="harmonizeStaticIps()" data-testid="harmonize-static-ips-btn" title="Push ARP / route / firewall / PPPoE-pin on the NAS for every customer with a static IP. Makes both PPPoE and raw-static CPE configs work.">
+                <i class="fa fa-network-wired"></i> Harmonize Static IPs
+            </button>
+<!-- S30 bulk export toolbar -->
+<div id="s30ExportTools_nas_devices" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+<script src="/static/js/bulk_export.js"></script>
+<script>
+(function(){
+  var tryMount = function(){
+    if (window.BulkExport && window.jQuery) {
+      BulkExport.mount('#s30ExportTools_nas_devices', '/api/admin/nas/export-full', 'nas_devices');
+    } else { setTimeout(tryMount, 80); }
+  };
+  tryMount();
+})();
+</script>
+
+        </span>
+    </h1>
+    <p class="muted">Connect Mikrotik routers via API / API-SSL / SSH. Use <strong>Test</strong> to verify connectivity and <strong>Status</strong> for a live snapshot. Advanced actions (Auto-Configure, RADIUS diagnostics, firewall unblock, PPPoE-profile fix, secret sync, unprovision) are available to your SuperAdmin only — contact them if you need an action performed.</p>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-body">
+            <table class="table table-bordered table-striped data-table">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Name</th><th>IP:Port</th><th>Transport</th><th>Type</th><th>Location</th>
+                        <th>Status</th><th>Last Check</th><th>Provisioned</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for n in nas_devices %}
+                    <tr data-testid="nas-row-{{ n.id }}">
+                        <td>{{ loop.index }}</td>
+                        <td><strong>{{ n.name }}</strong></td>
+                        <td><code>{{ n.ip_address }}:{{ n.port or 8728 }}</code></td>
+                        <td>
+                            {% if n.use_ssh %}<span class="transport-pill">SSH:{{ n.ssh_port or 22 }}</span>
+                            {% elif n.use_tls %}<span class="transport-pill">API-SSL</span>
+                            {% else %}<span class="transport-pill">API</span>{% endif %}
+                        </td>
+                        <td>{{ n.type }}</td>
+                        <td>{{ n.location }}</td>
+                        <td>
+                            {% if n.status == 'Active' %}<span class="badge-active">Active</span>
+                            {% else %}<span class="badge-inactive">Inactive</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if n.last_status == 'ok' %}<span class="status-ok">OK</span>
+                            {% elif n.last_status == 'error' %}<span class="status-err" title="{{ n.last_status_msg }}">Error</span>
+                            {% else %}<span class="status-unk">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if n.provisioned_at %}{{ n.provisioned_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}<span class="muted">Never</span>{% endif %}
+                        </td>
+                        <td class="nowrap">
+                            <button class="btn btn-test btn-action" onclick="testNas({{ n.id }})" data-testid="nas-test-{{ n.id }}"><i class="fa fa-plug"></i> Test</button>
+                            <button class="btn btn-action" style="background:#10b981;color:#fff;border:none;" onclick="openComplianceScript({{ n.id }}, '{{ n.name|e }}', 'ipdr')" data-testid="nas-cscript-ipdr-{{ n.id }}" title="Generate IPDR exporter script"><i class="fa fa-file-code-o"></i> IPDR</button>
+                            <button class="btn btn-action" style="background:#0ea5e9;color:#fff;border:none;" onclick="openComplianceScript({{ n.id }}, '{{ n.name|e }}', 'url')" data-testid="nas-cscript-url-{{ n.id }}" title="Generate URL-log exporter script"><i class="fa fa-globe"></i> URL Logs</button>
+                            <button class="btn btn-action" style="background:#0891b2;color:#fff;border:none;" onclick="openRouterStatus({{ n.id }}, '{{ n.name }}')" data-testid="nas-status-{{ n.id }}" title="Live health snapshot: online users, firewall, pools, RADIUS"><i class="fa fa-heartbeat"></i> Status</button>
+                            {# __s56i_nas_vlan_btn__ #}
+                            <button class="btn btn-action" style="background:#0e7490;color:#fff;border:none;" onclick="nasManageVlan({{ n.id }}, '{{ n.name|e }}')" data-testid="nas-manage-vlan-{{ n.id }}" title="Seed VLAN pool & one-click MikroTik VLAN trunk setup for this NAS"><i class="fa fa-tag"></i> VLAN</button>
+                            {# __s56g_admin_nas_btns__ : Cloud Tunnel actions, only for WG-provisioned NAS #}
+                            {% if n.ip_address and n.ip_address.startswith('10.50.') %}
+                            <button class="btn btn-action" style="background:#2563eb;color:#fff;border:none;" onclick="adminNasViewScript({{ n.id }}, '{{ n.name|e }}')" data-testid="nas-view-script-{{ n.id }}" title="View Mikrotik Tunnel Script"><i class="fa fa-shield-alt"></i> Tunnel</button>
+                            <button class="btn btn-action" style="background:#1e3a8a;color:#fff;border:none;" onclick="adminNasTunnelStatus({{ n.id }}, '{{ n.name|e }}')" data-testid="nas-tunnel-status-{{ n.id }}" title="Tunnel Status"><i class="fa fa-heart"></i> Tunnel Status</button>
+                            {% endif %}
+                            <button class="btn btn-warning btn-action" onclick='editNas({{ n.id }}, {{ {"name": n.name, "ip_address": n.ip_address, "secret": n.secret, "type": n.type, "location": n.location, "status": n.status, "api_username": n.api_username, "api_password": "", "port": n.port, "use_tls": n.use_tls, "use_ssh": n.use_ssh, "ssh_port": n.ssh_port, "auth_modes": n.auth_modes, "pppoe_service_name": n.pppoe_service_name, "pppoe_interface": n.pppoe_interface, "pppoe_vlan_id": n.pppoe_vlan_id, "hotspot_interface": n.hotspot_interface, "hotspot_dns_name": n.hotspot_dns_name, "hotspot_pool_name": n.hotspot_pool_name} | tojson }})'><i class="fa fa-edit"></i></button>
+                            <button class="btn btn-danger btn-action" onclick="deleteNas({{ n.id }})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Add / Edit NAS -->
+<div class="modal fade modal-lg-wide" id="nasModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title" id="nasModalTitle">Add NAS Device</h4>
+            </div>
+            <div class="modal-body">
+                <form id="nasForm">
+                    <input type="hidden" id="nas_id">
+                    <div class="form-section">
+                        <h5>Identity</h5>
+                        <div class="row">
+                            <!-- __s56f_conn_mode__ : Direct vs Cloud Tunnel selector -->
+                            <div class="col-sm-12">
+                              <div class="form-group" style="background:rgba(15,23,42,.6); padding:12px 14px; border-radius:8px; border:1px solid rgba(96,165,250,.30);">
+                                <label style="display:block; margin-bottom:6px; color:#cbd5e1;">
+                                  <strong>Connection Mode</strong>
+                                  <span style="font-weight:400; color:#94a3b8; font-size:12px; margin-left:6px;">
+                                    &mdash; How will the cloud reach this Mikrotik?
+                                  </span>
+                                </label>
+                                <label style="margin-right:18px; cursor:pointer;">
+                                  <input type="radio" name="nas_conn_mode" value="direct" id="nas_cm_direct" checked
+                                         data-testid="nas-cm-direct" onchange="nasConnModeChange()">
+                                  <span style="margin-left:4px;">🔓 Direct (I have a public/static IP)</span>
+                                </label>
+                                <label style="cursor:pointer;">
+                                  <input type="radio" name="nas_conn_mode" value="wireguard" id="nas_cm_wg"
+                                         data-testid="nas-cm-wireguard" onchange="nasConnModeChange()">
+                                  <span style="margin-left:4px;">🛡️ Cloud Tunnel (my Mikrotik is behind CGNAT)</span>
+                                </label>
+                                <div id="nas_cm_help" style="margin-top:8px; font-size:12px; color:#fbbf24; display:none;">
+                                  <i class="fa fa-info-circle"></i>
+                                  IP &amp; port are auto-assigned. After saving, copy the Mikrotik script
+                                  from the popup and paste it in the Mikrotik terminal.
+                                </div>
+                              </div>
+                            </div>
+                            <div class="col-sm-6"><div class="form-group"><label>Name *</label><input type="text" class="form-control" id="nas_name" required></div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>Type</label>
+                                <select class="form-control" id="nas_type">
+                                    <option value="Mikrotik">Mikrotik</option>
+                                    <option value="Cisco">Cisco</option>
+                                    <option value="Juniper">Juniper</option>
+                                    <option value="Huawei">Huawei</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-6"><div class="form-group"><label>IP Address *</label><input type="text" class="form-control" id="nas_ip_address" required placeholder="e.g. 10.0.0.1"></div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>Location</label><input type="text" class="form-control" id="nas_location"></div></div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h5>Transport</h5>
+                        <div class="row">
+                            <div class="col-sm-6"><div class="form-group">
+                                <label>Connection Mode</label>
+                                <select class="form-control" id="nas_transport_mode">
+                                    <option value="api">API (port 8728)</option>
+                                    <option value="api-ssl">API-SSL (port 8729)</option>
+                                    <option value="ssh">SSH (port 22)</option>
+                                </select>
+                            </div></div>
+                            <div class="col-sm-3"><div class="form-group"><label>API Port</label><input type="number" class="form-control" id="nas_port" value="8728"></div></div>
+                            <div class="col-sm-3"><div class="form-group"><label>SSH Port</label><input type="number" class="form-control" id="nas_ssh_port" value="22"></div></div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h5>Credentials</h5>
+                        <div class="row">
+                            <div class="col-sm-6"><div class="form-group"><label>Router Username</label><input type="text" class="form-control" id="nas_api_username" placeholder="e.g. api-admin" value="admin"></div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>Router Password</label><input type="password" class="form-control" id="nas_api_password" placeholder="Leave empty to keep existing"></div></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-6" id="nas_secret_row"><div class="form-group"><label>RADIUS Shared Secret</label><input type="text" class="form-control" id="nas_secret"></div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>Status</label>
+                                <select class="form-control" id="nas_status">
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                </select>
+                            </div></div>
+                        </div>
+                        <p class="muted">Tip: Create a dedicated RouterOS user (<code>/user add name=api-admin group=full password=... address=&lt;this-server&gt;</code>) rather than using the super-admin account.</p>
+
+                        <hr>
+                        <h4 style="margin-top:0;">Network scenario <small class="muted">— what this router is actually doing</small></h4>
+                        <div class="row">
+                            <div class="col-sm-6"><div class="form-group"><label>Auth modes</label>
+                                <select class="form-control" id="nas_auth_modes" data-testid="nas-auth-modes">
+                                    <option value="pppoe">PPPoE only (default — residential fibre / DSL)</option>
+                                    <option value="hotspot">Hotspot only (captive portal)</option>
+                                    <option value="static">Static-IP only (dedicated IPs / B2B)</option>
+                                    <option value="pppoe,hotspot">PPPoE + Hotspot</option>
+                                    <option value="pppoe,static">PPPoE + Static-IP</option>
+                                    <option value="pppoe,hotspot,static">All three</option>
+                                </select>
+                                <small class="muted">Determines which auto-configure blocks push.</small>
+                            </div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>PPPoE Service-Name <small class="muted">(empty = accept-any)</small></label>
+                                <input type="text" class="form-control" id="nas_pppoe_service_name" placeholder="leave empty for accept-any" data-testid="nas-pppoe-service-name">
+                                <small class="muted">Advertised in PADI replies; CPE usually doesn't require a match unless configured.</small>
+                            </div></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-4"><div class="form-group"><label>PPPoE Interface</label>
+                                <input type="text" class="form-control" id="nas_pppoe_interface" value="ether2" data-testid="nas-pppoe-interface">
+                                <small class="muted">Physical LAN interface (not WAN).</small>
+                            </div></div>
+                            <div class="col-sm-4"><div class="form-group"><label>PPPoE VLAN ID <small class="muted">(0 = no VLAN)</small></label>
+                                <input type="number" class="form-control" id="nas_pppoe_vlan_id" value="0" min="0" max="4094" data-testid="nas-pppoe-vlan-id">
+                                <small class="muted">If non-zero, tags PPPoE on <code>&lt;iface&gt;.VLAN</code>.</small>
+                            </div></div>
+                            <div class="col-sm-4"><div class="form-group"><label>Hotspot Interface</label>
+                                <input type="text" class="form-control" id="nas_hotspot_interface" value="ether3" data-testid="nas-hotspot-interface">
+                                <small class="muted">Used only when hotspot mode is enabled.</small>
+                            </div></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-6"><div class="form-group"><label>Hotspot DNS Name</label>
+                                <input type="text" class="form-control" id="nas_hotspot_dns_name" placeholder="portal.myisp.com (optional)" data-testid="nas-hotspot-dns-name">
+                            </div></div>
+                            <div class="col-sm-6"><div class="form-group"><label>Hotspot Pool Name</label>
+                                <input type="text" class="form-control" id="nas_hotspot_pool_name" value="hotspot-pool" data-testid="nas-hotspot-pool-name">
+                            </div></div>
+                        </div>
+                        <div class="row"><div class="col-sm-12"><div class="form-group">
+                                <label>Walled-Garden Hosts (per-NAS override)
+                                    <small class="text-muted" style="font-weight:normal;font-size:11px;">— comma/newline separated hostnames or IPs. Overrides company-wide walled-garden list when pushing to this NAS. Leave empty to use the company default.</small>
+                                </label>
+                                <textarea class="form-control" id="nas_walled_garden_hosts" rows="3" placeholder="payment-gw.example.com&#10;whatsapp.com" data-testid="nas-walled-garden-hosts"></textarea>
+                            </div></div></div>
+                </div>
+
+                <!-- __S38B_NAS_EDIT_FIELDS_MIGRATED__ migrated fieldsets -->
+                <div class="form-section">
+                    <h5>Interfaces <button type="button" class="btn btn-xs btn-info" style="margin-left:8px;font-size:11px;" onclick="detectWan()" data-testid="nas-detect-wan-btn"><i class="fa fa-search"></i> Auto-detect WAN</button><span id="cfg_wan_detect_status" class="muted" style="margin-left:8px;"></span></h5>
+                    <div class="row">
+                        <div class="col-sm-3"><div class="form-group"><label>WAN / Uplink Interface *</label><input type="text" class="form-control" id="cfg_wan_if" value="ether1" list="cfg_iface_list" data-testid="nas-cfg-wan-input"><div class="hint" id="cfg_wan_hint">Used for NAT masquerade + firewall WAN drop.</div></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>PPPoE Interface (LAN-side)</label><input type="text" class="form-control" id="cfg_pppoe_if" value="ether2" list="cfg_iface_list" data-testid="nas-cfg-pppoe-if"><div class="hint" id="cfg_pppoe_if_hint"></div></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>Hotspot Interface</label><input type="text" class="form-control" id="cfg_hotspot_if" value="ether3" list="cfg_iface_list" data-testid="nas-cfg-hotspot-if"><div class="hint" id="cfg_hotspot_if_hint"></div></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>RADIUS Server IP</label><input type="text" class="form-control" id="cfg_radius_ip" placeholder="this server public IP"></div></div>
+                    </div>
+                    <datalist id="cfg_iface_list"></datalist>
+                    <div class="hint" id="cfg_iface_fetch_status" style="margin-top:4px;"></div>
+                </div>
+                <div class="form-section">
+                    <h5>IP Pools &amp; Interface Bindings
+                        <span style="font-weight:400; color:#64748b; font-size:11px; margin-left:6px;">
+                            Tick the pools you want pushed to this router, and pick the interface each one should bind to.
+                            Exactly one pool must be flagged as the <strong>PPPoE pool</strong>.
+                        </span>
+                    </h5>
+                    <div style="border:1px solid #e5e7eb; border-radius:5px; overflow:hidden;">
+                        <table class="table table-condensed" style="margin:0; font-size:12px;" id="cfg_pools_table">
+                            <thead style="background:#f1f5f9;">
+                                <tr>
+                                    <th style="width:42px; text-align:center;">Use</th>
+                                    <th>Pool</th>
+                                    <th style="width:180px;">Range</th>
+                                    <th style="width:120px;">Gateway</th>
+                                    <th style="width:200px;">Interface</th>
+                                    <!-- s26.14: ad-next-pool-in-cfg -->
+                                    <th style="width:180px;">Next Pool <small style="font-weight:normal;color:#64748b;">(overflow)</small></th>
+                                    <th style="width:80px; text-align:center;" title="Exactly one pool must be the PPPoE pool">PPPoE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cfg_pools_tbody">
+                                <tr><td colspan="7" class="muted" style="text-align:center; padding:14px;">Loading pools…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:11px;">
+                        <span class="muted" id="cfg_pools_summary">0 pools selected</span>
+                        <span>
+                            <button type="button" class="btn btn-xs btn-default" onclick="loadPppoePools()" data-testid="nas-cfg-reload-pools"><i class="fa fa-refresh"></i> Reload pools</button>
+                            <button type="button" class="btn btn-xs btn-default" onclick="loadRouterInterfaces()" data-testid="nas-cfg-reload-ifs"><i class="fa fa-plug"></i> Reload interfaces</button>
+                            <span id="cfg_ifs_status" class="muted"></span>
+                        </span>
+                    </div>
+
+                    <!-- Custom manual entry (fallback when no pools selected) -->
+                    <div id="cfg_pppoe_custom_fields" style="margin-top:10px;">
+                        <div class="hint" style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; padding:6px 10px; border-radius:4px; margin-bottom:6px; font-size:11px;">
+                            No pool selected above — fill these to create a new one inline.
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-4"><div class="form-group"><label>Pool Name</label><input type="text" class="form-control" id="cfg_pppoe_pool_name" value="pppoe-pool"></div></div>
+                            <div class="col-sm-4"><div class="form-group"><label>Pool Range *</label><input type="text" class="form-control" id="cfg_pppoe_pool_ranges" value="192.168.100.10-192.168.100.250"><div class="hint">Range handed to PPPoE clients.</div></div></div>
+                            <div class="col-sm-4"><div class="form-group"><label>Server Local Address</label><input type="text" class="form-control" id="cfg_pppoe_local" value="192.168.100.1"><div class="hint">Router's PPPoE gateway IP.</div></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Hidden legacy select kept for backward-compat with runConfigure payload (not shown) -->
+                    <select id="cfg_pppoe_pool_source" style="display:none;"><option value="__custom__" selected>— Custom —</option></select>
+
+                    <!-- Live /ip pool print from router -->
+                    <div class="row" style="margin-top:10px;">
+                        <div class="col-sm-12">
+                            <div style="border:1px dashed #cbd5e1; border-radius:5px; padding:8px 10px; background:#fafbfc;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:12px; color:#334155;"><i class="fa fa-server"></i> Live <code>/ip pool print</code> on router</strong>
+                                    <span>
+                                        <span id="cfg_router_pools_status" class="muted"></span>
+                                        <button type="button" class="btn btn-xs btn-default" onclick="refreshRouterPools()" data-testid="nas-refresh-router-pools"><i class="fa fa-refresh"></i> Refresh</button>
+                                    </span>
+                                </div>
+                                <div id="cfg_router_pools_list" style="margin-top:6px; font-size:12px; color:#475569; max-height:140px; overflow-y:auto;">
+                                    <span class="muted">Click Refresh to pull current pools from the router (auto-runs when modal opens).</span>
+                                </div>
+                                <div id="cfg_pool_conflict_warn" style="display:none; margin-top:6px; background:#fff5f5; border:1px solid #f5c2c7; color:#b91c1c; padding:6px 10px; border-radius:4px; font-size:12px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <label class="toggle-wrap"><input type="checkbox" id="cfg_dry_run" checked> <strong>Dry-Run</strong> — preview commands without pushing</label>
+                <div id="cfg_output" class="cmd-output" style="display:none; margin-top:12px;"></div>
+                <div id="cfg_recovery" style="display:none; margin-top:12px; background:#fff5f5; border:1px solid #f5c2c7; padding:10px; border-radius:5px;">
+                    <strong>🛟 Recovery script</strong> — paste in the router terminal to undo every change made by auto-configure:
+                    <div id="cfg_recovery_cmds" class="cmd-output" style="margin-top:6px; max-height:200px;"></div>
+                    <button class="btn btn-xs btn-default" onclick="copyRecovery()" style="margin-top:4px;"><i class="fa fa-copy"></i> Copy</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal" data-testid="nas-cancel-btn">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveNas()" data-testid="nas-save-btn"><i class="fa fa-save"></i> Save NAS</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- RADIUS Diagnose -->
+<div class="modal fade modal-lg-wide" id="frDiagModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#7c3aed;">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-stethoscope"></i> RADIUS Diagnostics</h4>
+            </div>
+            <div class="modal-body">
+                <!-- Test Auth -->
+                <div class="form-section">
+                    <h5>Test user auth <span class="muted" style="font-size:11px;">— simulate what the Mikrotik would send via radtest</span></h5>
+                    <div class="row">
+                        <div class="col-sm-3"><div class="form-group"><label>Username</label><input type="text" class="form-control" id="diag_username" data-testid="diag-username" placeholder="e.g. rajpregst"></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>Password</label><input type="text" class="form-control" id="diag_password" data-testid="diag-password"></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>NAS IP</label><input type="text" class="form-control" id="diag_nas_ip" value="127.0.0.1" data-testid="diag-nas-ip"><div class="hint">Use 127.0.0.1 for local-loop test, or your router's public IP.</div></div></div>
+                        <div class="col-sm-3"><div class="form-group"><label>RADIUS Secret</label><input type="text" class="form-control" id="diag_secret" value="testing123" data-testid="diag-secret"></div></div>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="runTestAuth()" data-testid="diag-run-auth-btn"><i class="fa fa-bolt"></i> Run radtest</button>
+                    <div id="diag_auth_output" class="cmd-output" style="display:none; margin-top:10px;"></div>
+                </div>
+
+                <!-- Log Tail -->
+                <div class="form-section">
+                    <h5>Live RADIUS log
+                        <button type="button" class="btn btn-xs btn-default" onclick="refreshFrLogs()" data-testid="diag-refresh-logs"><i class="fa fa-refresh"></i> Refresh</button>
+                        <span id="diag_logs_status" class="muted" style="margin-left:6px;"></span>
+                    </h5>
+                    <div id="diag_hints_box" style="display:none; background:#fff5f5; border:1px solid #f5c2c7; padding:8px 10px; border-radius:4px; color:#b91c1c; font-size:12px; max-height:180px; overflow-y:auto; margin-bottom:6px;"></div>
+                    <pre id="diag_log_tail" class="cmd-output" style="max-height:320px; overflow-y:auto; font-size:11px;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Router Status -->
+<div class="modal fade modal-lg-wide" id="statusModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0891b2;">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-heartbeat"></i> Router Status — <span id="stat_nas_name"></span></h4>
+            </div>
+            <div class="modal-body">
+                <div id="stat_loading" class="muted" style="text-align:center; padding:20px;">
+                    <i class="fa fa-spinner fa-spin"></i> Fetching live snapshot…
+                </div>
+                <div id="stat_error" style="display:none; background:#fff5f5; border:1px solid #f5c2c7; padding:10px; border-radius:5px; color:#b91c1c;"></div>
+                <div id="stat_content" style="display:none;">
+                    <!-- Summary pills -->
+                    <div id="stat_summary" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;"></div>
+
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <div class="form-section">
+                                <h5>System</h5>
+                                <div id="stat_system" style="font-size:12px;"></div>
+                            </div>
+                            <div class="form-section">
+                                <h5>RADIUS / AAA</h5>
+                                <div id="stat_radius" style="font-size:12px;"></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-section">
+                                <h5>Counts</h5>
+                                <div id="stat_counts" style="font-size:12px;"></div>
+                            </div>
+                            <div class="form-section">
+                                <h5>IP Pools usage</h5>
+                                <div id="stat_pools" style="font-size:12px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h5>Online users (sample, first 50)</h5>
+                        <div style="max-height:260px; overflow-y:auto;">
+                            <table class="table table-condensed" style="font-size:12px; margin-bottom:0;" id="stat_online_table">
+                                <thead><tr><th>#</th><th>Username</th><th>IP</th><th>Caller ID</th><th>Uptime</th><th>Svc</th><th>RADIUS</th><th>Action</th></tr></thead>
+                                <tbody id="stat_online_tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="refreshRouterStatus()" data-testid="nas-refresh-status-btn"><i class="fa fa-refresh"></i> Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unprovision (Recovery) -->
+<div class="modal fade modal-lg-wide" id="unprovisionModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#b91c1c;">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-undo"></i> Unprovision — <span id="unp_nas_name"></span></h4>
+            </div>
+            <div class="modal-body">
+                <div style="background:#fff5f5; border:1px solid #f5c2c7; padding:10px 12px; border-radius:5px; color:#7f1d1d; margin-bottom:12px;">
+                    <strong>⚠ Destructive action.</strong> This removes every object Auto-Configure pushed to this router — PPPoE server, PPPoE secrets, IP pools, Hotspot, simple queues, queue types, RADIUS client, firewall/NAT rules tagged <code>auto-isp-billing*</code>, and flips <code>/ppp aaa use-radius=no</code>. Existing router-owned config is <em>not</em> touched (match is by comment/name pattern).
+                </div>
+                <label class="toggle-wrap"><input type="checkbox" id="unp_dry_run" checked> <strong>Dry-Run</strong> — just preview the commands, don't push.</label>
+                <div id="unp_output" class="cmd-output" style="display:none; margin-top:12px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-danger" onclick="runUnprovision()" data-testid="nas-run-unprovision-btn">
+                    <i class="fa fa-bolt"></i> Run Unprovision
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PPPoE Secrets -->
+<div class="modal fade modal-lg-wide" id="secretsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">PPPoE Secrets — <span id="sec_nas_name"></span></h4>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs" role="tablist" style="margin-bottom:10px;">
+                    <li class="active"><a href="#tab-provision" data-toggle="tab">⚡ Provision Customer (auto-match plan)</a></li>
+                    <li><a href="#tab-manual" data-toggle="tab">Manual</a></li>
+                    <li><a href="#tab-list" data-toggle="tab">Current secrets on router</a></li>
+                </ul>
+                <div class="tab-content">
+                    <!-- Tab 1: Provision for a Customer -->
+                    <div id="tab-provision" class="tab-pane active">
+                        <div class="form-section">
+                            <h5>Provision PPPoE secret from a Customer's current plan</h5>
+                            <p class="muted" style="margin-bottom:8px;">
+                                Pick a customer → the system reads their active Broadband plan's download/upload speed and creates (or updates) a matching <code>/ppp profile</code> on this router, then creates the customer's <code>/ppp secret</code> on that profile. No rate-limit typing required.
+                            </p>
+                            <div class="row">
+                                <div class="col-sm-6"><div class="form-group">
+                                    <label>Customer *</label>
+                                    <select class="form-control" id="prov_customer">
+                                        <option value="">Loading customers…</option>
+                                    </select>
+                                </div></div>
+                                <div class="col-sm-6"><div class="form-group">
+                                    <label>Password *</label>
+                                    <input type="text" class="form-control" id="prov_password" placeholder="PPPoE password for this customer">
+                                </div></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-sm-6"><div class="form-group">
+                                    <label>Remote Address (optional)</label>
+                                    <input type="text" class="form-control" id="prov_remote" placeholder="static public/private IP to pin to this secret">
+                                </div></div>
+                                <div class="col-sm-6"><div class="form-group">
+                                    <label>Detected Plan Speed</label>
+                                    <input type="text" class="form-control" id="prov_plan_speed" readonly>
+                                </div></div>
+                            </div>
+                            <label class="toggle-wrap"><input type="checkbox" id="prov_dry_run"> Dry-Run (preview commands only)</label>
+                            <button class="btn btn-primary" style="margin-top:6px;" onclick="provisionCustomer()" data-testid="nas-provision-customer-btn">
+                                <i class="fa fa-magic"></i> Provision
+                            </button>
+                            <button class="btn btn-info" style="margin-top:6px; display:none;" id="prov_export_btn" onclick="exportRsc('provision')">
+                                <i class="fa fa-download"></i> Download .rsc
+                            </button>
+                            <div id="prov_output" class="cmd-output" style="display:none; margin-top:12px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Manual -->
+                    <div id="tab-manual" class="tab-pane">
+                        <div class="form-section">
+                            <h5>Create secret manually</h5>
+                            <div class="row">
+                                <div class="col-sm-3"><input type="text" id="sec_name" class="form-control" placeholder="username" /></div>
+                                <div class="col-sm-3"><input type="text" id="sec_password" class="form-control" placeholder="password" /></div>
+                                <div class="col-sm-3"><input type="text" id="sec_profile" class="form-control" placeholder="profile (default)" value="isp-default" /></div>
+                                <div class="col-sm-3"><input type="text" id="sec_remote" class="form-control" placeholder="remote-address (optional)" /></div>
+                            </div>
+                            <label class="toggle-wrap" style="margin-top:6px;"><input type="checkbox" id="sec_dry_run"> Dry-Run</label>
+                            <button class="btn btn-primary" style="margin-top:6px;" onclick="createSecret()"><i class="fa fa-plus"></i> Create</button>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: List -->
+                    <div id="tab-list" class="tab-pane">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveNas()" data-testid="nas-save-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- __s55s_vlan_trunk_block__ -->
+<div class="card" style="margin-top:24px; padding:24px; background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(99,102,241,.06)); border:1px solid rgba(34,211,238,.35); border-radius:14px;">
+  <div style="display:flex; align-items:flex-start; gap:16px; margin-bottom:14px;">
+    <div style="flex-shrink:0;width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#06b6d4);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;box-shadow:0 8px 22px rgba(34,211,238,.35);">
+      <i class="fa fa-tags"></i>
+    </div>
+    <div>
+      <h3 style="margin:0 0 4px;font-size:18px;color:#fff;">VLAN Trunk Setup <span style="font-size:11px;background:rgba(34,211,238,.20);color:#22d3ee;padding:2px 8px;border-radius:6px;margin-left:6px;">carrier-style PPPoE</span></h3>
+      <p style="margin:0;color:#94A3B8;font-size:13px;">Enable per-user VLAN authentication on this MikroTik. One click to: seed VLAN pool, create VLAN interfaces on the trunk port, switch PPPoE Server to RADIUS-based auth with Tunnel-Private-Group-Id enforcement.</p>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-sm-4"><div class="form-group">
+      <label style="color:#CBD5E1;font-size:12px;">Seed VLAN pool (range)</label>
+      <div style="display:flex;gap:6px;">
+        <input type="number" class="form-control" id="vlan_seed_start" placeholder="100" min="2" max="4094" value="100">
+        <input type="number" class="form-control" id="vlan_seed_end"   placeholder="999" min="2" max="4094" value="999">
+      </div>
+      <small style="color:#64748B;">Range 2-4094. Skips duplicates. SuperAdmin only.</small>
+    </div></div>
+    <div class="col-sm-4"><div class="form-group">
+      <label style="color:#CBD5E1;font-size:12px;">Trunk interface <small>(PPPoE-facing port)</small></label>
+      <input type="text" class="form-control" id="vlan_trunk_iface" value="ether2">
+    </div></div>
+    <div class="col-sm-4"><div class="form-group">
+      <label style="color:#CBD5E1;font-size:12px;">PPPoE service-name</label>
+      <input type="text" class="form-control" id="vlan_service_name" value="isp">
+    </div></div>
+  </div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+    <button type="button" class="btn btn-primary" onclick="vlanSeedPool()" data-testid="vlan-seed-btn" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none;padding:11px 22px;border-radius:10px;font-weight:700;">
+      <i class="fa fa-database"></i> Seed VLAN Pool
+    </button>
+    <button type="button" class="btn btn-success" onclick="vlanOneClickTrunk()" data-testid="vlan-oneclick-btn" style="background:linear-gradient(135deg,#22d3ee,#06b6d4);border:none;padding:11px 22px;border-radius:10px;font-weight:700;color:#0a1f23;">
+      <i class="fa fa-magic"></i> One-Click MikroTik VLAN Setup
+    </button>
+    <span id="vlan_setup_state" style="align-self:center;font-size:13px;color:#94A3B8;"></span>
+  </div>
+  <div id="vlan_setup_report" style="margin-top:14px;display:none;"></div>
+</div>
+<script>
+function _activeNasId(){
+  // The list page renders one row per NAS with a hidden data attr. Pick the first
+  // "Active" one. If multiple, ask the user. For the v1 button, we pick the row
+  // user is currently focused on; fallback: window.currentNasId set by other code.
+  if (window.currentNasId) return window.currentNasId;
+  var firstRow = document.querySelector('[data-nas-id]');
+  return firstRow ? firstRow.getAttribute('data-nas-id') : null;
+}
+function vlanSeedPool(){
+  var s = parseInt(document.getElementById('vlan_seed_start').value, 10);
+  var e = parseInt(document.getElementById('vlan_seed_end').value, 10);
+  if (!s || !e || s > e || s < 2 || e > 4094){ alert('Range must be 2-4094 and start ≤ end.'); return; }
+  var btn = event.target.closest('button');
+  var orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Seeding...';
+  fetch('/api/vlan/pool/seed', { method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({start:s, end:e, label:'auto-seed'}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.ok){ alert('Seeded '+j.added+' new VLAN IDs (requested '+j.requested+').'); }
+      else { alert('Failed: '+(j.error||'unknown')); }
+    })
+    .catch(function(){ alert('Network error.'); })
+    .finally(function(){ btn.disabled = false; btn.innerHTML = orig; });
+}
+function vlanOneClickTrunk(){
+  /* __s56k_oneclick_confirm__ */
+  if (!confirm('This will MODIFY the MikroTik router config (vlan interfaces, pppoe-server, ppp/aaa, radius/incoming). Continue?')) return;
+  var nasId = _activeNasId();
+  if (!nasId){ alert('No NAS device found. Add a MikroTik first.'); return; }
+  var trunk = document.getElementById('vlan_trunk_iface').value.trim() || 'ether2';
+  var svc   = document.getElementById('vlan_service_name').value.trim() || 'isp';
+  var state = document.getElementById('vlan_setup_state');
+  var rep   = document.getElementById('vlan_setup_report');
+  var btn = event.target.closest('button');
+  var orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Configuring...';
+  state.textContent = 'Pushing to MikroTik...';
+  fetch('/api/nas-devices/'+nasId+'/oneclick-vlan-trunk', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({trunk_interface: trunk, service_name: svc, auto_create_vlan_interfaces: true})
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      rep.style.display = 'block';
+      if (j.ok){
+        state.innerHTML = '<span style="color:#34d399;font-weight:700;">✓ Setup complete</span>';
+        var r = j.report || {};
+        var html = '<div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.30);border-radius:10px;padding:14px;color:#86efac;">';
+        html += '<strong>VLAN trunk ready on '+r.trunk_interface+' ('+r.vlan_count+' VLAN interfaces).</strong><ul style="margin:8px 0 0;padding-left:22px;font-size:13px;">';
+        (r.actions||[]).forEach(function(a){ html += '<li>'+a+'</li>'; });
+        html += '</ul></div>';
+        rep.innerHTML = html;
+      } else {
+        state.innerHTML = '<span style="color:#f87171;font-weight:700;">✗ Setup failed</span>';
+        rep.innerHTML = '<pre style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.30);border-radius:10px;padding:14px;color:#fda4af;font-size:12px;white-space:pre-wrap;">'+ JSON.stringify(j, null, 2) +'</pre>';
+      }
+    })
+    .catch(function(err){ state.innerHTML = '<span style="color:#f87171;">Network error</span>'; rep.innerHTML = String(err); })
+    .finally(function(){ btn.disabled = false; btn.innerHTML = orig; });
+}
+
+/* __s56k_vlan_mgr__ — Real VLAN management modal launched from the per-NAS
+   action-column "VLAN" button. Shows existing pool with edit/release/delete,
+   add-VLAN form, and a CONFIRMED One-Click MikroTik setup at the bottom. */
+
+<style id="s56m-vlan-modal-hover">
+#vlanMgrModal button { letter-spacing: .02em; }
+#vlanMgrModal button:not([disabled]):hover {
+  filter: brightness(1.12) saturate(1.05);
+  transform: translateY(-1px);
+}
+#vlanMgrModal button:not([disabled]):active {
+  transform: translateY(0);
+  filter: brightness(1.02);
+}
+</style>
+
+(function ensureVlanMgrModal(){
+  if (document.getElementById('vlanMgrModal')) return;
+  var html = `
+  <div class="modal fade" id="vlanMgrModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document" style="max-width:920px;">
+      <div class="modal-content" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:12px;">
+        <div class="modal-header" style="border-bottom:1px solid #334155;">
+          <button type="button" class="close" data-dismiss="modal" style="color:#cbd5e1;opacity:.9;">&times;</button>
+          <h4 class="modal-title" id="vlanMgrTitle" style="color:#60a5fa;">
+            <i class="fa fa-tag"></i> VLAN Pool — <span id="vlanMgrNasName">(loading)</span>
+          </h4>
+          <small id="vlanMgrSub" style="color:#94a3b8;display:block;margin-top:4px;">VLAN ids in the company pool — only the One-Click Setup button below pushes to the MikroTik. All other actions are DB-only.</small>
+        </div>
+        <div class="modal-body" style="max-height:70vh;overflow:auto;">
+          <!-- Add VLANs form -->
+          <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.30);padding:12px 14px;border-radius:8px;margin-bottom:14px;">
+            <strong style="color:#a5b4fc;"><i class="fa fa-plus-circle"></i> Add VLANs to pool</strong>
+            <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:8px;">
+              <div><label style="font-size:12px;color:#cbd5e1;display:block;margin-bottom:4px;">Range start</label><input id="vlanMgrAddStart" type="number" class="form-control" min="2" max="4094" style="width:90px;" placeholder="100"></div>
+              <div><label style="font-size:12px;color:#cbd5e1;display:block;margin-bottom:4px;">Range end</label><input id="vlanMgrAddEnd" type="number" class="form-control" min="2" max="4094" style="width:90px;" placeholder="199"></div>
+              <div style="flex:1 1 200px;min-width:200px;"><label style="font-size:12px;color:#cbd5e1;display:block;margin-bottom:4px;">Label (optional)</label><input id="vlanMgrAddLabel" type="text" class="form-control" placeholder="e.g. Block-A"></div>
+              <button type="button" class="btn" id="vlanMgrAddBtn" data-testid="vlan-mgr-add-btn" style="background:linear-gradient(135deg,#06B6D4,#0891B2);color:#fff;border:none;height:34px;border-radius:6px;padding:0 14px;font-weight:600;transition:filter .15s ease, transform .12s ease;"><i class="fa fa-plus"></i> Add to pool</button>
+            </div>
+            <small style="color:#94a3b8;display:block;margin-top:6px;">DB-only operation. Does NOT touch the MikroTik. Use One-Click Setup below to push.</small>
+          </div>
+
+          <!-- Existing pool table -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+            <strong style="color:#cbd5e1;">Existing pool entries (<span id="vlanMgrCount">0</span>)</strong>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="vlanMgrFilter" type="text" placeholder="Filter…" class="form-control" style="width:160px;height:30px;font-size:12px;background:rgba(15,23,42,.6);color:#e2e8f0;border-color:#334155;">
+            </div>
+          </div>
+          <!-- __s56l_bulk_bar__ — appears when ≥1 free row is ticked -->
+          <div id="vlanMgrBulkBar" data-testid="vlan-mgr-bulk-bar" style="display:none;background:rgba(220,38,38,.10);border:1px solid rgba(220,38,38,.45);border-radius:8px;padding:8px 12px;margin-bottom:8px;align-items:center;gap:10px;flex-wrap:wrap;">
+            <strong id="vlanMgrBulkCount" style="color:#fca5a5;font-size:13px;">0 selected</strong>
+            <label style="font-size:12px;color:#cbd5e1;margin-left:auto;display:inline-flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="vlanMgrBulkRouter" checked data-testid="vlan-mgr-bulk-router">
+              also remove from MikroTik (only auto-isp VLANs)
+            </label>
+            <button type="button" id="vlanMgrBulkDelete" data-testid="vlan-mgr-bulk-delete" class="btn btn-xs" style="background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff;border:none;padding:5px 12px;border-radius:6px;font-weight:700;">
+              <i class="fa fa-trash"></i> Bulk Delete
+            </button>
+            <button type="button" id="vlanMgrBulkClear" data-testid="vlan-mgr-bulk-clear" class="btn btn-xs" style="background:#475569;color:#e2e8f0;border:none;padding:5px 12px;border-radius:6px;">Clear</button>
+          </div>
+          <div style="overflow:auto;max-height:340px;border:1px solid #334155;border-radius:8px;">
+            <table class="table table-condensed" id="vlanMgrTable" style="margin:0;color:#e2e8f0;">
+              <thead style="background:rgba(99,102,241,.10);">
+                <tr style="font-size:12px;">
+                  <th style="width:30px;text-align:center;"><input type="checkbox" id="vlanMgrSelectAll" data-testid="vlan-mgr-select-all" title="Select all free VLANs"></th>
+                  <th>VLAN ID</th><th>Label</th><th>State</th><th>Customer</th><th>Assigned</th><th style="width:230px;text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="vlanMgrBody"><tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:20px;">Loading…</td></tr></tbody>
+            </table>
+          </div>
+
+          <!-- One-Click NAS push -->
+          <div style="margin-top:18px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.35);padding:14px;border-radius:10px;">
+            <strong style="color:#67e8f9;"><i class="fa fa-bolt"></i> One-Click MikroTik Setup</strong>
+            <p style="font-size:12px;color:#cbd5e1;margin:6px 0 10px;">Pushes <code>interface/vlan</code>, <code>pppoe-server</code>, <code>ppp/aaa</code> and <code>radius/incoming</code> changes to the selected MikroTik. <strong style="color:#fcd34d;">Will modify NAS router config.</strong> A confirmation prompt will summarise the exact changes before sending.</p>
+            <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+              <div><label style="font-size:12px;color:#cbd5e1;display:block;margin-bottom:4px;">Trunk interface</label><input id="vlanMgrTrunk" type="text" class="form-control" value="ether2" style="width:120px;"></div>
+              <div><label style="font-size:12px;color:#cbd5e1;display:block;margin-bottom:4px;">PPPoE service name <small style="color:#94a3b8;font-weight:400;">(optional — leave blank for "accept any")</small></label><input id="vlanMgrSvc" type="text" class="form-control" value="" placeholder="(blank = accept any)" style="width:180px;"></div>
+              <button type="button" id="vlanMgrPushBtn" data-testid="vlan-mgr-push-btn" class="btn" style="background:linear-gradient(135deg,#F59E0B,#D97706);color:#0F172A;border:1px solid rgba(252,211,77,.6);font-weight:700;height:36px;padding:0 18px;border-radius:8px;box-shadow:0 4px 12px rgba(217,119,6,.25);transition:filter .15s, transform .12s;"><i class="fa fa-bolt"></i> Push to MikroTik (with confirmation)</button>
+            </div>
+            <div id="vlanMgrPushOut" style="margin-top:10px;display:none;font-size:12px;"></div>
+          </div>
+        </div>
+        <div class="modal-footer" style="border-top:1px solid #334155;">
+          <button type="button" class="btn" data-dismiss="modal" data-testid="vlan-mgr-close" style="background:rgba(148,163,184,.18);color:#E2E8F0;border:1px solid rgba(148,163,184,.45);padding:6px 16px;border-radius:6px;font-weight:600;">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+})();
+
+window._vlanMgrCtx = { nasId: null, nasName: null };
+
+function nasManageVlan(nasId, nasName){
+  window._vlanMgrCtx = { nasId: nasId, nasName: nasName };
+  window.currentNasId = nasId;
+  document.getElementById('vlanMgrNasName').textContent = nasName + ' (NAS #' + nasId + ')';
+  document.getElementById('vlanMgrPushOut').style.display = 'none';
+  document.getElementById('vlanMgrPushOut').innerHTML = '';
+  $('#vlanMgrModal').modal('show');
+  vlanMgrRefresh();
+}
+
+function vlanMgrRefresh(){
+  var body = document.getElementById('vlanMgrBody');
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">Loading…</td></tr>';
+  fetch('/api/vlan/pool/list', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j.ok){ body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:20px;">Failed to load pool: '+(j.error||'unknown')+'</td></tr>'; return; }
+      var rows = j.rows || [];
+      document.getElementById('vlanMgrCount').textContent = rows.length;
+      if (!rows.length){
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:20px;">No VLANs in the pool yet. Use "Add to pool" above to seed.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(function(r){
+        /* __s56l_cb_cell__ */
+        var stLower = (r.state||'').toLowerCase();
+        var cbCell = (stLower === 'free')
+          ? '<td style="text-align:center;"><input type="checkbox" class="vlan-mgr-cb" data-testid="vlan-mgr-cb-'+r.vlan_id+'" value="'+r.vlan_id+'"></td>'
+          : '<td style="text-align:center;color:#475569;" title="Cannot bulk-delete while assigned/reserved">—</td>';
+        var st = (r.state || 'unknown').toLowerCase();
+        var stColor = ({free:'#34d399', assigned:'#60a5fa', reserved:'#fbbf24', retired:'#94a3b8'})[st] || '#94a3b8';
+        var actions = '';
+        actions += '<button class="btn btn-xs" onclick="vlanMgrEditLabel('+r.vlan_id+', '+JSON.stringify(r.label||'').replace(/"/g,'&quot;')+')" data-testid="vlan-mgr-edit-'+r.vlan_id+'" title="Rename label" style="background:rgba(6,182,212,.18);color:#67E8F9;border:1px solid rgba(6,182,212,.45);padding:4px 10px;border-radius:6px;margin-right:4px;transition:filter .15s;"><i class="fa fa-pencil"></i></button>';
+        if (st === 'assigned'){
+          actions += '<button class="btn btn-xs" onclick="vlanMgrRelease('+r.vlan_id+')" data-testid="vlan-mgr-release-'+r.vlan_id+'" title="Release back to pool (customer keeps service via auto-VLAN)" style="background:rgba(245,158,11,.18);color:#FCD34D;border:1px solid rgba(245,158,11,.45);padding:4px 10px;border-radius:6px;margin-right:4px;font-weight:600;transition:filter .15s;"><i class="fa fa-unlink"></i> Release</button>';
+        } else if (st === 'free'){
+          actions += '<button class="btn btn-xs" onclick="vlanMgrDelete('+r.vlan_id+')" data-testid="vlan-mgr-delete-'+r.vlan_id+'" title="Remove VLAN from pool (DB-only, does NOT touch MikroTik)" style="background:rgba(239,68,68,.18);color:#FCA5A5;border:1px solid rgba(239,68,68,.45);padding:4px 10px;border-radius:6px;transition:filter .15s;"><i class="fa fa-trash"></i></button>';
+        }
+        return '<tr class="vlan-mgr-row" data-vlanid="'+r.vlan_id+'" data-label="'+(r.label||'').replace(/"/g,'&quot;')+'" data-cust="'+(r.customer_id||'')+'">'
+          + cbCell
+          + '<td><strong>'+r.vlan_id+'</strong></td>'
+          + '<td>'+(r.label||'<span style="color:#64748b;">—</span>')+'</td>'
+          + '<td><span style="color:'+stColor+';font-weight:700;">●</span> '+r.state+'</td>'
+          + '<td>'+(r.customer_id||'<span style="color:#64748b;">—</span>')+'</td>'
+          + '<td style="font-size:11px;color:#94a3b8;">'+(r.assigned_at||'—')+'</td>'
+          + '<td style="text-align:right;">'+actions+'</td>'
+          + '</tr>';
+      }).join('');
+    })
+    .catch(function(e){ body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:20px;">Network error: '+e+'</td></tr>'; });
+}
+
+// Filter input
+document.addEventListener('input', function(e){
+  if (e.target && e.target.id === 'vlanMgrFilter'){
+    var q = e.target.value.toLowerCase();
+    document.querySelectorAll('#vlanMgrBody tr.vlan-mgr-row').forEach(function(tr){
+      tr.style.display = (tr.innerText.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+    });
+  }
+});
+
+// Add VLANs to pool (DB-only)
+document.addEventListener('click', function(e){
+  if (e.target && (e.target.id === 'vlanMgrAddBtn' || e.target.closest('#vlanMgrAddBtn'))){
+    var s = parseInt(document.getElementById('vlanMgrAddStart').value, 10);
+    var en = parseInt(document.getElementById('vlanMgrAddEnd').value, 10);
+    var lbl = document.getElementById('vlanMgrAddLabel').value.trim() || null;
+    if (!s || !en || s > en || s < 2 || en > 4094){ alert('Range must be 2-4094 and start ≤ end.'); return; }
+    if (!confirm('Add VLAN IDs '+s+' → '+en+' ('+(en-s+1)+' entries) to the pool?\n\nThis is a DB-only operation; the MikroTik will NOT be touched.')) return;
+    fetch('/api/vlan/pool/seed', { method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({start:s, end:en, label:lbl}) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok){ alert('Added '+j.added+' new VLAN IDs (skipped '+(j.requested - j.added)+' existing).'); vlanMgrRefresh(); }
+        else { alert('Failed: '+(j.error || 'unknown')); }
+      })
+      .catch(function(){ alert('Network error.'); });
+  }
+});
+
+function vlanMgrEditLabel(vid, oldLbl){
+  var lbl = prompt('Rename VLAN '+vid+'. New label:', oldLbl || '');
+  if (lbl === null) return;
+  fetch('/api/vlan/pool/update-label', { method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({vlan_id:vid, label:lbl.trim()}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.ok){ vlanMgrRefresh(); }
+      else { alert('Failed: '+(j.error||'unknown')); }
+    });
+}
+
+function vlanMgrDelete(vid){
+  if (!confirm('Permanently delete VLAN '+vid+' from the pool?\n\nThis is a DB-only operation. The MikroTik vlan-'+vid+' interface (if any) will NOT be removed; you can clean that up via the MikroTik terminal.')) return;
+  fetch('/api/vlan/pool/delete', { method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({vlan_id:vid}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.ok){ vlanMgrRefresh(); }
+      else { alert('Failed: '+(j.error||'unknown')); }
+    });
+}
+
+function vlanMgrRelease(vid){
+  if (!confirm('Release VLAN '+vid+' back to the pool?\n\nThe currently-assigned customer will have vlan_enabled=0 set. Their next PPPoE auth will land in the default (untagged) flow. The MikroTik vlan-'+vid+' interface is NOT removed.')) return;
+  fetch('/api/vlan/pool/release', { method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({vlan_id:vid}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (j.ok){ vlanMgrRefresh(); }
+      else { alert('Failed: '+(j.error||'unknown')); }
+    });
+}
+
+// One-Click NAS push — with explicit confirmation
+document.addEventListener('click', function(e){
+  if (e.target && (e.target.id === 'vlanMgrPushBtn' || e.target.closest && e.target.closest('#vlanMgrPushBtn'))){
+    var ctx = window._vlanMgrCtx || {};
+    if (!ctx.nasId){ alert('No NAS selected.'); return; }
+    var trunk = (document.getElementById('vlanMgrTrunk').value || 'ether2').trim();
+    var svc = (document.getElementById('vlanMgrSvc').value || 'isp').trim();
+    var n = document.querySelectorAll('#vlanMgrBody tr.vlan-mgr-row').length;
+    var summary = 'Push the following changes to MikroTik "' + ctx.nasName + '" (NAS #' + ctx.nasId + ')?\n\n'
+      + '• Create vlan-<id> interfaces on "' + trunk + '" for ' + n + ' VLAN IDs (existing skipped).\n'
+      + '• Ensure pppoe-server on "' + trunk + '" with service-name=' + (svc ? '"' + svc + '"' : '*any*') + ' use-radius=yes.\n'
+      + '• Set /ppp aaa use-radius=yes.\n'
+      + '• Set /radius incoming accept=yes.\n\n'
+      + 'This MODIFIES the router. Continue?';
+    if (!confirm(summary)) return;
+    // Double-confirm for safety on production NAS
+    if (!confirm('Final confirmation: this writes config to the MikroTik at ' + ctx.nasName + '. Are you sure?')) return;
+    var out = document.getElementById('vlanMgrPushOut');
+    out.style.display = 'block';
+    out.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Pushing to MikroTik…';
+    fetch('/api/nas-devices/'+ctx.nasId+'/oneclick-vlan-trunk', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({trunk_interface:trunk, service_name:svc, auto_create_vlan_interfaces:true})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var r = j.report || {};
+      if (j.ok){
+        out.innerHTML = '<div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.30);border-radius:8px;padding:10px;color:#86efac;">'
+          + '<strong>Push complete</strong> — '+r.vlan_count+' VLANs on '+r.trunk_interface+'.<ul style="margin:6px 0 0 18px;font-size:12px;">'
+          + (r.actions||[]).map(function(a){ return '<li>'+a+'</li>'; }).join('')
+          + '</ul></div>';
+      } else {
+        out.innerHTML = '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.30);border-radius:8px;padding:10px;color:#fda4af;"><strong>Push failed:</strong><pre style="white-space:pre-wrap;font-size:12px;">'+JSON.stringify(j, null, 2)+'</pre></div>';
+      }
+    })
+    .catch(function(err){ out.innerHTML = '<div style="color:#f87171;">Network error: '+err+'</div>'; });
+  }
+});
+
+
+/* __s56l_bulk_handlers__ — checkbox + bulk delete */
+function _vlanMgrRefreshBulkBar(){
+  var n = document.querySelectorAll('#vlanMgrBody .vlan-mgr-cb:checked').length;
+  var bar = document.getElementById('vlanMgrBulkBar');
+  document.getElementById('vlanMgrBulkCount').textContent = n + ' selected';
+  bar.style.display = (n > 0) ? 'flex' : 'none';
+}
+document.addEventListener('change', function(e){
+  if (!e.target) return;
+  if (e.target.id === 'vlanMgrSelectAll'){
+    var on = !!e.target.checked;
+    document.querySelectorAll('#vlanMgrBody .vlan-mgr-cb').forEach(function(cb){
+      if (cb.closest('tr').style.display !== 'none') cb.checked = on;
+    });
+    _vlanMgrRefreshBulkBar();
+  } else if (e.target.classList && e.target.classList.contains('vlan-mgr-cb')){
+    _vlanMgrRefreshBulkBar();
+  }
+});
+document.addEventListener('click', function(e){
+  if (e.target && (e.target.id === 'vlanMgrBulkClear' || (e.target.closest && e.target.closest('#vlanMgrBulkClear')))){
+    document.querySelectorAll('#vlanMgrBody .vlan-mgr-cb').forEach(function(cb){ cb.checked = false; });
+    var sa = document.getElementById('vlanMgrSelectAll'); if (sa) sa.checked = false;
+    _vlanMgrRefreshBulkBar();
+  }
+  if (e.target && (e.target.id === 'vlanMgrBulkDelete' || (e.target.closest && e.target.closest('#vlanMgrBulkDelete')))){
+    var ids = Array.from(document.querySelectorAll('#vlanMgrBody .vlan-mgr-cb:checked')).map(function(cb){ return parseInt(cb.value, 10); });
+    if (!ids.length){ alert('No VLANs selected.'); return; }
+    var ctx = window._vlanMgrCtx || {};
+    var alsoRouter = document.getElementById('vlanMgrBulkRouter').checked;
+    var preview = ids.slice(0, 10).join(', ') + (ids.length > 10 ? ', …' : '');
+    /* 1st confirm */
+    if (!confirm('Delete ' + ids.length + ' VLAN(s) from the pool?\n\nVLAN IDs: ' + preview + '\n\n' +
+                 (alsoRouter ? ('Will also try to REMOVE matching vlan-<id> interfaces from MikroTik "'+(ctx.nasName||'(none)')+'" — only those with comment "auto-isp-billing-vlan".') : 'Router will NOT be touched. DB only.'))) return;
+    /* 2nd typed-token confirm */
+    var token = prompt('Type exactly  DELETE ' + ids.length + '  to confirm:');
+    if (token !== ('DELETE ' + ids.length)){ alert('Cancelled — token mismatch.'); return; }
+    var btn = document.getElementById('vlanMgrBulkDelete');
+    btn.disabled = true; var orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting…';
+    fetch('/api/vlan/pool/bulk-delete', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        vlan_ids: ids,
+        nas_id: (alsoRouter ? ctx.nasId : null),
+        remove_from_router: alsoRouter
+      })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      btn.disabled = false; btn.innerHTML = orig;
+      var rs = j.results || {};
+      var msg = 'Bulk delete result:\n'
+        + '• DB deleted: ' + (rs.deleted_db || 0) + '\n'
+        + '• Removed from MikroTik: ' + (rs.removed_from_router || 0) + '\n'
+        + (rs.skipped && rs.skipped.length ? '• Skipped: ' + rs.skipped.length + ' (' + rs.skipped.map(function(s){return s.vlan_id+'='+s.reason;}).join('; ') + ')\n' : '')
+        + (rs.errors && rs.errors.length ? '• Errors:\n  - ' + rs.errors.join('\n  - ') : '');
+      alert(msg);
+      vlanMgrRefresh();
+      var sa = document.getElementById('vlanMgrSelectAll'); if (sa) sa.checked = false;
+      _vlanMgrRefreshBulkBar();
+    })
+    .catch(function(e){
+      btn.disabled = false; btn.innerHTML = orig;
+      alert('Bulk delete failed: ' + e);
+    });
+  }
+});
+
+</script>
+<!-- /__s55s_vlan_trunk_block__ -->
+
+<!-- Auto-Configure (__S38_NASMODAL_REPAIRED__) -->
+<div class="modal fade modal-lg-wide" id="configureModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">One-touch Auto-Configure &mdash; <span id="cfg_nas_name"></span></h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-section">
+                            <h5>Current secrets on router</h5>
+                            <div id="sec_list" class="cmd-output" style="max-height:320px;">Loading…</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-info" onclick="refreshSecrets()"><i class="fa fa-refresh"></i> Refresh list</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var currentNasId = null;
+var currentNasName = null;
+var lastCommands = { configure: [], provision: [] };
+
+function exportRsc(kind) {
+    var cmds = lastCommands[kind] || [];
+    if (!cmds.length) { alert('No commands to export yet — run the preview first.'); return; }
+    var lines = [
+        '# RouterOS script — exported from Auto ISP Billing',
+        '# NAS: ' + (currentNasName || ''),
+        '# Kind: ' + kind + '  |  Generated: ' + new Date().toISOString(),
+        ':log info "Auto ISP Billing — importing ' + kind + ' script"',
+        ''
+    ];
+    lines = lines.concat(cmds);
+    var blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var nameSlug = (currentNasName || 'nas').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    a.download = 'isp-' + kind + '-' + nameSlug + '-' + Date.now() + '.rsc';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+}
+
+// --- CRUD NAS ---------------------------------------------------------------
+function applyTransportUI() {
+    var mode = $('#nas_transport_mode').val();
+    if (mode === 'api')      { $('#nas_port').val(8728); }
+    if (mode === 'api-ssl')  { $('#nas_port').val(8729); }
+}
+$(document).on('change', '#nas_transport_mode', applyTransportUI);
+
+function openAddNas() {
+    $('#nasModalTitle').text('Add NAS Device');
+    $('#nasForm')[0].reset();
+    $('#nas_id').val('');
+    $('#nas_port').val(8728); $('#nas_ssh_port').val(22);
+    $('#nas_transport_mode').val('api');
+    $('#nas_api_username').val('admin');
+    $('#nas_status').val('Active');
+    $('#nas_type').val('Mikrotik');
+    $('#nas_auth_modes').val('pppoe');
+    $('#nas_pppoe_service_name').val('');
+    $('#nas_pppoe_interface').val('ether2');
+    $('#nas_pppoe_vlan_id').val(0);
+    $('#nas_hotspot_interface').val('ether3');
+    $('#nas_hotspot_dns_name').val('');
+    $('#nas_hotspot_pool_name').val('hotspot-pool');
+}
+function editNas(id, row) {
+    $('#nasModalTitle').text('Edit NAS Device');
+    $('#nas_id').val(id);
+    currentNasId = id; currentNasName = row.name || '';
+
+    $('#nas_name').val(row.name || '');
+    $('#nas_ip_address').val(row.ip_address || '');
+    $('#nas_secret').val(row.secret || '');
+    $('#nas_type').val(row.type || 'Mikrotik');
+    $('#nas_location').val(row.location || '');
+    $('#nas_status').val(row.status || 'Active');
+    $('#nas_api_username').val(row.api_username || 'admin');
+    $('#nas_api_password').val(''); // never pre-fill password
+    $('#nas_port').val(row.port || 8728);
+    $('#nas_ssh_port').val(row.ssh_port || 22);
+    $('#nas_transport_mode').val(row.use_ssh ? 'ssh' : (row.use_tls ? 'api-ssl' : 'api'));
+    // Session 18 — multi-scenario fields
+    $('#nas_auth_modes').val(row.auth_modes || 'pppoe');
+    $('#nas_pppoe_service_name').val(row.pppoe_service_name || '');
+    $('#nas_pppoe_interface').val(row.pppoe_interface || 'ether2');
+    $('#nas_pppoe_vlan_id').val(row.pppoe_vlan_id || 0);
+    $('#nas_hotspot_interface').val(row.hotspot_interface || 'ether3');
+    $('#nas_hotspot_dns_name').val(row.hotspot_dns_name || '');
+    $('#nas_hotspot_pool_name').val(row.hotspot_pool_name || 'hotspot-pool');
+    $('#nasModal').modal('show');
+    // S38b: pull live interfaces + pools so Edit popup shows the datalist and
+    //       IP-pool checkboxes that used to live in configureModal.
+    try { if (typeof loadPppoePools === 'function') loadPppoePools(); } catch(e){}
+    try { if (typeof refreshInterfaceList === 'function') refreshInterfaceList(true); } catch(e){}
+    try { if (typeof refreshRouterPools === 'function') refreshRouterPools(true); } catch(e){}
+}
+function saveNas() {
+    var id = $('#nas_id').val();
+    var mode = $('#nas_transport_mode').val();
+    var payload = {
+        name:            $('#nas_name').val(),
+        ip_address:      $('#nas_ip_address').val(),
+        connection_mode: ($('input[name="nas_conn_mode"]:checked').val() || 'direct'),
+        secret:        $('#nas_secret').val(),
+        type:          $('#nas_type').val(),
+        location:      $('#nas_location').val(),
+        status:        $('#nas_status').val(),
+        api_username:  $('#nas_api_username').val(),
+        port:          $('#nas_port').val(),
+        ssh_port:      $('#nas_ssh_port').val(),
+        use_tls:       (mode === 'api-ssl'),
+        use_ssh:       (mode === 'ssh'),
+        // Session 18 multi-scenario fields
+        auth_modes:           $('#nas_auth_modes').val() || 'pppoe',
+        pppoe_service_name:   $('#nas_pppoe_service_name').val() || '',
+        pppoe_interface:      $('#nas_pppoe_interface').val() || 'ether2',
+        pppoe_vlan_id:        parseInt($('#nas_pppoe_vlan_id').val() || 0, 10),
+        hotspot_interface:    $('#nas_hotspot_interface').val() || 'ether3',
+        hotspot_dns_name:     $('#nas_hotspot_dns_name').val() || '',
+        hotspot_pool_name:    $('#nas_hotspot_pool_name').val() || 'hotspot-pool'
+    };
+    var pw = $('#nas_api_password').val();
+    if (pw) payload.api_password = pw;
+    if (!payload.name || !payload.ip_address) { alert('Name and IP Address required'); return; }
+
+    var url = id ? ('/api/nas-devices/' + id + '/update') : '/api/nas-devices/create';
+    fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(function(r){ return r.json(); }).then(function(d){
+            if (d.success) {
+                // __s56f_post_save_modal__ — pop the script BEFORE reload for Cloud Tunnel mode
+                if (d.cloud_tunnel && d.cloud_tunnel.mikrotik_script) {
+                    showCloudTunnelScript(d.cloud_tunnel);
+                    // Defer page reload until user closes the modal
+                    var w = setInterval(function(){
+                        if (!document.getElementById('ct-modal')) {
+                            clearInterval(w);
+                            $('#nasModal').modal('hide');
+                            location.reload();
+                        }
+                    }, 600);
+                } else {
+                    $('#nasModal').modal('hide');
+                    location.reload();
+                }
+            } else alert(d.message || 'Error');
+        });
+}
+function deleteNas(id) {
+    if (!confirm('Delete this NAS device?')) return;
+    fetch('/api/nas-devices/' + id + '/delete', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+
+// --- Test -------------------------------------------------------------------
+function testNas(id) {
+    fetch('/api/nas-devices/' + id + '/test-connection', { method: 'POST' })
+        .then(r => r.json()).then(d => {
+            if (d.success) {
+                alert('✓ Connection OK\nTransport: ' + d.transport + '\nIdentity: ' + (d.identity || '-') + '\nVersion: ' + (d.version || '-') + '\nBoard: ' + (d.board_name || '-'));
+            } else {
+                alert('✗ Connection failed:\n' + (d.message || 'unknown error'));
+            }
+            location.reload();
+        });
+}
+
+// --- Auto Configure ---------------------------------------------------------
+function openConfigure(id, name) {
+    currentNasId = id;
+    currentNasName = name;
+    $('#cfg_nas_name').text(name);
+    $('#cfg_output').hide().empty();
+    $('#cfg_export_btn').hide();
+    $('#cfg_dry_run').prop('checked', true);
+    // reset detection hints
+    $('#cfg_wan_detect_status').text('');
+    $('#cfg_pppoe_if_hint').text('');
+    $('#cfg_hotspot_if_hint').text('');
+    $('#cfg_router_pools_status').text('');
+    $('#cfg_router_pools_list').html('<span class="muted">Loading live pools from router…</span>');
+    $('#cfg_pool_conflict_warn').hide().empty();
+    loadPppoePools();
+    $('#configureModal').modal('show');
+    // Kick off live introspection — non-blocking; modal is usable either way
+    detectWan(true);
+    refreshRouterPools(true);
+    refreshInterfaceList(true);
+}
+
+// Populate the datalist with live router interfaces (via /api/nas-devices/{id}/interfaces)
+function refreshInterfaceList(silent) {
+    if (!currentNasId) return;
+    $('#cfg_iface_fetch_status').html('<i class="fa fa-spinner fa-spin"></i> fetching interfaces…');
+    fetch('/api/nas-devices/' + currentNasId + '/interfaces')
+        .then(r => r.json())
+        .then(function(d) {
+            var list = $('#cfg_iface_list');
+            list.empty();
+            if (!d || d.success === false) {
+                $('#cfg_iface_fetch_status').html('<span style="color:#b91c1c;">could not fetch live interfaces: ' + ((d && d.message) || 'unreachable') + ' — type names manually.</span>');
+                return;
+            }
+            var ifaces = d.interfaces || [];
+            // Sort: running + not-disabled first
+            ifaces.sort(function(a, b) {
+                var ar = (a.running === true || a.running === 'true') ? 0 : 1;
+                var br = (b.running === true || b.running === 'true') ? 0 : 1;
+                if (ar !== br) return ar - br;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+            ifaces.forEach(function(i) {
+                if (!i.name) return;
+                var opt = document.createElement('option');
+                opt.value = i.name;
+                var parts = [];
+                if (i.type) parts.push(i.type);
+                if (i.running === true || i.running === 'true') parts.push('running');
+                if (i.disabled === true || i.disabled === 'true') parts.push('disabled');
+                if (i.comment) parts.push(i.comment);
+                opt.label = parts.join(' · ');
+                list.append(opt);
+            });
+            $('#cfg_iface_fetch_status').html('<span style="color:#15803d;">✓ ' + ifaces.length + ' interfaces loaded — start typing in any interface field for suggestions.</span>');
+        })
+        .catch(function(e) {
+            $('#cfg_iface_fetch_status').html('<span style="color:#b91c1c;">fetch error: ' + e + '</span>');
+        });
+}
+
+// Auto-detect default-route interface & gateway, pre-fill WAN input.
+function detectWan(silent) {
+    if (!currentNasId) return;
+    $('#cfg_wan_detect_status').html('<i class="fa fa-spinner fa-spin"></i> detecting…');
+    fetch('/api/nas-devices/' + currentNasId + '/detect-wan')
+        .then(r => r.json())
+        .then(function(d) {
+            if (!d || d.success === false) {
+                $('#cfg_wan_detect_status').html('<span style="color:#b91c1c;">detect failed: ' + (d && d.message ? d.message : 'unreachable') + '</span>');
+                return;
+            }
+            lastWanDetect = d;
+            if (d.interface) {
+                $('#cfg_wan_if').val(d.interface);
+                $('#cfg_wan_detect_status').html('<span style="color:#15803d;">detected <code>' + d.interface + '</code>' + (d.gateway ? (' via ' + d.gateway) : '') + ' (' + (d.source || '?') + ')</span>');
+                $('#cfg_wan_hint').html('Auto-detected from default route. Used for NAT masquerade + firewall WAN drop.');
+            } else {
+                $('#cfg_wan_detect_status').html('<span style="color:#92400e;">no active default route found — confirm WAN manually</span>');
+            }
+            updatePreflightHints();
+        })
+        .catch(function(e) {
+            $('#cfg_wan_detect_status').html('<span style="color:#b91c1c;">detect error: ' + e + '</span>');
+        });
+}
+
+var lastWanDetect = null;
+var lastRouterPools = [];
+
+function updatePreflightHints() {
+    var wan = ($('#cfg_wan_if').val() || '').trim();
+    var pppoe = ($('#cfg_pppoe_if').val() || '').trim();
+    var hs = ($('#cfg_hotspot_if').val() || '').trim();
+    var msg = function(ok, txt) {
+        return ok
+            ? '<span style="color:#15803d;">✓ ' + txt + '</span>'
+            : '<span style="color:#b91c1c;font-weight:600;">⚠ ' + txt + '</span>';
+    };
+    $('#cfg_pppoe_if_hint').html(
+        pppoe && wan && pppoe === wan
+            ? msg(false, 'Same as WAN — this will hijack the router\'s uplink. Change this.')
+            : (pppoe ? msg(true, 'LAN-side, safe') : '')
+    );
+    $('#cfg_hotspot_if_hint').html(
+        hs && wan && hs === wan
+            ? msg(false, 'Same as WAN — hotspot cannot share the uplink. Change this.')
+            : (hs ? msg(true, 'LAN-side, safe') : '')
+    );
+}
+$(document).on('input', '#cfg_wan_if, #cfg_pppoe_if, #cfg_hotspot_if', updatePreflightHints);
+
+// Fetch /ip pool print from router and render list + conflict detector.
+function refreshRouterPools(silent) {
+    if (!currentNasId) return;
+    $('#cfg_router_pools_status').html('<i class="fa fa-spinner fa-spin"></i> fetching…');
+    $('#cfg_router_pools_list').html('<span class="muted">Loading…</span>');
+    fetch('/api/nas-devices/' + currentNasId + '/ip-pool-print')
+        .then(r => r.json())
+        .then(function(d) {
+            if (!d || d.success === false) {
+                $('#cfg_router_pools_status').html('<span style="color:#b91c1c;">' + ((d && d.message) || 'unreachable') + '</span>');
+                $('#cfg_router_pools_list').html('<span class="muted">Router unreachable — live pool preview unavailable.</span>');
+                lastRouterPools = [];
+                return;
+            }
+            lastRouterPools = d.pools || [];
+            $('#cfg_router_pools_status').text(lastRouterPools.length + ' pool' + (lastRouterPools.length === 1 ? '' : 's') + ' · ' + (d.transport || ''));
+            if (!lastRouterPools.length) {
+                $('#cfg_router_pools_list').html('<span class="muted">No /ip/pool entries on this router yet.</span>');
+            } else {
+                var rows = lastRouterPools.map(function(p) {
+                    if (p.raw) { return '<pre style="margin:0;white-space:pre-wrap;">' + escapeHtml(p.raw) + '</pre>'; }
+                    return '<div><code>' + escapeHtml(p.name || '') + '</code> <span class="muted">→</span> <code>' + escapeHtml(p.ranges || '') + '</code>' + (p['next-pool'] ? (' <span class="muted">next:</span> <code>' + escapeHtml(p['next-pool']) + '</code>') : '') + '</div>';
+                });
+                $('#cfg_router_pools_list').html(rows.join(''));
+            }
+            checkPoolConflict();
+        })
+        .catch(function(e) {
+            $('#cfg_router_pools_status').html('<span style="color:#b91c1c;">error</span>');
+            $('#cfg_router_pools_list').html('<span class="muted">' + e + '</span>');
+        });
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Parse "a.b.c.d-e.f.g.h" or CIDR into [startInt, endInt]; null if unparseable.
+function parseRange(str) {
+    if (!str) return null;
+    str = String(str).trim();
+    var ip2int = function(ip) {
+        var p = ip.split('.').map(Number);
+        if (p.length !== 4 || p.some(function(x){ return isNaN(x) || x < 0 || x > 255; })) return null;
+        return (p[0] << 24 >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3];
+    };
+    if (str.indexOf('/') !== -1) {
+        var parts = str.split('/');
+        var base = ip2int(parts[0]); var mask = parseInt(parts[1], 10);
+        if (base === null || isNaN(mask)) return null;
+        var hosts = Math.pow(2, 32 - mask);
+        var net = (base >>> (32 - mask)) << (32 - mask);
+        return [net, net + hosts - 1];
+    }
+    if (str.indexOf('-') !== -1) {
+        var seg = str.split(',')[0].trim().split('-');
+        if (seg.length !== 2) return null;
+        var a = ip2int(seg[0].trim()); var b = ip2int(seg[1].trim());
+        if (a === null || b === null) return null;
+        return [Math.min(a,b), Math.max(a,b)];
+    }
+    var single = ip2int(str);
+    return single === null ? null : [single, single];
+}
+
+function checkPoolConflict() {
+    var mine = parseRange($('#cfg_pppoe_pool_ranges').val());
+    var myName = ($('#cfg_pppoe_pool_name').val() || '').trim();
+    var warn = [];
+    if (mine) {
+        lastRouterPools.forEach(function(p) {
+            if (!p || !p.ranges) return;
+            if (p.name && p.name === myName) return; // same-name = overwrite, not a clash
+            var other = parseRange(p.ranges);
+            if (!other) return;
+            if (mine[0] <= other[1] && other[0] <= mine[1]) {
+                warn.push('Range overlaps with router pool <code>' + escapeHtml(p.name) + '</code> (' + escapeHtml(p.ranges) + ')');
+            }
+        });
+    }
+    // Check duplicate name with different range
+    var named = lastRouterPools.filter(function(p){ return p && p.name === myName; });
+    if (named.length && mine) {
+        var existing = parseRange(named[0].ranges);
+        if (existing && (existing[0] !== mine[0] || existing[1] !== mine[1])) {
+            warn.unshift('A pool named <code>' + escapeHtml(myName) + '</code> already exists on the router with a different range — Auto-Configure will skip it (not overwrite).');
+        }
+    }
+    if (warn.length) {
+        $('#cfg_pool_conflict_warn').html('<strong>⚠ Pool conflict check:</strong><br>' + warn.join('<br>')).show();
+    } else {
+        $('#cfg_pool_conflict_warn').hide().empty();
+    }
+}
+$(document).on('input change', '#cfg_pppoe_pool_ranges, #cfg_pppoe_pool_name, #cfg_pppoe_pool_source', function() {
+    setTimeout(checkPoolConflict, 50);
+});
+
+function loadPppoePools() {
+    var tbody = $('#cfg_pools_tbody');
+    tbody.html('<tr><td colspan="6" class="muted" style="text-align:center; padding:14px;">Loading pools…</td></tr>');
+    fetch('/api/ip-pools/list').then(r => r.json()).then(d => {
+        tbody.empty();
+        var pools = d.ip_pools || [];
+        if (!pools.length) {
+            tbody.html('<tr><td colspan="6" class="muted" style="text-align:center; padding:14px;">No IP Pools defined — create one in <a href="/admin/ip-pools">IP Pools</a>, or fill the custom fields below.</td></tr>');
+            $('#cfg_pppoe_custom_fields').show();
+            updatePoolSelectionSummary();
+            return;
+        }
+        pools.forEach(function(p, idx) {
+            var range = (p.start_ip && p.end_ip) ? (p.start_ip + '-' + p.end_ip) : (p.network || '');
+            var rowId = 'cfg_pool_row_' + p.id;
+            var tr = $('<tr>').attr('id', rowId).attr('data-pool-id', p.id)
+                .attr('data-name', p.name).attr('data-range', range).attr('data-gateway', p.gateway || '');
+            tr.append('<td style="text-align:center;"><input type="checkbox" class="cfg-pool-cb" data-testid="cfg-pool-cb-' + p.id + '" data-pool-id="' + p.id + '"></td>');
+            tr.append('<td><code>' + escapeHtml(p.name || '') + '</code></td>');
+            // s26.10: editable-pool-range-gateway — allow per-NAS override
+            tr.append('<td><input type="text" class="form-control cfg-pool-range" data-testid="cfg-pool-range-' + p.id + '" data-pool-id="' + p.id + '" value="' + escapeHtml(range || '') + '" placeholder="e.g. 10.10.20.10-10.10.20.250" style="height:26px; font-size:11px; padding:2px 6px; font-family:monospace;"></td>');
+            tr.append('<td><input type="text" class="form-control cfg-pool-gateway" data-testid="cfg-pool-gw-' + p.id + '" data-pool-id="' + p.id + '" value="' + escapeHtml(p.gateway || '') + '" placeholder="e.g. 10.10.20.1" style="height:26px; font-size:11px; padding:2px 6px; font-family:monospace;"></td>');
+            tr.append('<td><select class="form-control cfg-pool-if" data-testid="cfg-pool-if-' + p.id + '" data-pool-id="' + p.id + '" style="height:28px; font-size:12px; padding:2px 6px;"><option value="">(none — create pool only)</option></select></td>');
+            // s26.14: ad-next-pool-in-cfg
+            tr.append('<td><select class="form-control cfg-pool-next" data-testid="cfg-pool-next-' + p.id + '" data-pool-id="' + p.id + '" style="height:28px; font-size:12px; padding:2px 6px;"><option value="">— None (no overflow) —</option></select></td>');
+            tr.append('<td style="text-align:center;"><input type="radio" name="cfg_pppoe_pool_radio" class="cfg-pool-radio" data-testid="cfg-pool-pppoe-' + p.id + '" data-pool-id="' + p.id + '" disabled></td>');
+            tbody.append(tr);
+        });
+        // s26.14: ad-next-pool-in-cfg
+        pools.forEach(function(p){
+            var $sel = $('.cfg-pool-next[data-pool-id="' + p.id + '"]');
+            if (!$sel.length) return;
+            pools.forEach(function(np){
+                if (np.id === p.id) return;
+                $sel.append($('<option>').val(np.id).text(
+                    np.name + ' (' + (np.network || ((np.start_ip||'') + '-' + (np.end_ip||''))) + ')'));
+            });
+            var cur = p.next_pool_id;
+            if (cur != null && cur !== '') $sel.val(String(cur));
+        });
+        populateInterfaceSelects(cachedRouterInterfaces);
+        updatePoolSelectionSummary();
+        loadRouterInterfaces(true);
+    });
+}
+
+var cachedRouterInterfaces = [];
+
+function loadRouterInterfaces(silent) {
+    if (!currentNasId) return;
+    $('#cfg_ifs_status').html('<i class="fa fa-spinner fa-spin"></i> loading…');
+    fetch('/api/nas-devices/' + currentNasId + '/interfaces')
+        .then(r => r.json())
+        .then(function(d) {
+            if (!d || d.success === false) {
+                $('#cfg_ifs_status').html('<span style="color:#b91c1c;">' + ((d && d.message) || 'unreachable') + '</span>');
+                cachedRouterInterfaces = [];
+                populateInterfaceSelects(cachedRouterInterfaces);
+                return;
+            }
+            cachedRouterInterfaces = d.interfaces || [];
+            $('#cfg_ifs_status').text(cachedRouterInterfaces.length + ' ifs · ' + (d.transport || ''));
+            populateInterfaceSelects(cachedRouterInterfaces);
+        })
+        .catch(function(e) {
+            $('#cfg_ifs_status').html('<span style="color:#b91c1c;">error</span>');
+            cachedRouterInterfaces = [];
+            populateInterfaceSelects([]);
+        });
+}
+
+function populateInterfaceSelects(ifs) {
+    $('.cfg-pool-if').each(function() {
+        var $sel = $(this);
+        var current = $sel.val() || '';
+        $sel.empty().append('<option value="">(none — create pool only)</option>');
+        if (!ifs || !ifs.length) {
+            // Router unreachable — fall back to free-text entry via a tiny prompt
+            $sel.append('<option value="__manual__">— Type manually —</option>');
+        } else {
+            ifs.forEach(function(iface) {
+                if (iface && iface.name) {
+                    var label = iface.name + (iface.type ? (' · ' + iface.type) : '') + (iface.running ? ' ✓' : '');
+                    $sel.append($('<option>').val(iface.name).text(label));
+                }
+            });
+        }
+        if (current) $sel.val(current);
+    });
+}
+
+// Track checkbox state — enable radio only when checkbox is ticked.
+$(document).on('change', '.cfg-pool-cb', function() {
+    var row = $(this).closest('tr');
+    var checked = $(this).is(':checked');
+    row.find('.cfg-pool-radio').prop('disabled', !checked);
+    if (!checked) row.find('.cfg-pool-radio').prop('checked', false);
+    // Auto-select the first-checked as PPPoE pool if none flagged yet
+    if (checked && !$('.cfg-pool-radio:checked').length) {
+        row.find('.cfg-pool-radio').prop('checked', true);
+    }
+    // If the PPPoE pool just got unchecked, pick another
+    if (!checked && !$('.cfg-pool-radio:checked').length) {
+        var $next = $('.cfg-pool-cb:checked').first().closest('tr').find('.cfg-pool-radio');
+        $next.prop('checked', true);
+    }
+    updatePoolSelectionSummary();
+    // Copy selected PPPoE pool's data into legacy hidden inputs so other code
+    // paths (conflict check, pre-flight) still work.
+    syncLegacyPoolFieldsFromSelection();
+});
+$(document).on('change', '.cfg-pool-radio', syncLegacyPoolFieldsFromSelection);
+$(document).on('change', '.cfg-pool-if', syncLegacyPoolFieldsFromSelection);
+// s26.10: editable-pool-range-gateway — keep row data-attrs in sync so legacy
+// pre-flight/conflict checks keep reading the right values.
+$(document).on('input change', '.cfg-pool-range', function(){
+    var $row = $(this).closest('tr');
+    $row.attr('data-range', $(this).val().trim());
+    syncLegacyPoolFieldsFromSelection();
+    if (typeof checkPoolConflict === 'function') { try { checkPoolConflict(); } catch(e){} }
+});
+$(document).on('input change', '.cfg-pool-gateway', function(){
+    var $row = $(this).closest('tr');
+    $row.attr('data-gateway', $(this).val().trim());
+    syncLegacyPoolFieldsFromSelection();
+});
+
+function updatePoolSelectionSummary() {
+    var n = $('.cfg-pool-cb:checked').length;
+    var pppoe = $('.cfg-pool-radio:checked').closest('tr').attr('data-name') || '—';
+    $('#cfg_pools_summary').text(n + ' pool' + (n === 1 ? '' : 's') + ' selected · PPPoE pool: ' + pppoe);
+    $('#cfg_pppoe_custom_fields').toggle(n === 0);
+}
+
+function syncLegacyPoolFieldsFromSelection() {
+    updatePoolSelectionSummary();
+    var $row = $('.cfg-pool-radio:checked').closest('tr');
+    if (!$row.length) {
+        // No PPPoE pool picked — leave custom fields as-is
+        $('#cfg_pppoe_pool_source').val('__custom__');
+        return;
+    }
+    var pid = $row.attr('data-pool-id');
+    var name = $row.attr('data-name') || '';
+    var range = $row.attr('data-range') || '';
+    var gw = $row.attr('data-gateway') || '';
+    $('#cfg_pppoe_pool_name').val(name);
+    $('#cfg_pppoe_pool_ranges').val(range);
+    if (gw) $('#cfg_pppoe_local').val(gw);
+    // Ensure legacy select has this option (hidden) so runConfigure can read it
+    var sel = $('#cfg_pppoe_pool_source');
+    if (!sel.find('option[value="' + pid + '"]').length) {
+        sel.append($('<option>').val(pid).text(name));
+    }
+    sel.val(pid);
+    // Also propagate PPPoE pool's interface into the PPPoE Interface field
+    var pppoeIf = $row.find('.cfg-pool-if').val();
+    if (pppoeIf && pppoeIf !== '__manual__') {
+        $('#cfg_pppoe_if').val(pppoeIf);
+    }
+    updatePreflightHints();
+    checkPoolConflict();
+}
+
+function collectSelectedPools() {
+    var out = [];
+    $('.cfg-pool-cb:checked').each(function() {
+        var $row = $(this).closest('tr');
+        var pid = parseInt($row.attr('data-pool-id'), 10);
+        var iface = $row.find('.cfg-pool-if').val() || '';
+        if (iface === '__manual__') {
+            iface = prompt('Type interface name for pool "' + $row.attr('data-name') + '"', '') || '';
+        }
+        var npv = ($row.find('.cfg-pool-next').val() || '').trim();
+        out.push({
+            pool_id: pid,
+            interface: iface.trim(),
+            is_pppoe_pool: $row.find('.cfg-pool-radio').is(':checked'),
+            ranges:  ($row.find('.cfg-pool-range').val() || '').trim(),
+            gateway: ($row.find('.cfg-pool-gateway').val() || '').trim(),
+            // s26.14: ad-next-pool-in-cfg
+            next_pool_id: npv ? parseInt(npv, 10) : null,
+        });
+    });
+    return out;
+}
+
+// Called elsewhere — keep backward-compat signature
+function applyPoolSelection() { syncLegacyPoolFieldsFromSelection(); }
+function buildConfigureBody(extra) {
+    var b = {
+        queue_types: $('#cfg_queue_types').is(':checked'),
+        ip_pools: $('#cfg_ip_pools').is(':checked'),
+        pppoe_server: $('#cfg_pppoe_server').is(':checked'),
+        simple_queues_from_plans: $('#cfg_simple_queues').is(':checked'),
+        radius_client: $('#cfg_radius_client').is(':checked'),
+        enable_ppp_use_radius: $('#cfg_enable_ppp_use_radius').is(':checked'),
+        firewall_nat_baseline: $('#cfg_firewall_nat').is(':checked'),
+        with_audit_log: $('#cfg_with_audit_log').is(':checked'),
+        with_wan_drop: $('#cfg_with_wan_drop').is(':checked'),
+        parking_pool: $('#cfg_parking_pool').is(':checked'),
+        hotspot: $('#cfg_hotspot').is(':checked'),
+        enable_pppoe_server: $('#cfg_enable_pppoe').is(':checked'),
+        enable_hotspot: $('#cfg_enable_hotspot').is(':checked'),
+        dry_run: $('#cfg_dry_run').is(':checked'),
+        pppoe_interface: $('#cfg_pppoe_if').val(),
+        hotspot_interface: $('#cfg_hotspot_if').val(),
+        wan_interface: $('#cfg_wan_if').val(),
+        pppoe_pool_name: $('#cfg_pppoe_pool_name').val(),
+        pppoe_pool_ranges: $('#cfg_pppoe_pool_ranges').val(),
+        pppoe_pool_id: ($('#cfg_pppoe_pool_source').val() === '__custom__' ? null : $('#cfg_pppoe_pool_source').val()),
+        pppoe_local_address: $('#cfg_pppoe_local').val(),
+        radius_server_ip: $('#cfg_radius_ip').val(),
+        dns_servers: $('#cfg_dns_servers').val(),
+        parking_pool_ranges: $('#cfg_parking_ranges').val(),
+        parking_landing_ip: $('#cfg_parking_landing').val(),
+        selected_pools: collectSelectedPools(),
+    };
+    return Object.assign(b, extra || {});
+}
+
+function runConfigure(force) {
+    if (!currentNasId) {
+        console.warn('runConfigure called with no currentNasId — ignored.');
+        return;
+    }
+    var body = buildConfigureBody(force ? {force: true} : null);
+
+    // Client-side pre-flight mirror for immediate feedback (server enforces anyway)
+    if (!body.dry_run && !force) {
+        var wanIf = (body.wan_interface || '').trim();
+        var conflicts = [];
+        if (body.pppoe_server && body.pppoe_interface === wanIf && wanIf) {
+            conflicts.push('PPPoE interface "' + body.pppoe_interface + '" is the WAN interface.');
+        }
+        if (body.hotspot && body.hotspot_interface === wanIf && wanIf) {
+            conflicts.push('Hotspot interface "' + body.hotspot_interface + '" is the WAN interface.');
+        }
+        if (conflicts.length) {
+            var msg = '⚠ Pre-flight client-side check failed:\n\n• ' + conflicts.join('\n• ') +
+                '\n\nExecuting would take the router offline. Click OK to let the server decide (it will refuse unless you Force).';
+            if (!confirm(msg)) return;
+        }
+    }
+
+    $('#cfg_output').text('Running…').show();
+    $('#cfg_recovery').hide();
+    fetch('/api/nas-devices/' + currentNasId + '/auto-configure', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(d => {
+        var text = '';
+        if (d.preflight_blocked) {
+            text += '[BLOCKED BY PRE-FLIGHT]\n';
+            text += (d.message || '') + '\n';
+            (d.conflicts || []).forEach(function(c){ text += '  • ' + c + '\n'; });
+            text += '\nDetected WAN: ' + ((d.preflight || {}).detected_wan || '?') +
+                    '  via gw ' + ((d.preflight || {}).gateway || '?') + '\n';
+            $('#cfg_output').text(text);
+            if (confirm('Pre-flight refused the run:\n\n' + (d.message || '') +
+                        '\n\nRe-run with FORCE=true? This WILL likely knock the router offline.')) {
+                runConfigure(true);
+            }
+            return;
+        }
+        text += (d.dry_run ? '[DRY-RUN] ' : '[EXECUTED] ') + 'transport=' + (d.transport || 'n/a') + '\n';
+        text += 'success: ' + d.success + (d.message ? ('  msg: ' + d.message) : '') + '\n';
+        if (d.preflight && !d.preflight.skipped) {
+            text += '[pre-flight] detected WAN=' + (d.preflight.detected_wan || '?') +
+                    ' gateway=' + (d.preflight.gateway || '?') +
+                    ' source=' + (d.preflight.source || '?') + '\n';
+            (d.preflight.warnings || []).forEach(function(w){ text += '   warn: ' + w + '\n'; });
+        }
+        text += '\n--- Commands ---\n';
+        (d.commands || []).forEach(function(c){ text += '> ' + c + '\n'; });
+        if (d.task_errors && Object.keys(d.task_errors).length) {
+            text += '\n--- ⚠ Per-task errors (other tasks still ran) ---\n';
+            Object.keys(d.task_errors).forEach(function(k){
+                text += '  • ' + k + ': ' + d.task_errors[k] + '\n';
+            });
+        }
+        if (d.permission_hint) {
+            text += '\n--- 🔑 RouterOS permission fix needed ---\n';
+            text += d.permission_hint.issue + '\n';
+            text += 'Missing policies: ' + (d.permission_hint.missing_policies || []).join(', ') + '\n';
+            text += 'Run this ON THE MIKROTIK (Winbox/terminal):\n';
+            text += '  ' + d.permission_hint.fix + '\n';
+        }
+        text += '\n--- Results ---\n' + JSON.stringify(d.tasks || {}, null, 2);
+        $('#cfg_output').text(text);
+        lastCommands.configure = d.commands || [];
+        $('#cfg_export_btn').toggle((d.commands || []).length > 0);
+
+        if (d.unprovision_commands && d.unprovision_commands.length) {
+            $('#cfg_recovery_cmds').text(d.unprovision_commands.join('\n'));
+            $('#cfg_recovery').show();
+        }
+        // Refresh router pool snapshot after a real execution so next run shows current state
+        if (!d.dry_run && d.success) {
+            refreshRouterPools(true);
+        }
+    }).catch(e => { $('#cfg_output').text('Error: ' + e); });
+}
+
+function copyRecovery() {
+    var txt = $('#cfg_recovery_cmds').text();
+    navigator.clipboard.writeText(txt).then(function(){
+        alert('Recovery commands copied to clipboard.');
+    }, function(){
+        prompt('Copy these commands:', txt);
+    });
+}
+
+// --- Router Status ---------------------------------------------------------
+function openRouterStatus(id, name) {
+    currentNasId = id;
+    currentNasName = name;
+    $('#stat_nas_name').text(name);
+    $('#stat_loading').show();
+    $('#stat_error').hide().empty();
+    $('#stat_content').hide();
+    $('#statusModal').modal('show');
+    refreshRouterStatus();
+}
+
+function refreshRouterStatus() {
+    if (!currentNasId) return;
+    $('#stat_loading').show();
+    $('#stat_error').hide().empty();
+    $('#stat_content').hide();
+    fetch('/api/nas-devices/' + currentNasId + '/status')
+        .then(r => r.json())
+        .then(function(d) {
+            $('#stat_loading').hide();
+            if (!d || d.success === false) {
+                $('#stat_error').text('Unable to fetch status: ' + (d && d.message ? d.message : 'unknown error') + '. Check that port 8728 is reachable and the API user has read permissions.').show();
+                return;
+            }
+            renderRouterStatus(d);
+            $('#stat_content').show();
+        })
+        .catch(function(e) {
+            $('#stat_loading').hide();
+            $('#stat_error').text('Error: ' + e).show();
+        });
+}
+
+function pill(color, label, value) {
+    var bg = {green:'#dcfce7',red:'#fee2e2',blue:'#dbeafe',amber:'#fef3c7',slate:'#f1f5f9'}[color] || '#f1f5f9';
+    var fg = {green:'#166534',red:'#991b1b',blue:'#1e40af',amber:'#92400e',slate:'#334155'}[color] || '#334155';
+    return '<span style="background:' + bg + '; color:' + fg + '; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:600;">' + escapeHtml(label) + ': ' + escapeHtml(value) + '</span>';
+}
+
+function renderRouterStatus(d) {
+    var onlineCol = d.pppoe_active_count > 0 ? 'green' : 'amber';
+    var radiusCol = d.ppp_aaa_use_radius === true ? 'green' : 'slate';
+    var coaCol = d.radius_incoming_accept === true ? 'green' : 'slate';
+    var pills = [
+        pill('blue', 'Identity', d.identity || '?'),
+        pill('slate', 'Version', d.version || '?'),
+        pill(d.cpu_load > 80 ? 'red' : (d.cpu_load > 50 ? 'amber' : 'green'), 'CPU', (d.cpu_load != null ? d.cpu_load + '%' : '?')),
+        pill(onlineCol, 'PPPoE online', d.pppoe_active_count),
+        pill(d.hotspot_active_count ? 'green' : 'slate', 'Hotspot online', d.hotspot_active_count),
+        pill(radiusCol, 'ppp/aaa use-radius', d.ppp_aaa_use_radius === true ? 'yes' : (d.ppp_aaa_use_radius === false ? 'no' : '?')),
+        pill(coaCol, 'CoA/PoD (3799)', d.radius_incoming_accept === true ? 'on' : (d.radius_incoming_accept === false ? 'off' : '?')),
+        pill(d.default_route_count ? 'green' : 'red', 'Default routes', d.default_route_count),
+    ];
+    $('#stat_summary').html(pills.join(' '));
+
+    var memFreePct = d.total_memory ? Math.round(100 * d.free_memory / d.total_memory) : null;
+    $('#stat_system').html(
+        '<div>Identity: <code>' + escapeHtml(d.identity || '?') + '</code></div>' +
+        '<div>Version: <code>' + escapeHtml(d.version || '?') + '</code> · Board: <code>' + escapeHtml(d.board_name || '?') + '</code></div>' +
+        '<div>Uptime: <code>' + escapeHtml(d.uptime || '?') + '</code></div>' +
+        '<div>Free memory: ' + (d.free_memory != null ? (Math.round(d.free_memory/1024/1024) + ' MB') : '?') + (memFreePct != null ? (' (' + memFreePct + '% free)') : '') + '</div>' +
+        '<div>Transport: <code>' + escapeHtml(d.transport || '?') + '</code></div>'
+    );
+
+    $('#stat_radius').html(
+        '<div>RADIUS clients: <strong>' + d.radius_count + '</strong></div>' +
+        '<div>ppp/aaa use-radius: <strong>' + (d.ppp_aaa_use_radius === true ? 'yes' : (d.ppp_aaa_use_radius === false ? 'no' : '?')) + '</strong></div>' +
+        '<div>CoA/PoD listener (3799): <strong>' + (d.radius_incoming_accept === true ? 'accept' : (d.radius_incoming_accept === false ? 'deny' : '?')) + '</strong></div>' +
+        (d.radius_incoming_accept === true ? '' : '<div style="color:#b91c1c; margin-top:4px;">⚠ Enable via Auto-Configure → RADIUS client task to allow kicks/CoA.</div>')
+    );
+
+    $('#stat_counts').html(
+        '<div>PPPoE servers: <strong>' + d.pppoe_server_count + '</strong>' + (d.pppoe_servers_disabled && d.pppoe_servers_disabled.length ? (' <span style="color:#b91c1c;">(' + d.pppoe_servers_disabled.length + ' disabled)</span>') : '') + '</div>' +
+        '<div>Hotspot servers: <strong>' + d.hotspot_server_count + '</strong></div>' +
+        '<div>Firewall filter rules: <strong>' + d.fw_filter_count + '</strong></div>' +
+        '<div>Firewall NAT rules: <strong>' + d.fw_nat_count + '</strong></div>' +
+        '<div>Simple queues: <strong>' + d.simple_queue_count + '</strong></div>'
+    );
+
+    var pools = d.pools || [];
+    if (!pools.length) {
+        $('#stat_pools').html('<span class="muted">No /ip/pool entries.</span>');
+    } else {
+        $('#stat_pools').html(pools.map(function(p) {
+            var rangeSize = parseRange(p.ranges);
+            var size = rangeSize ? (rangeSize[1] - rangeSize[0] + 1) : null;
+            var usedPct = (size && p.used != null) ? Math.round(100 * p.used / size) : null;
+            var barCol = usedPct == null ? '#94a3b8' : (usedPct > 85 ? '#dc2626' : (usedPct > 60 ? '#d97706' : '#16a34a'));
+            return '<div style="margin-bottom:6px;"><code>' + escapeHtml(p.name) + '</code> · <span class="muted">' + escapeHtml(p.ranges || '') + '</span> · <strong>' + (p.used || 0) + (size != null ? ('/' + size) : '') + '</strong>' + (usedPct != null ? (' (' + usedPct + '%)') : '') +
+                '<div style="background:#e2e8f0; height:6px; border-radius:3px; margin-top:2px; overflow:hidden;"><div style="background:' + barCol + '; height:6px; width:' + (usedPct || 0) + '%;"></div></div></div>';
+        }).join(''));
+    }
+
+    var tb = $('#stat_online_tbody').empty();
+    var sample = d.online_sample || [];
+    if (!sample.length) {
+        tb.html('<tr><td colspan="7" class="muted" style="text-align:center; padding:12px;">No online users right now.</td></tr>');
+    } else {
+        sample.forEach(function(u, i) {
+            var uname = u.username || '';
+            tb.append('<tr>' +
+                '<td>' + (i+1) + '</td>' +
+                '<td><code>' + escapeHtml(uname) + '</code></td>' +
+                '<td><code>' + escapeHtml(u.address || '') + '</code></td>' +
+                '<td style="font-size:11px;">' + escapeHtml(u.caller_id || '') + '</td>' +
+                '<td>' + escapeHtml(u.uptime || '') + '</td>' +
+                '<td>' + escapeHtml(u.service || '') + '</td>' +
+                '<td style="text-align:center;">' + (u.radius ? '<span style="color:#16a34a;">✓</span>' : '—') + '</td>' +
+                '<td><button class="btn btn-xs btn-danger" onclick="kickUser(\'' + escapeHtml(uname) + '\')" data-testid="kick-' + escapeHtml(uname) + '" title="Send CoA Disconnect-Request"><i class="fa fa-bolt"></i> Kick</button></td>' +
+                '</tr>');
+        });
+    }
+}
+
+// --- Unprovision -----------------------------------------------------------
+function downloadRsc(id, name) {
+    // Build a form POST so the browser downloads the file naturally
+    var body = {
+        as_attachment: true,
+        queue_types: true, ip_pools: true, pppoe_server: true,
+        radius_client: true, firewall_nat_baseline: true, parking_pool: true,
+        wan_interface: $('#cfg_wan_if').val() || 'ether1',
+        pppoe_interface: $('#cfg_pppoe_if').val() || 'ether2',
+        pppoe_pool_name: $('#cfg_pppoe_pool_name').val() || 'pppoe-pool',
+        pppoe_pool_ranges: $('#cfg_pppoe_pool_ranges').val() || '192.168.100.10-192.168.100.250',
+        pppoe_local_address: $('#cfg_pppoe_local').val() || '192.168.100.1',
+        dns_servers: $('#cfg_dns_servers').val() || '8.8.8.8,1.1.1.1',
+        parking_landing_ip: $('#cfg_parking_landing').val() || '',
+        enable_ppp_use_radius: $('#cfg_enable_ppp_use_radius').is(':checked'),
+    };
+    fetch('/api/nas-devices/' + id + '/generate-rsc', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    }).then(r => r.blob()).then(blob => {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'autoisp-setup-' + id + '.rsc';
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
+    });
+}
+function syncRadiusSecret(id, name) {
+    if (!confirm('Force-update the router\'s /radius entry secret on "' + name + '" to match this NAS row\'s DB secret?\n\nThis fixes the endless "router times out waiting for RADIUS" loop that happens when the router\'s secret drifts from our clients.conf (reply signed with different secret → router discards → retries).\n\nSafe, idempotent. Targets only rows with comment=auto-isp-billing.')) return;
+    fetch('/api/nas-devices/' + id + '/sync-radius-secret', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({})
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            alert('\u2713 Router /radius secret synced.\n\nAddress: ' + (d.address || 'n/a') +
+                  '\nSecret length: ' + (d.secret_length || d.secret && d.secret.length || '?') + ' chars' +
+                  '\nTransport: ' + (d.transport || '?') +
+                  '\n\nPPPoE users who were stuck in RADIUS-timeout should reconnect cleanly now (their next CPE retry, typically ~30s).');
+        } else {
+            alert('\u2717 Sync failed: ' + (d.message || 'unknown'));
+        }
+    }).catch(function(e) {
+        alert('Request error: ' + e);
+    });
+}
+
+
+
+function fixPppoeProfile(id, name) {
+    if (!confirm('Force-set /ppp/profile isp-default on "' + name + '"?\n\nThis fixes the Mikrotik log error "could not determine local ip address" on RADIUS-authenticated PPPoE sessions by:\n  1. Updating /ppp/profile isp-default with local-address + remote-address (pool)\n  2. Pointing EVERY /interface/pppoe-server/server at that profile as default-profile\n\nSafe, idempotent, leaves everything else untouched.')) return;
+    var gateway = prompt('PPPoE server gateway IP (router side):\n(Leave blank to auto-resolve from this NAS\'s linked pool gateway, fallback 192.168.100.1)', '');
+    if (gateway === null) return;
+    var pool = prompt('PPPoE IP pool name on the router:\n(Leave blank to auto-resolve from NAS/pool, fallback "pppoe-pool")', '');
+    if (pool === null) return;
+    fetch('/api/nas-devices/' + id + '/ensure-pppoe-profile', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+            gateway: (gateway || '').trim(),
+            pool_name: (pool || '').trim(),
+        })
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            var lines = ['\u2713 PPPoE profile force-updated.'];
+            if (d.profile) {
+                lines.push('Profile: ' + (d.profile.name || 'isp-default') +
+                           ' \u2192 local-address=' + (d.profile['local-address'] || '?') +
+                           ', remote-address=' + (d.profile['remote-address'] || '?'));
+            }
+            (d.servers || []).forEach(function(s) {
+                if (s.service)      lines.push('Server ' + s.service + ': default-profile=' + (s.default_profile || 'isp-default'));
+                else if (s.ssh_rc !== undefined) lines.push('SSH set rc=' + s.ssh_rc + (s.ssh_err ? ' err=' + s.ssh_err : ''));
+                else if (s.error)   lines.push('Server error: ' + s.error);
+                else if (s.note)    lines.push(s.note);
+            });
+            lines.push('');
+            lines.push('Now: ask an affected PPPoE user (e.g. mp.dilip.fibernet) to reconnect their CPE. They should come up with a valid local+remote IP instead of 0.0.0.0.');
+            alert(lines.join('\n'));
+        } else {
+            alert('\u2717 Fix failed: ' + (d.message || 'unknown'));
+        }
+    }).catch(function(e) {
+        alert('Request error: ' + e);
+    });
+}
+
+
+function emergencyUnblock(id, name) {
+    if (!confirm('Remove the WAN-drop firewall rules from "' + name + '"?\n\nUse this ONLY when Auto-Configure\'s firewall locked you out from the WAN side. Reaches the router via the RouterOS API (needs LAN-side reachability OR a still-OK NAS peer).\n\nEverything else (NAT, accept rules, PPPoE, RADIUS) is kept.')) return;
+    fetch('/api/nas-devices/' + id + '/emergency-unblock', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({dry_run: false})
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            var removed = (d.removed || []).length;
+            alert('✓ Emergency unblock done. Removed ' + removed + ' WAN-drop rule(s). Your router should be reachable from WAN again now.');
+        } else {
+            alert('✗ Unblock failed: ' + (d.message || 'unknown'));
+        }
+    });
+}
+
+function kickUser(username) {
+    if (!username || !currentNasId) return;
+    if (!confirm('Send CoA Disconnect-Request to kick user "' + username + '"?\n\nThe router must have /radius incoming accept=yes port=3799 (Auto-Configure does this automatically).')) return;
+    fetch('/api/online-users/kick', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({nas_id: currentNasId, username: username})
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            alert('✓ Disconnect-ACK received. User will be kicked within a few seconds.');
+            setTimeout(refreshRouterStatus, 2500);
+        } else {
+            alert('✗ Kick failed: ' + (d.message || 'unknown error') + '\n\n' + (d.stderr || d.stdout || ''));
+        }
+    }).catch(e => alert('Error: ' + e));
+}
+
+function openUnprovision(id, name) {
+    currentNasId = id;
+    currentNasName = name;
+    $('#unp_nas_name').text(name);
+    $('#unp_output').hide().empty();
+    $('#unp_dry_run').prop('checked', true);
+    $('#unprovisionModal').modal('show');
+}
+
+function runUnprovision() {
+    var dry = $('#unp_dry_run').is(':checked');
+    if (!dry) {
+        if (!confirm('This will REMOVE auto-isp-billing objects from router "' + currentNasName + '" over the API.\n\nCustomers connected via PPPoE will drop. Proceed?')) return;
+    }
+    $('#unp_output').text('Running…').show();
+    fetch('/api/nas-devices/' + currentNasId + '/unprovision', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({dry_run: dry})
+    }).then(r => r.json()).then(d => {
+        var text = '';
+        text += (d.dry_run ? '[DRY-RUN] ' : '[EXECUTED] ') + 'transport=' + (d.transport || 'n/a') + '\n';
+        text += 'success: ' + d.success + (d.message ? ('  msg: ' + d.message) : '') + '\n\n';
+        text += '--- Commands ---\n';
+        (d.commands || []).forEach(function(c){ text += (c.startsWith('#') ? '' : '> ') + c + '\n'; });
+        if (d.executed && d.executed.length) {
+            text += '\n--- Executed ---\n' + JSON.stringify(d.executed, null, 2);
+        }
+        if (d.errors && d.errors.length) {
+            text += '\n--- Errors ---\n' + JSON.stringify(d.errors, null, 2);
+        }
+        $('#unp_output').text(text);
+        if (!d.dry_run && d.success) {
+            // refresh list after a real unprovision so provisioned_at / status update
+            setTimeout(function(){ location.reload(); }, 1500);
+        }
+    }).catch(e => { $('#unp_output').text('Error: ' + e); });
+}
+
+// --- Secrets ----------------------------------------------------------------
+function openSecrets(id, name) {
+    currentNasId = id;
+    currentNasName = name;
+    $('#sec_nas_name').text(name);
+    $('#sec_name, #sec_password, #sec_remote').val('');
+    $('#sec_profile').val('isp-default');
+    $('#prov_password, #prov_remote, #prov_plan_speed').val('');
+    $('#prov_output').hide().empty();
+    $('#prov_dry_run').prop('checked', false);
+    $('a[href="#tab-provision"]').tab('show');
+    $('#secretsModal').modal('show');
+    loadCustomersForProvision();
+    refreshSecrets();
+}
+
+function loadCustomersForProvision() {
+    var sel = $('#prov_customer');
+    sel.html('<option value="">Loading…</option>');
+    fetch('/api/provision/customers').then(r => r.json()).then(d => {
+        sel.empty().append('<option value="">— Select a customer —</option>');
+        (d.customers || []).forEach(function(c){
+            var planLabel = c.plan_name ? (c.plan_name + ' · ' + (c.download_speed || '?') + '/' + (c.upload_speed || '?')) : 'no plan';
+            sel.append($('<option>').val(c.customer_id)
+                        .data('row', c)
+                        .text(c.customer_name + ' (' + c.username + ') — ' + planLabel));
+        });
+        if (!(d.customers || []).length) {
+            sel.append('<option value="">(no eligible customers — need username + Broadband plan)</option>');
+        }
+    });
+}
+$(document).on('change', '#prov_customer', function() {
+    var c = $(this).find(':selected').data('row');
+    if (c && (c.download_speed || c.upload_speed)) {
+        $('#prov_plan_speed').val((c.download_speed || '?') + ' DL / ' + (c.upload_speed || '?') + ' UL — profile: plan-' + (c.plan_name || '').toLowerCase().replace(/\s+/g,'-'));
+    } else if (c) {
+        $('#prov_plan_speed').val('⚠ plan has no DL/UL — secret will be created without rate-limit');
+    } else {
+        $('#prov_plan_speed').val('');
+    }
+});
+
+function provisionCustomer() {
+    var body = {
+        customer_id: $('#prov_customer').val(),
+        password:    $('#prov_password').val(),
+        remote_address: $('#prov_remote').val(),
+        dry_run:     $('#prov_dry_run').is(':checked')
+    };
+    if (!body.customer_id || !body.password) { alert('Customer + Password required'); return; }
+    $('#prov_output').text('Running…').show();
+    fetch('/api/nas-devices/' + currentNasId + '/provision-customer', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(d => {
+        var txt = (d.success ? '✓ ' : '✗ ') + (d.dry_run ? '[DRY-RUN]' : '[EXECUTED]') + '\n';
+        if (d.customer) txt += 'Customer: ' + d.customer.username + ' · Plan: ' + (d.customer.plan_name || '-') + '\n';
+        if (d.rate_limit) txt += 'Rate-limit (UL/DL): ' + d.rate_limit + '\n';
+        if (d.profile_name) txt += 'Profile: ' + d.profile_name + '\n';
+        if (d.message) txt += '\nMessage: ' + d.message + '\n';
+        txt += '\n--- Commands ---\n';
+        (d.commands || []).forEach(function(c){ txt += '> ' + c + '\n'; });
+        $('#prov_output').text(txt);
+        lastCommands.provision = d.commands || [];
+        $('#prov_export_btn').toggle((d.commands || []).length > 0);
+    }).catch(e => { $('#prov_output').text('Error: ' + e); });
+}
+function refreshSecrets() {
+    $('#sec_list').text('Loading…');
+    fetch('/api/nas-devices/' + currentNasId + '/pppoe-secrets')
+        .then(r => r.json()).then(d => {
+            if (!d.success) { $('#sec_list').text('Error: ' + (d.message || 'failed')); return; }
+            var out = 'Transport: ' + (d.transport || '-') + '\n\n';
+            (d.secrets || []).forEach(function(s){ out += JSON.stringify(s) + '\n'; });
+            if (!(d.secrets || []).length) out += '(no secrets)';
+            $('#sec_list').text(out);
+        });
+}
+function createSecret() {
+    var body = {
+        name: $('#sec_name').val(),
+        password: $('#sec_password').val(),
+        profile: $('#sec_profile').val(),
+        remote_address: $('#sec_remote').val(),
+        dry_run: $('#sec_dry_run').is(':checked')
+    };
+    if (!body.name || !body.password) { alert('name + password required'); return; }
+    fetch('/api/nas-devices/' + currentNasId + '/pppoe-secrets/create', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(d => {
+        if (d.success) { alert('OK\n\n' + (d.commands || []).join('\n')); refreshSecrets(); }
+        else alert('Failed: ' + (d.message || 'error'));
+    });
+}
+
+// --- Static-IP harmonizer ---------------------------------------------
+function harmonizeStaticIps() {
+    var msg = 'Harmonize Static IPs across all NAS?\n\n' +
+              'For EVERY customer with a static IP, this idempotently pushes onto each Active NAS:\n' +
+              '  1. /ppp secret remote-address pin (for PPPoE mode)\n' +
+              '  2. /ip arp static binding (IP -> customer MAC on WAN-facing iface)\n' +
+              '  3. /ip route <static>/32 -> WAN iface (no-PPPoE path)\n' +
+              '  4. /ip firewall address-list allowed-static\n' +
+              '  5. /ip firewall filter forward accept (one-time)\n' +
+              '  6. /ip firewall nat srcnat masquerade per static IP\n\n' +
+              'After this, customers can use their static IP via PPPoE OR raw-static CPE config.\n\n' +
+              'Safe to re-run — every step is idempotent.';
+    if (!confirm(msg)) return;
+    var btn = document.querySelector('[data-testid="harmonize-static-ips-btn"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Harmonizing...'; }
+    fetch('/api/freeradius/harmonize-static-ips-all-nas', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            var ok = (d.results || []).filter(function(r){return !r.error;}).length;
+            var err = (d.results || []).filter(function(r){return r.error;}).length;
+            var summary = (d.results || []).map(function(r){
+                var steps = Object.keys(r.steps || {}).map(function(k){return '  ' + k + ': ' + JSON.stringify(r.steps[k]);}).join('\n');
+                return r.username + ' (' + r.static_ip + ') @ ' + r.nas_name + ':\n' + (steps || '  (no steps)') + (r.error ? '\n  ERROR: ' + r.error : '');
+            }).join('\n\n');
+            alert('✓ Harmonized\n\nCustomers processed: ' + d.customer_count +
+                  '\nNAS targeted: ' + d.nas_count +
+                  '\nOK: ' + ok + '   Errors: ' + err +
+                  '\n\n' + summary);
+        } else {
+            alert('✗ Failed: ' + (d.message || 'error'));
+        }
+    }).catch(function(e){
+        alert('Request error: ' + e.message);
+    }).finally(function(){
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-network-wired"></i> Harmonize Static IPs'; }
+    });
+}
+
+// --- Radius -------------------------------------------------------------
+function syncRadius() {
+    var msg = 'Sync Radius clients.conf?\n\n' +
+              'What this does: regenerates /etc/freeradius/3.0/clients.conf so every Active NAS below is registered as a RADIUS client (name + IP + shared secret). Radius then accepts Auth/Accounting requests from them.\n\n' +
+              'Why: without this, adding a new router means editing clients.conf by hand and restarting the service. This button automates both — validates the config, backs up the old file, and rolls back if validation fails.\n\n' +
+              'Safe to run: existing entries keep working; clients you removed get cleaned up.';
+    if (!confirm(msg)) return;
+    fetch('/api/freeradius/sync-clients', { method: 'POST' })
+        .then(r => r.json()).then(d => {
+            if (d.success) {
+                alert('✓ Radius clients synced.\nRestarted: ' + !!d.restarted + '\nBackup: ' + (d.backup || 'n/a'));
+            } else {
+                alert('✗ Sync failed:\n' + (d.message || 'error') + (d.validate_stderr ? '\n\n' + d.validate_stderr : ''));
+            }
+        });
+}
+
+function syncAllRadius() {
+    var global = confirm('Rebuild Radius from scratch?\n\n' +
+              'OK  = GLOBAL sync (every tenant — recommended if you run multiple companies on this server)\n' +
+              'Cancel = cancel action\n\n' +
+              'This regenerates BOTH files:\n' +
+              '  • /etc/freeradius/3.0/clients.conf — every Active NAS Device (dedup\'d by IP)\n' +
+              '  • /etc/freeradius/3.0/mods-config/files/isp-users — every customer with a PPPoE password, carrying their plan Rate-Limit, Framed-Pool (resolved from the NAS pool name — case-sensitive!) and group tag\n\n' +
+              'Then validates with `freeradius -Cx` and restarts the service. Rolls back BOTH files if validation fails.');
+    if (!global) return;
+    var btn = document.querySelector('[data-testid="nas-sync-all-btn"]');
+    if (btn) btn.disabled = true;
+    fetch('/api/freeradius/sync-global', { method: 'POST' })
+        .then(r => r.json()).then(d => {
+            if (d.success) {
+                var t = (d.tenants || []).map(function(x){return x.company_id + ' (' + x.nas + ' NAS, ' + x.customers + ' cust)';}).join(', ');
+                alert('\u2713 Global sync complete.\n\nClients written: ' + d.clients_written +
+                      '\nUsers written: ' + d.users_written +
+                      '\nRestarted: ' + !!d.restarted +
+                      '\nTenants: ' + (t || 'none'));
+            } else {
+                alert('\u2717 Sync failed:\n' + (d.message || 'error') + (d.validate_stderr ? '\n\n' + d.validate_stderr : ''));
+            }
+        })
+        .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function bulkGenPppoe() {
+    if (!confirm('Generate random 12-char PPPoE passwords for every customer who doesn\'t have one yet?\n\nExisting passwords are NEVER overwritten. After generation, Radius is auto-synced so new credentials take effect immediately.')) return;
+    fetch('/api/customers/bulk-generate-pppoe', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({})
+    }).then(r => r.json()).then(d => {
+        if (!d.success) { alert('✗ Failed: ' + (d.message || 'error')); return; }
+        var html = '<h5>Generated credentials (' + d.generated_count + ' of ' + d.total_customers + ')</h5>' +
+                   '<p class="muted">' + d.skipped_existing + ' customers already had a password — skipped.</p>' +
+                   '<p><strong>Copy this list and hand out to customers.</strong></p>' +
+                   '<table class="table table-condensed"><thead><tr><th>Username</th><th>Password</th></tr></thead><tbody>' +
+                   (d.generated || []).map(function(r){ return '<tr><td><code>'+r.username+'</code></td><td><code>'+r.password+'</code></td></tr>'; }).join('') +
+                   '</tbody></table>';
+        var w = window.open('', 'pppoe-creds', 'width=600,height=500,scrollbars=yes');
+        if (w) {
+            w.document.write('<!doctype html><html><head><title>PPPoE Credentials</title><style>body{font-family:sans-serif;padding:16px;}table{width:100%;border-collapse:collapse;}td,th{border:1px solid #ddd;padding:6px 10px;}code{background:#f1f5f9;padding:2px 6px;}</style></head><body>' + html + '</body></html>');
+        } else {
+            alert('Generated ' + d.generated_count + ' PPPoE credentials. (Pop-ups blocked — check network tab to view)');
+        }
+    });
+}
+
+// --- RADIUS Diagnose -------------------------------------------------------
+function openFrDiagnose() {
+    $('#diag_auth_output').hide().empty();
+    $('#diag_logs_status').text('');
+    $('#diag_hints_box').hide().empty();
+    $('#diag_log_tail').text('');
+    $('#frDiagModal').modal('show');
+    refreshFrLogs();
+}
+
+function refreshFrLogs() {
+    $('#diag_logs_status').html('<i class="fa fa-spinner fa-spin"></i> fetching…');
+    fetch('/api/freeradius/logs?lines=200').then(r => r.json()).then(d => {
+        $('#diag_logs_status').text('updated');
+        var txt = (d.logs && d.logs['radius.log']) || '';
+        $('#diag_log_tail').text(txt || '(empty)');
+        var hints = d.hints || [];
+        if (hints.length) {
+            $('#diag_hints_box').html('<strong>⚠ Auth-failure hints (' + hints.length + '):</strong><br>' +
+                hints.map(function(h){ return escapeHtml(h); }).join('<br>')).show();
+        } else {
+            $('#diag_hints_box').html('<strong>✓ No recent auth failures detected.</strong>').css('background','#ecfdf5').css('border-color','#86efac').css('color','#166534').show();
+        }
+    }).catch(e => { $('#diag_logs_status').text('error: ' + e); });
+}
+
+function runTestAuth() {
+    var username = $('#diag_username').val().trim();
+    var password = $('#diag_password').val().trim();
+    if (!username || !password) { alert('Enter username and password'); return; }
+    var body = {
+        username: username, password: password,
+        nas_ip: $('#diag_nas_ip').val().trim() || '127.0.0.1',
+        secret:  $('#diag_secret').val().trim() || 'testing123',
+    };
+    $('#diag_auth_output').text('Running radtest…').show();
+    fetch('/api/freeradius/test-auth', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    }).then(r => r.json()).then(d => {
+        var verdict = d.accepted ? '✓ ACCEPTED' : (d.rejected ? '✗ REJECTED' : '? UNKNOWN');
+        var color = d.accepted ? '#16a34a' : '#b91c1c';
+        $('#diag_auth_output').html(
+            '<div style="color:' + color + '; font-weight:700; font-size:14px; margin-bottom:6px;">' + verdict + (d.message ? ' — ' + escapeHtml(d.message) : '') + '</div>' +
+            '<pre style="margin:0; white-space:pre-wrap; font-size:11px;">' + escapeHtml(d.output || d.message || '(no output)') + '</pre>'
+        );
+        // Auto-refresh log tail so user sees the attempt in-context
+        setTimeout(refreshFrLogs, 500);
+    });
+}
+
+function switchToRadiusOnly(id, name) {
+    // Step 1 - dry-run preview
+    if (!confirm('Switch "' + name + '" to RADIUS-ONLY authentication?\n\n' +
+                 'Step 1: DRY-RUN preview (no changes made).\n\n' +
+                 'This will show /ppp/aaa, the /radius row, and every current ' +
+                 '/ppp/secret on the router so you can decide whether to purge them.'))
+        return;
+    fetch('/api/nas-devices/' + id + '/switch-to-radius-only', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({dry_run: true, clear_local: false})
+    }).then(r => r.json()).then(d => {
+        if (!d.success) {
+            alert('✗ Dry-run failed: ' + (d.message || 'unknown'));
+            return;
+        }
+        var sb = d.secrets_before || [];
+        var preview =
+            '== DRY-RUN RESULT ==\n' +
+            'Stages: ' + (d.stages || []).join(' | ') + '\n\n' +
+            '/ppp/aaa after (preview): use-radius=yes accounting=yes\n' +
+            '/radius row: ' + (d.radius_row && d.radius_row.address
+                              ? d.radius_row.address : '(auto-isp-billing row will be added)') +
+            '\n/ppp/secret rows found: ' + sb.length + '\n' +
+            sb.slice(0, 10).map(function(s){
+                return '  - ' + s.name + (s.disabled === 'true' ? ' [disabled]' : '') +
+                       (s.profile ? ' profile=' + s.profile : '');
+            }).join('\n') +
+            (sb.length > 10 ? '\n  ... and ' + (sb.length - 10) + ' more' : '') +
+            '\n\n== APPLY ==\nChoose:\n' +
+            '  OK  -> Apply use-radius=yes AND REMOVE all local /ppp/secret rows ' +
+            '(backup saved server-side).\n' +
+            '  Cancel -> stop here.';
+        if (!confirm(preview)) return;
+        // Step 2 - execute
+        fetch('/api/nas-devices/' + id + '/switch-to-radius-only', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({dry_run: false, clear_local: true})
+        }).then(r => r.json()).then(d2 => {
+            if (d2.success) {
+                alert('✓ Switched "' + name + '" to RADIUS-only.\n\n' +
+                      'Removed ' + (d2.cleared_count || 0) + ' local secret(s).\n' +
+                      'Backup: ' + (d2.backup_path || '(none)') + '\n\n' +
+                      'Online users will stay connected. On next reauth they go ' +
+                      'through Radius. New connections require a matching ' +
+                      'RADIUS user (the billing portal already writes these ' +
+                      'automatically).');
+            } else {
+                alert('✗ Apply failed: ' + (d2.message || 'unknown'));
+            }
+        });
+    }).catch(function(e){ alert('Request error: ' + e); });
+}
+
+
+function deployWalledGarden(id, name) {
+    var ranges = prompt(
+        'Parking IP range for "' + name + '" (CIDR or start-end):\n' +
+        '(Used for Suspended/Expired subscribers - they will PPPoE-connect ' +
+        'into this range and only be able to reach the payment page.)',
+        '10.255.0.0/16');
+    if (!ranges) return;
+    var landing = prompt(
+        'Landing page IP (where suspended users get redirected):\n' +
+        '(Leave blank to auto-use this server\'s public IP)', '');
+    if (landing === null) return;
+    if (!confirm('Deploy walled-garden on "' + name + '"?\n\n' +
+                 'Creates /ip/pool "parking-pool" with range ' + ranges + '.\n' +
+                 'Adds /ip/firewall/nat rules to redirect HTTP+HTTPS to ' +
+                 (landing || '<auto>') + '.\n' +
+                 'Adds /ip/firewall/address-list "blocked" entry.\n' +
+                 'Then regenerates Radius users file so Suspended users go here.\n\n' +
+                 'Safe + idempotent. Proceed?'))
+        return;
+    fetch('/api/nas-devices/' + id + '/deploy-walled-garden', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+            parking_pool_name: 'parking-pool',
+            parking_ranges: ranges,
+            landing_page_ip: (landing || '').trim()
+        })
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            alert('✓ Walled-garden deployed.\n\n' +
+                  'Pool: ' + d.parking_pool_name + ' (' + d.parking_ranges + ')\n' +
+                  'Landing: ' + d.landing_page_ip + '\n' +
+                  'Rules applied: ' + (d.results || []).length + '\n\n' +
+                  'Next: make sure pay.autoispbilling.com resolves to ' +
+                  d.landing_page_ip + ' and the suspension page is deployed.');
+        } else {
+            alert('✗ Deploy failed: ' + (d.message || 'unknown'));
+        }
+    }).catch(function(e) { alert('Request error: ' + e); });
+}
+
+</script>
+
+<script>
+/* s37q: admins should NOT see/edit the RADIUS secret — only the Add-new flow
+   (reset title "Add NAS Device") exposes it. On Edit, the secret row is hidden.
+   SuperAdmin console has the secret field unconditionally. */
+(function(){
+  function s37q_applyVisibility() {
+    var title = (document.getElementById('nasModalTitle') || {}).textContent || '';
+    var row   = document.getElementById('nas_secret_row');
+    if (!row) return;
+    if (title.toLowerCase().indexOf('edit') >= 0) {
+      row.style.display = 'none';
+    } else {
+      row.style.display = '';
+    }
+  }
+  // Apply whenever the modal is shown.
+  if (window.jQuery) {
+    jQuery(function($){
+      $('#nasModal').on('show.bs.modal', s37q_applyVisibility);
+      $('#nasModal').on('shown.bs.modal', s37q_applyVisibility);
+    });
+  }
+})();
+</script>
+
+
+<!-- Phase-27 NAS compliance script modal (additive) -->
+<div class="modal fade" id="cscriptModal" tabindex="-1" role="dialog" data-testid="cscript-modal">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title"><i class="fa fa-shield"></i> <span id="cscriptTitle">Compliance Script</span></h4>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning" style="margin-bottom:10px"><b>One-time setup:</b>
+          Paste this entire script into the Mikrotik <b>Terminal</b> on this NAS, then press Enter.
+          The token is shown only once — copy and store it safely.</div>
+        <div id="cscriptInfo" style="margin-bottom:10px;color:#475569;font-size:13px"></div>
+        <textarea id="cscriptBox" style="width:100%;height:380px;font-family:monospace;font-size:12px;padding:10px;border:1px solid #cbd5e1;border-radius:6px;background:#0b1120;color:#e2e8f0" readonly data-testid="cscript-box"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-success" onclick="cscriptCopy()" data-testid="cscript-copy"><i class="fa fa-copy"></i> Copy script</button>
+        <button class="btn btn-default" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function openComplianceScript(nasId, nasName, kind){
+  $('#cscriptTitle').text((kind === 'ipdr' ? 'IPDR' : 'URL Logs') + ' deployment script — ' + nasName);
+  $('#cscriptBox').val('Generating…');
+  $('#cscriptInfo').html('');
+  $('#cscriptModal').modal('show');
+  fetch('/api/admin/nas/' + nasId + '/compliance-script/' + kind, {
+    method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: '{}'
+  }).then(r => r.json()).then(d => {
+    if (!d.success) { $('#cscriptBox').val('Error: ' + (d.message||'unknown')); return; }
+    $('#cscriptBox').val(d.script);
+    $('#cscriptInfo').html(
+      '<b>Endpoint:</b> <code>' + d.endpoint + '</code><br>' +
+      '<b>Token:</b> <code style="background:#fff7ed;padding:2px 6px;border-radius:4px">' + d.token + '</code> ' +
+      '<small class="text-muted">(also embedded in script)</small><br>' +
+      '<b>Generated:</b> ' + d.generated_at + ' IST'
+    );
+  }).catch(e => { $('#cscriptBox').val('Error: ' + e); });
+}
+function cscriptCopy(){
+  const t = document.getElementById('cscriptBox');
+  t.select();
+  document.execCommand('copy');
+  alert('Script copied. Paste into Mikrotik Terminal.');
+}
+
+/* __s56f_conn_mode__ — toggle IP & port fields based on Connection Mode */
+function nasConnModeChange() {
+  var mode = $('input[name="nas_conn_mode"]:checked').val() || 'direct';
+  var wg = (mode === 'wireguard');
+  $('#nas_cm_help').toggle(wg);
+  // IP + port + admin-API username/password remain editable in BOTH modes —
+  // for WG the IP is the LAN-side IP of the OLT subnet (operator's network).
+  // We just visually hint and prefill 0.0.0.0 placeholder.
+  if (wg) {
+    if (!$('#nas_ip_address').val()) $('#nas_ip_address').val('0.0.0.0');
+    $('#nas_ip_address').prop('placeholder', 'auto-assigned (e.g. 10.50.x.y)');
+  } else {
+    if ($('#nas_ip_address').val() === '0.0.0.0') $('#nas_ip_address').val('');
+    $('#nas_ip_address').prop('placeholder', 'e.g. 10.0.0.1');
+  }
+}
+
+/* __s56f_post_save_modal__ — show RouterOS script in a modal popup. */
+function showCloudTunnelScript(ct) {
+  if (!ct || !ct.mikrotik_script) return;
+  var html = '<div id="ct-modal" style="position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; padding:24px;">'
+    + '<div style="background:#0f172a; color:#e2e8f0; border:1px solid #475569; border-radius:10px; max-width:780px; width:100%; max-height:90vh; overflow:auto; padding:20px 24px; box-shadow:0 12px 40px rgba(0,0,0,.7);">'
+    + '<h3 style="margin:0 0 6px; color:#60a5fa;"><i class="fa fa-shield-alt"></i> Cloud Tunnel ready — paste this on your Mikrotik</h3>'
+    + '<p style="margin:0 0 10px; color:#cbd5e1; font-size:13px;">'
+    +   'Tunnel IP: <code>' + (ct.tunnel_ip || '?') + '</code>'
+    +   ' &nbsp;|&nbsp; Endpoint: <code>' + (ct.endpoint || '?') + '</code>'
+    +   ' &nbsp;|&nbsp; RADIUS reachable at <code>' + (ct.radius_ip || '?') + '</code>'
+    + '</p>'
+    + '<pre id="ct-script" style="background:#020617; color:#a7f3d0; border:1px solid #334155; border-radius:6px; padding:14px; font-size:12px; line-height:1.45; max-height:46vh; overflow:auto;"></pre>'
+    + '<div style="display:flex; gap:10px; margin-top:12px;">'
+    +   '<button class="btn btn-primary" type="button" onclick="ctCopyScript()" data-testid="ct-copy-btn">'
+    +     '<i class="fa fa-copy"></i> Copy to clipboard</button>'
+    +   '<button class="btn btn-secondary" type="button" onclick="ctDownloadScript()" data-testid="ct-download-btn">'
+    +     '<i class="fa fa-download"></i> Download .rsc</button>'
+    +   '<button class="btn btn-default" type="button" onclick="$(\'#ct-modal\').remove()" style="margin-left:auto;">Close</button>'
+    + '</div>'
+    + '<p style="margin-top:14px; font-size:12px; color:#94a3b8;">'
+    +   '<i class="fa fa-lightbulb"></i> '
+    +   'After pasting, run <code>/interface/wireguard/print</code> on the Mikrotik &mdash; you should see a handshake within 30 seconds. '
+    +   'You can re-open this script anytime via the per-NAS <strong>Cloud Tunnel</strong> button.'
+    + '</p>'
+    + '</div></div>';
+  $('body').append(html);
+  $('#ct-script').text(ct.mikrotik_script);
+  window.__ctScript = ct.mikrotik_script;
+}
+function ctCopyScript() {
+  if (!window.__ctScript) return;
+  navigator.clipboard.writeText(window.__ctScript).then(function() {
+    alert('Mikrotik script copied — paste it on your Mikrotik terminal.');
+  });
+}
+function ctDownloadScript() {
+  if (!window.__ctScript) return;
+  var blob = new Blob([window.__ctScript], {type: 'text/plain'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cloud-tunnel.rsc';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* __s56h_admin_tunnel_handlers__ — Admin Cloud Tunnel handlers. */
+function adminNasTunnelStatus(nasId, nasName){
+  var modalId = 'admTSModal';
+  if (!document.getElementById(modalId)) {
+    var modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; padding:24px;';
+    modal.innerHTML = '<div style="background:#0f172a; color:#e2e8f0; border:1px solid #475569; border-radius:10px; max-width:640px; width:100%; max-height:90vh; overflow:auto; padding:20px 24px; box-shadow:0 12px 40px rgba(0,0,0,.7);">'
+      + '<h3 id="admTSTitle" style="margin:0 0 10px; color:#60a5fa;"><i class="fa fa-heart"></i> Tunnel Status</h3>'
+      + '<div id="admTSBody" style="font-size:14px; line-height:1.7;">Loading…</div>'
+      + '<div style="text-align:right; margin-top:14px;">'
+      +   '<button class="btn btn-default" type="button" onclick="document.getElementById(\'' + modalId + '\').remove()" data-testid="adm-ts-close">Close</button>'
+      + '</div></div>';
+    document.body.appendChild(modal);
+  } else {
+    document.getElementById(modalId).style.display = 'flex';
+  }
+  document.getElementById('admTSTitle').innerHTML = '<i class="fa fa-heart"></i> Tunnel Status &mdash; ' + (nasName || ('NAS-' + nasId));
+  document.getElementById('admTSBody').innerHTML = 'Loading…';
+  fetch('/api/nas-devices/' + nasId + '/wg-status', {credentials:'include'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, data:j}; }); })
+    .then(function(res){
+      var j = res.data || {};
+      if (!res.ok || j.ok === false) {
+        document.getElementById('admTSBody').innerHTML = '<div style="color:#f87171;"><i class="fa fa-exclamation-triangle"></i> ' + (j.error || j.detail || 'Error') + '</div>';
+        return;
+      }
+      var hue = j.healthy ? '#22c55e' : '#f59e0b';
+      var dot = '<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:' + hue + '; box-shadow:0 0 8px ' + hue + '; margin-right:8px;"></span>';
+      document.getElementById('admTSBody').innerHTML =
+          '<div>' + dot + '<strong>' + (j.healthy ? 'Healthy' : 'Idle / waiting') + '</strong></div>'
+        + '<div><b>Tunnel IP:</b> <code>' + (j.tunnel_ip || '?') + '</code></div>'
+        + '<div><b>Endpoint:</b> <code>' + (j.endpoint || '—') + '</code></div>'
+        + '<div><b>Last Handshake:</b> ' + (j.last_handshake_human || 'never') + '</div>'
+        + '<div><b>RX / TX:</b> ' + (j.rx_human || '0 B') + ' &nbsp;/&nbsp; ' + (j.tx_human || '0 B') + '</div>'
+        + '<div style="margin-top:10px; font-size:12px; color:#94a3b8;">If "never" persists for more than 60s, verify the WireGuard script is loaded on the Mikrotik (use the <b>Tunnel</b> button to re-fetch).</div>';
+    })
+    .catch(function(e){
+      document.getElementById('admTSBody').innerHTML = '<div style="color:#f87171;">Network error: ' + e + '</div>';
+    });
+}
+
+function adminNasViewScript(nasId, nasName){
+  fetch('/api/nas-devices/' + nasId + '/wg-script', {credentials:'include'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, data:j}; }); })
+    .then(function(res){
+      var j = res.data || {};
+      if (!res.ok || j.ok === false) {
+        alert('Could not fetch tunnel script: ' + (j.error || j.detail || 'unknown error'));
+        return;
+      }
+      // Re-use the existing showCloudTunnelScript modal renderer.
+      showCloudTunnelScript({
+        mikrotik_script: j.mikrotik_script,
+        tunnel_ip:       j.tunnel_ip,
+        endpoint:        j.endpoint,
+        radius_ip:       j.radius_ip
+      });
+    })
+    .catch(function(e){ alert('Network error: ' + e); });
+}
+
+</script>
+
+{% endblock %}
+

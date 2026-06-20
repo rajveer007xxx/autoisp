@@ -1,0 +1,1012 @@
+"""
+_S40j_  Network GIS Map module
+─────────────────────────────────────────────────────────────────────────────
+ISP fiber-network GIS: drop OLT / ONU / JC-Box / Splitter pins on a satellite
+or street map, draw fiber lines between nodes, and view per-PON-port status
+with admin enable/disable.  Mirrors the existing `olt_routes.py` patterns:
+SQLite tables created idempotently at import; role-scoped via _require_scope;
+served under /admin /sub-lco /employee.
+"""
+from __future__ import annotations
+
+import json
+import time
+from typing import Optional, List, Dict, Any
+
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, text
+
+# Re-use OLT module's engine + scope helper for consistency
+from olt_routes import engine, _require_scope, _portal_context, templates  # type: ignore
+import vendor_adapters
+
+router = APIRouter()
+
+
+# ─── Schema (idempotent) ─────────────────────────────────────────────────
+def _ensure_schema() -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS network_hardware (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id  TEXT NOT NULL,
+              kind        TEXT NOT NULL,           -- olt|onu|jc_box|splitter_1x4|splitter_1x8|splitter_1x16|pole|manhole
+              name        TEXT,
+              lat         REAL NOT NULL,
+              lng         REAL NOT NULL,
+              ref_olt_id  INTEGER,                 -- when kind='olt'
+              ref_onu_id  INTEGER,                 -- when kind='onu'
+              parent_id   INTEGER,                 -- upstream hardware
+              props_json  TEXT,                    -- free-form JSON (port count, ratio, vendor, …)
+              created_by  TEXT,
+              created_at  TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_nethw_company "
+            "ON network_hardware(company_id, kind)")
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS network_fiber (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id    TEXT NOT NULL,
+              name          TEXT,
+              color         TEXT DEFAULT 'blue',   -- tube color
+              core_count    INTEGER DEFAULT 12,
+              src_hw_id     INTEGER,
+              dst_hw_id     INTEGER,
+              polyline_json TEXT,                  -- [[lat,lng], …]
+              length_m      REAL,
+              created_by    TEXT,
+              created_at    TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_netfiber_company "
+            "ON network_fiber(company_id)")
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS fiber_splice (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id   TEXT NOT NULL,
+              node_hw_id   INTEGER NOT NULL,
+              src_fiber_id INTEGER,
+              src_core     INTEGER,
+              dst_fiber_id INTEGER,
+              dst_core     INTEGER,
+              mode         TEXT DEFAULT 'thru',
+              loss_db      REAL,
+              notes        TEXT,
+              created_by   TEXT,
+              created_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_splice_node "
+            "ON fiber_splice(company_id, node_hw_id)")
+
+
+
+# Legacy olt-lat migration (safe idempotent)
+try:
+    with engine.begin() as _c:
+        try: _c.exec_driver_sql("ALTER TABLE olts ADD COLUMN latitude REAL")
+        except Exception: pass
+        try: _c.exec_driver_sql("ALTER TABLE olts ADD COLUMN longitude REAL")
+        except Exception: pass
+except Exception:
+    pass
+
+
+_ensure_schema()
+
+
+# ─── Pydantic ────────────────────────────────────────────────────────────
+class HardwareIn(BaseModel):
+    kind: str
+    name: Optional[str] = None
+    lat: float
+    lng: float
+    ref_olt_id: Optional[int] = None
+    ref_onu_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    props: Optional[Dict[str, Any]] = None
+
+
+class HardwarePatch(BaseModel):
+    name: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    parent_id: Optional[int] = None
+    props: Optional[Dict[str, Any]] = None
+
+
+class FiberIn(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = "blue"
+    core_count: Optional[int] = 12
+    src_hw_id: Optional[int] = None
+    dst_hw_id: Optional[int] = None
+    polyline: List[List[float]] = Field(default_factory=list)
+    length_m: Optional[float] = None
+
+
+# ─── Pages (admin / sub-lco / employee) ─────────────────────────────────
+def _network_map_page(request: Request):
+    sc = _require_scope(request)
+    ctx = _portal_context(request, sc, "network_map")
+    ctx["network_map_url_prefix"] = sc["prefix"] + "/network-map"
+    return templates.TemplateResponse("admin_network_map.html", ctx)
+
+
+@router.get("/admin/network-map", response_class=HTMLResponse)
+def page_admin(request: Request):
+    return _network_map_page(request)
+
+
+@router.get("/sub-lco/network-map", response_class=HTMLResponse)
+def page_sublco(request: Request):
+    return _network_map_page(request)
+
+
+@router.get("/employee/network-map", response_class=HTMLResponse)
+def page_emp(request: Request):
+    return _network_map_page(request)
+
+
+# ─── Items API (combined hardware + fibers + customer pins) ─────────────
+def _scope_filter_sql(role: str) -> str:
+    """No additional filter for now — scoped by company_id already.
+       Sub-LCO / employee see all map hardware in their company so they
+       can navigate/diagnose, but write actions are enforced separately."""
+    return ""
+
+
+@router.get("/api/admin/network-map/items")
+def api_items(request: Request):
+    sc = _require_scope(request)
+    cid = sc["company_id"]
+    out: Dict[str, Any] = {"hardware": [], "fibers": [], "customers": []}
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT id,kind,name,lat,lng,ref_olt_id,ref_onu_id,parent_id,"
+            "       props_json,created_at "
+            "FROM network_hardware WHERE company_id=? "
+            "ORDER BY kind, id",
+            (cid,)).fetchall()
+        for r in rows:
+            out["hardware"].append({
+                "id": r[0], "kind": r[1], "name": r[2],
+                "lat": r[3], "lng": r[4],
+                "ref_olt_id": r[5], "ref_onu_id": r[6],
+                "parent_id": r[7],
+                "props": (json.loads(r[8]) if r[8] else {}),
+                "created_at": r[9],
+            })
+        # Fibers
+        rows = conn.exec_driver_sql(
+            "SELECT id,name,color,core_count,src_hw_id,dst_hw_id,"
+            "       polyline_json,length_m,created_at "
+            "FROM network_fiber WHERE company_id=? ORDER BY id",
+            (cid,)).fetchall()
+        for r in rows:
+            try: pts = json.loads(r[6] or "[]")
+            except Exception: pts = []
+            out["fibers"].append({
+                "id": r[0], "name": r[1], "color": r[2],
+                "core_count": r[3], "src_hw_id": r[4],
+                "dst_hw_id": r[5], "polyline": pts,
+                "length_m": r[7], "created_at": r[8],
+            })
+        # OLTs (auto-pin if not yet placed manually)
+        rows = conn.exec_driver_sql(
+            "SELECT id,name,vendor,model,latitude,longitude,status "
+            "FROM olts WHERE company_id=?", (cid,)).fetchall()
+        existing_olt_ids = {h["ref_olt_id"] for h in out["hardware"]
+                            if h["ref_olt_id"]}
+        for r in rows:
+            if r[0] in existing_olt_ids: continue
+            if r[4] is None or r[5] is None: continue
+            out["hardware"].append({
+                "id": -1000 - r[0], "kind": "olt", "name": r[1],
+                "lat": r[4], "lng": r[5],
+                "ref_olt_id": r[0], "ref_onu_id": None,
+                "parent_id": None,
+                "props": {"vendor": r[2], "model": r[3], "status": r[6],
+                          "auto": True},
+            })
+        # Customers (broadband subscribers with lat/lng)
+        try:
+            rows = conn.exec_driver_sql(
+                "SELECT customer_id,customer_name,latitude,longitude,"
+                "       status,sub_lco_id "
+                "FROM customers "
+                "WHERE company_id=? AND latitude IS NOT NULL "
+                "  AND longitude IS NOT NULL "
+                "LIMIT 5000",
+                (cid,)).fetchall()
+            for r in rows:
+                out["customers"].append({
+                    "id": r[0], "name": r[1],
+                    "lat": r[2], "lng": r[3],
+                    "status": r[4], "sub_lco_id": r[5],
+                })
+        except Exception:
+            pass
+        # ── Enrich ONU hardware pins with live RX power, status, name ──
+        try:
+            onu_rows = conn.exec_driver_sql(
+                "SELECT id, name, serial, customer_id, status, rx_power, "
+                "       tx_power, last_seen "
+                "FROM onus WHERE company_id=?", (cid,)).fetchall()
+            onu_map = {r[0]: {"name": r[1], "serial": r[2],
+                                "customer_id": r[3], "status": r[4],
+                                "rx_power": r[5], "tx_power": r[6],
+                                "last_seen": r[7]} for r in onu_rows}
+            for h in out["hardware"]:
+                if h["kind"] == "onu" and h.get("ref_onu_id"):
+                    info = onu_map.get(h["ref_onu_id"])
+                    if info:
+                        h["props"] = {**(h.get("props") or {}),
+                                        "rx_power": info["rx_power"],
+                                        "tx_power": info["tx_power"],
+                                        "status":   info["status"],
+                                        "serial":   info["serial"],
+                                        "last_seen": info["last_seen"]}
+                        if not h.get("name") and info.get("name"):
+                            h["name"] = info["name"]
+        except Exception:
+            pass
+    return out
+
+
+@router.post("/api/admin/network-map/hardware")
+def api_hw_create(request: Request, body: HardwareIn):
+    sc = _require_scope(request)
+    cid = sc["company_id"]; actor = sc["actor"]
+    valid = {"olt", "onu", "jc_box", "splitter_1x4", "splitter_1x8",
+             "splitter_1x16", "pole", "manhole"}
+    if body.kind not in valid:
+        raise HTTPException(400, f"kind must be one of {sorted(valid)}")
+    if not (-90 <= body.lat <= 90) or not (-180 <= body.lng <= 180):
+        raise HTTPException(400, "Invalid lat/lng")
+    with engine.begin() as conn:
+        r = conn.exec_driver_sql(
+            "INSERT INTO network_hardware "
+            "(company_id,kind,name,lat,lng,ref_olt_id,ref_onu_id,"
+            " parent_id,props_json,created_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (cid, body.kind, body.name or body.kind.upper(),
+             body.lat, body.lng,
+             body.ref_olt_id, body.ref_onu_id, body.parent_id,
+             json.dumps(body.props or {}), actor))
+        new_id = r.lastrowid
+    return {"ok": True, "id": new_id}
+
+
+@router.patch("/api/admin/network-map/hardware/{hw_id}")
+def api_hw_patch(request: Request, hw_id: int, body: HardwarePatch):
+    """_S40n_AUTO_OLT_OPS_  Negative hw_id == auto-pinned OLT
+       (synthesised from olts.lat/lng); translate to a real olts row update."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    if hw_id < -1000:
+        olt_id = -(hw_id + 1000)
+        with engine.begin() as conn:
+            row = conn.exec_driver_sql(
+                "SELECT id FROM olts WHERE id=? AND company_id=?",
+                (olt_id, cid)).fetchone()
+            if not row: raise HTTPException(404, "OLT not found")
+            sets, vals = [], []
+            if body.lat is not None: sets.append("latitude=?"); vals.append(body.lat)
+            if body.lng is not None: sets.append("longitude=?"); vals.append(body.lng)
+            if body.name is not None: sets.append("name=?"); vals.append(body.name)
+            if not sets: return {"ok": True, "no_changes": True, "auto_olt": True}
+            vals.extend([olt_id, cid])
+            conn.exec_driver_sql(
+                f"UPDATE olts SET {','.join(sets)} "
+                f"WHERE id=? AND company_id=?", tuple(vals))
+        return {"ok": True, "auto_olt": True}
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id FROM network_hardware WHERE id=? AND company_id=?",
+            (hw_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "Hardware not found")
+        sets, vals = [], []
+        if body.name is not None:
+            sets.append("name=?"); vals.append(body.name)
+        if body.lat is not None:
+            sets.append("lat=?"); vals.append(body.lat)
+        if body.lng is not None:
+            sets.append("lng=?"); vals.append(body.lng)
+        if body.parent_id is not None:
+            sets.append("parent_id=?"); vals.append(body.parent_id)
+        if body.props is not None:
+            sets.append("props_json=?"); vals.append(json.dumps(body.props))
+        if not sets:
+            return {"ok": True, "no_changes": True}
+        vals.extend([hw_id, cid])
+        conn.exec_driver_sql(
+            f"UPDATE network_hardware SET {','.join(sets)} "
+            f"WHERE id=? AND company_id=?", tuple(vals))
+    return {"ok": True}
+
+
+@router.delete("/api/admin/network-map/hardware/{hw_id}")
+def api_hw_delete(request: Request, hw_id: int):
+    """_S40n_  For auto-pinned OLT (negative id) — clear latitude/longitude
+       on the underlying olts row so it disappears from the map. The OLT
+       record itself is preserved so subscribers/ONUs stay intact."""
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only delete")
+    cid = sc["company_id"]
+    if hw_id < -1000:
+        olt_id = -(hw_id + 1000)
+        with engine.begin() as conn:
+            row = conn.exec_driver_sql(
+                "SELECT id FROM olts WHERE id=? AND company_id=?",
+                (olt_id, cid)).fetchone()
+            if not row: raise HTTPException(404, "OLT not found")
+            conn.exec_driver_sql(
+                "UPDATE olts SET latitude=NULL, longitude=NULL "
+                "WHERE id=? AND company_id=?", (olt_id, cid))
+        return {"ok": True, "auto_olt": True,
+                 "note": "OLT unmapped (lat/lng cleared). Drop a new pin "
+                         "to relocate."}
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DELETE FROM network_fiber "
+            "WHERE company_id=? AND (src_hw_id=? OR dst_hw_id=?)",
+            (cid, hw_id, hw_id))
+        conn.exec_driver_sql(
+            "DELETE FROM network_hardware WHERE id=? AND company_id=?",
+            (hw_id, cid))
+    return {"ok": True}
+
+
+@router.post("/api/admin/network-map/fiber")
+def api_fiber_create(request: Request, body: FiberIn):
+    sc = _require_scope(request)
+    cid = sc["company_id"]; actor = sc["actor"]
+    if not body.polyline or len(body.polyline) < 2:
+        raise HTTPException(400, "polyline must have at least 2 points")
+    with engine.begin() as conn:
+        r = conn.exec_driver_sql(
+            "INSERT INTO network_fiber "
+            "(company_id,name,color,core_count,src_hw_id,dst_hw_id,"
+            " polyline_json,length_m,created_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (cid, body.name, (body.color or "blue").lower(),
+             body.core_count or 12,
+             body.src_hw_id, body.dst_hw_id,
+             json.dumps(body.polyline), body.length_m, actor))
+        new_id = r.lastrowid
+    return {"ok": True, "id": new_id}
+
+
+@router.delete("/api/admin/network-map/fiber/{fid}")
+def api_fiber_delete(request: Request, fid: int):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only delete")
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DELETE FROM network_fiber WHERE id=? AND company_id=?",
+            (fid, cid))
+    return {"ok": True}
+
+
+# ─── ONU place-on-map shortcut ────────────────────────────────────────────
+class PlaceOnMapIn(BaseModel):
+    lat: float
+    lng: float
+
+
+@router.post("/api/admin/network-map/onus/{onu_id}/place")
+def api_onu_place(request: Request, onu_id: int, body: PlaceOnMapIn):
+    """Set the linked customer's lat/lng (preferred) or create a network_hardware
+    row of kind=onu so the ONU shows up on the GIS map."""
+    sc = _require_scope(request)
+    cid = sc["company_id"]; actor = sc["actor"]
+    if not (-90 <= body.lat <= 90) or not (-180 <= body.lng <= 180):
+        raise HTTPException(400, "Invalid lat/lng")
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id,name,serial,customer_id,olt_id "
+            "FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        # If linked to a customer, also update customer lat/lng for parity
+        if row[3]:
+            try:
+                conn.exec_driver_sql(
+                    "UPDATE customers SET latitude=?, longitude=? "
+                    "WHERE customer_id=? AND company_id=?",
+                    (body.lat, body.lng, row[3], cid))
+            except Exception:
+                pass
+        # Upsert network_hardware ref_onu_id row
+        ex = conn.exec_driver_sql(
+            "SELECT id FROM network_hardware "
+            "WHERE company_id=? AND ref_onu_id=?",
+            (cid, onu_id)).fetchone()
+        nm = row[1] or row[2] or f"ONU#{onu_id}"
+        if ex:
+            conn.exec_driver_sql(
+                "UPDATE network_hardware SET lat=?, lng=?, name=? "
+                "WHERE id=?",
+                (body.lat, body.lng, nm, ex[0]))
+            new_id = ex[0]
+        else:
+            r = conn.exec_driver_sql(
+                "INSERT INTO network_hardware "
+                "(company_id,kind,name,lat,lng,ref_onu_id,"
+                " props_json,created_by) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (cid, "onu", nm, body.lat, body.lng, onu_id,
+                 json.dumps({"customer_id": row[3], "olt_id": row[4]}),
+                 actor))
+            new_id = r.lastrowid
+    return {"ok": True, "hw_id": new_id}
+
+
+# ─── PON Port Status + Admin Enable/Disable ──────────────────────────────
+@router.get("/api/admin/olt/olts/{olt_id}/pon-status")
+def api_pon_status(request: Request, olt_id: int):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        olt = conn.exec_driver_sql(
+            "SELECT id,name,vendor,model,status FROM olts "
+            "WHERE id=? AND company_id=?", (olt_id, cid)).fetchone()
+        if not olt:
+            raise HTTPException(404, "OLT not found")
+        rows = conn.exec_driver_sql(
+            "SELECT port_index,name,tx_power,admin_up,oper_up,"
+            "       total_onus,online_onus "
+            "FROM pon_ports WHERE olt_id=? ORDER BY port_index",
+            (olt_id,)).fetchall()
+        # Synthesize from ONUs when pon_ports is empty (e.g. mock OLT)
+        if not rows:
+            ports = conn.exec_driver_sql(
+                "SELECT DISTINCT pon_port_index FROM onus "
+                "WHERE olt_id=? AND pon_port_index IS NOT NULL "
+                "ORDER BY pon_port_index", (olt_id,)).fetchall()
+            for (pi,) in ports:
+                conn.exec_driver_sql(
+                    "INSERT OR IGNORE INTO pon_ports "
+                    "(olt_id,port_index,name,admin_up,oper_up) "
+                    "VALUES (?,?,?,1,1)",
+                    (olt_id, pi, f"gpon0/{pi}"))
+            rows = conn.exec_driver_sql(
+                "SELECT port_index,name,tx_power,admin_up,oper_up,"
+                "       total_onus,online_onus "
+                "FROM pon_ports WHERE olt_id=? ORDER BY port_index",
+                (olt_id,)).fetchall()
+        # Aggregate ONU rx_power per port (avg) & status counts
+        by_port: Dict[int, Dict[str, Any]] = {}
+        ar = conn.exec_driver_sql(
+            "SELECT pon_port_index, AVG(rx_power), MAX(tx_power), "
+            "       COUNT(*) FILTER (WHERE status='online'), COUNT(*) "
+            "FROM onus WHERE olt_id=? AND pon_port_index IS NOT NULL "
+            "GROUP BY pon_port_index", (olt_id,)).fetchall()
+        for r in ar:
+            by_port[r[0]] = {"avg_rx": r[1], "max_tx": r[2],
+                             "onu_online": r[3], "onu_total": r[4]}
+        out = []
+        for r in rows:
+            agg = by_port.get(r[0], {})
+            out.append({
+                "port_index": r[0],
+                "name": r[1] or f"gpon0/{r[0]}",
+                "tx_power": r[2] if r[2] is not None else agg.get("max_tx"),
+                "admin_up": bool(r[3]),
+                "oper_up": bool(r[4]),
+                "total_onus": r[5] or agg.get("onu_total") or 0,
+                "online_onus": r[6] or agg.get("onu_online") or 0,
+                "rx_power_avg": agg.get("avg_rx"),
+                # Synthetic env data — vendor adapter fills these for real
+                # devices; mock shows realistic placeholder.
+                "voltage": 3.27 if (r[3] or r[4]) else None,
+                "bias_curr_ma": 13.9 if (r[3] or r[4]) else None,
+            })
+    return {"ok": True, "olt": {"id": olt[0], "name": olt[1],
+                                  "vendor": olt[2], "model": olt[3],
+                                  "status": olt[4]}, "ports": out}
+
+
+class PonToggleIn(BaseModel):
+    enable: bool
+
+
+@router.post("/api/admin/olt/olts/{olt_id}/pon/{port_index}/toggle")
+def api_pon_toggle(request: Request, olt_id: int, port_index: int,
+                    body: PonToggleIn):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        olt = conn.exec_driver_sql(
+            "SELECT id,vendor,host,snmp_community,snmp_version,name "
+            "FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not olt:
+            raise HTTPException(404, "OLT not found")
+        pp = conn.exec_driver_sql(
+            "SELECT id FROM pon_ports WHERE olt_id=? AND port_index=?",
+            (olt_id, port_index)).fetchone()
+        if not pp:
+            # Create the port row on the fly so the toggle has a place to live
+            conn.exec_driver_sql(
+                "INSERT INTO pon_ports (olt_id,port_index,name,admin_up) "
+                "VALUES (?,?,?,?)",
+                (olt_id, port_index, f"gpon0/{port_index}",
+                 1 if body.enable else 0))
+        else:
+            conn.exec_driver_sql(
+                "UPDATE pon_ports SET admin_up=? WHERE id=?",
+                (1 if body.enable else 0, pp[0]))
+        # Force ONUs on this port offline if disabling (for visual fidelity)
+        if not body.enable:
+            conn.exec_driver_sql(
+                "UPDATE onus SET status='offline', "
+                "                 offline_reason='PON port admin-down' "
+                "WHERE olt_id=? AND pon_port_index=?",
+                (olt_id, port_index))
+        # Audit alert
+        conn.exec_driver_sql(
+            "INSERT INTO olt_alerts "
+            "(company_id,olt_id,kind,level,title,message,acked) "
+            "VALUES (?,?,?,?,?,?,1)",
+            (cid, olt_id, "pon_admin_change", "info",
+             f"PON {port_index} {'enabled' if body.enable else 'disabled'}",
+             f"By {sc['actor']}"))
+    # Vendor-specific dispatch via vendor_adapters.dispatch_pon_toggle
+    olt_row: Dict[str, Any] = {}
+    try:
+        with engine.begin() as c2:
+            row = c2.exec_driver_sql(
+                "SELECT * FROM olts WHERE id=? AND company_id=?",
+                (olt_id, cid)).mappings().first()
+            if row: olt_row = dict(row)
+    except Exception: pass
+    dispatch = vendor_adapters.dispatch_pon_toggle(
+        olt_row, port_index, body.enable)
+    msg = (f"DB flipped. Vendor dispatch [{dispatch.get('mode')}]: "
+             f"{'OK' if dispatch.get('ok') else 'FAILED'} — "
+             f"{(dispatch.get('details') or '')[:300]}")
+    return {"ok": True, "admin_up": body.enable, "message": msg,
+             "vendor_dispatch": dispatch}
+
+
+# ─── Ping endpoint for the mobile app's WebView ──────────────────────────
+@router.get("/api/admin/network-map/health")
+def api_health(request: Request):
+    return {"ok": True, "ts": int(time.time())}
+
+
+# ═══ _S40l_ Phase-2 endpoints ═══════════════════════════════════════════
+class FiberPatch(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    core_count: Optional[int] = None
+    polyline: Optional[List[List[float]]] = None
+    src_hw_id: Optional[int] = None
+    dst_hw_id: Optional[int] = None
+
+
+@router.patch("/api/admin/network-map/fiber/{fid}")
+def api_fiber_patch(request: Request, fid: int, body: FiberPatch):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id FROM network_fiber WHERE id=? AND company_id=?",
+            (fid, cid)).fetchone()
+        if not row: raise HTTPException(404, "Fiber not found")
+        sets, vals = [], []
+        if body.name is not None: sets.append("name=?"); vals.append(body.name)
+        if body.color is not None: sets.append("color=?"); vals.append(body.color.lower())
+        if body.core_count is not None:
+            sets.append("core_count=?"); vals.append(body.core_count)
+        if body.src_hw_id is not None:
+            sets.append("src_hw_id=?"); vals.append(body.src_hw_id)
+        if body.dst_hw_id is not None:
+            sets.append("dst_hw_id=?"); vals.append(body.dst_hw_id)
+        if body.polyline is not None:
+            if len(body.polyline) < 2:
+                raise HTTPException(400, "polyline must have >=2 points")
+            sets.append("polyline_json=?"); vals.append(json.dumps(body.polyline))
+        if not sets: return {"ok": True, "no_changes": True}
+        vals.extend([fid, cid])
+        conn.exec_driver_sql(
+            f"UPDATE network_fiber SET {','.join(sets)} "
+            f"WHERE id=? AND company_id=?", tuple(vals))
+    return {"ok": True}
+
+
+class SpliceIn(BaseModel):
+    node_hw_id: int
+    src_fiber_id: Optional[int] = None
+    src_core: Optional[int] = None
+    dst_fiber_id: Optional[int] = None
+    dst_core: Optional[int] = None
+    mode: Optional[str] = "thru"
+    loss_db: Optional[float] = None
+    notes: Optional[str] = None
+
+
+@router.get("/api/admin/network-map/splice/{hw_id}")
+def api_splice_list(request: Request, hw_id: int):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        node = conn.exec_driver_sql(
+            "SELECT id,kind,name,props_json FROM network_hardware "
+            "WHERE id=? AND company_id=?", (hw_id, cid)).fetchone()
+        if not node: raise HTTPException(404, "Node not found")
+        fibers = conn.exec_driver_sql(
+            "SELECT id,name,color,core_count,src_hw_id,dst_hw_id "
+            "FROM network_fiber WHERE company_id=? "
+            "  AND (src_hw_id=? OR dst_hw_id=?) ORDER BY id",
+            (cid, hw_id, hw_id)).fetchall()
+        splices = conn.exec_driver_sql(
+            "SELECT id,src_fiber_id,src_core,dst_fiber_id,dst_core,"
+            "       mode,loss_db,notes,created_at "
+            "FROM fiber_splice WHERE company_id=? AND node_hw_id=? "
+            "ORDER BY id", (cid, hw_id)).fetchall()
+    return {
+        "ok": True,
+        "node": {"id": node[0], "kind": node[1], "name": node[2],
+                  "props": json.loads(node[3]) if node[3] else {}},
+        "fibers": [{"id":f[0],"name":f[1],"color":f[2],"core_count":f[3],
+                     "src_hw_id":f[4],"dst_hw_id":f[5],
+                     "side": "in" if f[5]==hw_id else "out"} for f in fibers],
+        "splices": [{"id":s[0],"src_fiber_id":s[1],"src_core":s[2],
+                      "dst_fiber_id":s[3],"dst_core":s[4],"mode":s[5],
+                      "loss_db":s[6],"notes":s[7],"created_at":s[8]}
+                     for s in splices],
+    }
+
+
+@router.post("/api/admin/network-map/splice")
+def api_splice_create(request: Request, body: SpliceIn):
+    sc = _require_scope(request); cid = sc["company_id"]; actor = sc["actor"]
+    with engine.begin() as conn:
+        node = conn.exec_driver_sql(
+            "SELECT id FROM network_hardware WHERE id=? AND company_id=?",
+            (body.node_hw_id, cid)).fetchone()
+        if not node: raise HTTPException(404, "Node not found")
+        r = conn.exec_driver_sql(
+            "INSERT INTO fiber_splice "
+            "(company_id,node_hw_id,src_fiber_id,src_core,dst_fiber_id,"
+            " dst_core,mode,loss_db,notes,created_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (cid, body.node_hw_id, body.src_fiber_id, body.src_core,
+             body.dst_fiber_id, body.dst_core, body.mode or "thru",
+             body.loss_db, body.notes, actor))
+    return {"ok": True, "id": r.lastrowid}
+
+
+@router.delete("/api/admin/network-map/splice/{splice_id}")
+def api_splice_delete(request: Request, splice_id: int):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only")
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DELETE FROM fiber_splice WHERE id=? AND company_id=?",
+            (splice_id, cid))
+    return {"ok": True}
+
+
+from fastapi import UploadFile, File
+
+
+def _kind_from_props(p: dict) -> str:
+    kind = (p or {}).get("kind") or (p or {}).get("type")
+    if not kind: return "jc_box"
+    k = str(kind).lower().replace("-", "_").replace(" ", "_")
+    valid = {"olt","onu","jc_box","splitter_1x4","splitter_1x8",
+             "splitter_1x16","pole","manhole"}
+    return k if k in valid else "jc_box"
+
+
+def _parse_geojson(text: str) -> dict:
+    data = json.loads(text)
+    feats = data.get("features") if data.get("type") == "FeatureCollection" else [data]
+    return {"features": feats or []}
+
+
+def _parse_kml(text: str) -> dict:
+    import xml.etree.ElementTree as ET
+    ns = "{http://www.opengis.net/kml/2.2}"
+    root = ET.fromstring(text)
+    feats = []
+    for pm in root.iter(ns + "Placemark"):
+        name_el = pm.find(ns + "name")
+        name = name_el.text if name_el is not None else None
+        props = {"name": name}
+        ed = pm.find(ns + "ExtendedData")
+        if ed is not None:
+            for dat in ed.iter(ns + "Data"):
+                key = dat.attrib.get("name")
+                val_el = dat.find(ns + "value")
+                if key and val_el is not None:
+                    props[key] = val_el.text
+        pt = pm.find(".//" + ns + "Point/" + ns + "coordinates")
+        if pt is not None and pt.text:
+            parts = pt.text.strip().split(",")
+            lng, lat = float(parts[0]), float(parts[1])
+            feats.append({"type":"Feature","properties":props,
+                           "geometry":{"type":"Point",
+                                       "coordinates":[lng, lat]}})
+            continue
+        ls = pm.find(".//" + ns + "LineString/" + ns + "coordinates")
+        if ls is not None and ls.text:
+            pts = []
+            for token in ls.text.strip().split():
+                p = token.strip().split(",")
+                if len(p) >= 2: pts.append([float(p[0]), float(p[1])])
+            if len(pts) >= 2:
+                feats.append({"type":"Feature","properties":props,
+                               "geometry":{"type":"LineString",
+                                           "coordinates":pts}})
+    return {"features": feats}
+
+
+@router.post("/api/admin/network-map/import")
+async def api_import(request: Request, file: UploadFile = File(...)):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only")
+    cid = sc["company_id"]; actor = sc["actor"]
+    blob = await file.read()
+    try: text = blob.decode("utf-8", errors="replace")
+    except Exception: text = ""
+    fn = (file.filename or "").lower()
+    if fn.endswith(".kml"):
+        try: data = _parse_kml(text)
+        except Exception as e: raise HTTPException(400, f"KML parse failed: {e}")
+    else:
+        try: data = _parse_geojson(text)
+        except Exception as e: raise HTTPException(400, f"GeoJSON parse failed: {e}")
+    hw_count = fb_count = 0
+    with engine.begin() as conn:
+        for ft in data.get("features", []):
+            props = ft.get("properties") or {}
+            geom = ft.get("geometry") or {}
+            if geom.get("type") == "Point":
+                coords = geom.get("coordinates") or [None, None]
+                lng, lat = coords[0], coords[1]
+                if lat is None or lng is None: continue
+                kind = _kind_from_props(props)
+                name = props.get("name") or kind.upper()
+                conn.exec_driver_sql(
+                    "INSERT INTO network_hardware "
+                    "(company_id,kind,name,lat,lng,props_json,created_by) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (cid, kind, name, lat, lng,
+                     json.dumps(props), actor))
+                hw_count += 1
+            elif geom.get("type") == "LineString":
+                coords = geom.get("coordinates") or []
+                pts = [[c[1], c[0]] for c in coords if len(c) >= 2]
+                if len(pts) < 2: continue
+                color = (props.get("color") or "blue").lower()
+                cores = int(props.get("core_count") or 12)
+                conn.exec_driver_sql(
+                    "INSERT INTO network_fiber "
+                    "(company_id,name,color,core_count,polyline_json,"
+                    " created_by) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (cid, props.get("name"), color, cores,
+                     json.dumps(pts), actor))
+                fb_count += 1
+    return {"ok": True, "hardware_imported": hw_count,
+             "fibers_imported": fb_count}
+
+
+
+# ═══ _S40m_  Power Budget ═══════════════════════════════════════════════
+def _haversine_m(a_lat, a_lng, b_lat, b_lng) -> float:
+    """Great-circle distance in metres (good enough for fibre lengths)."""
+    import math
+    R = 6371000.0
+    la1, la2 = math.radians(a_lat), math.radians(b_lat)
+    dla = math.radians(b_lat - a_lat)
+    dlo = math.radians(b_lng - a_lng)
+    h = (math.sin(dla/2)**2
+         + math.cos(la1) * math.cos(la2) * math.sin(dlo/2)**2)
+    return 2 * R * math.asin(math.sqrt(h))
+
+
+def _polyline_length_m(poly) -> float:
+    t = 0.0
+    for i in range(1, len(poly or [])):
+        t += _haversine_m(poly[i-1][0], poly[i-1][1],
+                           poly[i][0],   poly[i][1])
+    return t
+
+
+# Loss constants — overridable via OLT props in future
+FIBER_LOSS_DB_PER_KM = 0.35    # SMF 1310 nm
+SPLICE_LOSS_DB       = 0.20    # per fusion splice
+CONNECTOR_LOSS_DB    = 0.50    # per connector (patch panel / ONU)
+SPLITTER_LOSS = {4: 7.0, 8: 10.5, 16: 14.0, 32: 17.0, 64: 20.5}
+
+
+@router.get("/api/admin/network-map/power-budget")
+def api_power_budget(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        # Nodes + fibers
+        hw = conn.exec_driver_sql(
+            "SELECT id,kind,name,lat,lng,ref_olt_id,ref_onu_id,"
+            "       props_json FROM network_hardware WHERE company_id=?",
+            (cid,)).fetchall()
+        fbs = conn.exec_driver_sql(
+            "SELECT id,color,core_count,src_hw_id,dst_hw_id,polyline_json,"
+            "       length_m FROM network_fiber WHERE company_id=?",
+            (cid,)).fetchall()
+        # Auto-inserted OLT pins may not have a row in network_hardware
+        # (returned with id = -1000 - olt_id by /items). Include them here
+        # so power budget can root a graph at every OLT with a lat/lng.
+        olts = conn.exec_driver_sql(
+            "SELECT id,name,vendor,model,latitude,longitude "
+            "FROM olts WHERE company_id=?", (cid,)).fetchall()
+        # PON port TX power per OLT
+        pons = conn.exec_driver_sql(
+            "SELECT olt_id,port_index,tx_power FROM pon_ports "
+            "WHERE olt_id IN (SELECT id FROM olts WHERE company_id=?)",
+            (cid,)).fetchall()
+        # Live ONU RX power
+        onus = conn.exec_driver_sql(
+            "SELECT id,rx_power,pon_port_index,olt_id FROM onus "
+            "WHERE company_id=?", (cid,)).fetchall()
+
+    # Build node dictionary
+    nodes = {}
+    existing_olt_refs = set()
+    for r in hw:
+        nodes[r[0]] = {"id": r[0], "kind": r[1], "name": r[2],
+                        "lat": r[3], "lng": r[4],
+                        "ref_olt_id": r[5], "ref_onu_id": r[6],
+                        "props": (json.loads(r[7]) if r[7] else {})}
+        if r[5]: existing_olt_refs.add(r[5])
+    # Synthesize auto-pinned OLT nodes (negative ids, matches /items)
+    for r in olts:
+        if r[0] in existing_olt_refs: continue
+        if r[4] is None or r[5] is None: continue
+        syn_id = -1000 - r[0]
+        nodes[syn_id] = {"id": syn_id, "kind": "olt", "name": r[1],
+                          "lat": r[4], "lng": r[5],
+                          "ref_olt_id": r[0], "ref_onu_id": None,
+                          "props": {"vendor": r[2], "model": r[3], "auto": True}}
+
+    # Adjacency: edge -> {loss_db, fiber_id, len_m}
+    adj = {nid: [] for nid in nodes}
+    def _fiber_loss(length_m):
+        return (length_m / 1000.0) * FIBER_LOSS_DB_PER_KM
+    for f in fbs:
+        fid, color, cores, src, dst, poly_s, cached_len = f
+        # Any endpoint of the fiber may be None (dangling) — skip those
+        if src is None or dst is None: continue
+        if src not in nodes or dst not in nodes: continue
+        try: poly = json.loads(poly_s) if poly_s else []
+        except Exception: poly = []
+        length_m = cached_len if (cached_len and cached_len > 0) \
+                                else _polyline_length_m(poly)
+        loss = _fiber_loss(length_m) + CONNECTOR_LOSS_DB  # 1 connector/splice
+        adj[src].append({"to": dst, "fiber": fid, "length_m": length_m,
+                          "loss_db": loss})
+        adj[dst].append({"to": src, "fiber": fid, "length_m": length_m,
+                          "loss_db": loss})
+
+    def _node_insertion_loss(n):
+        if n["kind"] == "jc_box":
+            return SPLICE_LOSS_DB
+        if n["kind"].startswith("splitter_"):
+            out = (n.get("props") or {}).get("output_count") \
+                    or int(n["kind"].rsplit("x", 1)[-1] or 8)
+            return SPLITTER_LOSS.get(out, SPLITTER_LOSS.get(8, 10.5))
+        return 0.0
+
+    # TX power lookup: ref_olt_id -> dict[port_index -> tx_power]
+    tx_lookup: Dict[int, Dict[int, Any]] = {}
+    for p_olt_id, p_idx, p_tx in pons:
+        tx_lookup.setdefault(p_olt_id, {})[p_idx] = p_tx
+    # Default TX: most Huawei/ZTE OLTs default +5 dBm per port
+    DEFAULT_OLT_TX_DBM = 5.0
+
+    # Live RX + port index per ONU
+    onu_live: Dict[int, Dict[str, Any]] = {
+        r[0]: {"rx": r[1], "pon": r[2], "olt": r[3]} for r in onus}
+
+    # BFS from every OLT node
+    out_rows = []
+    for olt_id, olt_node in nodes.items():
+        if olt_node["kind"] != "olt": continue
+        # Use OLT's first PON port TX, else default
+        ref_olt = olt_node["ref_olt_id"]
+        tx_map = tx_lookup.get(ref_olt, {})
+        tx_tuple = next(iter(tx_map.values()), None)
+        tx = tx_tuple if tx_tuple is not None else DEFAULT_OLT_TX_DBM
+
+        # Dijkstra (priority by accumulated dB loss)
+        import heapq
+        pq = [(0.0, olt_id, [olt_id])]
+        best: Dict[int, float] = {olt_id: 0.0}
+        path_of: Dict[int, List[int]] = {olt_id: [olt_id]}
+        while pq:
+            loss, u, path = heapq.heappop(pq)
+            if loss > best.get(u, float("inf")): continue
+            for edge in adj.get(u, []):
+                v = edge["to"]
+                add = edge["loss_db"] + _node_insertion_loss(nodes[v])
+                nl = loss + add
+                if nl < best.get(v, float("inf")):
+                    best[v] = nl
+                    path_of[v] = path + [v]
+                    heapq.heappush(pq, (nl, v, path + [v]))
+        # For every ONU reachable, compute expected RX
+        for nid, n in nodes.items():
+            if n["kind"] != "onu": continue
+            if nid not in best: continue
+            exp_rx = tx - best[nid] - CONNECTOR_LOSS_DB  # ONU connector
+            actual = None; delta = None
+            if n.get("ref_onu_id"):
+                live = onu_live.get(n["ref_onu_id"])
+                if live and live.get("rx") is not None:
+                    actual = float(live["rx"])
+                    delta = actual - exp_rx
+            out_rows.append({
+                "onu_hw_id": nid, "onu_name": n["name"],
+                "ref_onu_id": n.get("ref_onu_id"),
+                "olt_hw_id": olt_id, "olt_name": olt_node["name"],
+                "olt_tx_dbm": tx,
+                "path_loss_db": round(best[nid], 2),
+                "expected_rx_dbm": round(exp_rx, 2),
+                "actual_rx_dbm": actual,
+                "delta_db": (round(delta, 2) if delta is not None else None),
+                "path_node_ids": path_of[nid],
+            })
+    return {"ok": True,
+             "constants": {"fiber_loss_db_per_km": FIBER_LOSS_DB_PER_KM,
+                            "splice_loss_db": SPLICE_LOSS_DB,
+                            "connector_loss_db": CONNECTOR_LOSS_DB,
+                            "splitter_loss": SPLITTER_LOSS,
+                            "default_olt_tx_dbm": DEFAULT_OLT_TX_DBM},
+             "rows": out_rows}
+
+
+class PonTxIn(BaseModel):
+    tx_power: float
+
+
+@router.post("/api/admin/olt/olts/{olt_id}/pon/{port_index}/set-tx")
+def api_set_tx_power(request: Request, olt_id: int, port_index: int,
+                      body: PonTxIn):
+    """Admin can manually set a PON port's TX power budget — used by the
+    planning calculator until live telemetry is available."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    if sc["role"] != "admin": raise HTTPException(403, "Admin-only")
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not row: raise HTTPException(404, "OLT not found")
+        pp = conn.exec_driver_sql(
+            "SELECT id FROM pon_ports WHERE olt_id=? AND port_index=?",
+            (olt_id, port_index)).fetchone()
+        if pp:
+            conn.exec_driver_sql(
+                "UPDATE pon_ports SET tx_power=? WHERE id=?",
+                (body.tx_power, pp[0]))
+        else:
+            conn.exec_driver_sql(
+                "INSERT INTO pon_ports (olt_id,port_index,name,tx_power,"
+                " admin_up,oper_up) VALUES (?,?,?,?,1,1)",
+                (olt_id, port_index, f"gpon0/{port_index}", body.tx_power))
+    return {"ok": True, "tx_power": body.tx_power}

@@ -1,0 +1,892 @@
+{% extends layout_template %}
+{# _S40k_  Network GIS Map — full redesign:
+   • Tiles with road/POI labels (ESRI Hybrid + CartoDB Voyager)
+   • Nominatim search box
+   • OLT in deploy panel; splitter prompts for output legs
+   • Draggable hardware + draggable fiber endpoints/vertices
+   • ONU pins show name + live RX power label
+   • Fiber snaps to nearest hardware on click (≤ 30 m)
+   • CANCEL fully resets all listeners and modes
+#}
+
+{% block title %}Network Map
+<!-- _S40l_SPLICE_MODAL_ -->
+<div id="nmSpliceModal" data-testid="nm-splice-modal" style="display:none;
+     position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);
+     backdrop-filter:blur(6px)">
+  <div style="max-width:1100px;margin:30px auto;background:#0f172a;
+              border:1px solid rgba(99,102,241,.3);border-radius:14px;
+              padding:24px;color:#e2e8f0;max-height:90vh;overflow-y:auto;
+              box-shadow:0 12px 50px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                margin-bottom:16px">
+      <h2 style="margin:0;color:#a5b4fc;font-size:18px">
+        🧵 Splice Tray — <span id="nmSpliceTitle">…</span>
+      </h2>
+      <button onclick="nmCloseSpliceModal()" style="background:transparent;
+        border:none;color:#94a3b8;font-size:24px;cursor:pointer">×</button>
+    </div>
+    <div id="nmSpliceBody" style="display:grid;grid-template-columns:1fr 60px 1fr;gap:14px"></div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1e293b">
+      <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                  text-transform:uppercase;margin:0 0 10px">
+        Existing splices at this node</h4>
+      <div id="nmSpliceList" style="display:grid;gap:6px;font-size:12px"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  #netmap-shell{position:relative; width:100%; height:calc(100vh - 70px);
+                background:#0f172a; color:#e2e8f0; overflow:hidden;}
+  #netmap{position:absolute; inset:0; z-index:1;}
+  /* Top control row */
+  .nm-ctrls{position:absolute; top:14px; left:14px; z-index:600;
+            display:flex; gap:8px; flex-wrap:wrap;}
+  .nm-btn{padding:10px 16px; border-radius:10px; border:none;
+          background:rgba(15,23,42,.85); color:#fff; font-weight:600;
+          font-size:13px; cursor:pointer; backdrop-filter:blur(8px);
+          box-shadow:0 4px 14px rgba(0,0,0,.35);}
+  .nm-btn.active{background:#6366f1;}
+  .nm-btn.satellite{background:#4f46e5;}
+  .nm-btn.danger{background:#dc2626;}
+  .nm-btn.warn{background:#f59e0b; color:#1a1a1a;}
+  .nm-btn.success{background:#10b981;}
+  /* Search box */
+  .nm-search{position:absolute; top:14px; left:50%; transform:translateX(-50%);
+             z-index:600; width:380px; max-width:50vw;
+             display:flex; gap:0; align-items:center;
+             background:rgba(15,23,42,.92); border-radius:9999px;
+             padding:4px 4px 4px 16px; backdrop-filter:blur(8px);
+             box-shadow:0 4px 14px rgba(0,0,0,.35);
+             border:1px solid rgba(99,102,241,.3);}
+  .nm-search input{flex:1; background:transparent; border:none; outline:none;
+                    color:#fff; font-size:14px; padding:8px 4px;}
+  .nm-search input::placeholder{color:#94a3b8;}
+  .nm-search button{padding:7px 16px; border:none; border-radius:9999px;
+                     background:#6366f1; color:#fff; cursor:pointer;
+                     font-weight:600; font-size:13px;}
+  .nm-search-results{position:absolute; top:54px; left:0; right:0;
+                      background:#0f172a; border:1px solid rgba(99,102,241,.3);
+                      border-radius:10px; max-height:280px; overflow-y:auto;
+                      box-shadow:0 6px 22px rgba(0,0,0,.4); display:none;}
+  .nm-search-results.show{display:block;}
+  .nm-search-results .row{padding:9px 14px; cursor:pointer;
+                            border-bottom:1px solid #1e293b; font-size:13px;}
+  .nm-search-results .row:hover{background:rgba(99,102,241,.18);}
+  /* Hardware deploy panel */
+  .nm-hw-panel{position:absolute; top:74px; left:14px; z-index:600;
+               width:240px; background:rgba(15,23,42,.92); padding:14px;
+               border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.4);
+               backdrop-filter:blur(8px); color:#e2e8f0;
+               border:1px solid rgba(99,102,241,.25);}
+  .nm-hw-panel h4{margin:0 0 10px; font-size:11px; font-weight:700;
+                  letter-spacing:.12em; color:#94a3b8; text-transform:uppercase;}
+  .nm-hw-btn{display:flex; align-items:center; gap:10px; width:100%;
+             padding:9px 12px; margin:6px 0; border-radius:8px;
+             border:1px solid rgba(99,102,241,.18);
+             background:rgba(30,41,59,.6); color:#e2e8f0; cursor:pointer;
+             font-size:13px; transition:transform .12s, background .12s;}
+  .nm-hw-btn:hover{background:rgba(99,102,241,.22); transform:translateX(2px);}
+  .nm-hw-btn.deploy{background:#dc2626; color:#fff; font-weight:700;
+                    justify-content:center; padding:11px;}
+  .nm-hw-btn.deploy:hover{background:#b91c1c;}
+  .nm-hw-icon{width:22px; height:22px; display:inline-flex; align-items:center;
+              justify-content:center; border-radius:5px; flex-shrink:0;
+              color:#fff; font-weight:700; font-size:13px;}
+  .nm-banner{position:absolute; top:74px; left:50%; transform:translateX(-50%);
+             z-index:601; background:rgba(245,158,11,.95); color:#1a1a1a;
+             padding:9px 18px; border-radius:9999px; font-weight:700;
+             font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.4); display:none;}
+  .nm-banner.show{display:block;}
+  .nm-legend{position:absolute; bottom:14px; right:14px; z-index:600;
+             background:rgba(15,23,42,.9); padding:10px 14px;
+             border-radius:10px; font-size:12px; color:#e2e8f0;
+             border:1px solid rgba(99,102,241,.25);}
+  .nm-legend .row{display:flex; align-items:center; gap:8px; margin:3px 0;}
+  .nm-legend .dot{width:12px; height:12px; border-radius:50%;}
+  /* Tooltip-style live label on ONU pins */
+  .nm-onu-label{background:rgba(0,0,0,.78)!important; color:#fff!important;
+                 border:1px solid rgba(99,102,241,.6)!important;
+                 padding:3px 8px!important; font-size:11px!important;
+                 font-weight:600!important; border-radius:6px!important;
+                 box-shadow:0 2px 8px rgba(0,0,0,.4)!important;}
+  .nm-onu-label.bad{border-color:#fca5a5!important; color:#fecaca!important;}
+  .nm-onu-label::before{display:none!important;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="netmap-shell" data-testid="netmap-shell">
+  <div id="netmap"></div>
+
+  <!-- Top-left tile/draw controls -->
+  <div class="nm-ctrls">
+    <button class="nm-btn" data-testid="netmap-tile-streets"
+            onclick="nmSetLayer('streets')">STREETS</button>
+    <button class="nm-btn satellite active" data-testid="netmap-tile-satellite"
+            onclick="nmSetLayer('satellite')">SATELLITE</button>
+    <button class="nm-btn warn" id="nm-fiber-btn"
+            data-testid="netmap-fiber-mode"
+            onclick="nmToggleFiberMode()">DRAW FIBER</button>
+    <button class="nm-btn" data-testid="netmap-import-btn"
+            onclick="document.getElementById('nm-import-file').click()"
+            style="background:#06b6d4;color:#fff;font-weight:700">📥 IMPORT KML/GEOJSON</button>
+    <input type="file" id="nm-import-file" data-testid="netmap-import-file"
+            accept=".kml,.geojson,.json" style="display:none"
+            onchange="nmImport(event)"/>
+    <button class="nm-btn success" data-testid="netmap-locate"
+            onclick="nmLocateMe()">📍 MY LOCATION</button>
+  </div>
+
+  <!-- Search bar -->
+  <form class="nm-search" data-testid="netmap-search-form"
+         onsubmit="event.preventDefault(); nmSearch();">
+    <input id="nm-search-input" data-testid="netmap-search-input"
+            placeholder="Search city, locality, address…"/>
+    <button type="submit" data-testid="netmap-search-btn">Search</button>
+    <div class="nm-search-results" id="nm-search-results"></div>
+  </form>
+
+  <!-- Mode banner -->
+  <div class="nm-banner" id="nm-banner" data-testid="netmap-banner"></div>
+
+  <!-- Hardware deploy panel -->
+  <div class="nm-hw-panel" data-testid="netmap-hw-panel">
+    <h4>Deploy Hardware</h4>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('olt')" data-testid="hw-olt">
+      <span class="nm-hw-icon" style="background:#7c3aed">B</span> OLT (Hub)
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('jc_box')" data-testid="hw-jc-box">
+      <span class="nm-hw-icon" style="background:#fcd34d;color:#1a1a1a">▣</span> JC Box (Joint)
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x4')" data-testid="hw-splitter-1x4">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:4 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x8')" data-testid="hw-splitter-1x8">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:8 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x16')" data-testid="hw-splitter-1x16">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:16 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('pole')" data-testid="hw-pole">
+      <span class="nm-hw-icon" style="background:#94a3b8">▌</span> Pole
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('manhole')" data-testid="hw-manhole">
+      <span class="nm-hw-icon" style="background:#475569">◯</span> Manhole
+    </button>
+    <hr style="border-color:#334155; margin:10px 0;"/>
+    <button class="nm-hw-btn deploy" onclick="nmCancelMode()"
+            data-testid="hw-cancel">CANCEL MODE</button>
+  </div>
+
+  <!-- Legend -->
+  <div class="nm-legend">
+    <div class="row"><span class="dot" style="background:#7c3aed;"></span> OLT Hub</div>
+    <div class="row"><span class="dot" style="background:#10b981;"></span> ONU (Online)</div>
+    <div class="row"><span class="dot" style="background:#dc2626;"></span> ONU (Issue)</div>
+    <div class="row"><span class="dot" style="background:#f59e0b;"></span> Splitter</div>
+    <div class="row"><span class="dot" style="background:#fcd34d;"></span> JC Box</div>
+    <div class="row" style="margin-top:6px;color:#94a3b8;font-size:10px">
+      Drag any pin to relocate. Click a fiber to delete.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const NM_API = "/api/admin/network-map";
+
+let nmMap, nmTileSat, nmTileStr, nmTileLabels, nmCurrTile = "satellite";
+let nmHwLayer, nmFiberLayer, nmCustLayer;
+let nmDeployKind = null;   // hardware kind being placed
+let nmFiberMode  = false;
+let nmFiberPts   = [];
+let nmFiberTmpLayer = null;
+let nmFocusOnu = null;
+let nmHwById   = {};       // id -> {h, marker} for snapping/lookup
+
+(function init() {
+  const u = new URLSearchParams(location.search);
+  nmFocusOnu = u.get("focus_onu");
+  nmMap = L.map("netmap", { zoomControl:true, doubleClickZoom:false })
+            .setView([27.5, 80.7], 13);
+
+  // ── Tiles with road labels ──
+  // Satellite imagery base
+  nmTileSat = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution:"Tiles &copy; Esri", maxZoom:19, minZoom:3 });
+  // Road/place name overlay (renders on top of satellite — keeps roads,
+  // city names, market names, shop names visible just like Google hybrid)
+  nmTileLabels = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom:19, minZoom:3, opacity:1.0 });
+  // Streets layer with full POI / shop / road names (CartoDB Voyager)
+  nmTileStr = L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    { attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:"abcd",
+      maxZoom:20, minZoom:3 });
+  nmTileSat.addTo(nmMap);
+  nmTileLabels.addTo(nmMap);
+
+  nmHwLayer    = L.layerGroup().addTo(nmMap);
+  nmFiberLayer = L.layerGroup().addTo(nmMap);
+  nmCustLayer  = L.layerGroup().addTo(nmMap);
+
+  nmMap.on("click", nmOnMapClick);
+  nmMap.on("dblclick", nmOnDblClick);
+  nmRefreshAll();
+})();
+
+// ── Tile toggle ──────────────────────────────────────────────────────
+function nmSetLayer(kind) {
+  if (kind === nmCurrTile) return;
+  nmCurrTile = kind;
+  document.querySelectorAll(".nm-btn[data-testid^='netmap-tile-']")
+    .forEach(b => b.classList.remove("active"));
+  document.querySelector(`[data-testid="netmap-tile-${kind}"]`).classList.add("active");
+  if (kind === "satellite") {
+    nmMap.removeLayer(nmTileStr);
+    nmTileSat.addTo(nmMap);
+    nmTileLabels.addTo(nmMap);
+  } else {
+    nmMap.removeLayer(nmTileSat); nmMap.removeLayer(nmTileLabels);
+    nmTileStr.addTo(nmMap);
+  }
+}
+
+function nmShowBanner(text, bg, fg) {
+  const b = document.getElementById("nm-banner");
+  b.textContent = text; b.classList.add("show");
+  if (bg) b.style.background = bg;
+  if (fg) b.style.color = fg;
+}
+function nmHideBanner() { document.getElementById("nm-banner").classList.remove("show"); }
+
+// ── Geocode search (Nominatim, free) ─────────────────────────────────
+async function nmSearch() {
+  const q = document.getElementById("nm-search-input").value.trim();
+  if (!q) return;
+  const url = "https://nominatim.openstreetmap.org/search?format=json"
+              + "&limit=8&addressdetails=1&q=" + encodeURIComponent(q);
+  let r;
+  try { r = await fetch(url, { headers:{"Accept-Language":"en"} }); }
+  catch(e) { alert("Search failed: " + e); return; }
+  const arr = await r.json();
+  const box = document.getElementById("nm-search-results");
+  if (!arr.length) { box.innerHTML = '<div class="row" style="color:#94a3b8">No results</div>';
+                      box.classList.add("show"); return; }
+  box.innerHTML = arr.map(it =>
+    `<div class="row" onclick="nmGoTo(${it.lat},${it.lon},'${(it.display_name||'').replace(/'/g,"&#39;")}')">
+       ${it.display_name}</div>`).join("");
+  box.classList.add("show");
+}
+function nmGoTo(lat, lng, label) {
+  nmMap.setView([+lat, +lng], 17);
+  document.getElementById("nm-search-results").classList.remove("show");
+  document.getElementById("nm-search-input").value = label || "";
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".nm-search"))
+    document.getElementById("nm-search-results").classList.remove("show");
+});
+
+// ── Locate me (browser GPS) ──────────────────────────────────────────
+function nmLocateMe() {
+  if (!navigator.geolocation) return alert("Geolocation not supported");
+  navigator.geolocation.getCurrentPosition(
+    p => nmMap.setView([p.coords.latitude, p.coords.longitude], 18),
+    e => alert("GPS error: " + e.message),
+    { enableHighAccuracy:true, timeout:10000 });
+}
+
+// ── Deploy hardware mode ─────────────────────────────────────────────
+function nmStartDeploy(kind) {
+  nmCancelMode(true);   // soft reset (keep map listeners)
+  nmDeployKind = kind;
+  const labels = { olt:"OLT Hub", jc_box:"JC Box",
+                    splitter_1x4:"1:4 Splitter", splitter_1x8:"1:8 Splitter",
+                    splitter_1x16:"1:16 Splitter", pole:"Pole", manhole:"Manhole" };
+  nmShowBanner(`Click on the map to drop a ${labels[kind] || kind} (or press CANCEL MODE)`,
+               "rgba(99,102,241,.95)", "#fff");
+}
+function nmToggleFiberMode() {
+  if (nmFiberMode) { nmCancelMode(); return; }
+  nmCancelMode(true);
+  nmFiberMode = true;
+  nmFiberPts = [];
+  document.getElementById("nm-fiber-btn").classList.add("active");
+  nmShowBanner("Click points along the fiber path. Double-click to finish. (Click near a hardware pin to snap.)",
+               "rgba(245,158,11,.95)", "#1a1a1a");
+}
+function nmCancelMode(soft) {
+  nmDeployKind = null;
+  nmFiberMode  = false;
+  nmFiberPts   = [];
+  if (nmFiberTmpLayer) { nmMap.removeLayer(nmFiberTmpLayer); nmFiberTmpLayer = null; }
+  document.getElementById("nm-fiber-btn").classList.remove("active");
+  nmHideBanner();
+  // Reset cursor
+  nmMap.getContainer().style.cursor = "";
+}
+
+// ── Fiber snap helper (find nearest hardware within ~30 m) ───────────
+function nmSnapToNearestHw(lat, lng, maxMeters) {
+  let best = null, bestDist = Infinity;
+  Object.values(nmHwById).forEach(({h}) => {
+    const d = nmMap.distance([lat,lng], [h.lat,h.lng]);
+    if (d < bestDist) { bestDist = d; best = h; }
+  });
+  if (best && bestDist <= (maxMeters || 30)) return [best.lat, best.lng, best.id];
+  return [lat, lng, null];
+}
+
+async function nmOnMapClick(e) {
+  // Deploy hardware
+  if (nmDeployKind) {
+    let nm = prompt("Name for this " + nmDeployKind + " (optional):", "") || null;
+    let props = {};
+    if (nmDeployKind.startsWith("splitter_")) {
+      const ratio = nmDeployKind.split("_")[1];   // "1x4" / "1x8" / "1x16"
+      const out = parseInt(ratio.split("x")[1], 10);
+      props = { input_count: 1, output_count: out, ratio: ratio };
+    }
+    const body = { kind:nmDeployKind, name:nm,
+                    lat:e.latlng.lat, lng:e.latlng.lng,
+                    props: props };
+    const r = await fetch(NM_API + "/hardware", {
+      method:"POST", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body) });
+    const j = await r.json();
+    if (j.ok) { nmCancelMode(); await nmRefreshAll(); }
+    else alert("Failed: " + JSON.stringify(j));
+    return;
+  }
+  // Fiber draw
+  if (nmFiberMode) {
+    const [lat,lng,hwId] = nmSnapToNearestHw(e.latlng.lat, e.latlng.lng, 30);
+    nmFiberPts.push([lat, lng, hwId]);
+    if (nmFiberTmpLayer) nmMap.removeLayer(nmFiberTmpLayer);
+    nmFiberTmpLayer = L.polyline(nmFiberPts.map(p => [p[0],p[1]]),
+                                   { color:"#f59e0b", weight:4, dashArray:"6 6" })
+                          .addTo(nmMap);
+    if (hwId) nmShowBanner("Snapped to hardware #" + hwId
+                            + " — click again to add the next point",
+                            "rgba(34,197,94,.95)", "#fff");
+    return;
+  }
+}
+async function nmOnDblClick(e) {
+  if (!nmFiberMode) return;
+  if (nmFiberPts.length < 2) {
+    nmCancelMode();
+    return alert("A fiber needs at least 2 points.");
+  }
+  const color = (prompt(
+    "Fiber tube color? (blue / orange / green / brown / red / yellow / slate / white)",
+    "blue") || "blue").toLowerCase();
+  const cores = parseInt(prompt("Core count (4 / 8 / 12 / 24 / 48)?", "12") || "12", 10);
+  const polyline = nmFiberPts.map(p => [p[0], p[1]]);
+  const body = {
+    color, core_count:cores, polyline,
+    src_hw_id: nmFiberPts[0][2] || null,
+    dst_hw_id: nmFiberPts[nmFiberPts.length-1][2] || null,
+  };
+  const r = await fetch(NM_API + "/fiber", {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body) });
+  const j = await r.json();
+  nmCancelMode();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+// ── Render ───────────────────────────────────────────────────────────
+function nmIcon(kind, status) {
+  const colors = {
+    olt:"#7c3aed", onu:status==="offline"?"#dc2626":"#10b981",
+    jc_box:"#fcd34d", splitter_1x4:"#f59e0b", splitter_1x8:"#f59e0b",
+    splitter_1x16:"#f59e0b", pole:"#94a3b8", manhole:"#475569",
+  };
+  const sym = {
+    olt:"B", onu:"⌂", jc_box:"▣",
+    splitter_1x4:"⌬", splitter_1x8:"⌬", splitter_1x16:"⌬",
+    pole:"▌", manhole:"◯",
+  };
+  const fg = (kind==="jc_box" || kind==="splitter_1x4"
+              || kind==="splitter_1x8" || kind==="splitter_1x16") ? "#1a1a1a" : "#fff";
+  const c = colors[kind] || "#6366f1";
+  // Splitter shows ratio badge underneath
+  let badge = "";
+  if (kind.startsWith("splitter_")) {
+    const ratio = kind.split("_")[1].replace("x", ":");
+    badge = `<div style="background:#1a1a1a;color:#fcd34d;font-size:9px;
+              padding:1px 5px;border-radius:6px;margin-top:2px;font-weight:700">${ratio}</div>`;
+  }
+  return L.divIcon({
+    className:"nm-divicon",
+    html:`<div style="display:flex;flex-direction:column;align-items:center">
+            <div style="background:${c}; width:28px; height:28px;
+                        border-radius:6px; display:flex; align-items:center;
+                        justify-content:center; color:${fg}; font-weight:700;
+                        box-shadow:0 2px 8px rgba(0,0,0,.4);
+                        border:2px solid #fff; font-size:14px;">${sym[kind]||"?"}</div>
+            ${badge}</div>`,
+    iconSize:[28, badge ? 42 : 28], iconAnchor:[14, badge ? 14 : 14],
+  });
+}
+
+function nmHwTooltip(h) {
+  if (h.kind !== "onu") return null;
+  const props = h.props || {};
+  const rx = props.rx_power;
+  const cls = (rx !== undefined && rx !== null && rx <= -25) ? "nm-onu-label bad"
+                                                                : "nm-onu-label";
+  const rxStr = (rx !== undefined && rx !== null) ? rx.toFixed(1)+" dBm" : "—";
+  return { html:`<b>${h.name||"ONU"}</b> <span style="opacity:.85">${rxStr}</span>`,
+            cls };
+}
+function nmHwPopup(h) {
+  const props = h.props || {};
+  const title = h.name || h.kind.toUpperCase();
+  let sub = "";
+  if (h.kind === "olt")
+    sub = `Vendor: ${props.vendor || "—"}<br>Status: ${props.status || "—"}`;
+  else if (h.kind === "onu")
+    sub = `Customer: ${props.customer_id || "—"}<br>OLT: ${props.olt_id || "—"}<br>RX: ${(props.rx_power!==undefined && props.rx_power!==null)?props.rx_power.toFixed(2)+' dBm':'—'}`;
+  else if (h.kind.startsWith("splitter_"))
+    sub = `Ratio: 1:${props.output_count || "?"}<br>${props.output_count||0} output legs`;
+  const isAuto = !!props.auto;
+  const delBtn = isAuto ? "" :
+    `<button class="nm-btn danger" style="padding:4px 10px;font-size:11px;
+       margin-top:6px" onclick="nmDeleteHw(${h.id})">Delete</button>`;
+  return `<b>${title}</b><br><small style="color:#64748b">${h.kind}</small><br>${sub}<br>${delBtn}`;
+}
+
+async function nmRefreshAll() {
+  nmHwLayer.clearLayers(); nmFiberLayer.clearLayers(); nmCustLayer.clearLayers();
+  nmHwById = {};
+  let r;
+  try { r = await fetch(NM_API + "/items", { credentials:"include" }); }
+  catch(e) { console.warn("netmap fetch failed", e); return; }
+  if (!r.ok) {
+    if (r.status === 401)
+      window.location = "/login?next=" + encodeURIComponent(location.pathname);
+    return;
+  }
+  const j = await r.json();
+  // Hardware
+  (j.hardware || []).forEach(h => {
+    const props = h.props || {};
+    const isAuto = !!props.auto;
+    const m = L.marker([h.lat, h.lng],
+                        { icon: nmIcon(h.kind, props.status),
+                          draggable: !isAuto })   // auto-pinned OLTs not draggable
+                .bindPopup(nmHwPopup(h)).addTo(nmHwLayer);
+    nmHwById[h.id] = { h, marker:m };
+    // Live label for ONUs
+    const tip = nmHwTooltip(h);
+    if (tip) m.bindTooltip(tip.html, { permanent:true, direction:"top",
+                                         offset:[0,-12], className:tip.cls });
+    // Persist drag
+    if (!isAuto) {
+      m.on("dragend", async ev => {
+        const ll = ev.target.getLatLng();
+        const r2 = await fetch(`${NM_API}/hardware/${h.id}`, {
+          method:"PATCH", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({lat:ll.lat, lng:ll.lng}) });
+        if (!r2.ok) alert("Drag-save failed.");
+        else { h.lat = ll.lat; h.lng = ll.lng; }
+      });
+    }
+  });
+  // Fibers — show src/dst connection info in popup
+  (j.fibers || []).forEach(f => {
+    const colorMap = {blue:"#3b82f6", orange:"#f97316", green:"#22c55e",
+                      brown:"#92400e", red:"#dc2626", yellow:"#eab308",
+                      slate:"#64748b", white:"#e5e7eb"};
+    const srcName = f.src_hw_id && nmHwById[f.src_hw_id]
+                      ? (nmHwById[f.src_hw_id].h.name || ("HW#"+f.src_hw_id)) : "free end";
+    const dstName = f.dst_hw_id && nmHwById[f.dst_hw_id]
+                      ? (nmHwById[f.dst_hw_id].h.name || ("HW#"+f.dst_hw_id)) : "free end";
+    L.polyline(f.polyline,
+               { color: colorMap[f.color] || "#3b82f6", weight:5,
+                 opacity:.85 })
+     .bindPopup(`<b>Fiber (${f.color})</b><br>
+                 ${f.core_count || "—"} cores<br>
+                 <small>${srcName} → ${dstName}</small><br>
+                 <button class="nm-btn danger" style="margin-top:6px;padding:4px 10px;font-size:11px"
+                  onclick="nmDeleteFiber(${f.id})">Delete</button>`)
+     .addTo(nmFiberLayer);
+  });
+  // Customer dots
+  (j.customers || []).forEach(c => {
+    L.circleMarker([c.lat, c.lng],
+        { radius:4, color:"#fff", weight:1,
+          fillColor: c.status === "active" ? "#22c55e" : "#94a3b8",
+          fillOpacity:.9 })
+     .bindPopup(`<b>${c.name || c.id}</b><br>Customer: ${c.id}<br>
+                 Status: ${c.status || "—"}`)
+     .addTo(nmCustLayer);
+  });
+  // focus_onu handling
+  if (nmFocusOnu) {
+    const tgt = (j.hardware || []).find(h => h.ref_onu_id == nmFocusOnu);
+    if (tgt) {
+      nmMap.setView([tgt.lat, tgt.lng], 18);
+      const m = nmHwById[tgt.id];
+      if (m) m.marker.openPopup();
+      nmFocusOnu = null;
+    } else {
+      nmShowBanner(`ONU #${nmFocusOnu} has no map pin yet — click on the map to drop it.`,
+                    "rgba(245,158,11,.95)", "#1a1a1a");
+      nmMap.off("click", nmOnMapClick);
+      nmMap.once("click", async function(e){
+        const r2 = await fetch(`${NM_API}/onus/${nmFocusOnu}/place`, {
+          method:"POST", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({lat:e.latlng.lat, lng:e.latlng.lng}) });
+        const j2 = await r2.json();
+        if (j2.ok) { nmFocusOnu = null; nmHideBanner();
+                      nmMap.on("click", nmOnMapClick); await nmRefreshAll(); }
+        else { alert("Failed: " + JSON.stringify(j2));
+                nmMap.on("click", nmOnMapClick); }
+      });
+    }
+  }
+}
+async function nmDeleteHw(id) {
+  if (!confirm("Delete this hardware? Connected fiber lines will also be removed.")) return;
+  const r = await fetch(`${NM_API}/hardware/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+async function nmDeleteFiber(id) {
+  if (!confirm("Delete this fiber line?")) return;
+  const r = await fetch(`${NM_API}/fiber/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+
+// ═══ _S40l_ Phase-2 JS additions ═══════════════════════════════════════
+// Tube/core color codes (TIA-598-C standard)
+const NM_TUBE_COLORS = ["blue","orange","green","brown","slate","white",
+                          "red","black","yellow","violet","rose","aqua"];
+const NM_CORE_HEX = {
+  blue:"#3b82f6", orange:"#f97316", green:"#22c55e", brown:"#92400e",
+  slate:"#64748b", white:"#e5e7eb", red:"#dc2626", black:"#111827",
+  yellow:"#eab308", violet:"#8b5cf6", rose:"#f43f5e", aqua:"#06b6d4"
+};
+
+// ── KML / GeoJSON import ──
+async function nmImport(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (!confirm(`Import ${f.name}? This will add hardware/fibers to the map.`)) {
+    ev.target.value = ""; return;
+  }
+  const fd = new FormData();
+  fd.append("file", f);
+  let r;
+  try { r = await fetch(NM_API + "/import", {
+    method:"POST", credentials:"include", body:fd }); }
+  catch(e) { alert("Upload failed: " + e); return; }
+  const j = await r.json();
+  ev.target.value = "";
+  if (j.ok) { alert(`Imported: ${j.hardware_imported} hardware, ${j.fibers_imported} fibers`);
+              await nmRefreshAll(); }
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+// ── Splitter leg dots (radial) ──
+function nmDrawSplitterLegs(h, mark) {
+  // Adds a circle of N small dots around the splitter showing leg count.
+  // Connected legs (have a fiber to this hw) drawn green; free legs grey.
+  const props = h.props || {};
+  const n = props.output_count || 4;
+  // Count fibers connecting to/from this hw
+  let connected = 0;
+  if (window.__nmFibers) {
+    window.__nmFibers.forEach(f => {
+      if (f.src_hw_id === h.id || f.dst_hw_id === h.id) connected++;
+    });
+  }
+  const markerLatLng = mark.getLatLng();
+  for (let i = 0; i < n; i++) {
+    const angle = (2 * Math.PI * i) / n - Math.PI/2;  // top-first
+    // Offset in degrees: ~0.0001° ≈ 11 m at the equator
+    const offset = 0.00018;
+    const lat = markerLatLng.lat + offset * Math.cos(angle);
+    const lng = markerLatLng.lng + offset * Math.sin(angle);
+    const used = (i < connected);
+    const dot = L.circleMarker([lat, lng], {
+      radius:4, color:"#fff", weight:1,
+      fillColor: used ? "#10b981" : "#475569",
+      fillOpacity:.95
+    }).addTo(nmHwLayer);
+    // Tiny line from splitter to dot
+    L.polyline([[markerLatLng.lat, markerLatLng.lng], [lat, lng]],
+                 { color: used ? "#10b981" : "#475569",
+                   weight: 2, opacity:.7, dashArray: used ? null : "3 3" })
+     .addTo(nmHwLayer);
+  }
+}
+
+// ── Polyline vertex dragging ──
+let nmEditingFiber = null;   // {id, vertices: [marker,marker,...], poly: L.polyline}
+function nmEnableFiberEdit(fiberObj, polyLayer) {
+  // Remove existing edit
+  nmDisableFiberEdit();
+  const verts = [];
+  fiberObj.polyline.forEach((pt, idx) => {
+    const m = L.marker(pt, {
+      icon: L.divIcon({
+        className:"",
+        html:'<div style="width:14px;height:14px;border-radius:50%;'
+              +'background:#f59e0b;border:3px solid #fff;'
+              +'box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:move"></div>',
+        iconSize:[14,14], iconAnchor:[7,7]
+      }),
+      draggable:true, zIndexOffset:1000,
+    });
+    m.on("drag", () => {
+      const lls = verts.map(v => v.getLatLng());
+      polyLayer.setLatLngs(lls);
+    });
+    m.on("dragend", async () => {
+      const lls = verts.map(v => [v.getLatLng().lat, v.getLatLng().lng]);
+      const r = await fetch(`${NM_API}/fiber/${fiberObj.id}`, {
+        method:"PATCH", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({polyline: lls}) });
+      const j = await r.json();
+      if (!j.ok) alert("Vertex save failed");
+    });
+    m.addTo(nmFiberLayer);
+    verts.push(m);
+  });
+  nmEditingFiber = { id: fiberObj.id, vertices: verts, poly: polyLayer };
+}
+function nmDisableFiberEdit() {
+  if (!nmEditingFiber) return;
+  nmEditingFiber.vertices.forEach(v => nmFiberLayer.removeLayer(v));
+  nmEditingFiber = null;
+}
+
+// ── Splice modal ──
+async function nmOpenSpliceModal(hwId) {
+  const r = await fetch(`${NM_API}/splice/${hwId}`, { credentials:"include" });
+  if (!r.ok) return alert("Failed to load splices");
+  const data = await r.json();
+  document.getElementById("nmSpliceTitle").textContent =
+    (data.node.name || "Node") + " (#" + data.node.id + ")";
+  // Body = 3 cols: incoming fibers | center actions | outgoing fibers
+  const ins = data.fibers.filter(f => f.side === "in");
+  const outs = data.fibers.filter(f => f.side === "out");
+  const renderFiber = side => f => {
+    const cores = [];
+    for (let c = 1; c <= (f.core_count || 12); c++) {
+      const tubeCol = f.color || "blue";
+      const coreCol = NM_TUBE_COLORS[(c-1) % 12];
+      cores.push(
+        `<div class="nm-core-pill" data-fiber="${f.id}" data-core="${c}"
+            data-side="${side}" onclick="nmPickCore(this)"
+            style="display:inline-flex;align-items:center;gap:5px;
+                    padding:4px 8px;margin:2px;border-radius:14px;
+                    background:#0f172a;border:1px solid #334155;
+                    cursor:pointer;font-size:11px">
+          <span style="width:10px;height:10px;border-radius:50%;
+                       background:${NM_CORE_HEX[coreCol]};
+                       border:1px solid #fff"></span>
+          ${c}
+         </div>`);
+    }
+    return `<div style="background:#1e293b;border-radius:10px;padding:12px;
+                          margin-bottom:8px;border-left:5px solid ${NM_CORE_HEX[f.color || "blue"]}">
+              <div style="display:flex;justify-content:space-between;
+                            align-items:center;margin-bottom:8px">
+                <b>${f.name || "Fiber #"+f.id}</b>
+                <small style="color:#94a3b8">${f.color}-tube • ${f.core_count} cores</small>
+              </div>
+              <div>${cores.join("")}</div>
+            </div>`;
+  };
+  document.getElementById("nmSpliceBody").innerHTML =
+    `<div>
+       <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                    text-transform:uppercase;margin:0 0 10px">
+         📥 Incoming Fibers (${ins.length})</h4>
+       ${ins.length ? ins.map(renderFiber("in")).join("")
+                     : '<div style="color:#64748b;font-size:13px;padding:14px;'
+                       +'background:#1e293b;border-radius:8px">'
+                       +'No incoming fibers connected to this node.</div>'}
+     </div>
+     <div style="display:flex;flex-direction:column;align-items:center;
+                  justify-content:center;gap:10px">
+       <div id="nmSpliceSrc" style="width:38px;height:38px;border-radius:50%;
+              background:#1e293b;border:2px dashed #475569"></div>
+       <div style="color:#a5b4fc;font-size:18px;font-weight:700">⇄</div>
+       <div id="nmSpliceDst" style="width:38px;height:38px;border-radius:50%;
+              background:#1e293b;border:2px dashed #475569"></div>
+       <button onclick="nmCommitSplice(${hwId})"
+                data-testid="nm-splice-commit"
+                style="margin-top:6px;padding:8px 12px;border-radius:6px;
+                       background:#10b981;border:none;color:#fff;
+                       font-weight:600;font-size:11px;cursor:pointer">
+         ✚ SPLICE</button>
+       <button onclick="nmClearSplicePick()"
+                style="padding:6px 12px;border-radius:6px;
+                       background:#475569;border:none;color:#fff;
+                       font-size:11px;cursor:pointer">Clear</button>
+     </div>
+     <div>
+       <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                    text-transform:uppercase;margin:0 0 10px">
+         📤 Outgoing Fibers (${outs.length})</h4>
+       ${outs.length ? outs.map(renderFiber("out")).join("")
+                       : '<div style="color:#64748b;font-size:13px;padding:14px;'
+                         +'background:#1e293b;border-radius:8px">'
+                         +'No outgoing fibers from this node.</div>'}
+     </div>`;
+  // Render existing splices
+  const sp = document.getElementById("nmSpliceList");
+  if (!data.splices.length) {
+    sp.innerHTML = '<div style="color:#64748b">No splices yet.</div>';
+  } else {
+    sp.innerHTML = data.splices.map(s =>
+      `<div style="display:flex;justify-content:space-between;
+                    background:#1e293b;padding:8px 12px;border-radius:6px">
+         <span><b>F${s.src_fiber_id}/c${s.src_core}</b>
+                <span style="color:#a5b4fc">⇄</span>
+                <b>F${s.dst_fiber_id}/c${s.dst_core}</b>
+                <small style="color:#94a3b8;margin-left:8px">${s.mode}</small>
+                ${s.loss_db ? '<small style="color:#fcd34d">'+s.loss_db+' dB</small>' : ''}</span>
+         <button onclick="nmDeleteSplice(${s.id}, ${hwId})"
+            style="background:#dc2626;border:none;color:#fff;padding:3px 9px;
+                   border-radius:5px;font-size:10px;cursor:pointer">×</button>
+       </div>`).join("");
+  }
+  document.getElementById("nmSpliceModal").style.display = "block";
+  window.__nmSpliceContext = { hwId, src:null, dst:null };
+}
+function nmCloseSpliceModal() {
+  document.getElementById("nmSpliceModal").style.display = "none";
+}
+function nmPickCore(el) {
+  const ctx = window.__nmSpliceContext || {};
+  const slot = ctx.src ? "dst" : "src";
+  ctx[slot] = { fiber: parseInt(el.dataset.fiber, 10),
+                core: parseInt(el.dataset.core, 10),
+                side: el.dataset.side };
+  document.getElementById("nmSplice"+slot.toUpperCase().substring(0,1)+slot.substring(1)).innerText = "";
+  const target = document.getElementById("nmSplice" + (slot==="src"?"Src":"Dst"));
+  target.style.background = "#10b981";
+  target.style.border = "2px solid #fff";
+  target.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+                                    height:100%;color:#fff;font-size:11px;font-weight:700">
+                         F${ctx[slot].fiber}<br>c${ctx[slot].core}</div>`;
+  // Highlight the picked pill
+  document.querySelectorAll(".nm-core-pill").forEach(p =>
+    p.style.outline = "");
+  el.style.outline = "3px solid #10b981";
+}
+function nmClearSplicePick() {
+  window.__nmSpliceContext = { hwId: window.__nmSpliceContext?.hwId, src:null, dst:null };
+  ["nmSpliceSrc","nmSpliceDst"].forEach(id => {
+    const e = document.getElementById(id);
+    e.style.background = "#1e293b";
+    e.style.border = "2px dashed #475569";
+    e.innerHTML = "";
+  });
+  document.querySelectorAll(".nm-core-pill").forEach(p => p.style.outline = "");
+}
+async function nmCommitSplice(hwId) {
+  const ctx = window.__nmSpliceContext || {};
+  if (!ctx.src || !ctx.dst) return alert("Pick a SRC core then a DST core");
+  const loss = parseFloat(prompt("Loss (dB)?", "0.2") || "0");
+  const r = await fetch(`${NM_API}/splice`, {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      node_hw_id: hwId,
+      src_fiber_id: ctx.src.fiber, src_core: ctx.src.core,
+      dst_fiber_id: ctx.dst.fiber, dst_core: ctx.dst.core,
+      mode: "thru", loss_db: isNaN(loss) ? null : loss,
+    })
+  });
+  const j = await r.json();
+  if (j.ok) await nmOpenSpliceModal(hwId);
+  else alert("Splice failed: " + JSON.stringify(j));
+}
+async function nmDeleteSplice(spliceId, hwId) {
+  if (!confirm("Delete this splice?")) return;
+  const r = await fetch(`${NM_API}/splice/${spliceId}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmOpenSpliceModal(hwId);
+  else alert("Delete failed");
+}
+
+// ── Hook into refresh: cache fibers + add splitter legs + fiber click→edit ──
+const __nmRefreshAll_orig = window.nmRefreshAll || nmRefreshAll;
+window.nmRefreshAll = async function patched_nmRefreshAll() {
+  // Clear edit handles before redraw
+  nmDisableFiberEdit();
+  await __nmRefreshAll_orig();
+  // After base render, fetch raw items again to add legs / dblclick splice handlers
+  let r;
+  try { r = await fetch(NM_API + "/items", { credentials:"include" }); }
+  catch(e) { return; }
+  if (!r.ok) return;
+  const j = await r.json();
+  window.__nmFibers = j.fibers || [];
+  // Add splitter legs (radial dots)
+  (j.hardware || []).forEach(h => {
+    if (!h.kind.startsWith("splitter_")) return;
+    const m = nmHwById[h.id];
+    if (m && m.marker) nmDrawSplitterLegs(h, m.marker);
+  });
+  // For JC-Box / splitter, double-click marker → splice modal
+  Object.values(nmHwById).forEach(({h, marker}) => {
+    if (h.kind === "jc_box" || h.kind.startsWith("splitter_")) {
+      marker.on("dblclick", () => nmOpenSpliceModal(h.id));
+      marker.bindTooltip(
+        (h.name || h.kind) + ' • dbl-click to splice',
+        { direction:"bottom", offset:[0,8] });
+    }
+  });
+  // For each fiber polyline already drawn by base, re-attach a click-to-edit
+  // handler. We re-iterate nmFiberLayer's children:
+  nmFiberLayer.eachLayer(layer => {
+    if (!(layer instanceof L.Polyline)) return;
+    layer.on("click", function(ev) {
+      // Find matching fiber by polyline match
+      const pts = layer.getLatLngs().map(p => [p.lat, p.lng]);
+      const match = (j.fibers || []).find(f =>
+        f.polyline.length === pts.length &&
+        Math.abs(f.polyline[0][0] - pts[0][0]) < 1e-6 &&
+        Math.abs(f.polyline[0][1] - pts[0][1]) < 1e-6);
+      if (!match) return;
+      // Toggle edit mode
+      if (nmEditingFiber && nmEditingFiber.id === match.id)
+        nmDisableFiberEdit();
+      else nmEnableFiberEdit({ id: match.id,
+                                  polyline: match.polyline }, layer);
+    });
+  });
+};
+
+</script>
+{% endblock %}

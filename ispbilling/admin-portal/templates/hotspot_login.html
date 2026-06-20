@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{ portal.title if portal else 'Free Wi-Fi' }}</title>
+    <style>
+        :root {
+            --primary: {{ portal.primary_color if portal and portal.primary_color else '#7c3aed' }};
+            --accent:  {{ portal.accent_color  if portal and portal.accent_color  else '#06b6d4' }};
+        }
+        *{box-sizing:border-box;margin:0;padding:0;}
+        html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;}
+        body {
+            {% if portal and portal.background_path %}
+            background: url({{ portal.background_path }}) center/cover no-repeat;
+            {% else %}
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            {% endif %}
+            min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+        }
+        .panel{background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);border-radius:16px;padding:32px 28px;max-width:380px;width:100%;box-shadow:0 25px 60px rgba(0,0,0,0.25);}
+        .brand{display:flex;flex-direction:column;align-items:center;margin-bottom:20px;}
+        .brand img{max-height:64px;margin-bottom:10px;}
+        .brand .title{color:var(--primary);font-size:22px;font-weight:700;letter-spacing:0.3px;}
+        .welcome{color:#6b7280;font-size:14px;text-align:center;margin-bottom:20px;}
+        label{display:block;margin-bottom:6px;font-weight:600;color:#374151;font-size:13px;}
+        input[type="text"],input[type="password"],input[type="tel"]{width:100%;padding:12px 14px;border:1px solid #e5e7eb;border-radius:10px;font-size:15px;transition:border 0.15s;}
+        input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(124,58,237,0.1);}
+        .primary-btn{background:linear-gradient(135deg,var(--primary) 0%,var(--accent) 100%);color:#fff;border:0;padding:13px;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;width:100%;margin-top:14px;transition:transform 0.1s;}
+        .primary-btn:hover{transform:translateY(-1px);}
+        .mode-tabs{display:flex;gap:4px;margin-bottom:18px;background:#f3f4f6;padding:4px;border-radius:10px;}
+        .mode-tab{flex:1;text-align:center;padding:8px;font-size:12px;font-weight:600;color:#6b7280;cursor:pointer;border-radius:7px;transition:all 0.15s;}
+        .mode-tab.active{background:#fff;color:var(--primary);box-shadow:0 1px 3px rgba(0,0,0,0.08);}
+        .mode-body{display:none;}
+        .mode-body.active{display:block;}
+        .form-group{margin-bottom:14px;}
+        .terms{margin-top:14px;font-size:11px;color:#6b7280;line-height:1.5;text-align:left;max-height:80px;overflow-y:auto;background:#f9fafb;padding:8px 10px;border-radius:8px;}
+        .footer{text-align:center;color:#9ca3af;font-size:11px;margin-top:18px;}
+    </style>
+</head><body>
+    <div class="panel">
+        <div class="brand">
+            {% if portal and portal.logo_path %}<img src="{{ portal.logo_path }}" alt="logo">{% endif %}
+            <div class="title">{{ portal.title if portal else 'Free Wi-Fi' }}</div>
+        </div>
+        {% if portal and portal.welcome_text %}<div class="welcome">{{ portal.welcome_text }}</div>{% endif %}
+
+        {% set lm = (portal.login_mode if portal else 'voucher') %}
+        <div class="mode-tabs">
+            <div class="mode-tab {% if lm=='voucher' %}active{% endif %}"           data-m="voucher">Voucher</div>
+            <div class="mode-tab {% if lm=='username_password' %}active{% endif %}" data-m="username_password">Username</div>
+            <div class="mode-tab {% if lm=='whatsapp_otp' and portal.whatsapp_otp_enabled %}active{% endif %}" data-m="whatsapp_otp" {% if not portal or not portal.whatsapp_otp_enabled %}style="display:none;"{% endif %}>OTP</div>
+        </div>
+
+        <form method="post" action="$(link-login-only)" data-testid="hotspot-form">
+            <input type="hidden" name="dst" value="$(link-orig)">
+
+            <div class="mode-body {% if lm=='voucher' %}active{% endif %}" id="mode-voucher">
+                <div class="form-group"><label>Voucher Code</label>
+                    <input type="text" name="password" placeholder="ABCD-1234" autocapitalize="characters" data-testid="hotspot-voucher-input">
+                </div>
+            </div>
+            <div class="mode-body {% if lm=='username_password' %}active{% endif %}" id="mode-username_password">
+                <div class="form-group"><label>Username</label><input type="text" name="username" placeholder="your.username" data-testid="hotspot-user-input"></div>
+                <div class="form-group"><label>Password</label><input type="password" name="password" placeholder="••••••••" data-testid="hotspot-pass-input"></div>
+            </div>
+            {% if portal and portal.whatsapp_otp_enabled %}
+            <div class="mode-body {% if lm=='whatsapp_otp' %}active{% endif %}" id="mode-whatsapp_otp">
+                <div class="form-group"><label>Phone Number (with country code)</label>
+                    <input type="tel" id="otp-phone" placeholder="+919876543210" data-testid="hotspot-phone-input">
+                </div>
+                <button type="button" class="primary-btn" onclick="document.querySelector('#otp-code-group').style.display='block'" data-testid="hotspot-send-otp" style="margin-top:0;">Send OTP via WhatsApp</button>
+                <div id="otp-code-group" class="form-group" style="display:none;margin-top:14px;"><label>OTP</label>
+                    <input type="text" name="password" placeholder="6-digit code" data-testid="hotspot-otp-input">
+                </div>
+            </div>
+            {% endif %}
+
+            <button type="submit" class="primary-btn" data-testid="hotspot-submit">Connect</button>
+        </form>
+
+        {% if portal and portal.terms_text %}
+        <div class="terms"><strong>Terms:</strong> {{ portal.terms_text }}</div>
+        {% endif %}
+        <div class="footer">{{ portal.footer_text if portal else 'Powered by Auto ISP Billing' }}</div>
+    </div>
+<script>
+// v15 — when this page is served from autoispbilling.com (NOT from the
+// Mikrotik), the $(link-login-only) and $(link-orig) Mikrotik template
+// vars don't get substituted.  Read them from the URL query string
+// (the redirect template injected by Mikrotik already includes them)
+// and patch the form action + the hidden 'dst' input.
+(function(){
+    var q = new URLSearchParams(window.location.search);
+    var linkLogin = q.get('link-login') || q.get('link_login') || '';
+    var linkOrig  = q.get('link-orig')  || q.get('link_orig')  || '';
+    var f = document.querySelector('form');
+    if (!f) return;
+    if (f.action.indexOf('$(') >= 0 || !f.action || /autoispbilling\.com\/hotspot/.test(f.action)) {
+        if (linkLogin) f.action = linkLogin;
+    }
+    var dst = f.querySelector('input[name="dst"]');
+    if (dst && (dst.value.indexOf('$(') >= 0 || !dst.value)) {
+        if (linkOrig) dst.value = linkOrig;
+    }
+    // Stash mac if present (used by the redeem hook).
+    window.__mac = q.get('mac') || '';
+    // If we still don't have a link-login URL, surface a friendly error
+    // so the customer doesn't tap a button that does nothing silently.
+    if (!linkLogin && !/\$\(link-login-only\)/.test(f.action)) {
+        var st = document.createElement('div');
+        st.style.cssText = 'background:#fef2f2;color:#991b1b;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px;';
+        st.textContent = 'Connection issue — please reconnect to Wi-Fi and try again.';
+        f.parentNode.insertBefore(st, f);
+    }
+})();
+
+// hotspot-error-banner — surface Mikrotik's $(error) param so users see *why*
+// their last attempt failed instead of being silently bounced to login.
+(function(){
+    var q = new URLSearchParams(window.location.search);
+    var err = (q.get('error') || '').trim();
+    if (!err || err === '$(error)' || err === 'undefined') return;
+    // Friendlier messages for common Mikrotik hotspot errors.
+    var pretty = err;
+    var l = err.toLowerCase();
+    if (/invalid username or password/.test(l))                  pretty = 'Wrong username or password. Please try again.';
+    else if (/no more sessions are allowed/.test(l))             pretty = 'You are already logged in on another device. Disconnect there or wait a moment and retry.';
+    else if (/already authorizing/.test(l))                      pretty = 'Logging you in… please wait a moment and tap Connect again.';
+    else if (/configuration error/.test(l) || /unknown user profile/.test(l)) pretty = 'Service unavailable for your account. Please contact support.';
+    else if (/user .* is not allowed to log in/.test(l))         pretty = 'Your account is not authorised on this network.';
+    else if (/limit reached/.test(l) || /uptime limit/.test(l))  pretty = 'Your data or time limit has been reached.';
+    else if (/cannot assign/.test(l))                            pretty = 'Could not assign an IP address — please reconnect to Wi-Fi and try again.';
+
+    var banner = document.createElement('div');
+    banner.setAttribute('data-testid','hotspot-error-banner');
+    banner.style.cssText = 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;padding:11px 14px;border-radius:10px;margin-bottom:14px;font-size:13.5px;line-height:1.45;';
+    banner.innerHTML = '<strong>⚠ Login failed</strong><br>' + pretty.replace(/[<>]/g,'');
+    var panel = document.querySelector('.panel');
+    var brand = panel && panel.querySelector('.brand');
+    if (panel && brand) panel.insertBefore(banner, brand.nextSibling);
+})();
+
+</script>
+<script>
+// s36e-redeem-hook — call our server to mark the voucher used + fire webhook.
+(function(){
+    var form = document.querySelector('form');
+    if (!form) return;
+
+    function activeMode(){
+        var tab = document.querySelector('.mode-tab.active');
+        return tab ? tab.getAttribute('data-m') : 'voucher';
+    }
+    function currentCode(){
+        var mode = activeMode();
+        var body = document.getElementById('mode-' + mode);
+        if (!body) return '';
+        var pw = body.querySelector('input[name="password"]');
+        return pw ? (pw.value || '').trim() : '';
+    }
+
+    // Status banner at the top of the panel so customer sees what's happening.
+    var statusEl = document.createElement('div');
+    statusEl.id = 's36e-redeem-status';
+    statusEl.style.cssText = 'display:none;margin:10px 0 0;padding:10px 12px;border-radius:8px;font-size:13px;';
+    var panel = document.querySelector('.panel');
+    if (panel) panel.insertBefore(statusEl, panel.firstChild.nextSibling);
+
+    function showStatus(msg, ok){
+        statusEl.textContent = msg;
+        statusEl.style.display = 'block';
+        statusEl.style.background = ok ? '#ecfdf5' : '#fef3c7';
+        statusEl.style.color = ok ? '#065f46' : '#92400e';
+    }
+
+    var submitting = false;
+    form.addEventListener('submit', function(ev){
+        if (submitting) return;  // allow the 2nd real submit through
+        var mode = activeMode();
+        var code = currentCode();
+        if (mode === 'voucher' && code) {
+            ev.preventDefault();
+            showStatus('Validating voucher…', true);
+            fetch('/api/vouchers/redeem/' + encodeURIComponent(code), {
+                method: 'POST', credentials: 'same-origin',
+                headers: {'X-MAC': (window.__mac || '')}
+            }).then(function(r){ return r.json().then(function(j){ return {status:r.status, body:j}; }); })
+              .then(function(res){
+                if (res.status === 404) {
+                    showStatus('✗ Voucher code not found. Please check and try again.', false);
+                } else if (res.status === 400) {
+                    showStatus('✗ ' + (res.body.error || 'Voucher already ' + (res.body.body && res.body.body.status || 'used/expired')), false);
+                } else if (res.body && res.body.ok) {
+                    showStatus(res.body.already_used
+                        ? '✓ Voucher already redeemed — connecting…'
+                        : '✓ Voucher accepted — connecting…', true);
+                    // voucher-username-injector: Mikrotik PAP auth needs
+                    // both username + password. In voucher mode the
+                    // visible field is `password`; set username = code.
+                    var u = form.querySelector('input[name="username"]');
+                    if (!u) {
+                        u = document.createElement('input');
+                        u.type = 'hidden';
+                        u.name = 'username';
+                        form.appendChild(u);
+                    }
+                    u.value = code;
+                    submitting = true;
+                    setTimeout(function(){ form.submit(); }, 300);
+                } else {
+                    // Non-ok but not 404/400 → submit anyway so customer still gets online.
+                    submitting = true;
+                    form.submit();
+                }
+              })
+              .catch(function(){
+                // Network error — still submit (don't punish the user).
+                submitting = true;
+                form.submit();
+              });
+        } else {
+            // For username_password / OTP modes: fire-and-forget mark-used if a
+            // code-looking password was typed; real-submit always happens.
+            if (code && /^[A-Z0-9]{6,}$/i.test(code)) {
+                try {
+                    navigator.sendBeacon(
+                        '/api/vouchers/redeem/' + encodeURIComponent(code),
+                        new Blob([''], {type:'application/x-www-form-urlencoded'}));
+                } catch(e){}
+            }
+            // allow native submit to proceed
+        }
+    });
+})();
+
+// mode-input-disabler — every mode-body has its own name="password" /
+// name="username" inputs. Browsers submit ALL named form inputs regardless
+// of CSS display:none, so an empty password from an inactive tab can clobber
+// the active tab's value when reaching Mikrotik. We toggle the `disabled`
+// attribute so only the active mode's inputs are submitted.
+function _syncModeInputsEnabled(){
+    document.querySelectorAll('.mode-body').forEach(function(b){
+        var on = b.classList.contains('active');
+        b.querySelectorAll('input, select, textarea').forEach(function(el){
+            // never disable the form action / hidden dst / submit
+            el.disabled = !on;
+        });
+    });
+}
+_syncModeInputsEnabled();
+
+document.querySelectorAll('.mode-tab').forEach(function(t){
+    t.addEventListener('click', function(){
+        document.querySelectorAll('.mode-tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.mode-body').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        var b = document.getElementById('mode-' + t.getAttribute('data-m'));
+        if (b) b.classList.add('active');
+        _syncModeInputsEnabled();
+    });
+});
+// Pre-fill voucher code from ?code=XXXX (from QR scan)
+var q = new URLSearchParams(location.search);
+if (q.get('code')) {
+    var f = document.querySelector('#mode-voucher input[name="password"]');
+    if (f) f.value = q.get('code');
+}
+</script>
+</body></html>

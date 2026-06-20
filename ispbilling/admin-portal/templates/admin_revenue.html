@@ -1,0 +1,252 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Revenue - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<style>
+.rev-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:14px; margin:8px 0 18px; }
+.rev-card { background:#fff; border-radius:10px; padding:16px 18px;
+  box-shadow:0 1px 3px rgba(15,23,42,.08); border-left:4px solid #94a3b8; }
+.rev-card.green { border-color:#16a34a; }
+.rev-card.blue { border-color:#2563eb; }
+.rev-card.amber { border-color:#d97706; }
+.rev-card.purple { border-color:#7c3aed; }
+.rev-card .lbl { color:#64748b; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.rev-card .val { font-size:22px; font-weight:700; color:#0f172a; margin-top:4px; }
+.rev-card .sub { font-size:12px; color:#475569; margin-top:2px; }
+.rev-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-bottom:14px; }
+.rev-toolbar label { font-size:11px; color:#475569; font-weight:600; display:block; margin:0; }
+.rev-toolbar select, .rev-toolbar input { height:34px; }
+.rev-toolbar .grow { flex:1; min-width:160px; }
+.mode-pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:11px;
+  font-weight:600; background:#eef2ff; color:#3730a3; }
+@media print {
+  .rev-toolbar, .box-tools, .modal { display:none !important; }
+}
+</style>
+
+<section class="content-header">
+  <h1>Revenue <small>Live collection from your existing payments</small></h1>
+</section>
+
+<section class="content">
+  <div class="rev-summary">
+    <div class="rev-card green">
+      <div class="lbl">Total Revenue (period)</div>
+      <div class="val" id="sumTotal" data-testid="rev-sum-total">₹ 0.00</div>
+      <div class="sub" id="sumPeriod">—</div>
+    </div>
+    <div class="rev-card blue">
+      <div class="lbl">Transactions</div>
+      <div class="val" id="sumCount" data-testid="rev-sum-count">0</div>
+      <div class="sub">payments received</div>
+    </div>
+    <div class="rev-card purple">
+      <div class="lbl">Avg / Day</div>
+      <div class="val" id="sumAvg">₹ 0.00</div>
+      <div class="sub">period average</div>
+    </div>
+    <div class="rev-card amber">
+      <div class="lbl">Top Mode</div>
+      <div class="val" id="sumTopMode">—</div>
+      <div class="sub" id="sumTopModeAmt">₹ 0.00</div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title"><i class="fa fa-filter"></i> Filter</h3>
+      <div class="box-tools pull-right">
+        <button class="btn btn-default btn-sm" id="exportCsvBtn" data-testid="rev-export-csv">
+          <i class="fa fa-download"></i> Export CSV
+        </button>
+        <button class="btn btn-default btn-sm" onclick="window.print()">
+          <i class="fa fa-print"></i> Print
+        </button>
+      </div>
+    </div>
+    <div class="box-body">
+      <div class="rev-toolbar">
+        <div>
+          <label>Period</label>
+          <select class="form-control" id="fPeriod" data-testid="rev-period">
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month" selected>This Month</option>
+            <option value="year">This Year</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div id="customFrom" style="display:none">
+          <label>From</label>
+          <input type="date" class="form-control" id="fFrom">
+        </div>
+        <div id="customTo" style="display:none">
+          <label>To</label>
+          <input type="date" class="form-control" id="fTo">
+        </div>
+        <div>
+          <label>Payment Mode</label>
+          <select class="form-control" id="fMode" data-testid="rev-filter-mode">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="grow">
+          <label>Search</label>
+          <input type="text" class="form-control" id="fSearch" placeholder="customer / txn id"
+                 data-testid="rev-filter-search">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn btn-primary form-control" id="applyFilterBtn" data-testid="rev-apply-filter">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title">Payments Received</h3>
+    </div>
+    <div class="box-body table-responsive">
+      <table class="table table-bordered table-striped" id="revenueTable" data-testid="revenue-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Customer ID</th>
+            <th>Customer</th>
+            <th>Txn No</th>
+            <th>Mode</th>
+            <th class="text-right">Amount</th>
+            <th class="text-right">Discount</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody id="revenueBody">
+          <tr><td colspan="8" class="text-center text-muted">Loading…</td></tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="5" class="text-right">Total</th>
+            <th class="text-right" id="tfootTotal">₹ 0.00</th>
+            <th colspan="2"></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title"><i class="fa fa-pie-chart"></i> Breakdown by Payment Mode</h3>
+    </div>
+    <div class="box-body table-responsive">
+      <table class="table table-bordered" id="modeBreakdownTable">
+        <thead><tr><th>Mode</th><th class="text-right">Transactions</th><th class="text-right">Amount</th><th class="text-right">% of Total</th></tr></thead>
+        <tbody id="modeBreakdownBody"><tr><td colspan="4" class="text-center text-muted">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  var lastItems=[],MODES=[];
+  function fmtINR(n){ return '₹ '+ Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  function loadModes(){
+    return $.get('/api/admin/expenses/categories').done(function(r){
+      MODES=r.payment_modes||[];
+      $('#fMode').html('<option value="">All</option>'+MODES.map(function(m){return '<option>'+m+'</option>';}).join(''));
+    });
+  }
+
+  function getFilters(){
+    var p=$('#fPeriod').val();
+    var q={period:p};
+    if(p==='custom'){ q.dfrom=$('#fFrom').val(); q.dto=$('#fTo').val(); }
+    var m=$('#fMode').val(); if(m) q.payment_mode=m;
+    var s=$('#fSearch').val(); if(s) q.q=s;
+    return q;
+  }
+
+  function render(items,total,period){
+    lastItems=items;
+    var $b=$('#revenueBody').empty();
+    if(!items.length){
+      $b.append('<tr><td colspan="8" class="text-center text-muted">No payments found for the selected filters.</td></tr>');
+    } else {
+      items.forEach(function(it){
+        $b.append(
+          '<tr>'+
+          '<td>'+ (it.paid_at? it.paid_at.replace('T',' ').slice(0,16) : '') +'</td>'+
+          '<td>'+ (it.customer_id||'') +'</td>'+
+          '<td>'+ $('<div>').text(it.customer_name||'').html() +'</td>'+
+          '<td><small>'+ (it.transaction_no||'') +'</small></td>'+
+          '<td><span class="mode-pill">'+ (it.payment_mode||'') +'</span></td>'+
+          '<td class="text-right"><strong>'+ fmtINR(it.amount) +'</strong></td>'+
+          '<td class="text-right text-muted">'+ (it.discount? fmtINR(it.discount):'—') +'</td>'+
+          '<td>'+ $('<div>').text(it.remarks||'').html() +'</td>'+
+          '</tr>'
+        );
+      });
+    }
+    $('#tfootTotal').text(fmtINR(total));
+    $('#sumTotal').text(fmtINR(total));
+    $('#sumCount').text(items.length);
+    $('#sumPeriod').text((period.from||'')+' → '+(period.to||''));
+    var days=Math.max(1, Math.round((new Date(period.to)-new Date(period.from))/86400000)+1);
+    $('#sumAvg').text(fmtINR(total/days));
+  }
+
+  function renderBreakdown(byMode,total){
+    var $b=$('#modeBreakdownBody').empty();
+    if(!byMode.length){ $b.append('<tr><td colspan="4" class="text-center text-muted">—</td></tr>'); return; }
+    byMode.forEach(function(m){
+      var pct=total>0?((m.amount/total)*100).toFixed(1):'0.0';
+      $b.append('<tr><td><span class="mode-pill">'+m.payment_mode+'</span></td>'+
+        '<td class="text-right">'+m.count+'</td>'+
+        '<td class="text-right">'+fmtINR(m.amount)+'</td>'+
+        '<td class="text-right">'+pct+'%</td></tr>');
+    });
+    if(byMode[0]){ $('#sumTopMode').text(byMode[0].payment_mode); $('#sumTopModeAmt').text(fmtINR(byMode[0].amount)); }
+  }
+
+  function reload(){
+    var f=getFilters();
+    $.get('/api/admin/revenue/list', f).done(function(r){
+      render(r.items||[], r.total||0, r.period||{});
+    }).fail(function(xhr){
+      $('#revenueBody').html('<tr><td colspan="8" class="text-center text-danger">Failed: '+(xhr.responseJSON&&xhr.responseJSON.detail||xhr.statusText)+'</td></tr>');
+    });
+    $.get('/api/admin/revenue/summary', f).done(function(r){
+      renderBreakdown(r.by_payment_mode||[], r.total||0);
+    });
+  }
+
+  $('#fPeriod').on('change',function(){
+    var c=$(this).val()==='custom';
+    $('#customFrom,#customTo').toggle(c);
+  });
+  $('#applyFilterBtn').on('click', reload);
+  $('#fSearch').on('keypress', function(e){ if(e.which===13) reload(); });
+
+  $('#exportCsvBtn').on('click', function(){
+    if(!lastItems.length){ alert('Nothing to export'); return; }
+    var rows=[['Date','Customer ID','Customer','Txn No','Mode','Amount','Discount','Remarks']];
+    lastItems.forEach(function(i){
+      rows.push([i.paid_at, i.customer_id, i.customer_name, i.transaction_no, i.payment_mode, i.amount, i.discount, i.remarks]);
+    });
+    var csv=rows.map(function(r){return r.map(function(v){var s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',');}).join('\n');
+    var blob=new Blob([csv],{type:'text/csv'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='revenue_'+(new Date().toISOString().slice(0,10))+'.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+
+  loadModes().always(reload);
+})();
+</script>
+{% endblock %}

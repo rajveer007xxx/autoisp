@@ -1,0 +1,286 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Edit Employee - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<div class="content-wrapper" style="margin-left: 0; padding: 20px;">
+    <section class="content-header" style="margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">
+            Edit Employee
+            <small style="font-size: 14px; color: #666; margin-left: 10px;">Update employee details and permissions</small>
+        </h1>
+    </section>
+
+    <section class="content">
+        <form id="editEmployeeForm">
+            <input type="hidden" id="employee_id" name="employee_id">
+            
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Employee Profile
+                </h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Name <span style="color: red;">*</span></label>
+                        <input type="text" id="employee_name" name="employee_name" class="form-control" placeholder="Enter employee name" required style="padding: 8px; font-size: 14px;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Password</label>
+                        <input type="password" id="password" name="password" class="form-control" placeholder="Leave blank to keep current password" style="padding: 8px; font-size: 14px;">
+                        <small style="color: #666; font-size: 12px;">Leave blank to keep current password</small>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Employee Detail
+                </h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Employee ID</label>
+                        <input type="text" id="employee_code" class="form-control" readonly style="padding: 8px; font-size: 14px; background: #f5f5f5;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Mobile <span style="color: red;">*</span></label>
+                        <input type="tel" id="mobile" name="mobile" class="form-control" placeholder="Enter mobile number" required style="padding: 8px; font-size: 14px;">
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Email</label>
+                        <input type="email" id="email" name="email" class="form-control" placeholder="Enter email (optional)" style="padding: 8px; font-size: 14px;">
+                    </div>
+                </div>
+                
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Address</label>
+                    <textarea id="address" name="address" class="form-control" placeholder="Enter address (optional)" rows="3" style="padding: 8px; font-size: 14px;"></textarea>
+                </div>
+
+                <!-- s37q: profile photo -->
+                <div style="margin-top: 20px; display: flex; align-items: center; gap: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px;">Profile Photo</label>
+                        <input type="file" id="profile_image_input" accept="image/*"
+                               data-testid="emp-profile-image-input"
+                               style="font-size: 13px;">
+                        <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">JPG / PNG / WEBP. Uploads immediately on file pick.</p>
+                    </div>
+                    <div>
+                        <img id="profile_image_preview" alt="profile"
+                             src="/static/img/placeholder-avatar.png"
+                             style="width:72px;height:72px;border-radius:50%;border:2px solid #e5e7eb;object-fit:cover;background:#f3f4f6;">
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Feature Accessibility
+                </h3>
+                
+                <div id="featurePermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    App Permission
+                </h3>
+                
+                <div id="appPermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                    Report Accessibility Permission
+                </h3>
+                
+                <div id="reportPermissions" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                </div>
+            </div>
+
+            <div style="background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary" style="background: #667eea; border: none; padding: 10px 30px; font-size: 14px; font-weight: 600;">
+                    Update Employee
+                </button>
+                <a href="{{ path_prefix|default('/admin') }}/employees" class="btn btn-default" style="padding: 10px 30px; font-size: 14px; font-weight: 600; border: 1px solid #ddd;">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </section>
+</div>
+
+<script>
+$(document).ready(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const employeeId = urlParams.get('id');
+    
+    if (!employeeId) {
+        alert('Employee ID is required');
+        window.location.href = '{{ path_prefix|default("/admin") }}/employees';
+        return;
+    }
+    
+    $('#employee_id').val(employeeId);
+    
+    let allPermissions = {};
+    let employeePermissions = [];
+    
+
+    /* s37q: profile photo upload -----------------------------------*/
+    $('#profile_image_input').on('change', function() {
+        var file = this.files && this.files[0];
+        if (!file) return;
+        var empId = $('#employee_id').val();
+        if (!empId) { alert('Save the employee first, then upload a photo.'); return; }
+        var fd = new FormData();
+        fd.append('photo', file);
+        $.ajax({
+            url: '/api/employees/' + empId + '/upload-photo',
+            type: 'POST',
+            data: fd, processData: false, contentType: false,
+            success: function(r) {
+                if (r.success) {
+                    $('#profile_image_preview').attr('src', r.path + '?t=' + Date.now());
+                } else {
+                    alert('Upload failed: ' + (r.message || 'unknown'));
+                }
+            },
+            error: function() { alert('Upload failed'); }
+        });
+    });
+
+    $.ajax({
+        url: '/api/permissions/list',
+        type: 'GET',
+        success: function(response) {
+            if (response.success) {
+                allPermissions = response.permissions;
+                
+                allPermissions.feature.forEach(function(perm) {
+                    $('#featurePermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+                
+                allPermissions.app.forEach(function(perm) {
+                    $('#appPermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+                
+                allPermissions.report.forEach(function(perm) {
+                    $('#reportPermissions').append(`
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                            <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
+                        </div>
+                    `);
+                });
+                
+                loadEmployeeData();
+            } else {
+                alert('Failed to load permissions: ' + response.message);
+            }
+        },
+        error: function() {
+            alert('Failed to load permissions');
+        }
+    });
+    
+    function loadEmployeeData() {
+        $.ajax({
+            url: `/api/employees/${employeeId}`,
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    const emp = response.employee;
+                    
+                    $('#employee_name').val(emp.employee_name);
+                    $('#employee_code').val(emp.employee_code);
+                    $('#mobile').val(emp.mobile);
+                    $('#email').val(emp.email || '');
+                    $('#address').val(emp.address || '');
+                    
+                    employeePermissions = emp.permissions || [];
+                    // s37q: populate profile-image preview if set
+                    if (emp.profile_image_path) {
+                        $('#profile_image_preview').attr('src', emp.profile_image_path + '?t=' + Date.now());
+                    }
+                    
+                    employeePermissions.forEach(function(permId) {
+                        $(`#perm_${permId}`).prop('checked', true);
+                    });
+                } else {
+                    alert('Failed to load employee data: ' + response.message);
+                    window.location.href = '{{ path_prefix|default("/admin") }}/employees';
+                }
+            },
+            error: function() {
+                alert('Failed to load employee data');
+                window.location.href = '{{ path_prefix|default("/admin") }}/employees';
+            }
+        });
+    }
+
+    $('#editEmployeeForm').submit(function(e) {
+        e.preventDefault();
+        
+        const permissions = [];
+        $('input[name="permissions"]:checked').each(function() {
+            permissions.push(parseInt($(this).val()));
+        });
+        
+        const data = {
+            employee_name: $('#employee_name').val().trim(),
+            mobile: $('#mobile').val().trim(),
+            email: $('#email').val().trim(),
+            address: $('#address').val().trim(),
+            permissions: permissions
+        };
+        
+        const password = $('#password').val();
+        if (password) {
+            data.password = password;
+        }
+        
+        if (!data.employee_name || !data.mobile) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        $.ajax({
+            url: `/api/employees/${employeeId}`,
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                if (response.success) {
+                    alert('Employee updated successfully!');
+                    window.location.href = '{{ path_prefix|default("/admin") }}/employees';
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                const response = xhr.responseJSON;
+                alert('Failed to update employee: ' + (response ? response.message : 'Unknown error'));
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

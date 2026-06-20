@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing - Payment Reminders (3/7/14 day dunning)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling:/opt/ispbilling/admin-portal:/opt/ispbilling/superadmin-portal
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/payment_reminder_cron.py
+StandardOutput=append:/var/log/autoispbilling/payment-reminder.log
+StandardError=append:/var/log/autoispbilling/payment-reminder.log
+User=root

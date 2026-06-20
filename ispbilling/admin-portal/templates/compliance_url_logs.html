@@ -1,0 +1,105 @@
+{% extends "base_admin.html" %}
+{% block title %}URL Activity Logs - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.cmp-tbl th{background:#f1f5f9;padding:8px;text-align:left;color:#475569;text-transform:uppercase;font-size:11px}
+.cmp-tbl td{padding:8px;border-bottom:1px solid #e5e7eb;font-size:12px;font-family:'JetBrains Mono','Menlo',monospace}
+.cmp-tbl td.url{font-family:inherit;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp-input{padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-btn.green{background:#10b981}
+.cmp-empty{text-align:center;padding:40px;color:#94a3b8}
+</style>
+
+<section class="content-header">
+  <h1>URL Activity Logs<small>Visited URLs / hosts / sessions (DoT requirement)</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input id="fQ" class="cmp-input" placeholder="Search host / url / user_ip" data-testid="urls-search">
+    <input id="fFrom" type="date" class="cmp-input" data-testid="urls-from">
+    <input id="fTo" type="date" class="cmp-input" data-testid="urls-to">
+    <button class="cmp-btn" onclick="loadURLs()" data-testid="urls-load">Filter</button>
+    <a class="cmp-btn green" id="exportBtn" href="/admin/compliance/url-logs/export.csv" data-testid="urls-export">Export CSV</a> <a class="cmp-btn green" href="/admin/compliance/url-logs/export.xlsx" data-testid="urls-export-xlsx" style="background:#10b981">Export XLSX</a>
+    <a class="cmp-btn gray" href="/admin/compliance" data-testid="urls-back" style="margin-left:auto;text-decoration:none">← Back</a>
+  </div>
+
+  <div class="cmp-card">
+    <div style="font-size:13px;color:#475569;margin-bottom:10px"><b>Total stored:</b> <span id="totCount">…</span></div>
+    <div id="urlList"><div class="cmp-empty">Loading…</div></div>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-info-circle"></i> How records reach this page</h4>
+    <p style="font-size:13px;color:#475569;line-height:1.7;margin:0">
+      URL activity is sent automatically by your NAS routers using a per-router token.
+      To set up a router, go to <b>NAS Devices</b> → click <b>URL Logs</b> next to that router → copy the generated script and paste it into the router's terminal once.
+    </p>
+  </div>
+  <div style="display:none">
+<pre style="background:#0b1120;color:#e2e8f0;padding:12px;border-radius:6px;font-size:12px;overflow:auto">
+{
+  "records": [
+    {
+      "user_ip": "10.0.0.5",
+      "ts": "2026-05-08 14:22:01",
+      "method": "GET",
+      "host": "www.example.com",
+      "url": "/path/page",
+      "dst_port": 443,
+      "status_code": 200,
+      "bytes_xfer": 14322,
+      "user_agent": "Mozilla/5.0 ...",
+      "customer_id": "78702321"
+    }
+  ]
+}
+</pre>
+  </div>
+  </div>
+</section>
+
+<script>
+async function loadURLs(){
+  const q = document.getElementById('fQ').value.trim();
+  const f = document.getElementById('fFrom').value;
+  const t = document.getElementById('fTo').value;
+  const u = '/api/compliance/url-logs/list?limit=500'
+          + (q ? '&q='+encodeURIComponent(q) : '')
+          + (f ? '&from='+f : '') + (t ? '&to='+t : '');
+  document.getElementById('exportBtn').href =
+    '/admin/compliance/url-logs/export.csv'
+    + (f ? '?from='+f : '')
+    + (t ? (f?'&':'?') + 'to='+t : '');
+  const r = await fetch(u, {credentials:'include'});
+  const d = await r.json();
+  document.getElementById('totCount').textContent = d.total ?? 0;
+  if (!d.rows || !d.rows.length) {
+    document.getElementById('urlList').innerHTML =
+      '<div class="cmp-empty">No URL logs yet. Configure your proxy/router to push.</div>';
+    return;
+  }
+  document.getElementById('urlList').innerHTML =
+    `<table class="cmp-tbl"><thead><tr>
+       <th>ID</th><th>Customer</th><th>User IP</th><th>TS</th><th>Method</th>
+       <th>Host</th><th>URL</th><th>Code</th><th>Bytes</th>
+     </tr></thead><tbody>${d.rows.map(x=>`
+       <tr>
+         <td>${x.id}</td>
+         <td>${x.customer_id||'-'}</td>
+         <td>${x.user_ip||'-'}</td>
+         <td>${x.ts||'-'}</td>
+         <td>${x.method||'-'}</td>
+         <td>${x.host||'-'}</td>
+         <td class="url" title="${(x.url||'').replace(/"/g,'&quot;')}">${x.url||'-'}</td>
+         <td>${x.status_code||'-'}</td>
+         <td>${x.bytes_xfer||0}</td>
+       </tr>`).join('')}</tbody></table>`;
+}
+loadURLs();
+</script>
+{% endblock %}

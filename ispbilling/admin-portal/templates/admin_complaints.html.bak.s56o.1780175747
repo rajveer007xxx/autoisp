@@ -1,0 +1,325 @@
+{% extends base_template|default("base_admin.html") %}
+{% block title %}Complaints & Supports — Auto ISP Billing{% endblock %}
+{% block extra_css %}
+<style>
+/* __S38W_UNIFIED_COMPLAINTS__ */
+.s38w-wrap { padding:6px 0 24px; }
+.s38w-hero { background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%);
+             color:#fff;border-radius:14px;padding:20px 24px;margin-bottom:18px;
+             box-shadow:0 4px 14px rgba(124,58,237,.25);
+             display:flex;align-items:center;justify-content:space-between;gap:20px; }
+.s38w-hero h1 { margin:0;font-size:22px;font-weight:700; }
+.s38w-hero small { opacity:.9;font-size:13px;display:block;margin-top:2px; }
+.s38w-new-btn { background:#fff;color:#7c3aed;border:0;padding:10px 20px;border-radius:8px;
+                font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;gap:6px;align-items:center; }
+.s38w-new-btn:hover { background:#f1f5f9; }
+
+.s38w-kpis { display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px; }
+.s38w-kpi  { background:#fff;border-radius:10px;padding:14px 16px;border-left:4px solid #7c3aed;
+             box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.s38w-kpi .l { color:#64748b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px; }
+.s38w-kpi .v { color:#0f172a;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px; }
+.s38w-kpi--pend { border-left-color:#f59e0b; } .s38w-kpi--pend .v { color:#b45309; }
+.s38w-kpi--prog { border-left-color:#3b82f6; } .s38w-kpi--prog .v { color:#1e40af; }
+.s38w-kpi--done { border-left-color:#10b981; } .s38w-kpi--done .v { color:#047857; }
+
+.s38w-filters { background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:16px;
+                box-shadow:0 1px 3px rgba(0,0,0,.06);
+                display:flex;gap:10px;flex-wrap:wrap;align-items:center; }
+.s38w-filters label { font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;
+                      letter-spacing:.4px;margin:0 4px 0 0; }
+.s38w-filters select, .s38w-filters input {
+    height:34px;border:1px solid #e2e8f0;border-radius:6px;padding:0 10px;font-size:13px;
+    background:#fff;
+}
+.s38w-filters .search { flex:1;min-width:200px; }
+
+.s38w-panel { background:#fff;border-radius:10px;overflow:hidden;
+              box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.s38w-tbl { width:100%;border-collapse:collapse;font-size:13px; }
+.s38w-tbl thead th { background:#f8fafc;color:#475569;font-weight:600;
+    text-transform:uppercase;font-size:10.5px;letter-spacing:.4px;
+    padding:10px 12px;border-bottom:2px solid #e2e8f0;text-align:left; }
+.s38w-tbl tbody td { padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle; }
+.s38w-tbl tbody tr { cursor:pointer; }
+.s38w-tbl tbody tr:hover { background:#faf5ff; }
+
+.s38w-kind { padding:3px 8px;border-radius:999px;font-size:10.5px;font-weight:600;
+             text-transform:uppercase;letter-spacing:.3px; }
+.s38w-kind--c { background:#fef3c7;color:#92400e; }
+.s38w-kind--s { background:#dbeafe;color:#1e40af; }
+
+.s38w-status { padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600; }
+.s38w-status--p { background:#fef3c7;color:#92400e; }
+.s38w-status--i { background:#dbeafe;color:#1e40af; }
+.s38w-status--r { background:#d1fae5;color:#065f46; }
+.s38w-status--c { background:#e5e7eb;color:#374151; }
+
+.s38w-prio { font-size:11px;font-weight:700; }
+.s38w-prio--h { color:#dc2626; } .s38w-prio--m { color:#f59e0b; }
+.s38w-prio--l { color:#10b981; }
+
+.s38w-empty { padding:60px 20px;text-align:center;color:#94a3b8; }
+.s38w-empty i { font-size:44px;display:block;margin-bottom:10px;color:#cbd5e1; }
+
+/* Modal (detail/reply) */
+.s38w-modal-backdrop {/* __S38W_MODAL_CENTER_v4727__ */
+    position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.55);
+    z-index:10500;display:none;align-items:center;justify-content:center;padding:40px 20px;overflow-y:auto;
+}
+.s38w-modal-backdrop.show { display:flex; }
+.s38w-modal {margin:auto;
+    background:#fff;border-radius:14px;width:100%;max-width:720px;
+    box-shadow:0 20px 50px rgba(0,0,0,.4);animation:s38wSlide .25s ease;
+}
+@keyframes s38wSlide { from { transform:translateY(-10px); opacity:.7; } to { transform:none;opacity:1; } }
+.s38w-mod-head { padding:18px 22px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between; }
+.s38w-mod-head h3 { margin:0;font-size:16px;color:#0f172a;font-weight:700; }
+.s38w-mod-close { background:transparent;border:0;font-size:24px;color:#94a3b8;cursor:pointer; }
+.s38w-mod-body { padding:18px 22px;max-height:70vh;overflow-y:auto; }
+.s38w-thread { background:#f8fafc;border-radius:10px;padding:14px 16px;margin-bottom:16px;max-height:300px;overflow-y:auto; }
+.s38w-msg { padding:10px 12px;border-radius:8px;margin-bottom:8px;font-size:13px; }
+.s38w-msg--me { background:#dcfce7;margin-left:40px; }
+.s38w-msg--them { background:#fff;border:1px solid #e2e8f0;margin-right:40px; }
+.s38w-msg .who { font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px; }
+
+.s38w-mod-foot { padding:14px 22px;border-top:1px solid #e2e8f0;display:flex;gap:8px;flex-wrap:wrap;align-items:center; }
+.s38w-form-row { display:grid;grid-template-columns:110px 1fr;gap:10px;margin-bottom:10px;align-items:center; }
+.s38w-form-row label { color:#475569;font-size:13px;font-weight:600; }
+.s38w-form-row input, .s38w-form-row select, .s38w-form-row textarea {
+    width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;
+}
+.s38w-btn { padding:8px 18px;border:0;border-radius:6px;font-weight:600;font-size:13px;cursor:pointer; }
+.s38w-btn--primary { background:#7c3aed;color:#fff; } .s38w-btn--primary:hover { background:#6d28d9; }
+.s38w-btn--secondary { background:#f1f5f9;color:#475569; }
+.s38w-btn--danger { background:#fee2e2;color:#991b1b; }
+</style>
+{% endblock %}
+{% block content %}
+<section class="content s38w-wrap">
+  <div class="s38w-hero">
+    <div>
+      <h1><i class="bi bi-chat-left-dots-fill"></i>&nbsp; Complaints &amp; Supports</h1>
+      <small>Triage customer complaints and internal support requests in one place.</small>
+    </div>
+    <button class="s38w-new-btn" onclick="s38wOpenCreate()" data-testid="cs-new-btn">
+      <i class="bi bi-plus-circle"></i> Raise New
+    </button>
+  </div>
+
+  <div class="s38w-kpis" data-testid="cs-kpis">
+    <div class="s38w-kpi s38w-kpi--pend"><div class="l">Pending</div><div class="v" id="kpi_pending">–</div></div>
+    <div class="s38w-kpi s38w-kpi--prog"><div class="l">In Progress</div><div class="v" id="kpi_in_progress">–</div></div>
+    <div class="s38w-kpi s38w-kpi--done"><div class="l">Resolved</div><div class="v" id="kpi_resolved">–</div></div>
+    <div class="s38w-kpi"><div class="l">Total</div><div class="v" id="kpi_total">–</div></div>
+  </div>
+
+  <div class="s38w-filters">
+    <label>Kind</label>
+    <select id="f_kind" data-testid="cs-filter-kind"><option value="">All</option><option value="Complaint">Complaint</option><option value="Support">Support</option></select>
+    <label>Status</label>
+    <select id="f_status" data-testid="cs-filter-status">
+      <option value="">All</option><option>Pending</option><option>In Progress</option><option>Resolved</option><option>Closed</option>
+    </select>
+    <label>Priority</label>
+    <select id="f_priority" data-testid="cs-filter-priority">
+      <option value="">All</option><option>High</option><option>Medium</option><option>Low</option>
+    </select>
+    <input class="search" type="search" placeholder="Search subject, ticket, customer..." id="f_search" data-testid="cs-filter-search">
+    <button class="s38w-btn s38w-btn--primary" onclick="s38wLoad()" data-testid="cs-refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+  </div>
+
+  <div class="s38w-panel">
+    <table class="s38w-tbl" id="s38w_tbl">
+      <thead>
+        <tr>
+          <th>Ticket</th><th>Kind</th><th>Customer</th><th>Subject</th>
+          <th>Priority</th><th>Status</th><th>Source</th><th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="s38w_tbody"><tr><td colspan="8" class="s38w-empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Detail/reply modal -->
+<div class="s38w-modal-backdrop" id="s38w_det" onclick="if(event.target===this) s38wCloseDet()">
+  <div class="s38w-modal">
+    <div class="s38w-mod-head">
+      <h3 id="s38w_det_title">Ticket</h3>
+      <button class="s38w-mod-close" onclick="s38wCloseDet()">&times;</button>
+    </div>
+    <div class="s38w-mod-body">
+      <div class="s38w-form-row"><label>Customer</label><div id="s38w_det_cust" style="color:#0f172a;font-weight:600;"></div></div>
+      <div class="s38w-form-row"><label>Description</label><div id="s38w_det_desc" style="color:#334155;line-height:1.5;"></div></div>
+      <div class="s38w-form-row"><label>Kind / Priority</label><div id="s38w_det_kp"></div></div>
+      <div class="s38w-form-row"><label>Replies</label><div id="s38w_det_thread" class="s38w-thread"></div></div>
+      <div class="s38w-form-row"><label>Your reply</label>
+        <textarea id="s38w_reply_msg" rows="3" placeholder="Type a response the customer will see..."></textarea>
+      </div>
+    </div>
+    <div class="s38w-mod-foot">
+      <label style="color:#475569;font-size:12px;font-weight:600;margin-right:6px;">Set status:</label>
+      <select id="s38w_det_status">
+        <option>Pending</option><option>In Progress</option><option>Resolved</option><option>Closed</option>
+      </select>
+      <button class="s38w-btn s38w-btn--primary" onclick="s38wSendReply()" data-testid="cs-send-reply"><i class="bi bi-send"></i> Save &amp; Reply</button>
+      <button class="s38w-btn s38w-btn--secondary" onclick="s38wCloseDet()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create modal -->
+<div class="s38w-modal-backdrop" id="s38w_cre" onclick="if(event.target===this) s38wCloseCre()">
+  <div class="s38w-modal">
+    <div class="s38w-mod-head">
+      <h3>Raise New Request</h3>
+      <button class="s38w-mod-close" onclick="s38wCloseCre()">&times;</button>
+    </div>
+    <div class="s38w-mod-body">
+      <div class="s38w-form-row"><label>Type <span style="color:#dc2626">*</span></label>
+        <select id="c_kind" data-testid="cs-new-kind">
+          <!-- __S38X_REPLY_EMAIL__ -->
+          <option value="Complaint">Complaint</option>
+          <option value="Support">Support</option>
+        </select>
+      </div>
+<!-- __S38X_REPLY_EMAIL__: customer picker removed (admin tickets go to super admin) -->
+      <div class="s38w-form-row"><label>Priority</label>
+        <select id="c_priority"><option>Low</option><option selected>Medium</option><option>High</option></select>
+      </div>
+      <div class="s38w-form-row"><label>Subject <span style="color:#dc2626">*</span></label>
+        <input id="c_subject" maxlength="200" data-testid="cs-new-subject">
+      </div>
+      <div class="s38w-form-row"><label>Description <span style="color:#dc2626">*</span></label>
+        <textarea id="c_desc" rows="4" data-testid="cs-new-desc"></textarea>
+      </div>
+    </div>
+    <div class="s38w-mod-foot">
+      <button class="s38w-btn s38w-btn--primary" onclick="s38wCreate()" data-testid="cs-new-save"><i class="bi bi-check-lg"></i> Create Ticket</button>
+      <button class="s38w-btn s38w-btn--secondary" onclick="s38wCloseCre()">Cancel</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+/* __S38W_UNIFIED_COMPLAINTS__ */
+let _rows = [];
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+async function s38wLoad() {
+  const qs = new URLSearchParams({
+    kind: document.getElementById('f_kind').value,
+    status: document.getElementById('f_status').value,
+    priority: document.getElementById('f_priority').value,
+    search: document.getElementById('f_search').value,
+  });
+  const tbody = document.getElementById('s38w_tbody');
+  tbody.innerHTML = '<tr><td colspan="8" class="s38w-empty">Loading…</td></tr>';
+  const r = await fetch('/api/complaints/list?' + qs.toString());
+  const j = await r.json();
+  if (!j.success) { tbody.innerHTML = `<tr><td colspan="8" class="s38w-empty"><i class="bi bi-x-circle"></i>${esc(j.message||"Error")}</td></tr>`; return; }
+  _rows = j.complaints || [];
+  // KPIs
+  const kpi = {pending:0,in_progress:0,resolved:0,total:_rows.length};
+  _rows.forEach(r => {
+    if (r.status==='Pending') kpi.pending++;
+    else if (r.status==='In Progress') kpi.in_progress++;
+    else if (r.status==='Resolved') kpi.resolved++;
+  });
+  document.getElementById('kpi_pending').textContent = kpi.pending;
+  document.getElementById('kpi_in_progress').textContent = kpi.in_progress;
+  document.getElementById('kpi_resolved').textContent = kpi.resolved;
+  document.getElementById('kpi_total').textContent = kpi.total;
+
+  if (!_rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="s38w-empty"><i class="bi bi-inbox"></i>No tickets found</td></tr>'; return; }
+  const html = _rows.map(r => {
+    const kind = r.kind || 'Complaint';
+    const kindCls = kind === 'Support' ? 's38w-kind--s' : 's38w-kind--c';
+    const statusCls = {'Pending':'p','In Progress':'i','Resolved':'r','Closed':'c'}[r.status]||'p';
+    const prioCls = {'High':'h','Medium':'m','Low':'l'}[r.priority]||'m';
+    return `<tr onclick="s38wOpenDet(${r.id})" data-testid="cs-row-${r.id}">
+      <td style="font-family:monospace;font-weight:600;color:#4f46e5;">#${esc(r.ticket_no||r.id)}</td>
+      <td><span class="s38w-kind ${kindCls}">${esc(kind)}</span></td>
+      <td>${esc(r.customer_name||'')}<br><small style="color:#64748b;">${esc(r.customer_id||'')}</small></td>
+      <td>${esc(r.subject||r.description||'').slice(0,80)}</td>
+      <td><span class="s38w-prio s38w-prio--${prioCls}">${esc(r.priority||'')}</span></td>
+      <td><span class="s38w-status s38w-status--${statusCls}">${esc(r.status||'Pending')}</span></td>
+      <td style="color:#64748b;font-size:11.5px;">${esc(r.source||'admin')}</td>
+      <td style="color:#64748b;font-size:12px;">${esc(r.created_at||'').slice(0,16)}</td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = html;
+}
+['f_kind','f_status','f_priority','f_search'].forEach(id=>{
+  const el=document.getElementById(id);
+  el.addEventListener('change', s38wLoad);
+  el.addEventListener('keyup', ev => { if (ev.key==='Enter') s38wLoad(); });
+});
+
+// --- Detail / Reply ---
+async function s38wOpenDet(id){
+  const r = _rows.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('s38w_det_title').textContent = `Ticket #${r.ticket_no||r.id}  •  ${r.kind||'Complaint'}`;
+  document.getElementById('s38w_det_cust').textContent = (r.customer_name||'') + (r.customer_id ? ` (${r.customer_id})` : '');
+  document.getElementById('s38w_det_desc').textContent = (r.subject?('Subject: '+r.subject+'\n\n'):'') + (r.description||'');
+  document.getElementById('s38w_det_kp').textContent = `${r.kind||'Complaint'} · ${r.priority||''} priority`;
+  document.getElementById('s38w_det_status').value = r.status || 'Pending';
+  document.getElementById('s38w_reply_msg').value = '';
+  document.getElementById('s38w_det').dataset.id = r.id;
+  // load thread
+  const thread = document.getElementById('s38w_det_thread');
+  thread.innerHTML = '<div style="color:#64748b;font-size:12px;">Loading…</div>';
+  try {
+    const resp = await fetch(`/api/complaints/${r.id}/thread`);
+    const j = await resp.json();
+    if (j.success && j.messages.length) {
+      thread.innerHTML = j.messages.map(m => `<div class="s38w-msg ${m.role==='admin'?'s38w-msg--me':'s38w-msg--them'}"><div class="who">${esc(m.role)} · ${esc(m.created_at||'')}</div>${esc(m.message)}</div>`).join('');
+    } else {
+      thread.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:10px;">No replies yet.</div>';
+    }
+  } catch(e) { thread.innerHTML = '<div style="color:#dc2626;">Failed to load replies</div>'; }
+  document.getElementById('s38w_det').classList.add('show');
+}
+function s38wCloseDet(){ document.getElementById('s38w_det').classList.remove('show'); }
+async function s38wSendReply() {
+  const id = document.getElementById('s38w_det').dataset.id;
+  const msg = document.getElementById('s38w_reply_msg').value.trim();
+  const status = document.getElementById('s38w_det_status').value;
+  const resp = await fetch(`/api/complaints/${id}/reply`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({message: msg, status: status}),
+  });
+  const j = await resp.json();
+  if (j.success) { s38wCloseDet(); s38wLoad(); } else alert(j.message || 'Error');
+}
+
+// --- Create ---
+async function s38wOpenCreate(){
+  // __S38X_REPLY_EMAIL__ -- admin tickets go to super admin; no customer picker
+  document.getElementById('c_kind').value='Complaint';
+  document.getElementById('c_priority').value='Medium';
+  document.getElementById('c_subject').value='';
+  document.getElementById('c_desc').value='';
+  document.getElementById('s38w_cre').classList.add('show');
+}
+function s38wCloseCre(){ document.getElementById('s38w_cre').classList.remove('show'); }
+async function s38wCreate(){
+  const body = {
+    kind: document.getElementById('c_kind').value,
+    priority: document.getElementById('c_priority').value,
+    subject: document.getElementById('c_subject').value.trim(),
+    description: document.getElementById('c_desc').value.trim(),
+    target_role: 'superadmin',
+  };
+  if (!body.subject || !body.description) { alert('Subject and description required'); return; }
+  const r = await fetch('/api/complaints/create', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j = await r.json();
+  if (j.success) { s38wCloseCre(); s38wLoad(); } else alert(j.message||'Failed');
+}
+
+s38wLoad();
+</script>
+{% endblock %}

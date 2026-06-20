@@ -1,0 +1,266 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}OLT System Config · AutoISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  :root{ --olt-card:#161D2E; --olt-line:#1F2940; --olt-fg:#E7ECF5;
+    --olt-mute:#8A93A6; --olt-cyan:#00E5FF; --olt-violet:#7C5CFF;
+    --olt-red:#EF4444; }
+  .ws { color:var(--olt-fg); padding:18px 6px 60px; }
+  .ws h1 { font-size:22px; font-weight:800; letter-spacing:-.4px; margin:0 0 4px; }
+  .ws .sub { color:var(--olt-mute); font-size:13px; margin-bottom:18px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--olt-mute);
+    border:1px solid var(--olt-line); background:var(--olt-card); }
+  .tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    border-color:transparent; font-weight:700; }
+  .grid2 { display:grid; gap:14px; grid-template-columns:1fr; }
+  @media(min-width:980px){ .grid2{ grid-template-columns:1.5fr 1fr; } }
+  .panel { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:18px; }
+  .panel h3 { font-size:14px; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--olt-mute); margin:0 0 14px; }
+  .field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+  .field label { font-size:11px; letter-spacing:.6px; text-transform:uppercase;
+    color:var(--olt-mute); }
+  .field input, .field select { background:#0B0F1A; border:1px solid var(--olt-line);
+    color:var(--olt-fg); border-radius:10px; padding:10px 12px;
+    font-size:13.5px; outline:none; }
+  .field input:focus, .field select:focus { border-color:var(--olt-cyan); }
+  .row { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+  .btn { padding:10px 16px; border-radius:10px; border:1px solid var(--olt-line);
+    background:var(--olt-card); color:var(--olt-fg); font-size:13px;
+    cursor:pointer; font-weight:700; }
+  .btn:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }
+  .btn.primary { background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    color:#0B0F1A; border-color:transparent; }
+  .btn.danger:hover { border-color:var(--olt-red); color:var(--olt-red); }
+  table.olt { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.olt th, table.olt td { padding:10px 8px; border-bottom:1px solid
+    var(--olt-line); font-size:12.5px; text-align:left; }
+  table.olt th { color:var(--olt-mute); font-weight:600; font-size:10.5px;
+    letter-spacing:.8px; text-transform:uppercase; }
+  .pill { display:inline-flex; padding:2px 10px; border-radius:99px;
+    font-size:10.5px; font-weight:700; }
+  .pill.online { background:rgba(34,197,94,.12); color:#34D399; }
+  .pill.offline { background:rgba(239,68,68,.14); color:#F87171; }
+  .pill.error { background:rgba(245,158,11,.14); color:#FBBF24; }
+  .pill.unknown { background:rgba(138,147,166,.14); color:var(--olt-mute); }
+  .toolbar { display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:8px; }
+</style>
+
+<section class="ws" data-testid="olt-system-page">
+  <h1>OLT System Config</h1>
+  <p class="sub">Register OLT devices, set polling intervals, and tune alert thresholds.</p>
+
+  <nav class="tabs">
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/dashboard">Dashboard</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/onus">ONU / ONT Manage</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/alerts">Alerts</a>
+    <a class="on" href="/admin/olt/system-config">System Config</a>
+  </nav>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="toolbar">
+        <h3 style="margin:0">Registered OLTs</h3>
+        <button class="btn primary" data-testid="olt-add-btn"
+          onclick="oltOpen()">+ Add OLT</button>
+      </div>
+      <table class="olt">
+        <thead><tr><th>Name</th><th>Vendor</th><th>Host</th><th>Status</th>
+          <th>Enabled</th><th></th></tr></thead>
+        <tbody id="olts_tb">
+          {% for o in olts %}
+          <tr data-testid="olt-cfg-{{o.id}}">
+            <td><b>{{o.name}}</b><br><span style="color:#8A93A6;font-size:11px">{{o.location or '—'}}</span></td>
+            <td>{{o.vendor|capitalize}}<br><span style="color:#8A93A6;font-size:11px">{{o.model or '—'}}</span></td>
+            <td><code>{{o.host}}</code></td>
+            <td><span class="pill {{o.status}}">{{o.status}}</span></td>
+            <td>{{ 'Yes' if o.enabled else 'No' }}</td>
+            <td>
+              <button class="btn" style="padding:5px 10px;font-size:11.5px"
+                data-testid="olt-edit-{{o.id}}"
+                onclick='oltOpen({{ o|tojson }})'>Edit</button>
+              <button class="btn danger" style="padding:5px 10px;font-size:11.5px"
+                data-testid="olt-del-{{o.id}}"
+                onclick="oltDelete({{o.id}})">Delete</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" style="color:#8A93A6;text-align:center;padding:30px">
+            No OLT registered yet. Click <b>+ Add OLT</b>.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>Alert Thresholds</h3>
+      <form id="settings_form" onsubmit="event.preventDefault(); saveSettings();">
+        <div class="row">
+          <div class="field"><label>RX warn (dBm)</label>
+            <input type="number" step="0.5" name="rx_warn_dbm"
+              value="{{settings.rx_warn_dbm}}" data-testid="set-rx-warn"/></div>
+          <div class="field"><label>RX critical (dBm)</label>
+            <input type="number" step="0.5" name="rx_crit_dbm"
+              value="{{settings.rx_crit_dbm}}" data-testid="set-rx-crit"/></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Fiber-cut % of port</label>
+            <input type="number" step="1" name="fiber_cut_pct"
+              value="{{settings.fiber_cut_pct}}" data-testid="set-fc-pct"/></div>
+          <div class="field"><label>Fiber-cut min ONUs</label>
+            <input type="number" step="1" name="fiber_cut_min"
+              value="{{settings.fiber_cut_min}}" data-testid="set-fc-min"/></div>
+        </div>
+        <div class="field"><label>Default poll interval (sec)</label>
+          <input type="number" step="10" name="poll_interval"
+            value="{{settings.poll_interval}}" data-testid="set-poll"/></div>
+        <hr style="border-color:var(--olt-line); margin:14px 0"/>
+        <div class="row">
+          <div class="field"><label>WhatsApp alerts</label>
+            <select name="wa_enabled" data-testid="set-wa-enabled">
+              <option value="1" {% if settings.wa_enabled %}selected{% endif %}>Enabled</option>
+              <option value="0" {% if not settings.wa_enabled %}selected{% endif %}>Disabled</option>
+            </select></div>
+          <div class="field"><label>WhatsApp target</label>
+            <input type="text" name="wa_target"
+              value="{{settings.wa_target or ''}}" placeholder="91xxxxxxxxxx"
+              data-testid="set-wa-target"/></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Email alerts</label>
+            <select name="email_enabled" data-testid="set-email-enabled">
+              <option value="1" {% if settings.email_enabled %}selected{% endif %}>Enabled</option>
+              <option value="0" {% if not settings.email_enabled %}selected{% endif %}>Disabled</option>
+            </select></div>
+          <div class="field"><label>Email target</label>
+            <input type="text" name="email_target"
+              value="{{settings.email_target or ''}}" placeholder="ops@example.com"
+              data-testid="set-email-target"/></div>
+        </div>
+        <button class="btn primary" type="submit" data-testid="settings-save-btn">
+          Save Settings</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Add/Edit OLT modal -->
+<div id="olt_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#161D2E;border:1px solid #1F2940;border-radius:18px;
+       padding:24px;max-width:560px;width:100%;color:#E7ECF5;
+       max-height:90vh;overflow:auto;">
+    <h3 id="olt_modal_title" style="margin:0 0 12px">Add OLT</h3>
+    <form id="olt_form" onsubmit="event.preventDefault(); oltSave();">
+      <input type="hidden" name="id"/>
+      <div class="row">
+        <div class="field"><label>Name *</label>
+          <input name="name" required data-testid="cfg-name"/></div>
+        <div class="field"><label>Vendor *</label>
+          <select name="vendor" required data-testid="cfg-vendor">
+            {% for v in vendors %}<option value="{{v}}">{{v|capitalize}}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Model</label>
+          <input name="model" data-testid="cfg-model"/></div>
+        <div class="field"><label>Host (IP) *</label>
+          <input name="host" required data-testid="cfg-host"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>SNMP port</label>
+          <input name="snmp_port" type="number" value="161"/></div>
+        <div class="field"><label>SNMP community</label>
+          <input name="snmp_community" value="public"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>SNMP version</label>
+          <select name="snmp_version">
+            <option>v2c</option><option>v3</option></select></div>
+        <div class="field"><label>CLI port</label>
+          <input name="cli_port" type="number" value="23"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>CLI username</label>
+          <input name="cli_username"/></div>
+        <div class="field"><label>CLI password</label>
+          <input name="cli_password" type="password" placeholder="(unchanged)"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Location</label>
+          <input name="location"/></div>
+        <div class="field"><label>Poll interval (sec)</label>
+          <input name="poll_interval" type="number" value="60"/></div>
+      </div>
+      <div class="field"><label>Enabled</label>
+        <select name="enabled">
+          <option value="1">Yes</option><option value="0">No</option></select></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn" onclick="oltClose()">Cancel</button>
+        <button type="submit" class="btn primary" data-testid="cfg-save-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function oltOpen(o){
+  const m = document.getElementById('olt_modal');
+  const f = document.getElementById('olt_form');
+  f.reset();
+  document.getElementById('olt_modal_title').textContent = o ? 'Edit OLT' : 'Add OLT';
+  if (o){
+    f.id.value = o.id;
+    for (const k of ['name','vendor','model','host','snmp_port','snmp_community',
+      'snmp_version','cli_port','cli_username','location','poll_interval','enabled']){
+      if (f[k]) f[k].value = (o[k]!==undefined && o[k]!==null) ? o[k] : '';
+    }
+  } else { f.id.value=''; }
+  m.style.display='flex';
+}
+function oltClose(){ document.getElementById('olt_modal').style.display='none'; }
+async function oltSave(){
+  const f = document.getElementById('olt_form');
+  const fd = new FormData(f); const obj = {};
+  for (const [k,v] of fd.entries()) obj[k] = v;
+  const id = obj.id; delete obj.id;
+  for (const numK of ['snmp_port','cli_port','poll_interval','enabled']){
+    obj[numK] = parseInt(obj[numK]||'0', 10);
+  }
+  if (!obj.cli_password) delete obj.cli_password;
+  const url = id ? `/api/admin/olt/olts/${id}` : `/api/admin/olt/olts`;
+  const method = id ? 'PATCH' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify(obj)});
+  if (!r.ok){ alert('Save failed: '+await r.text()); return; }
+  oltClose(); location.reload();
+}
+async function oltDelete(id){
+  if (!confirm('Delete this OLT and all its ONUs/alerts?')) return;
+  const r = await fetch(`/api/admin/olt/olts/${id}`, {method:'DELETE'});
+  if (r.ok) location.reload(); else alert('Delete failed');
+}
+async function saveSettings(){
+  const f = document.getElementById('settings_form');
+  const fd = new FormData(f); const obj = {};
+  for (const [k,v] of fd.entries()) obj[k] = v;
+  for (const numK of ['rx_warn_dbm','rx_crit_dbm','fiber_cut_pct','fiber_cut_min',
+       'poll_interval','wa_enabled','email_enabled']){
+    obj[numK] = parseFloat(obj[numK]||'0');
+  }
+  obj.fiber_cut_min = parseInt(obj.fiber_cut_min||'0');
+  obj.poll_interval = parseInt(obj.poll_interval||'0');
+  obj.wa_enabled = parseInt(obj.wa_enabled);
+  obj.email_enabled = parseInt(obj.email_enabled);
+  const r = await fetch('/api/admin/olt/settings',
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify(obj)});
+  if (r.ok) alert('Settings saved');
+  else alert('Save failed: '+await r.text());
+}
+</script>
+{% endblock %}

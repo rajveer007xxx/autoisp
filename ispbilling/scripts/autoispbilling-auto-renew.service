@@ -1,0 +1,16 @@
+[Unit]
+Description=Auto ISP Billing - Admin Auto-Renewal Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/ubuntu/autoispbilling-payfast-repo
+Environment="TZ=Asia/Kolkata"
+Environment="PYTHONPATH=/home/ubuntu/autoispbilling-payfast-repo"
+ExecStart=/usr/bin/python3 /home/ubuntu/autoispbilling-payfast-repo/scripts/auto_renew_admins.py
+StandardOutput=append:/var/log/autoispbilling/auto-renew.log
+StandardError=append:/var/log/autoispbilling/auto-renew-error.log
+
+[Install]
+WantedBy=multi-user.target

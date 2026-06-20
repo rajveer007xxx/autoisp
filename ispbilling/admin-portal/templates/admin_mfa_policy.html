@@ -1,0 +1,41 @@
+{% extends "base_admin.html" %}
+{% block title %}MFA Enforcement Policy{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>2FA Enforcement Policy <small>Require all admins to enable Two-Factor Authentication</small></h1>
+</section>
+<section class="content">
+<div class="row"><div class="col-md-8 col-md-offset-2">
+  <div class="box box-warning">
+    <div class="box-header with-border"><h3 class="box-title">Company-Wide 2FA Policy</h3></div>
+    <div class="box-body">
+      <p>When turned on, every admin in this company gets a grace period to enable 2FA. After the deadline, they see a blocking warning every page view (and, in a future release, will be denied access to sensitive actions).</p>
+      <div class="form-group">
+        <label><input type="checkbox" id="s36g-mfa-required" {% if company.mfa_required_for_admins %}checked{% endif %} data-testid="mfa-required-toggle"> Require 2FA for all admins</label>
+      </div>
+      <div class="form-group">
+        <label>Grace period (days)</label>
+        <input type="number" id="s36g-mfa-grace" class="form-control" min="0" max="90" value="{{company.mfa_grace_period_days or 7}}" style="max-width:200px;" data-testid="mfa-grace-days">
+        <small class="text-muted">Number of days existing admins have to set up 2FA after the policy is enabled. Set to 0 for immediate enforcement.</small>
+      </div>
+      <button class="btn btn-primary" onclick="s36gSavePolicy()" data-testid="mfa-save-btn"><i class="bi bi-save"></i> Save Policy</button>
+      <div id="s36g-mfa-out" style="margin-top:12px;"></div>
+    </div>
+  </div>
+</div></div>
+</section>
+<script>
+function s36gSavePolicy(){
+  var req = document.getElementById('s36g-mfa-required').checked;
+  var grace = parseInt(document.getElementById('s36g-mfa-grace').value) || 0;
+  fetch('/api/admin/mfa-policy/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mfa_required:req,mfa_grace_period_days:grace})})
+    .then(r=>r.json()).then(function(j){
+      var out=document.getElementById('s36g-mfa-out');
+      if(j.ok){
+        out.innerHTML='<div class="alert alert-success"><i class="bi bi-check-circle"></i> Policy saved. '+
+          (j.mfa_required ? 'All admins without 2FA must enable it within ' + j.grace + ' days.' : '2FA enforcement is now OFF.')+'</div>';
+      } else out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+    });
+}
+</script>
+{% endblock %}

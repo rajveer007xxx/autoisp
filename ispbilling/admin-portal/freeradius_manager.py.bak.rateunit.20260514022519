@@ -1,0 +1,592 @@
+"""
+FreeRADIUS manager — rewritten for real-ISP conventions (post-audit 2026-04-21).
+
+Emits THREE config files driven off the billing DB:
+
+  1. clients.conf   — every NAS Device becomes a `client` with its shared secret.
+  2. users          — every active Broadband customer gets an auth stanza with:
+                        • cleartext password (required for PAP over RADIUS)
+                        • Mikrotik-Rate-Limit (from plan's DL/UL)
+                        • Framed-Pool (from their NAS's pppoe_pool_name,
+                          OR the Parking pool if suspended)
+                        • Mikrotik-Group (for CoA targeting)
+                        • DNS server push (optional — usually PPP profile carries it)
+                        • Acct-Interim-Interval (for live byte counters)
+  3. policy.d/isp-authorize — hooks into the `authorize` section so suspended
+                              users get Framed-Pool=<parking> without having
+                              to rewrite their row on every status change.
+
+Safe to call repeatedly. Before writing we back up the originals under
+/etc/freeradius/3.0/.isp_backup/ and validate with `freeradius -Cx`; on any
+validation failure we roll back to the backup.
+"""
+
+import os
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+FR_ROOT       = "/etc/freeradius/3.0"
+CLIENTS_CONF  = f"{FR_ROOT}/clients.conf"
+# Our ISP user entries go in a SEPARATE file so we never touch the vendor
+# defaults at /etc/freeradius/3.0/mods-config/files/authorize (which is a
+# symlink target for /etc/freeradius/3.0/users). We inject a single
+# `$INCLUDE` line at the top of the stock authorize file so our entries are
+# matched first.
+ISP_USERS_FILE = f"{FR_ROOT}/mods-config/files/isp-users"
+AUTHORIZE_FILE = f"{FR_ROOT}/mods-config/files/authorize"
+INCLUDE_DIRECTIVE = "$INCLUDE /etc/freeradius/3.0/mods-config/files/isp-users"
+USERS_FILE    = ISP_USERS_FILE  # back-compat alias
+POLICY_FILE   = f"{FR_ROOT}/policy.d/isp-authorize"
+BACKUP_DIR    = f"{FR_ROOT}/.isp_backup"
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+def _backup(path):
+    try:
+        if os.path.isfile(path):
+            Path(BACKUP_DIR).mkdir(parents=True, exist_ok=True)
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            bak = os.path.join(BACKUP_DIR, f"{os.path.basename(path)}.{ts}.bak")
+            with open(path, "rb") as src, open(bak, "wb") as dst:
+                dst.write(src.read())
+            return bak
+    except Exception:
+        return None
+    return None
+
+
+def _restore(path, bak):
+    try:
+        if bak and os.path.isfile(bak):
+            with open(bak, "rb") as src, open(path, "wb") as dst:
+                dst.write(src.read())
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _validate():
+    """Run `freeradius -Cx` — returns (ok, stderr)."""
+    try:
+        r = subprocess.run(["freeradius", "-Cx"], capture_output=True, text=True, timeout=25)
+        return r.returncode == 0, (r.stderr or r.stdout or "")[-3000:]
+    except FileNotFoundError:
+        return False, "freeradius binary not found"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
+def _ensure_include_directive():
+    """Inject `$INCLUDE isp-users` at the top of the stock authorize file
+    so our per-customer entries are matched before FreeRADIUS's defaults.
+    Idempotent — does nothing if the line is already present. Never
+    touches existing defaults. Runs once per sync; no harm if repeated."""
+    try:
+        if not os.path.isfile(AUTHORIZE_FILE):
+            return False
+        with open(AUTHORIZE_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+        if INCLUDE_DIRECTIVE in content:
+            return True
+        bak = _backup(AUTHORIZE_FILE)
+        header = f"# {INCLUDE_DIRECTIVE}  — auto-injected by Auto ISP Billing\n{INCLUDE_DIRECTIVE}\n\n"
+        with open(AUTHORIZE_FILE, "w", encoding="utf-8") as f:
+            f.write(header + content)
+        # Keep perms sane — freerad:freerad
+        try:
+            import shutil
+            shutil.chown(AUTHORIZE_FILE, user="freerad", group="freerad")
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _speed_bps(spec):
+    """'50M' -> '52428800'; '1G' -> '1073741824'; '500k' -> '512000'.
+    Accepts plain integers (assumed bps) too."""
+    if not spec:
+        return None
+    s = str(spec).strip().lower()
+    try:
+        if s.endswith("g"):
+            return str(int(float(s[:-1]) * 1024 * 1024 * 1024))
+        if s.endswith("m"):
+            return str(int(float(s[:-1]) * 1024 * 1024))
+        if s.endswith("k"):
+            return str(int(float(s[:-1]) * 1024))
+        return str(int(float(s)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _rate_limit_attr(plan, customer_override=None):
+    if customer_override:
+        return customer_override
+    """Build the Mikrotik-Rate-Limit value: 'tx-rate/rx-rate' with optional
+    burst suffix. Example: '50M/100M 75M/150M 50M/100M 10/10 8'.
+
+    Minimum form just DL/UL is fine; Mikrotik fills the rest from defaults.
+    Returns None if the plan has no speed info."""
+    # _S39NAS_RATELIMIT_FALLBACK
+    dl = (plan.get("download_speed") or "").strip()
+    ul = (plan.get("upload_speed") or "").strip()
+    if not (dl or ul):
+        # Legacy plans only fill 'speed' (formats: '30', '50 / 25',
+        # '100M / 100M', '50 Mbps'). Parse it best-effort.
+        import re as _re
+        sp = (plan.get("speed") or "").strip()
+        toks = [t for t in _re.split(r"[/\s,]+", sp) if t]
+        # take first numeric-looking tokens
+        nums = []
+        for t in toks:
+            m = _re.match(r"^(\d+(?:\.\d+)?)([KMGkmg]?)$", t)
+            if m:
+                v, u = m.group(1), m.group(2).upper() or "M"
+                nums.append(v + u)
+                if len(nums) == 2:
+                    break
+        if len(nums) == 1:
+            dl = ul = nums[0]
+        elif len(nums) >= 2:
+            dl, ul = nums[0], nums[1]
+        if not (dl or ul):
+            return None
+    # RouterOS Rate-Limit: <tx>/<rx> where tx=upload, rx=download
+    base = f"{ul or dl}/{dl or ul}"
+    if plan.get("burst_enabled") and (plan.get("burst_limit_up") or plan.get("burst_limit_down")):
+        burst = f"{plan.get('burst_limit_up') or ul}/{plan.get('burst_limit_down') or dl}"
+        thresh = f"{plan.get('burst_threshold_up') or ul}/{plan.get('burst_threshold_down') or dl}"
+        btime = f"{plan.get('burst_time_up') or 10}/{plan.get('burst_time_down') or 10}"
+        return f"{base} {burst} {thresh} {btime} 8"
+    return base
+
+
+# =============================================================================
+# Renderers
+# =============================================================================
+def _render_clients_conf(nas_rows, company_id=None):
+    lines = [
+        "# Auto-generated by Auto ISP Billing — do not edit by hand.",
+        f"# Regenerated at {datetime.utcnow().isoformat()}Z",
+        "",
+        "# Default localhost client (kept for debugging + radtest).",
+        'client localhost {',
+        "    ipaddr = 127.0.0.1",
+        "    secret = testing123",
+        "    require_message_authenticator = no",
+        # FreeRADIUS 3.2.5+ BlastRADIUS mitigation auto-flips clients to
+        # limit_proxy_state=true when they don't send Message-Authenticator.
+        # Mikrotik RouterOS (through at least 7.x) does NOT send it, so we
+        # explicitly disable the mitigation for all ISP-managed clients.
+        # The log warning `BlastRADIUS check: Received packet without
+        # Proxy-State. Setting "limit_proxy_state = true"` is produced
+        # exactly when this directive is missing.
+        "    limit_proxy_state = no",
+        "    nas_type = other",
+        "}",
+        "",
+    ]
+    # Dedupe by IP address — FreeRADIUS rejects duplicate `client` blocks
+    # pointing at the same `ipaddr`. When the same physical router is
+    # registered under multiple tenants (multi-company deployments), keep
+    # only the FIRST row for each IP — caller is expected to have pre-sorted
+    # the list (most recently provisioned first).
+    seen_ips = set()
+    for r in nas_rows:
+        ip_addr = (getattr(r, "ip_address", None) or "").strip()
+        if ip_addr and ip_addr in seen_ips:
+            continue
+        if ip_addr:
+            seen_ips.add(ip_addr)
+        shortname = str(r.name).replace(" ", "_").replace(".", "_")
+        # Per-NAS company_id prefix ensures uniqueness when the same physical
+        # router serves multiple tenants (each tenant's NAS row in the DB is
+        # its own client block). Falls back to the passed-in `company_id`
+        # for legacy per-tenant renders.
+        per_nas_cid = getattr(r, "company_id", None) or company_id
+        if per_nas_cid and per_nas_cid != "__global__":
+            shortname = f"{per_nas_cid}_{shortname}"
+        secret = (r.secret or "").strip() or "testing123"
+        lines += [
+            f"# NAS: {r.name}  (company={r.company_id}, ip={r.ip_address})",
+            f'client {shortname} {{',
+            f"    ipaddr = {r.ip_address}",
+            f"    secret = {secret}",
+            "    require_message_authenticator = no",
+            "    limit_proxy_state = no",
+            "    nas_type = other",
+            "    shortname = " + shortname,
+            "}",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def _render_users_file(customer_rows):
+    """customer_rows: list of dicts. Each row dispatches to one of three
+    auth-type renderers based on `row['auth_type']`:
+
+      • `pppoe`      — Service-Type=Framed + Framed-Protocol=PPP +
+                        Framed-Pool + Mikrotik-Rate-Limit.
+      • `static_ip`  — Service-Type=Framed + Framed-IP-Address +
+                        Framed-IP-Netmask + Mikrotik-Rate-Limit (no
+                        Framed-Pool — router assigns the fixed IP).
+      • `hotspot`    — Service-Type=Login-User + Session-Timeout +
+                        Idle-Timeout + Mikrotik-Rate-Limit (no
+                        Framed-Pool — hotspot DHCP pool is separate).
+
+    Status=Suspended/Disabled still lands the user in the parking pool
+    and the `blocked` address-list regardless of auth_type — that's
+    our universal captive-portal trap.
+    """
+    out = [
+        "# Auto-generated by Auto ISP Billing — do not edit by hand.",
+        f"# Regenerated at {datetime.utcnow().isoformat()}Z",
+        "# Per-customer PAP entries with Mikrotik Rate-Limit, auth-type-aware",
+        "# attributes (PPPoE / Static-IP / Hotspot) and parking-pool routing",
+        "# for Suspended/Disabled customers.",
+        "",
+    ]
+    for c in customer_rows:
+        username = (c.get("username") or "").strip()
+        password = (c.get("password") or "").strip()
+        if not username or not password:
+            continue
+        status = (c.get("status") or "Active").lower()
+        plan = c.get("plan") or {}
+        is_online_allowed = status == "active"
+        auth_type = (c.get("auth_type") or "pppoe").lower()
+        # __S38T_TRUE_STATIC_IP__: auth_type=static_ip customers authenticate
+        # by source IP at the Mikrotik firewall/queue layer. They MUST NOT
+        # be in the RADIUS users file — otherwise a rogue PPPoE client
+        # could dial with their username/password and steal the IP.
+        if auth_type in ("static_ip", "static-ip", "static"):
+            continue
+        rate_limit = _rate_limit_attr(plan, c.get("custom_rate_limit"))
+
+        # __S38O_CONN_TAB__ MAC binding — append Calling-Station-Id check-item
+        # ONLY for online (Active) customers; Suspended users must still
+        # hit the parking-pool branch regardless of MAC.
+        _check_extra = ""
+        if is_online_allowed:
+            _bind = (c.get("bind_mac_address") or "No").strip().lower()
+            _mac  = (c.get("mac_address") or "").strip()
+            if _bind in ("yes", "true", "1") and _mac:
+                _mac_norm = _mac.upper().replace("-", ":")
+                _check_extra = f', Calling-Station-Id == "{_mac_norm}"'
+        out.append(f'"{username}" Cleartext-Password := "{password}"{_check_extra}')
+        reply = []
+        reply.append("    Acct-Interim-Interval := 60")
+
+        if not is_online_allowed:
+            # Universal parking behaviour — overrides auth-type specifics.
+            pool = c.get("parking_pool_name") or "parking-pool"
+            reply.append("    Service-Type := Framed-User")
+            reply.append("    Framed-Protocol := PPP")
+            reply.append(f'    Framed-Pool := "{pool}"')
+            if rate_limit:
+                reply.append(f'    Mikrotik-Rate-Limit := "{rate_limit}"')
+            reply.append('    Mikrotik-Address-List := "blocked"')
+            reply.append('    Mikrotik-Group := "parking"')
+        elif auth_type == "static_ip":
+            # Static-IP customer (PPPoE-less, fixed IP or MAC-auth).
+            static_ip = (c.get("static_ip") or "").strip()
+            static_mask = (c.get("static_netmask") or "255.255.255.0").strip()
+            reply.append("    Service-Type := Framed-User")
+            reply.append("    Framed-Protocol := PPP")
+            if static_ip:
+                reply.append(f"    Framed-IP-Address := {static_ip}")
+            if static_mask:
+                reply.append(f"    Framed-IP-Netmask := {static_mask}")
+            if rate_limit:
+                reply.append(f'    Mikrotik-Rate-Limit := "{rate_limit}"')
+            reply.append('    Mikrotik-Group := "active-static"')
+        elif auth_type == "hotspot":
+            # Hotspot (captive-portal) customer.
+            sess_to = int(c.get("session_timeout") or 0)
+            idle_to = int(c.get("idle_timeout") or 600)
+            reply.append("    Service-Type := Login-User")
+            if sess_to > 0:
+                reply.append(f"    Session-Timeout := {sess_to}")
+            if idle_to > 0:
+                reply.append(f"    Idle-Timeout := {idle_to}")
+            if rate_limit:
+                reply.append(f'    Mikrotik-Rate-Limit := "{rate_limit}"')
+            reply.append('    Mikrotik-Group := "active-hotspot"')
+        else:
+            # Default PPPoE path — unchanged behaviour from before.
+            pool = c.get("nas_pool_name") or plan.get("pool_name") or ""
+            framed_ip = (c.get("framed_ip") or "").strip()  # legacy
+            # s36i + __S38P_FIXUPS__: honour fix-IP for pppoe users.
+            # When a fixed IP is pinned we DROP Framed-Pool so RouterOS
+            # has exactly one IP to honour — guarantees the user always
+            # receives the same IP on every re-auth, never drifts to a
+            # dynamic lease from the pool.
+            s36i_static = (c.get("static_ip") or "").strip()
+            if s36i_static:
+                framed_ip = s36i_static
+                pool = ""
+            reply.append("    Service-Type := Framed-User")
+            reply.append("    Framed-Protocol := PPP")
+            if pool:
+                reply.append(f'    Framed-Pool := "{pool}"')
+            if framed_ip:
+                reply.append(f"    Framed-IP-Address := {framed_ip}")
+            if rate_limit:
+                reply.append(f'    Mikrotik-Rate-Limit := "{rate_limit}"')
+            reply.append('    Mikrotik-Group := "active"')
+
+        for i, line in enumerate(reply):
+            out.append(line + ("," if i < len(reply) - 1 else ""))
+        out.append("")
+    return "\n".join(out)
+
+
+def _render_policy_file():
+    """Optional policy snippet hooked from sites-enabled/default `authorize`.
+    Currently we embed status logic directly in the users file, so this is
+    a minimal placeholder that ensures the Mikrotik dictionary loads and
+    accounting works. If you later switch to a SQL-backed setup, this is
+    where the Framed-Pool rewrite would live."""
+    return (
+        "# Auto-generated by Auto ISP Billing.\n"
+        "# Placeholder policy — extend as you move to SQL-backed auth.\n"
+        "isp-authorize {\n"
+        "    # No-op for now. Users file carries all attributes.\n"
+        "    ok\n"
+        "}\n"
+    )
+
+
+# =============================================================================
+# Public API
+# =============================================================================
+def status():
+    """Return whether freeradius is installed and running + config state."""
+    try:
+        installed = subprocess.run(["which", "freeradius"], capture_output=True, text=True, timeout=5)
+        binary = installed.stdout.strip()
+        svc = subprocess.run(["systemctl", "is-active", "freeradius"],
+                             capture_output=True, text=True, timeout=5)
+        return {
+            "installed": bool(binary),
+            "binary": binary or None,
+            "service_active": svc.stdout.strip() == "active",
+            "clients_conf_exists": os.path.isfile(CLIENTS_CONF),
+            "users_file_exists": os.path.isfile(USERS_FILE),
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"installed": False, "error": str(e)}
+
+
+def sync_clients_conf(nas_rows, company_id=None, restart=True):
+    """Regenerate only clients.conf (cheap — used when NAS Devices change)."""
+    try:
+        if not os.path.isdir(FR_ROOT):
+            return {"success": False, "message": "FreeRADIUS not installed (/etc/freeradius/3.0 missing)"}
+        bak = _backup(CLIENTS_CONF)
+        nas_list = list(nas_rows)
+        with open(CLIENTS_CONF, "w", encoding="utf-8") as f:
+            f.write(_render_clients_conf(nas_list, company_id=company_id))
+        ok, err = _validate()
+        if not ok:
+            _restore(CLIENTS_CONF, bak)
+            return {"success": False, "message": "validation failed — rolled back",
+                    "validate_stderr": err, "backup": bak}
+        restarted = False
+        if restart:
+            r = subprocess.run(["systemctl", "restart", "freeradius"],
+                               capture_output=True, text=True, timeout=20)
+            restarted = r.returncode == 0
+            if not restarted:
+                return {"success": False, "message": f"systemctl restart failed: {r.stderr or r.stdout}"}
+        return {"success": True, "clients_written": len(nas_list),
+                "path": CLIENTS_CONF, "backup": bak, "restarted": restarted}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def _chown_freerad(path):
+    try:
+        import shutil
+        shutil.chown(path, user="freerad", group="freerad")
+        os.chmod(path, 0o640)
+    except Exception:
+        pass
+
+
+def sync_users_file(customer_rows, restart=True):
+    """Regenerate /etc/freeradius/3.0/mods-config/files/isp-users from the
+    active customer list (separate file — never touches vendor defaults).
+    Also injects the $INCLUDE directive into authorize on first run."""
+    try:
+        if not os.path.isdir(FR_ROOT):
+            return {"success": False, "message": "FreeRADIUS not installed"}
+        # Make sure the mods-config/files directory exists (it should, but
+        # be defensive on fresh installs)
+        Path(os.path.dirname(USERS_FILE)).mkdir(parents=True, exist_ok=True)
+        _ensure_include_directive()
+        bak = _backup(USERS_FILE)
+        rows = list(customer_rows)
+        content = _render_users_file(rows)
+        # Ensure the file is never truly empty — a bare comment is valid
+        # and avoids 'unexpected EOF' parse issues on some FR builds.
+        if not content.strip():
+            content = "# No ISP-managed users yet — file intentionally empty.\n"
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            f.write(content)
+        _chown_freerad(USERS_FILE)
+        ok, err = _validate()
+        if not ok:
+            _restore(USERS_FILE, bak)
+            return {"success": False, "message": "validation failed — rolled back",
+                    "validate_stderr": err, "backup": bak}
+        restarted = False
+        if restart:
+            r = subprocess.run(["systemctl", "restart", "freeradius"],
+                               capture_output=True, text=True, timeout=20)
+            restarted = r.returncode == 0
+        return {"success": True, "users_written": len(rows),
+                "path": USERS_FILE, "backup": bak, "restarted": restarted}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def sync_all(nas_rows, customer_rows, company_id=None, restart=True):
+    """One-shot: re-render both clients.conf AND the isp-users file, then
+    validate & reload. Both writes happen before a single validation pass —
+    if anything is wrong we roll back BOTH files to their pre-call state."""
+    try:
+        if not os.path.isdir(FR_ROOT):
+            return {"success": False, "message": "FreeRADIUS not installed"}
+        Path(os.path.dirname(USERS_FILE)).mkdir(parents=True, exist_ok=True)
+        _ensure_include_directive()
+        c_bak = _backup(CLIENTS_CONF)
+        u_bak = _backup(USERS_FILE)
+        nas_list = list(nas_rows); cust_list = list(customer_rows)
+        with open(CLIENTS_CONF, "w", encoding="utf-8") as f:
+            f.write(_render_clients_conf(nas_list, company_id=company_id))
+        _chown_freerad(CLIENTS_CONF)
+        users_content = _render_users_file(cust_list)
+        if not users_content.strip():
+            users_content = "# No ISP-managed users yet — file intentionally empty.\n"
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            f.write(users_content)
+        _chown_freerad(USERS_FILE)
+        ok, err = _validate()
+        if not ok:
+            _restore(CLIENTS_CONF, c_bak); _restore(USERS_FILE, u_bak)
+            return {"success": False, "message": "validation failed — rolled back",
+                    "validate_stderr": err}
+        restarted = False
+        if restart:
+            r = subprocess.run(["systemctl", "restart", "freeradius"],
+                               capture_output=True, text=True, timeout=20)
+            restarted = r.returncode == 0
+            if not restarted:
+                return {"success": False,
+                        "message": f"systemctl restart failed: {r.stderr or r.stdout}"}
+        return {"success": True, "clients_written": len(nas_list),
+                "users_written": len(cust_list),
+                "clients_backup": c_bak, "users_backup": u_bak,
+                "restarted": restarted, "users_path": USERS_FILE,
+                "clients_path": CLIENTS_CONF}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def send_coa_disconnect(nas_ip, username, secret, port=3799):
+    """Send a CoA Disconnect-Request to kick a user off the router.
+
+    Uses radclient (shipped with freeradius-utils). Pre-req: the router must
+    have `/radius incoming accept=yes port=3799` (auto-config session 5 does
+    this). Returns {success, raw}."""
+    try:
+        payload = f"User-Name = {username}\n"
+        r = subprocess.run(
+            ["radclient", "-x", f"{nas_ip}:{port}", "disconnect", secret],
+            input=payload, capture_output=True, text=True, timeout=8,
+        )
+        return {
+            "success": r.returncode == 0 and "Received Disconnect-ACK" in (r.stdout or ""),
+            "rc": r.returncode,
+            "stdout": (r.stdout or "")[-1500:],
+            "stderr": (r.stderr or "")[-1500:],
+        }
+    except FileNotFoundError:
+        return {"success": False, "message": "radclient not installed"}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+
+def tail_log(lines: int = 150):
+    """Return the last `lines` of /var/log/freeradius/radius.log and extract
+    likely auth-failure patterns (rejects, unknown clients, PAP mismatches)
+    so admins can diagnose PPPoE auth failures from the portal UI."""
+    out = {"success": True, "logs": {}, "hints": []}
+    path = "/var/log/freeradius/radius.log"
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.readlines()
+            out["logs"]["radius.log"] = "".join(content[-lines:])
+        except Exception as e:  # noqa: BLE001
+            out["logs"]["radius.log"] = f"(read error: {e})"
+    else:
+        out["logs"]["radius.log"] = "(file not found)"
+    for line in out["logs"]["radius.log"].splitlines():
+        low = line.lower()
+        if any(k in low for k in (
+            "no such user", "reject", "login incorrect",
+            "unknown client", "dropping packet",
+            "authentication failed", "invalid user",
+        )):
+            out["hints"].append(line)
+    out["hints"] = out["hints"][-40:]
+    return out
+
+
+def test_user_auth(username: str, password: str,
+                    nas_ip: str = "127.0.0.1",
+                    secret: str = "testing123"):
+    """Simulate what the router sends: build a PAP Access-Request for
+    `username`/`password` via `radtest`. Lets admins verify their users
+    file is wired correctly without waiting on a real PPPoE attempt.
+
+    CRITICAL: `radtest` takes the RADIUS **server** IP as its 3rd arg.
+    The Mikrotik router in `nas_ip` is a RADIUS *client* (not a server),
+    so targeting it times out. We always hit our LOCAL FreeRADIUS at
+    `127.0.0.1:1812` and use the `localhost` client block's secret
+    (`testing123`) — which is always defined at the top of our
+    auto-generated `clients.conf`. The `nas_ip` / `secret` args are
+    kept for API compatibility and logged for reference only.
+    """
+    try:
+        r = subprocess.run(
+            # radtest: user pass radius-server:port nas-port-id secret
+            ["radtest", username, password, "127.0.0.1:1812", "0", "testing123"],
+            capture_output=True, text=True, timeout=8,
+        )
+        merged = (r.stdout or "") + (r.stderr or "")
+        accepted = r.returncode == 0 and "Access-Accept" in merged
+        return {
+            "success": accepted,
+            "accepted": accepted,
+            "rejected": r.returncode != 0,
+            "rc": r.returncode,
+            "server_used": "127.0.0.1:1812",
+            "simulated_client": "localhost (secret=testing123)",
+            "output": merged[-3000:],
+        }
+    except FileNotFoundError:
+        return {"success": False,
+                "message": "radtest not installed (apt install freeradius-utils)"}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}

@@ -1,0 +1,2630 @@
+"""
+OLT/PON Manager — Session OLT-1
+Owns:
+  • Idempotent SQLite tables: olts, pon_ports, onus, olt_alerts,
+    olt_alert_rules, olt_polls, olt_settings
+  • Admin web pages at /admin/olt/{dashboard,onus,alerts,system-config}
+  • JSON API at /api/admin/olt/* (used by both web UI and the mobile bridge)
+  • Vendor adapter pattern (huawei / vsol / syrotech / nokia / mock)
+  • A lightweight background poller that fans out to vendor adapters,
+    detects fiber-cut events, and writes alerts.
+
+Tenant isolation: every query is scoped by request.session["company_id"].
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict, Any
+
+from fastapi import APIRouter, Request, HTTPException, Body, Query
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from sqlalchemy import text
+
+from database import engine
+
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Schema
+# ──────────────────────────────────────────────────────────────────────────
+
+VENDORS = ["huawei", "nokia", "optilink", "vsol",
+           "syrotech", "syrotech_epon", "netlink", "netlink_epon",
+           "cdata_epon", "zte", "fiberhome", "mock"]
+
+ALERT_LEVELS = ["info", "warn", "critical"]
+ALERT_KINDS = [
+    "olt_offline", "olt_recovered",
+    "fiber_cut", "fiber_recovered",
+    "onu_offline", "onu_recovered",
+    "low_rx", "high_rx",
+    "high_temp", "high_cpu",
+    "vendor_error",
+]
+
+
+def _ensure_schema() -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS olts (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id    TEXT NOT NULL,
+              name          TEXT NOT NULL,
+              vendor        TEXT NOT NULL DEFAULT 'mock',
+              model         TEXT,
+              host          TEXT NOT NULL,
+              snmp_port     INTEGER DEFAULT 161,
+              snmp_community TEXT DEFAULT 'public',
+              snmp_version  TEXT DEFAULT 'v2c',
+              cli_port      INTEGER DEFAULT 23,
+              cli_username  TEXT,
+              cli_password  TEXT,
+              location      TEXT,
+              poll_interval INTEGER DEFAULT 60,
+              enabled       INTEGER NOT NULL DEFAULT 1,
+              status        TEXT DEFAULT 'unknown',
+              uptime_sec    INTEGER DEFAULT 0,
+              cpu_pct       REAL DEFAULT 0,
+              mem_pct       REAL DEFAULT 0,
+              temp_c        REAL DEFAULT 0,
+              total_onus    INTEGER DEFAULT 0,
+              online_onus   INTEGER DEFAULT 0,
+              last_polled   TEXT,
+              last_seen_up  TEXT,
+              created_at    TEXT DEFAULT (datetime('now')),
+              created_by    TEXT
+            )
+        """)
+        # _v4727_  Add VPN/connection columns idempotently
+        for col, typ in [
+            ("connection_mode", "TEXT NOT NULL DEFAULT 'public'"),
+            ("vpn_address",     "TEXT"),
+            ("vpn_peer_pubkey", "TEXT"),
+            ("vpn_peer_privkey","TEXT"),
+            ("vpn_psk",         "TEXT"),
+        ]:
+            try:
+                conn.exec_driver_sql(f"ALTER TABLE olts ADD COLUMN {col} {typ}")
+            except Exception: pass
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS pon_ports (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              olt_id      INTEGER NOT NULL,
+              port_index  INTEGER NOT NULL,
+              name        TEXT,
+              tx_power    REAL,
+              admin_up    INTEGER DEFAULT 1,
+              oper_up     INTEGER DEFAULT 1,
+              total_onus  INTEGER DEFAULT 0,
+              online_onus INTEGER DEFAULT 0,
+              UNIQUE(olt_id, port_index)
+            )
+        """)
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS onus (
+              id              INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id      TEXT NOT NULL,
+              olt_id          INTEGER NOT NULL,
+              pon_port_index  INTEGER,
+              onu_index       INTEGER,
+              serial          TEXT,
+              mac             TEXT,
+              vendor          TEXT,
+              model           TEXT,
+              name            TEXT,
+              customer_id     TEXT,
+              status          TEXT DEFAULT 'unknown',
+              rx_power        REAL,
+              tx_power        REAL,
+              distance_m      INTEGER,
+              uptime_sec      INTEGER,
+              last_seen       TEXT,
+              last_offline    TEXT,
+              offline_reason  TEXT,
+              wifi_ssid       TEXT,
+              wifi_password   TEXT,
+              wan_ip          TEXT,
+              wan_status      TEXT,
+              notes           TEXT,
+              created_at      TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_onus_company "
+            "ON onus(company_id, olt_id)"
+        )
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_onus_status "
+            "ON onus(company_id, status)"
+        )
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS olt_alerts (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_id  TEXT NOT NULL,
+              olt_id      INTEGER,
+              onu_id      INTEGER,
+              kind        TEXT NOT NULL,
+              level       TEXT NOT NULL DEFAULT 'warn',
+              title       TEXT NOT NULL,
+              message     TEXT,
+              meta_json   TEXT,
+              acked       INTEGER NOT NULL DEFAULT 0,
+              acked_by    TEXT,
+              acked_at    TEXT,
+              created_at  TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_alerts_company_acked "
+            "ON olt_alerts(company_id, acked, created_at DESC)"
+        )
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS olt_settings (
+              company_id      TEXT PRIMARY KEY,
+              rx_warn_dbm     REAL DEFAULT -25,
+              rx_crit_dbm     REAL DEFAULT -28,
+              fiber_cut_pct   REAL DEFAULT 50,
+              fiber_cut_min   INTEGER DEFAULT 5,
+              poll_interval   INTEGER DEFAULT 60,
+              wa_enabled      INTEGER DEFAULT 1,
+              wa_target       TEXT,
+              email_enabled   INTEGER DEFAULT 0,
+              email_target    TEXT,
+              updated_at      TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS olt_polls (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              olt_id      INTEGER NOT NULL,
+              ts          TEXT DEFAULT (datetime('now')),
+              ok          INTEGER DEFAULT 1,
+              total_onus  INTEGER DEFAULT 0,
+              online_onus INTEGER DEFAULT 0,
+              cpu_pct     REAL DEFAULT 0,
+              avg_rx      REAL,
+              error       TEXT
+            )
+        """)
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_polls_olt_ts "
+            "ON olt_polls(olt_id, ts DESC)"
+        )
+
+
+
+
+        # _OLT34_MANUAL_PIN — when set, poller won't overwrite vendor/model
+        try:
+            conn.exec_driver_sql(
+                "ALTER TABLE onus ADD COLUMN manual_pin INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass
+        # _OLT3_PON_TYPE — EPON/GPON column on olts (idempotent)
+        try:
+            conn.exec_driver_sql(
+                "ALTER TABLE olts ADD COLUMN pon_type TEXT DEFAULT 'GPON'"
+            )
+        except Exception:
+            pass
+        # _OLT3_GENIEACS — TR-069 columns (idempotent)
+        for col, ddl in [
+            ("genieacs_url",      "TEXT"),
+            ("genieacs_username", "TEXT"),
+            ("genieacs_password", "TEXT"),
+            # _S40_AUTOPROV_ — when 1 the bridge auto-pushes Wi-Fi /
+            # WAN / PPPoE updates to ACS as soon as they're saved.
+            ("genieacs_auto_provision", "INTEGER DEFAULT 1"),
+        ]:
+            try:
+                conn.exec_driver_sql(f"ALTER TABLE olt_settings ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
+        # _S40b_PUSHLOG_ — audit trail for every TR-069 auto-push.
+        try:
+            conn.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS acs_push_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    onu_id INTEGER,
+                    onu_serial TEXT,
+                    customer_id TEXT,
+                    reason TEXT,
+                    ok INTEGER NOT NULL,
+                    skip TEXT,
+                    error TEXT,
+                    params_json TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_acs_push_log_co ON acs_push_log (company_id, id DESC)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_acs_push_log_onu ON acs_push_log (onu_id, id DESC)")
+        except Exception:
+            pass
+        # _OLT2_WAN — WAN config columns (idempotent)
+        for col, ddl in [
+            ("wan_mode",         "TEXT"),
+            ("wan_username",     "TEXT"),
+            ("wan_password",     "TEXT"),
+            ("wan_static_ip",    "TEXT"),
+            ("wan_netmask",      "TEXT"),
+            ("wan_gateway",      "TEXT"),
+            ("wan_dns",          "TEXT"),
+            ("wan_vlan",         "INTEGER"),
+            ("wan_service_name", "TEXT"),
+            # _S40c_DUALBAND_ — separate 5 GHz Wi-Fi config + advanced
+            # radio options for both bands. Existing wifi_ssid /
+            # wifi_password remain the 2.4 GHz primary.
+            ("wifi_band_split",      "INTEGER DEFAULT 0"),  # 1 = different SSID for 5 GHz
+            ("wifi_ssid_5g",         "TEXT"),
+            ("wifi_password_5g",     "TEXT"),
+            ("wifi_radio_24_enabled","INTEGER DEFAULT 1"),
+            ("wifi_radio_5_enabled", "INTEGER DEFAULT 1"),
+            ("wifi_auto_24",         "INTEGER DEFAULT 1"),
+            ("wifi_auto_5",          "INTEGER DEFAULT 1"),
+            ("wifi_channel_24",      "INTEGER"),     # 1..13
+            ("wifi_channel_5",       "INTEGER"),     # 36/40/44/48/149/153/157/161/165
+            ("wifi_bw_24",           "TEXT"),        # 20MHz | 40MHz | Auto
+            ("wifi_bw_5",            "TEXT"),        # 20MHz | 40MHz | 80MHz | 160MHz | Auto
+        ]:
+            try:
+                conn.exec_driver_sql(f"ALTER TABLE onus ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
+
+
+_ensure_schema()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Auth (mirrors expenses_routes pattern)
+# ──────────────────────────────────────────────────────────────────────────
+
+def _require_scope(request: Request):
+    """Returns dict {company_id, role, actor, layout, prefix}.
+    Allowed roles: admin / superadmin / sub_lco (read OLT, write ONU) /
+                   employee (read OLT, write ONU)."""
+    sess = request.session
+    cid = sess.get("company_id")
+    ut = (sess.get("user_type") or "").lower()
+    if not cid:
+        raise HTTPException(401, "Not authenticated")
+    role_map = {
+        "admin":      ("admin",      "base_admin.html",      "/admin"),
+        "superadmin": ("admin",      "base_admin.html",      "/admin"),
+        "sublco":     ("sub_lco",    "base_sub_lco.html",    "/sub-lco"),
+        "sub_lco":    ("sub_lco",    "base_sub_lco.html",    "/sub-lco"),
+        "employee":   ("employee",   "base_employee.html",   "/employee"),
+    }
+    if ut not in role_map:
+        raise HTTPException(403, "Forbidden")
+    role, layout, prefix = role_map[ut]
+    actor = sess.get("user_name") or sess.get("user_id") or role or "user"
+    return {"company_id": cid, "role": role, "actor": str(actor),
+            "layout": layout, "prefix": prefix}
+
+
+def _require_admin(request: Request):
+    """Backwards-compat shim — admin-only writes."""
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only action")
+    return sc["company_id"], sc["actor"]
+
+
+def _company_brand(cid: str) -> dict:
+    """Logo / name / address for the company-context strip."""
+    try:
+        with engine.begin() as conn:
+            r = conn.exec_driver_sql(
+                "SELECT company_id, company_name, logo_path "
+                "FROM companies WHERE company_id=?", (cid,)
+            ).fetchone()
+            if r:
+                return {"company_id": r[0], "company_name": r[1] or "",
+                        "logo_path": r[2] or ""}
+    except Exception:
+        pass
+    return {"company_id": cid, "company_name": "", "logo_path": ""}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Vendor adapter pattern
+# ──────────────────────────────────────────────────────────────────────────
+
+class VendorResult(BaseModel):
+    ok: bool = True
+    error: Optional[str] = None
+    olt: Dict[str, Any] = {}
+    onus: List[Dict[str, Any]] = []
+
+
+def _adapter_mock(olt: dict) -> VendorResult:
+    """Deterministic but plausible mock — ideal for demos until real OLTs
+    are wired. Generates 4 PON ports * 8 ONUs each."""
+    rng = random.Random(int(olt["id"]))
+    res = VendorResult()
+    cpu_pct = round(rng.uniform(8, 35), 1)
+    temp_c  = round(rng.uniform(38, 55), 1)
+    res.olt = {
+        "uptime_sec": int(time.time()) - int(olt.get("created_at_epoch") or
+                                              time.time() - 86400 * 7),
+        "cpu_pct": cpu_pct,
+        "mem_pct": round(rng.uniform(35, 60), 1),
+        "temp_c": temp_c,
+        "status": "online",
+    }
+    onus: List[Dict[str, Any]] = []
+    now = datetime.now(timezone.utc).isoformat()
+    for p in range(1, 5):
+        for n in range(1, 9):
+            sn_rng = random.Random(int(olt["id"]) * 1000 + p * 100 + n)
+            base_rx = sn_rng.uniform(-26.5, -16.0)
+            # 5% chance offline; 8% chance weak signal
+            offline = sn_rng.random() < 0.05
+            weak = (not offline) and sn_rng.random() < 0.08
+            rx = -99.9 if offline else (base_rx - 4 if weak else base_rx)
+            onus.append({
+                "pon_port_index": p,
+                "onu_index": n,
+                "serial":  f"MOCK{olt['id']:02d}{p}{n:02d}",
+                "mac":     ":".join("%02X" % sn_rng.randint(0, 255)
+                                    for _ in range(6)),
+                "vendor":  ("Huawei", "Nokia", "VSOL", "Syrotech")[sn_rng.randint(0, 3)],
+                "model":   ("HG8310M", "G-1425", "V2802", "OS5GP")[sn_rng.randint(0, 3)],
+                "rx_power": round(rx, 2),
+                "tx_power": round(sn_rng.uniform(2.0, 3.5), 2),
+                "distance_m": int(sn_rng.uniform(180, 4200)),
+                "status": "offline" if offline else "online",
+                "uptime_sec": 0 if offline else int(sn_rng.uniform(3600, 86400 * 14)),
+                "last_seen": now,
+            })
+    res.onus = onus
+    return res
+
+
+def _adapter_snmp_generic(olt: dict) -> VendorResult:
+    """Real SNMP adapter — delegates to olt_vendors.poll_real."""
+    try:
+        import olt_vendors
+        ok, err, meta, onus = olt_vendors.poll_real(olt)
+    except Exception as e:
+        return VendorResult(ok=False, error=f"vendor module load error: {e}")
+    if not ok:
+        return VendorResult(ok=False, error=err or "unknown SNMP error")
+    return VendorResult(ok=True, olt=meta, onus=onus)
+
+
+def _run_adapter(olt: dict) -> VendorResult:
+    v = (olt.get("vendor") or "mock").lower()
+    if v == "mock":
+        return _adapter_mock(olt)
+    # _S39R5L_VENDOR — vendor-specific drivers (Nokia, Optilink, VSOL,
+    # Syrotech, ZTE, Fiberhome, Huawei). They overlay vendor-private MIBs
+    # (CPU%, temp, fan, ONU optical power) on top of the generic walk.
+    try:
+        import olt_vendor_drivers as _vd
+        adapter = _vd.get_adapter(v)
+        if adapter is not _vd.GenericAdapter:
+            base = _adapter_snmp_generic(olt)
+            if base.ok:
+                env = adapter.poll_environment(
+                    olt.get("ip"), olt.get("snmp_community") or "public",
+                    timeout=int(olt.get("snmp_timeout") or 5))
+                if env.get("ok"):
+                    for k in ("cpu_pct", "temp_c", "voltage_v", "fan_status",
+                              "uptime_s", "sys_name"):
+                        if env.get(k) is not None:
+                            base.olt[k if k != "uptime_s" else "uptime_sec"] = env[k]
+            return base
+    except Exception:
+        pass
+    return _adapter_snmp_generic(olt)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Polling worker
+# ──────────────────────────────────────────────────────────────────────────
+
+def _settings_for(cid: str) -> dict:
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT * FROM olt_settings WHERE company_id=?", (cid,)
+        ).fetchone()
+        if row:
+            cols = [c[1] for c in conn.exec_driver_sql(
+                "PRAGMA table_info(olt_settings)").fetchall()]
+            return dict(zip(cols, row))
+            # NB: legacy tuple-fallback unused below
+            return dict(zip(keys, row))
+        # Defaults
+        return {"company_id": cid, "rx_warn_dbm": -25, "rx_crit_dbm": -28,
+                "fiber_cut_pct": 50, "fiber_cut_min": 5,
+                "poll_interval": 60, "wa_enabled": 1, "wa_target": None,
+                "email_enabled": 0, "email_target": None,
+                "genieacs_url": "", "genieacs_username": "",
+                "genieacs_password": "",
+                "genieacs_auto_provision": 1}
+
+
+
+# ── WhatsApp alert dispatch (double-gated: superadmin Twilio creds + per-
+# company whatsapp_config.is_active) ────────────────────────────────────────
+def _whatsapp_can_send(cid: str) -> bool:
+    """Returns True only if BOTH gates are open."""
+    try:
+        # Gate 1: SuperAdmin/system level — Twilio creds must be present.
+        import os as _os
+        if not (_os.environ.get("TWILIO_ACCOUNT_SID") and
+                _os.environ.get("TWILIO_AUTH_TOKEN") and
+                _os.environ.get("TWILIO_WHATSAPP_FROM")):
+            return False
+    except Exception:
+        return False
+    # Gate 2: Company level — whatsapp_config.is_active must be 1.
+    try:
+        with engine.begin() as conn:
+            row = conn.exec_driver_sql(
+                "SELECT is_active FROM whatsapp_config "
+                "WHERE id IN (SELECT MAX(id) FROM whatsapp_config) LIMIT 1"
+            ).fetchone()
+            if not row or not int(row[0] or 0):
+                return False
+    except Exception:
+        return False
+    return True
+
+
+def _whatsapp_send_alert(cid: str, *, target: str, title: str,
+                         message: str) -> None:
+    if not target:
+        return
+    if not _whatsapp_can_send(cid):
+        return
+    try:
+        import twilio_whatsapp as tw
+        to = tw._normalise_phone(target)
+        if not to:
+            return
+        body = f"🚨 OLT Alert\n{title}\n{message[:300]}"
+        tw._send_freeform(to, body)
+    except Exception as e:
+        print(f"[OLT WA send] {e}")
+
+
+def _emit_alert(cid: str, *, olt_id: Optional[int], onu_id: Optional[int],
+                kind: str, level: str, title: str, message: str = "",
+                meta: Optional[dict] = None) -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO olt_alerts (company_id, olt_id, onu_id, kind, "
+            "level, title, message, meta_json) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?)",
+            (cid, olt_id, onu_id, kind, level, title, message,
+             json.dumps(meta or {})),
+        )
+    # Fan-out: WhatsApp for critical / fiber_cut / olt_offline.
+    if level == "critical" or kind in ("fiber_cut", "olt_offline"):
+        try:
+            s = _settings_for(cid)
+            if int(s.get("wa_enabled") or 0) and s.get("wa_target"):
+                _whatsapp_send_alert(cid, target=s["wa_target"],
+                                     title=title, message=message or "")
+        except Exception as _wa_e:
+            print(f"[OLT alert WA fan-out] {_wa_e}")
+
+
+def _poll_one_olt(olt: dict) -> dict:
+    cid = olt["company_id"]
+    s = _settings_for(cid)
+    res = _run_adapter(olt)
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not res.ok:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "UPDATE olts SET last_polled=?, status='error' WHERE id=?",
+                (now, olt["id"]),
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO olt_polls (olt_id, ok, error) VALUES (?, 0, ?)",
+                (olt["id"], (res.error or "")[:500]),
+            )
+        if (olt.get("status") or "") != "error":
+            _emit_alert(cid, olt_id=olt["id"], onu_id=None,
+                        kind="vendor_error", level="warn",
+                        title=f"OLT {olt['name']} adapter error",
+                        message=res.error or "")
+        return {"ok": False, "error": res.error}
+
+    # Persist OLT health
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE olts SET status=?, uptime_sec=?, cpu_pct=?, mem_pct=?, "
+            "temp_c=?, last_polled=?, last_seen_up=? WHERE id=?",
+            (res.olt.get("status", "online"),
+             int(res.olt.get("uptime_sec") or 0),
+             float(res.olt.get("cpu_pct") or 0),
+             float(res.olt.get("mem_pct") or 0),
+             float(res.olt.get("temp_c") or 0),
+             now, now, olt["id"]),
+        )
+
+        # Upsert ONUs by (olt_id, pon_port_index, onu_index)
+        prev_status: Dict[tuple, str] = {}
+        for row in conn.exec_driver_sql(
+            "SELECT pon_port_index, onu_index, status FROM onus WHERE olt_id=?",
+            (olt["id"],)
+        ).fetchall():
+            prev_status[(row[0], row[1])] = row[2] or "unknown"
+
+        rx_values = []
+        online = 0
+        new_offline = []
+        new_online = []
+        for o in res.onus:
+            key = (o["pon_port_index"], o["onu_index"])
+            prev = prev_status.get(key)
+            if o["status"] == "online":
+                online += 1
+                if o.get("rx_power") is not None and o["rx_power"] > -90:
+                    rx_values.append(o["rx_power"])
+                if prev == "offline":
+                    new_online.append(o)
+            else:
+                if prev == "online":
+                    new_offline.append(o)
+
+            existing = conn.exec_driver_sql(
+                "SELECT id FROM onus WHERE olt_id=? AND pon_port_index=? "
+                "AND onu_index=?",
+                (olt["id"], key[0], key[1])
+            ).fetchone()
+            if existing:
+                conn.exec_driver_sql(
+                    "UPDATE onus SET serial=?, mac=?, "
+                    "vendor=CASE WHEN COALESCE(manual_pin,0)=1 THEN vendor ELSE ? END, "
+                    "model=CASE WHEN COALESCE(manual_pin,0)=1 THEN model ELSE ? END, "
+                    "rx_power=?, tx_power=?, distance_m=?, status=?, "
+                    "uptime_sec=?, last_seen=?, last_offline=CASE WHEN ?='offline' "
+                    "THEN ? ELSE last_offline END WHERE id=?",
+                    (o.get("serial"), o.get("mac"), o.get("vendor"),
+                     o.get("model"), o.get("rx_power"), o.get("tx_power"),
+                     o.get("distance_m"), o["status"],
+                     int(o.get("uptime_sec") or 0), now,
+                     o["status"], now, existing[0]),
+                )
+            else:
+                conn.exec_driver_sql(
+                    "INSERT INTO onus (company_id, olt_id, pon_port_index, "
+                    "onu_index, serial, mac, vendor, model, rx_power, "
+                    "tx_power, distance_m, status, uptime_sec, last_seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (cid, olt["id"], key[0], key[1], o.get("serial"),
+                     o.get("mac"), o.get("vendor"), o.get("model"),
+                     o.get("rx_power"), o.get("tx_power"),
+                     o.get("distance_m"), o["status"],
+                     int(o.get("uptime_sec") or 0), now),
+                )
+
+        total = len(res.onus)
+        avg_rx = (sum(rx_values) / len(rx_values)) if rx_values else None
+        conn.exec_driver_sql(
+            "UPDATE olts SET total_onus=?, online_onus=? WHERE id=?",
+            (total, online, olt["id"]),
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO olt_polls (olt_id, ok, total_onus, online_onus, "
+            "cpu_pct, avg_rx) VALUES (?, 1, ?, ?, ?, ?)",
+            (olt["id"], total, online,
+             float(res.olt.get("cpu_pct") or 0), avg_rx),
+        )
+
+    # ── Alerting (after commit so they read the new state cleanly)
+    # Fiber-cut detection
+    if new_offline:
+        # Group by pon_port_index — if N% of a port's ONUs went offline at
+        # once, treat it as a fiber cut on that port.
+        port_groups: Dict[int, List[dict]] = {}
+        for o in new_offline:
+            port_groups.setdefault(o["pon_port_index"], []).append(o)
+        for port_idx, lst in port_groups.items():
+            with engine.begin() as conn:
+                port_total = conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM onus WHERE olt_id=? AND "
+                    "pon_port_index=?",
+                    (olt["id"], port_idx)
+                ).fetchone()[0] or 1
+            pct = 100.0 * len(lst) / port_total
+            if (pct >= s["fiber_cut_pct"] and
+                    len(lst) >= s["fiber_cut_min"]):
+                _emit_alert(
+                    cid, olt_id=olt["id"], onu_id=None,
+                    kind="fiber_cut", level="critical",
+                    title=f"Fiber cut suspected — OLT {olt['name']} "
+                          f"PON {port_idx}",
+                    message=f"{len(lst)} of {port_total} ONUs ({pct:.0f}%) "
+                            f"on PON port {port_idx} dropped together.",
+                    meta={"port": port_idx, "offline_count": len(lst),
+                          "port_total": port_total},
+                )
+            else:
+                for o in lst:
+                    _emit_alert(
+                        cid, olt_id=olt["id"], onu_id=None,
+                        kind="onu_offline", level="warn",
+                        title=f"ONU offline — {o.get('serial')}",
+                        message=f"OLT {olt['name']} PON{port_idx} "
+                                f"ONU{o['onu_index']}",
+                        meta={"port": port_idx, "onu_index": o["onu_index"]},
+                    )
+
+    if new_online:
+        for o in new_online:
+            _emit_alert(
+                cid, olt_id=olt["id"], onu_id=None,
+                kind="onu_recovered", level="info",
+                title=f"ONU back online — {o.get('serial')}",
+                message=f"OLT {olt['name']} PON{o['pon_port_index']} "
+                        f"ONU{o['onu_index']}",
+            )
+
+    # Low-RX alerts: emit only when no OPEN low_rx alert exists for the
+    # same ONU (dedupe so we don't spam every poll cycle).
+    with engine.begin() as conn:
+        already = set()
+        for r in conn.exec_driver_sql(
+            "SELECT meta_json FROM olt_alerts WHERE company_id=? AND "
+            "olt_id=? AND kind='low_rx' AND acked=0",
+            (cid, olt["id"])
+        ).fetchall():
+            try:
+                m = json.loads(r[0] or '{}')
+                if 'serial' in m:
+                    already.add(m['serial'])
+            except Exception:
+                pass
+    for o in res.onus:
+        if (o["status"] == "online" and o.get("rx_power") is not None
+                and o["rx_power"] != -99.9
+                and o["rx_power"] <= s["rx_warn_dbm"]
+                and o.get("serial") not in already):
+            level = "critical" if o["rx_power"] <= s["rx_crit_dbm"] else "warn"
+            _emit_alert(
+                cid, olt_id=olt["id"], onu_id=None,
+                kind="low_rx", level=level,
+                title=f"Weak RX {o['rx_power']} dBm — {o.get('serial')}",
+                message=f"OLT {olt['name']} PON{o['pon_port_index']} "
+                        f"ONU{o['onu_index']}",
+                meta={"rx_power": o["rx_power"], "serial": o.get("serial")},
+            )
+
+    return {"ok": True, "online": online, "total": len(res.onus)}
+
+
+_poller_started = {"v": False}
+
+
+def _poller_loop():
+    while True:
+        try:
+            with engine.begin() as conn:
+                rows = conn.exec_driver_sql(
+                    "SELECT id, company_id, name, vendor, host, "
+                    "snmp_community, status, poll_interval, "
+                    "strftime('%s', created_at) AS created_at_epoch "
+                    "FROM olts WHERE enabled=1"
+                ).fetchall()
+            keys = ("id", "company_id", "name", "vendor", "host",
+                    "snmp_community", "status", "poll_interval",
+                    "created_at_epoch")
+            for r in rows:
+                olt = dict(zip(keys, r))
+                try:
+                    _poll_one_olt(olt)
+                except Exception as e:
+                    print(f"[OLT poll fail] {olt.get('name')}: {e}")
+        except Exception as e:
+            print(f"[OLT poller] outer err: {e}")
+        time.sleep(int(os.environ.get("OLT_POLL_TICK", "30")))
+
+
+def _start_poller():
+    if _poller_started["v"]:
+        return
+    _poller_started["v"] = True
+    t = threading.Thread(target=_poller_loop, daemon=True,
+                         name="olt-poller")
+    t.start()
+    print("[+] OLT poller started")
+
+
+# Seed PON type on existing demo OLTs (one-shot — only updates rows where
+# pon_type is NULL).
+def _seed_pon_type_once():
+    try:
+        with engine.begin() as _conn:
+            rows = _conn.exec_driver_sql(
+                "SELECT id FROM olts WHERE pon_type IS NULL OR pon_type=''"
+            ).fetchall()
+            for r in rows:
+                t = "EPON" if (r[0] % 2 == 0) else "GPON"
+                _conn.exec_driver_sql(
+                    "UPDATE olts SET pon_type=? WHERE id=?", (t, r[0])
+                )
+    except Exception:
+        pass
+
+_seed_pon_type_once()
+_start_poller()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Pydantic models
+# ──────────────────────────────────────────────────────────────────────────
+
+class OltIn(BaseModel):
+    name: str
+    vendor: str = "mock"
+    model: Optional[str] = ""
+    host: str
+    snmp_port: int = 161
+    snmp_community: str = "public"
+    snmp_version: str = "v2c"
+    cli_port: int = 23
+    cli_username: Optional[str] = ""
+    cli_password: Optional[str] = ""
+    location: Optional[str] = ""
+    poll_interval: int = 60
+    enabled: int = 1
+    pon_type: str = "GPON"
+    # _v4727_  Connection mode: public IP or VPN tunnel
+    connection_mode: str = "public"   # 'public' | 'vpn'
+    vpn_address: Optional[str] = ""
+
+
+class OnuPatch(BaseModel):
+    name: Optional[str] = None
+    customer_id: Optional[str] = None
+    notes: Optional[str] = None
+    wifi_ssid: Optional[str] = None
+    wifi_password: Optional[str] = None
+    vendor: Optional[str] = None
+    model: Optional[str] = None
+
+
+class SettingsIn(BaseModel):
+    rx_warn_dbm: float = -25
+    rx_crit_dbm: float = -28
+    fiber_cut_pct: float = 50
+    fiber_cut_min: int = 5
+    poll_interval: int = 60
+    wa_enabled: int = 1
+    wa_target: Optional[str] = ""
+    email_enabled: int = 0
+    email_target: Optional[str] = ""
+    genieacs_url: Optional[str] = ""
+    genieacs_username: Optional[str] = ""
+    genieacs_password: Optional[str] = ""
+    genieacs_auto_provision: Optional[int] = 1
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Helpers used by both web and JSON
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _temp_label(temp_c: float) -> str:
+    if temp_c is None:
+        return "Unknown"
+    if temp_c >= 70:
+        return "Critical"
+    if temp_c >= 60:
+        return "Overheat"
+    return "Normal"
+
+
+def _fan_label(temp_c: float, cpu_pct: float) -> str:
+    """Heuristic: high temp ⇒ high fan; very high temp ⇒ malfunctional;
+    very low temp ⇒ slow; otherwise Normal."""
+    if temp_c is None:
+        return "Unknown"
+    if temp_c >= 70:
+        return "Malfunctional"
+    if temp_c >= 60:
+        return "High"
+    if temp_c < 35 and (cpu_pct or 0) < 10:
+        return "Slow"
+    return "Normal"
+
+
+def _row_to_olt(r) -> dict:
+    return {
+        "id": r[0], "name": r[1], "vendor": r[2], "model": r[3] or "",
+        "host": r[4], "location": r[5] or "", "enabled": int(r[6] or 0),
+        "status": r[7] or "unknown", "uptime_sec": int(r[8] or 0),
+        "cpu_pct": float(r[9] or 0), "mem_pct": float(r[10] or 0),
+        "temp_c": float(r[11] or 0), "total_onus": int(r[12] or 0),
+        "online_onus": int(r[13] or 0), "last_polled": r[14] or "",
+        "poll_interval": int(r[15] or 60),
+        "snmp_community": r[16] or "", "snmp_port": int(r[17] or 161),
+        "cli_port": int(r[18] or 23), "cli_username": r[19] or "",
+        "snmp_version": r[20] or "v2c",
+        "pon_type": (r[21] if len(r) > 21 else "GPON") or "GPON",
+        "temp_label": _temp_label(float(r[11] or 0)),
+        "fan_status": _fan_label(float(r[11] or 0), float(r[9] or 0)),
+        "cpu_load": float(r[9] or 0),
+    }
+
+
+_OLT_COLS = (
+    "id, name, vendor, model, host, location, enabled, status, "
+    "uptime_sec, cpu_pct, mem_pct, temp_c, total_onus, online_onus, "
+    "last_polled, poll_interval, snmp_community, snmp_port, cli_port, "
+    "cli_username, snmp_version, COALESCE(pon_type,'GPON') AS pon_type"
+)
+
+
+def _list_olts(cid: str) -> List[dict]:
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(
+            f"SELECT {_OLT_COLS} FROM olts WHERE company_id=? "
+            "ORDER BY name",
+            (cid,),
+        ).fetchall()
+    return [_row_to_olt(r) for r in rows]
+
+
+def _dashboard_payload(cid: str) -> dict:
+    olts = _list_olts(cid)
+    online_olts = sum(1 for o in olts if o["status"] == "online")
+    total_onus = sum(o["total_onus"] for o in olts)
+    online_onus = sum(o["online_onus"] for o in olts)
+    offline_onus = max(0, total_onus - online_onus)
+
+    with engine.begin() as conn:
+        recent_alerts = conn.exec_driver_sql(
+            "SELECT id, olt_id, onu_id, kind, level, title, message, "
+            "acked, created_at FROM olt_alerts WHERE company_id=? "
+            "ORDER BY id DESC LIMIT 20",
+            (cid,),
+        ).fetchall()
+        worst = conn.exec_driver_sql(
+            "SELECT id, olt_id, pon_port_index, onu_index, serial, "
+            "rx_power, status FROM onus WHERE company_id=? "
+            "AND status='online' AND rx_power IS NOT NULL "
+            "AND rx_power > -90 ORDER BY rx_power ASC LIMIT 10",
+            (cid,),
+        ).fetchall()
+        active_alerts = conn.exec_driver_sql(
+            "SELECT COUNT(*), SUM(CASE WHEN level='critical' THEN 1 ELSE 0 END) "
+            "FROM olt_alerts WHERE company_id=? AND acked=0",
+            (cid,),
+        ).fetchone()
+
+    return {
+        "ok": True,
+        "kpis": {
+            "olts_total": len(olts),
+            "olts_online": online_olts,
+            "olts_offline": len(olts) - online_olts,
+            "onus_total": total_onus,
+            "onus_online": online_onus,
+            "onus_offline": offline_onus,
+            "alerts_open": int((active_alerts or [0])[0] or 0),
+            "alerts_critical": int((active_alerts or [0, 0])[1] or 0),
+        },
+        "olts": olts,
+        "recent_alerts": [
+            {"id": r[0], "olt_id": r[1], "onu_id": r[2], "kind": r[3],
+             "level": r[4], "title": r[5], "message": r[6] or "",
+             "acked": int(r[7] or 0), "created_at": r[8]}
+            for r in recent_alerts
+        ],
+        "worst_rx": [
+            {"id": r[0], "olt_id": r[1], "pon_port_index": r[2],
+             "onu_index": r[3], "serial": r[4] or "",
+             "rx_power": float(r[5] or 0), "status": r[6] or ""}
+            for r in worst
+        ],
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Web pages
+# ──────────────────────────────────────────────────────────────────────────
+
+def _portal_context(request: Request, sc: dict, active: str) -> dict:
+    """Defer to the portal's native context helper so the topbar gets
+    company_logo / company_name / admin_name / profile_image / etc.
+    Falls back to a minimal session-derived dict if the helper isn't
+    importable for any reason."""
+    role = sc["role"]
+    db = None
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+    except Exception:
+        db = None
+    ctx = None
+    try:
+        if role == "admin":
+            from main import get_admin_context
+            ctx = get_admin_context(request, db, active)
+        elif role == "employee":
+            from main import get_employee_context
+            ctx = get_employee_context(request, db, active)
+        elif role == "sub_lco":
+            from sub_lco import get_sub_lco_context
+            ctx = get_sub_lco_context(request, db, active)
+    except Exception as e:
+        print(f"[OLT ctx fallback] {role}: {e}")
+    finally:
+        if db is not None:
+            try: db.close()
+            except Exception: pass
+    if not isinstance(ctx, dict):
+        sess = request.session
+        ctx = {"request": request,
+               "user_id": sess.get("user_id", ""),
+               "user_name": sess.get("user_name", ""),
+               "user_type": sess.get("user_type", role),
+               "company_id": sess.get("company_id", ""),
+               "company_name": sess.get("company_name", ""),
+               "company_logo": sess.get("company_logo"),
+               "admin_name": sess.get("user_name", ""),
+               "profile_image": sess.get("profile_image"),
+               "active_page": active}
+    ctx["request"] = request
+    ctx["scope"] = sc
+    ctx["layout_template"] = sc["layout"]
+    ctx["olt_url_prefix"] = sc["prefix"] + "/olt"
+    ctx["active_page"] = active
+    return ctx
+
+
+
+# ═══ _S40zα_  Scope-check helper for per-ONU mutation endpoints ════════════
+def _enforce_onu_scope(request: Request, sc: dict, onu_id: int):
+    """Allow admin always; sub-LCO only their customers' ONUs;
+       employee only ONUs of customers they personally created."""
+    role = sc["role"]
+    if role == "admin":
+        return
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT c.sub_lco_id, c.created_by_employee_id FROM onus n "
+            "LEFT JOIN customers c ON c.customer_id=n.customer_id "
+            "AND c.company_id=n.company_id "
+            "WHERE n.id=? AND n.company_id=?",
+            (onu_id, cid)).fetchone()
+    if not row:
+        raise HTTPException(404, "ONU not found")
+    sess = request.session
+    if role == "sub_lco":
+        sid = sess.get("sub_lco_db_id")
+        if not sid or row[0] != int(sid):
+            raise HTTPException(403, "ONU not in your sub-LCO scope")
+    elif role == "employee":
+        eid = sess.get("employee_id")
+        if not eid:
+            raise HTTPException(403, "Not authenticated")
+        # _S40zβ_  Employee can act on their own customer's ONU OR any ONU
+        # under the sub-LCO they belong to.
+        if row[1] == int(eid):
+            return
+        with engine.begin() as eng_z:
+            er = eng_z.exec_driver_sql(
+                "SELECT sub_lco_id FROM employees WHERE id=? AND company_id=?",
+                (int(eid), cid)).fetchone()
+        if er and er[0] and row[0] == int(er[0]):
+            return
+        raise HTTPException(403, "ONU not in your employee scope")
+
+
+
+# ─── Admin portal pages ─────────────────────────────────────────────────
+@router.get("/admin/olt", response_class=HTMLResponse)
+@router.get("/admin/olt/dashboard", response_class=HTMLResponse)
+def page_dashboard_admin(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only — use /sub-lco/olt or "
+                                  "/employee/olt for your role")
+    ctx = _portal_context(request, sc, "olt_dashboard")
+    ctx["data"] = _dashboard_payload(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_dashboard.html", ctx)
+
+
+@router.get("/admin/olt/onus", response_class=HTMLResponse)
+def page_onus_admin(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only path")
+    ctx = _portal_context(request, sc, "olt_onus")
+    ctx["olts"] = _list_olts(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_onus.html", ctx)
+
+
+@router.get("/admin/olt/alerts", response_class=HTMLResponse)
+def page_alerts_admin(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only path")
+    ctx = _portal_context(request, sc, "olt_alerts")
+    return templates.TemplateResponse("admin_olt_alerts.html", ctx)
+
+
+@router.get("/admin/olt/system-config", response_class=HTMLResponse)
+def page_sysconfig(request: Request):
+    cid, _ = _require_admin(request)
+    sc = _require_scope(request)
+    ctx = _portal_context(request, sc, "olt_system")
+    ctx["olts"] = _list_olts(cid)
+    ctx["settings"] = _settings_for(cid)
+    ctx["vendors"] = VENDORS
+    return templates.TemplateResponse("admin_olt_system.html", ctx)
+
+
+# ─── Sub-LCO portal pages ──────────────────────────────────────────────
+@router.get("/sub-lco/olt", response_class=HTMLResponse)
+@router.get("/sub-lco/olt/dashboard", response_class=HTMLResponse)
+def page_dashboard_sublco(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "sub_lco":
+        raise HTTPException(403, "Sub-LCO path")
+    ctx = _portal_context(request, sc, "olt_dashboard")
+    ctx["data"] = _dashboard_payload(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_dashboard.html", ctx)
+
+
+@router.get("/sub-lco/olt/onus", response_class=HTMLResponse)
+def page_onus_sublco(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "sub_lco":
+        raise HTTPException(403, "Sub-LCO path")
+    ctx = _portal_context(request, sc, "olt_onus")
+    ctx["olts"] = _list_olts(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_onus.html", ctx)
+
+
+@router.get("/sub-lco/olt/alerts", response_class=HTMLResponse)
+def page_alerts_sublco(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "sub_lco":
+        raise HTTPException(403, "Sub-LCO path")
+    ctx = _portal_context(request, sc, "olt_alerts")
+    return templates.TemplateResponse("admin_olt_alerts.html", ctx)
+
+
+# ─── Employee portal pages ─────────────────────────────────────────────
+@router.get("/employee/olt", response_class=HTMLResponse)
+@router.get("/employee/olt/dashboard", response_class=HTMLResponse)
+def page_dashboard_emp(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "employee":
+        raise HTTPException(403, "Employee path")
+    ctx = _portal_context(request, sc, "olt_dashboard")
+    ctx["data"] = _dashboard_payload(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_dashboard.html", ctx)
+
+
+@router.get("/employee/olt/onus", response_class=HTMLResponse)
+def page_onus_emp(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "employee":
+        raise HTTPException(403, "Employee path")
+    ctx = _portal_context(request, sc, "olt_onus")
+    ctx["olts"] = _list_olts(sc["company_id"])
+    return templates.TemplateResponse("admin_olt_onus.html", ctx)
+
+
+@router.get("/employee/olt/alerts", response_class=HTMLResponse)
+def page_alerts_emp(request: Request):
+    sc = _require_scope(request)
+    if sc["role"] != "employee":
+        raise HTTPException(403, "Employee path")
+    ctx = _portal_context(request, sc, "olt_alerts")
+    return templates.TemplateResponse("admin_olt_alerts.html", ctx)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  JSON API — used by web pages and the mobile bridge
+# ──────────────────────────────────────────────────────────────────────────
+
+@router.get("/api/admin/olt/dashboard")
+def api_dashboard(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+    return _dashboard_payload(cid)
+
+
+@router.get("/api/admin/olt/olts")
+def api_list_olts(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+    return {"ok": True, "items": _list_olts(cid)}
+
+
+@router.post("/api/admin/olt/olts")
+def api_create_olt(request: Request, body: OltIn):
+    cid, actor = _require_admin(request)
+    if body.vendor not in VENDORS:
+        raise HTTPException(400, "Unknown vendor")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO olts (company_id, name, vendor, model, host, "
+            "snmp_port, snmp_community, snmp_version, cli_port, "
+            "cli_username, cli_password, location, poll_interval, "
+            "enabled, pon_type, connection_mode, vpn_address, created_by) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (cid, body.name, body.vendor, body.model or "", body.host,
+             body.snmp_port, body.snmp_community, body.snmp_version,
+             body.cli_port, body.cli_username or "",
+             body.cli_password or "", body.location or "",
+             body.poll_interval, int(body.enabled),
+             body.pon_type or "GPON",
+             (body.connection_mode or 'public').lower(),
+             body.vpn_address or '', actor),
+        )
+        new_id = conn.exec_driver_sql(
+            "SELECT last_insert_rowid()"
+        ).fetchone()[0]
+    return {"ok": True, "id": int(new_id)}
+
+
+@router.patch("/api/admin/olt/olts/{olt_id}")
+def api_update_olt(request: Request, olt_id: int, body: OltIn):
+    cid, _ = _require_admin(request)
+    with engine.begin() as conn:
+        existing = conn.exec_driver_sql(
+            "SELECT id FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(404, "OLT not found")
+        conn.exec_driver_sql(
+            "UPDATE olts SET name=?, vendor=?, model=?, host=?, "
+            "snmp_port=?, snmp_community=?, snmp_version=?, cli_port=?, "
+            "cli_username=?, cli_password=COALESCE(NULLIF(?,''), cli_password), "
+            "location=?, poll_interval=?, enabled=?, pon_type=?, "
+            "connection_mode=?, vpn_address=? "
+            "WHERE id=? AND company_id=?",
+            (body.name, body.vendor, body.model or "", body.host,
+             body.snmp_port, body.snmp_community, body.snmp_version,
+             body.cli_port, body.cli_username or "",
+             body.cli_password or "", body.location or "",
+             body.poll_interval, int(body.enabled),
+             body.pon_type or "GPON",
+             (body.connection_mode or 'public').lower(),
+             body.vpn_address or '', olt_id, cid),
+        )
+    return {"ok": True}
+
+
+@router.delete("/api/admin/olt/olts/{olt_id}")
+def api_delete_olt(request: Request, olt_id: int):
+    cid, _ = _require_admin(request)
+    with engine.begin() as conn:
+        existing = conn.exec_driver_sql(
+            "SELECT id FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not existing:
+            raise HTTPException(404, "OLT not found")
+        conn.exec_driver_sql(
+            "DELETE FROM olt_alerts WHERE company_id=? AND olt_id=?",
+            (cid, olt_id))
+        conn.exec_driver_sql(
+            "DELETE FROM onus WHERE company_id=? AND olt_id=?",
+            (cid, olt_id))
+        conn.exec_driver_sql(
+            "DELETE FROM olts WHERE company_id=? AND id=?",
+            (cid, olt_id))
+    return {"ok": True}
+
+
+@router.post("/api/admin/olt/olts/{olt_id}/poll-now")
+def api_poll_now(request: Request, olt_id: int):
+    cid, _ = _require_admin(request)
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id, company_id, name, vendor, host, snmp_community, "
+            "status, poll_interval, "
+            "strftime('%s', created_at) AS created_at_epoch FROM olts "
+            "WHERE id=? AND company_id=?",
+            (olt_id, cid)
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "OLT not found")
+    keys = ("id", "company_id", "name", "vendor", "host",
+            "snmp_community", "status", "poll_interval", "created_at_epoch")
+    return _poll_one_olt(dict(zip(keys, row)))
+
+
+@router.get("/api/admin/olt/onus")
+def api_list_onus(
+    request: Request,
+    olt_id: Optional[int] = None,
+    status: Optional[str] = None,
+    pon_port_index: Optional[int] = None,
+    rx_max: Optional[float] = Query(None, description="Max RX dBm filter"),
+    q: Optional[str] = "",
+    page: int = 1,
+    per: int = 100,
+):
+    """_S40zz_  Scope-aware listing — admin sees all, sub-LCO sees only
+       their customers' ONUs, employee sees only ONUs of customers they
+       created. Mounted under /admin/* but the route is also reachable
+       from /sub-lco/* and /employee/* via the same templates."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    sql = ("SELECT n.id, n.olt_id, o.name AS olt_name, n.pon_port_index, "
+           "n.onu_index, n.serial, n.mac, n.vendor, n.model, n.name, "
+           "n.customer_id, n.status, n.rx_power, n.tx_power, n.distance_m, "
+           "n.uptime_sec, n.last_seen, n.last_offline, "
+           "c.customer_name AS customer_name FROM onus n "
+           "LEFT JOIN olts o ON o.id=n.olt_id "
+           "LEFT JOIN customers c ON c.customer_id=n.customer_id "
+           "AND c.company_id=n.company_id WHERE n.company_id=?")
+    args: List[Any] = [cid]
+    # Role scoping — sub-LCO and employee see only their own customer base.
+    sess = request.session
+    if sc["role"] == "sub_lco":
+        sid = sess.get("sub_lco_db_id")
+        if not sid:
+            return {"ok": True, "items": []}
+        sql += " AND c.sub_lco_id = ?"
+        args.append(int(sid))
+    elif sc["role"] == "employee":
+        eid = sess.get("employee_id")
+        if not eid:
+            return {"ok": True, "items": []}
+        # _S40zβ_  Employee sees ONUs of: customers they personally created,
+        # PLUS all customers under the sub-LCO they belong to (so they can
+        # support the whole sub-LCO's customer base — listing only).
+        with engine.begin() as eng_z:
+            er = eng_z.exec_driver_sql(
+                "SELECT sub_lco_id FROM employees WHERE id=? AND company_id=?",
+                (int(eid), cid)).fetchone()
+        emp_sub_lco = er[0] if er else None
+        if emp_sub_lco:
+            sql += " AND (c.created_by_employee_id = ? OR c.sub_lco_id = ?)"
+            args.extend([int(eid), int(emp_sub_lco)])
+        else:
+            sql += " AND c.created_by_employee_id = ?"
+            args.append(int(eid))
+    if olt_id:
+        sql += " AND n.olt_id=?"; args.append(olt_id)
+    if status:
+        sql += " AND n.status=?"; args.append(status)
+    if pon_port_index is not None:
+        sql += " AND n.pon_port_index=?"; args.append(pon_port_index)
+    if rx_max is not None:
+        sql += " AND n.rx_power IS NOT NULL AND n.rx_power <= ?"
+        args.append(rx_max)
+    if q:
+        sql += (" AND (n.serial LIKE ? OR n.mac LIKE ? OR n.name LIKE ? "
+                "OR n.customer_id LIKE ?)")
+        like = f"%{q}%"
+        args += [like, like, like, like]
+    sql += " ORDER BY n.olt_id, n.pon_port_index, n.onu_index"
+    sql += f" LIMIT {int(per)} OFFSET {int(max(page - 1, 0)) * int(per)}"
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(sql, tuple(args)).fetchall()
+    keys = ("id", "olt_id", "olt_name", "pon_port_index", "onu_index",
+            "serial", "mac", "vendor", "model", "name", "customer_id",
+            "status", "rx_power", "tx_power", "distance_m", "uptime_sec",
+            "last_seen", "last_offline", "customer_name")
+    return {"ok": True, "items": [dict(zip(keys, r)) for r in rows]}
+
+
+@router.patch("/api/admin/olt/onus/{onu_id}")
+def api_patch_onu(request: Request, onu_id: int, body: OnuPatch):
+    sc = _require_scope(request); cid = sc["company_id"]
+    _enforce_onu_scope(request, sc, onu_id)   # _S40zα_
+    # Validate customer_id (if set) belongs to this company.
+    if body.customer_id:
+        with engine.begin() as conn:
+            ok = conn.exec_driver_sql(
+                "SELECT 1 FROM customers WHERE customer_id=? AND company_id=?",
+                (body.customer_id, cid)).fetchone()
+        if not ok:
+            raise HTTPException(404, f"Customer {body.customer_id} not found "
+                                     "in this company.")
+    fields = []
+    args: List[Any] = []
+    for k in ("name", "customer_id", "notes", "wifi_ssid", "wifi_password",
+              "vendor", "model"):
+        v = getattr(body, k, None)
+        if v is not None:
+            fields.append(f"{k}=?")
+            args.append(v)
+    if body.vendor is not None or body.model is not None:
+        # Pin so the poller stops overwriting these on the next cycle.
+        fields.append("manual_pin=1")
+    if not fields:
+        return {"ok": True}
+    args += [onu_id, cid]
+    with engine.begin() as conn:
+        existing = conn.exec_driver_sql(
+            "SELECT id FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid)).fetchone()
+        if not existing:
+            raise HTTPException(404, "ONU not found")
+        conn.exec_driver_sql(
+            f"UPDATE onus SET {', '.join(fields)} WHERE id=? AND company_id=?",
+            tuple(args)
+        )
+    # _S40_AUTOPROV_ — if wifi or customer_id mutated, push to TR-069
+    _wifi_or_link_changed = any(getattr(body, k, None) is not None
+                                for k in ("wifi_ssid", "wifi_password",
+                                          "customer_id"))
+    auto = None
+    if _wifi_or_link_changed:
+        auto = _genieacs_auto_push(cid, onu_id, reason="onu patch")
+    return {"ok": True, "auto_provision": auto}
+
+
+class WifiIn(BaseModel):
+    # 2.4 GHz primary — kept for backwards-compatibility with the old
+    # single-band callers (e.g. mobile app v4.x).
+    ssid: Optional[str] = None
+    password: Optional[str] = None
+    # _S40c_DUALBAND_ — explicit per-band fields. When omitted, the
+    # 2.4 GHz values fall through to 5 GHz unless band_split=1.
+    band_split: Optional[int] = None     # 0 = same SSID/PW on both, 1 = separate
+    ssid_5g: Optional[str] = None
+    password_5g: Optional[str] = None
+    radio_24_enabled: Optional[int] = None
+    radio_5_enabled: Optional[int] = None
+    auto_24: Optional[int] = None        # 1 = auto channel
+    auto_5: Optional[int] = None
+    channel_24: Optional[int] = None
+    channel_5: Optional[int] = None
+    bw_24: Optional[str] = None          # "20MHz" | "40MHz" | "Auto"
+    bw_5: Optional[str] = None           # "20MHz" | "40MHz" | "80MHz" | "160MHz" | "Auto"
+
+
+class WanIn(BaseModel):
+    wan_mode: str  # pppoe | static | dhcp | bridge
+    wan_service_name: Optional[str] = None  # PPPoE service-name / VLAN tag label
+    wan_username: Optional[str] = None
+    wan_password: Optional[str] = None
+    wan_static_ip: Optional[str] = None
+    wan_netmask: Optional[str] = None
+    wan_gateway: Optional[str] = None
+    wan_dns: Optional[str] = None
+    wan_vlan: Optional[int] = None
+
+
+@router.post("/api/admin/olt/onus/{onu_id}/wifi")
+def api_onu_wifi(request: Request, onu_id: int, body: WifiIn):
+    """_S40c_DUALBAND_ — persist 2.4 GHz + 5 GHz Wi-Fi config and
+    auto-push to GenieACS. Backwards-compatible: callers passing only
+    `ssid`/`password` (single-band v4.x mobile app) keep working — the
+    same creds are applied to both bands when band_split is 0/null."""
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    _enforce_onu_scope(request, sc, onu_id)   # _S40zα_
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT olt_id FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        # Build a dynamic UPDATE so each field is COALESCE'd only when
+        # the caller actually sent it (None = leave untouched).
+        sets = [
+            "wifi_ssid=COALESCE(?, wifi_ssid)",
+            "wifi_password=COALESCE(?, wifi_password)",
+            "wifi_band_split=COALESCE(?, wifi_band_split)",
+            "wifi_ssid_5g=COALESCE(?, wifi_ssid_5g)",
+            "wifi_password_5g=COALESCE(?, wifi_password_5g)",
+            "wifi_radio_24_enabled=COALESCE(?, wifi_radio_24_enabled)",
+            "wifi_radio_5_enabled=COALESCE(?, wifi_radio_5_enabled)",
+            "wifi_auto_24=COALESCE(?, wifi_auto_24)",
+            "wifi_auto_5=COALESCE(?, wifi_auto_5)",
+            "wifi_channel_24=COALESCE(?, wifi_channel_24)",
+            "wifi_channel_5=COALESCE(?, wifi_channel_5)",
+            "wifi_bw_24=COALESCE(?, wifi_bw_24)",
+            "wifi_bw_5=COALESCE(?, wifi_bw_5)",
+        ]
+        args = (
+            body.ssid, body.password,
+            body.band_split,
+            body.ssid_5g, body.password_5g,
+            body.radio_24_enabled, body.radio_5_enabled,
+            body.auto_24, body.auto_5,
+            body.channel_24, body.channel_5,
+            body.bw_24, body.bw_5,
+            onu_id, cid,
+        )
+        conn.exec_driver_sql(
+            f"UPDATE onus SET {', '.join(sets)} WHERE id=? AND company_id=?",
+            args,
+        )
+    _emit_alert(cid, olt_id=row[0], onu_id=onu_id, kind="info", level="info",
+                title=f"Wi-Fi config queued by {actor}",
+                message=(f"2.4G SSID={body.ssid or '(unchanged)'}"
+                         + (f" | 5G SSID={body.ssid_5g}" if body.ssid_5g else "")),
+                meta={"actor": actor, "ssid": body.ssid,
+                      "ssid_5g": body.ssid_5g})
+    # _S40_AUTOPROV_ — push to TR-069 immediately
+    auto = _genieacs_auto_push(cid, onu_id, reason=f"wifi by {actor}")
+    return {"ok": True, "queued": "wifi", "onu_id": onu_id,
+            "auto_provision": auto}
+
+
+@router.post("/api/admin/olt/onus/{onu_id}/wan")
+def api_onu_wan(request: Request, onu_id: int, body: WanIn):
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    _enforce_onu_scope(request, sc, onu_id)   # _S40zα_
+    if body.wan_mode not in ("pppoe", "static", "dhcp", "bridge"):
+        raise HTTPException(400, "wan_mode must be pppoe|static|dhcp|bridge")
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT olt_id FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        conn.exec_driver_sql(
+            "UPDATE onus SET wan_mode=?, wan_username=?, wan_password=?, "
+            "wan_static_ip=?, wan_netmask=?, wan_gateway=?, wan_dns=?, "
+            "wan_vlan=?, wan_service_name=? WHERE id=? AND company_id=?",
+            (body.wan_mode, body.wan_username or "",
+             body.wan_password or "", body.wan_static_ip or "",
+             body.wan_netmask or "", body.wan_gateway or "",
+             body.wan_dns or "", body.wan_vlan,
+             body.wan_service_name or "", onu_id, cid),
+        )
+    _emit_alert(cid, olt_id=row[0], onu_id=onu_id, kind="info", level="info",
+                title=f"WAN config queued by {actor}",
+                message=f"mode={body.wan_mode} vlan={body.wan_vlan or '-'}",
+                meta={"actor": actor, "mode": body.wan_mode})
+    # _S40_AUTOPROV_ — push to TR-069 immediately
+    auto = _genieacs_auto_push(cid, onu_id, reason=f"wan/{body.wan_mode} by {actor}")
+    return {"ok": True, "queued": "wan", "onu_id": onu_id,
+            "mode": body.wan_mode, "auto_provision": auto}
+
+
+
+
+@router.get("/api/admin/olt/onus-by-customer/{customer_id}")
+def api_onus_by_customer(request: Request, customer_id: str):
+    """Used by the customer-detail page to show a Connected-ONU card."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT n.id, n.olt_id, o.name AS olt_name, n.pon_port_index, "
+            "n.onu_index, n.serial, n.mac, n.vendor, n.model, n.status, "
+            "n.rx_power, n.tx_power, n.last_seen "
+            "FROM onus n LEFT JOIN olts o ON o.id=n.olt_id "
+            "WHERE n.company_id=? AND n.customer_id=? "
+            "ORDER BY n.id DESC", (cid, customer_id)).fetchall()
+    keys = ("id", "olt_id", "olt_name", "pon_port_index", "onu_index",
+            "serial", "mac", "vendor", "model", "status", "rx_power",
+            "tx_power", "last_seen")
+    return {"ok": True, "items": [dict(zip(keys, r)) for r in rows]}
+
+
+@router.get("/api/admin/olt/customers/search")
+def api_customers_search(request: Request, q: str = "", limit: int = 12):
+    sc = _require_scope(request); cid = sc["company_id"]
+    sql = ("SELECT customer_id, customer_name, username, customer_phone "
+           "FROM customers WHERE company_id=?")
+    args: list = [cid]
+    if q:
+        sql += (" AND (customer_id LIKE ? OR customer_name LIKE ? "
+                "OR username LIKE ? OR customer_phone LIKE ?)")
+        like = f"%{q}%"
+        args += [like, like, like, like]
+    sql += " ORDER BY customer_name LIMIT ?"
+    args.append(int(max(1, min(limit, 50))))
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(sql, tuple(args)).fetchall()
+    return {"ok": True, "items": [{"customer_id": r[0],
+            "customer_name": r[1] or "", "username": r[2] or "",
+            "phone": r[3] or ""} for r in rows]}
+
+
+@router.get("/api/admin/olt/onus/{onu_id}")
+def api_get_onu(request: Request, onu_id: int):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        r = conn.exec_driver_sql(
+            "SELECT n.*, o.name AS olt_name FROM onus n "
+            "LEFT JOIN olts o ON o.id=n.olt_id "
+            "WHERE n.id=? AND n.company_id=?",
+            (onu_id, cid)).fetchone()
+    if not r:
+        raise HTTPException(404, "ONU not found")
+    # SQLAlchemy row → dict using description from cursor not available here;
+    # easier to re-fetch by names.
+    with engine.begin() as conn:
+        cur = conn.exec_driver_sql(
+            "SELECT n.id, n.olt_id, o.name AS olt_name, n.pon_port_index, "
+            "n.onu_index, n.serial, n.mac, n.vendor, n.model, n.name, "
+            "n.customer_id, n.status, n.rx_power, n.tx_power, n.distance_m, "
+            "n.uptime_sec, n.last_seen, n.last_offline, n.wifi_ssid, "
+            "n.wifi_password, n.wan_ip, n.wan_status, n.wan_mode, "
+            "n.wan_username, n.wan_password, n.wan_static_ip, n.wan_netmask, "
+            "n.wan_gateway, n.wan_dns, n.wan_vlan, n.notes, "
+            # _S40c_DUALBAND_
+            "n.wifi_band_split, n.wifi_ssid_5g, n.wifi_password_5g, "
+            "n.wifi_radio_24_enabled, n.wifi_radio_5_enabled, "
+            "n.wifi_auto_24, n.wifi_auto_5, n.wifi_channel_24, "
+            "n.wifi_channel_5, n.wifi_bw_24, n.wifi_bw_5 "
+            "FROM onus n LEFT JOIN olts o ON o.id=n.olt_id "
+            "WHERE n.id=? AND n.company_id=?",
+            (onu_id, cid)).fetchone()
+    keys = ("id", "olt_id", "olt_name", "pon_port_index", "onu_index",
+            "serial", "mac", "vendor", "model", "name", "customer_id",
+            "status", "rx_power", "tx_power", "distance_m", "uptime_sec",
+            "last_seen", "last_offline", "wifi_ssid", "wifi_password",
+            "wan_ip", "wan_status", "wan_mode", "wan_username",
+            "wan_password", "wan_static_ip", "wan_netmask", "wan_gateway",
+            "wan_dns", "wan_vlan", "notes",
+            # _S40c_DUALBAND_
+            "wifi_band_split", "wifi_ssid_5g", "wifi_password_5g",
+            "wifi_radio_24_enabled", "wifi_radio_5_enabled",
+            "wifi_auto_24", "wifi_auto_5", "wifi_channel_24",
+            "wifi_channel_5", "wifi_bw_24", "wifi_bw_5")
+    return {"ok": True, "onu": dict(zip(keys, cur))}
+
+
+
+
+@router.post("/api/admin/olt/onus/{onu_id}/genieacs-push")
+def api_onu_genieacs_push(request: Request, onu_id: int,
+                          body: dict = Body(default={})):
+    sc = _require_scope(request)
+    cid = sc["company_id"]
+    _enforce_onu_scope(request, sc, onu_id)   # _S40zα_
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT serial, wifi_ssid, wifi_password, wan_mode, "
+            "wan_username, wan_password, wan_vlan FROM onus WHERE id=? "
+            "AND company_id=?", (onu_id, cid)).fetchone()
+    if not row:
+        raise HTTPException(404, "ONU not found")
+    # Map to TR-069 standard parameters
+    params = {}
+    if row[1]:
+        params["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID"] = row[1]
+    if row[2]:
+        params["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase"] = row[2]
+    if row[3] == "pppoe" and row[4]:
+        params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username"] = row[4]
+        if row[5]:
+            params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Password"] = row[5]
+    if not params:
+        raise HTTPException(400, "Nothing to push — set Wi-Fi or WAN first.")
+    res = _genieacs_provision(cid, device_serial=(row[0] or ""),
+                              params=params)
+    _emit_alert(cid, olt_id=None, onu_id=onu_id,
+                kind="info", level="info",
+                title=f"TR-069 push by {sc['actor']} ({'OK' if res.get('ok') else 'FAIL'})",
+                message=res.get("error") or "queued via GenieACS")
+    return res
+
+
+@router.post("/api/admin/olt/onus/{onu_id}/{action}")
+def api_onu_action(request: Request, onu_id: int, action: str,
+                   body: dict = Body(default={})):
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    if action not in ("reboot", "factory-reset", "activate", "wifi"):
+        raise HTTPException(400, "Unknown action")
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT n.id, n.olt_id, o.name, o.vendor, n.serial, "
+            "n.pon_port_index, n.onu_index, c.sub_lco_id, "
+            "c.created_by_employee_id "
+            "FROM onus n "
+            "LEFT JOIN olts o ON o.id=n.olt_id "
+            "LEFT JOIN customers c ON c.customer_id=n.customer_id "
+            "AND c.company_id=n.company_id "
+            "WHERE n.id=? AND n.company_id=?",
+            (onu_id, cid)
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "ONU not found")
+    # _S40zz_  Role scope — only admin can act on any ONU; sub-LCO/employee
+    # can only act on ONUs that belong to their customer base.
+    if sc["role"] == "sub_lco":
+        sid = request.session.get("sub_lco_db_id")
+        if not sid or row[7] != int(sid):
+            raise HTTPException(403, "ONU not in your sub-LCO scope")
+    elif sc["role"] == "employee":
+        eid = request.session.get("employee_id")
+        if not eid:
+            raise HTTPException(403, "Not authenticated")
+        # _S40zβ_  Employee can act on customer they created OR sub-LCO sibling
+        if row[8] != int(eid):
+            with engine.begin() as eng_z:
+                er = eng_z.exec_driver_sql(
+                    "SELECT sub_lco_id FROM employees WHERE id=? AND company_id=?",
+                    (int(eid), cid)).fetchone()
+            if not (er and er[0] and row[7] == int(er[0])):
+                raise HTTPException(403, "ONU not in your employee scope")
+    vendor = (row[3] or "mock").lower()
+
+    # _S39R5K_ONU_ACTION — realistic mock vendor effect on the ONU row so
+    # the demo experience reflects the action. Real vendor adapters (Nokia,
+    # Optilink, VSOL, Syrotech, ZTE, Fiberhome) plug in here when wired.
+    status_after = None
+    human_msg = ""
+    if vendor in ("mock", ""):
+        if action == "reboot":
+            # Mark offline briefly; the next mock-poller tick brings it back.
+            status_after = "offline"
+            human_msg = ("Reboot dispatched · ONU will go offline for "
+                         "~30-60 seconds and reconnect automatically.")
+        elif action == "factory-reset":
+            # Wipe Wi-Fi/WAN config and mark offline.
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    "UPDATE onus SET wifi_ssid='', wifi_password='', "
+                    "wan_mode='', wan_username='', wan_password='', "
+                    "wan_static_ip='', wan_netmask='', wan_gateway='', "
+                    "wan_dns='', wan_vlan=NULL, wan_service_name='', "
+                    "status='offline' WHERE id=? AND company_id=?",
+                    (onu_id, cid))    # _S40zz_  was wifi_pass
+            status_after = "offline"
+            human_msg = ("Factory-reset complete · Wi-Fi & WAN config "
+                         "wiped. ONU is now offline / unprovisioned.")
+        elif action == "activate":
+            status_after = "online"
+            human_msg = ("Activation dispatched · ONU is now online and "
+                         "ready to serve traffic.")
+        elif action == "wifi":
+            human_msg = "Wi-Fi config dispatched."
+    else:
+        # Real vendor — adapter wire-up TBD; continue to queue.
+        human_msg = (f"Action queued for vendor adapter '{vendor}' — will "
+                     "dispatch shortly.")
+
+    if status_after:
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    "UPDATE onus SET status=? WHERE id=? AND company_id=?",
+                    (status_after, onu_id, cid))
+        except Exception:
+            pass
+
+    _emit_alert(
+        cid, olt_id=row[1], onu_id=onu_id,
+        kind="onu_recovered" if action == "activate" else "info",
+        level="info",
+        title=f"ONU {action.replace('-', ' ')} by {actor}",
+        message=(f"OLT {row[2]} PON{row[5]} ONU{row[6]} "
+                 f"({row[4]}) — {human_msg}"),
+        meta={"action": action, "actor": actor, "body": body,
+              "vendor": vendor, "status_after": status_after},
+    )
+    return {"ok": True, "action": action, "onu_id": onu_id,
+            "status": status_after, "message": human_msg}
+
+
+@router.get("/api/admin/olt/alerts")
+def api_alerts(request: Request, level: Optional[str] = None,
+               acked: Optional[int] = None, page: int = 1, per: int = 20):
+    """_S40zy_  Default per-page reduced to 20 + paginated `total` returned."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    page = max(int(page), 1)
+    per = max(min(int(per), 200), 1)
+    where = "WHERE a.company_id=?"
+    args: List[Any] = [cid]
+    if level:
+        where += " AND a.level=?"; args.append(level)
+    if acked is not None:
+        where += " AND a.acked=?"; args.append(int(acked))
+    with engine.begin() as conn:
+        total = conn.exec_driver_sql(
+            f"SELECT COUNT(*) FROM olt_alerts a {where}",
+            tuple(args)).fetchone()[0]
+        rows = conn.exec_driver_sql(
+            "SELECT a.id, a.olt_id, o.name AS olt_name, a.onu_id, a.kind, "
+            "a.level, a.title, a.message, a.meta_json, a.acked, a.acked_by, "
+            f"a.acked_at, a.created_at FROM olt_alerts a "
+            f"LEFT JOIN olts o ON o.id=a.olt_id {where} "
+            f"ORDER BY a.id DESC LIMIT {per} OFFSET {(page - 1) * per}",
+            tuple(args)).fetchall()
+    keys = ("id", "olt_id", "olt_name", "onu_id", "kind", "level",
+            "title", "message", "meta_json", "acked", "acked_by",
+            "acked_at", "created_at")
+    return {"ok": True,
+             "items": [dict(zip(keys, r)) for r in rows],
+             "total": int(total),
+             "page": page, "per": per,
+             "total_pages": (total + per - 1) // per if total else 1}
+
+
+@router.patch("/api/admin/olt/alerts/{alert_id}/ack")
+def api_ack_alert(request: Request, alert_id: int):
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE olt_alerts SET acked=1, acked_by=?, acked_at=datetime('now') "
+            "WHERE id=? AND company_id=?",
+            (actor, alert_id, cid)
+        )
+    return {"ok": True}
+
+
+@router.post("/api/admin/olt/alerts/ack-all")
+def api_ack_all(request: Request):
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    if sc["role"] != "admin":   # _S40zα_
+        raise HTTPException(403, "Admin-only — bulk-ack affects all ONUs")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE olt_alerts SET acked=1, acked_by=?, acked_at=datetime('now') "
+            "WHERE company_id=? AND acked=0",
+            (actor, cid)
+        )
+    return {"ok": True}
+
+
+
+
+@router.get("/api/admin/olt/olts/{olt_id}/history")
+def api_olt_history(request: Request, olt_id: int, hours: int = 24, points: int = 60):
+    """Polled telemetry history for sparklines.
+
+    Returns up to `points` of (ts, cpu_pct, avg_rx, online_onus) tuples
+    over the last `hours` window. Used by the dashboard sparklines and
+    the activity-mini-sparkline below the Reboot button."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    hours  = max(1, min(168, int(hours)))
+    points = max(5, min(240, int(points)))
+    with engine.begin() as conn:
+        # Verify OLT scope
+        own = conn.exec_driver_sql(
+            "SELECT 1 FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not own:
+            raise HTTPException(404, "OLT not found")
+        rows = conn.exec_driver_sql(
+            "SELECT ts, cpu_pct, avg_rx, online_onus, total_onus FROM olt_polls "
+            "WHERE olt_id=? AND ts >= datetime('now', ?) "
+            "ORDER BY id ASC LIMIT ?",
+            (olt_id, f"-{hours} hours", points * 4)).fetchall()
+    # Down-sample to `points` evenly distributed.
+    if len(rows) > points:
+        step = len(rows) / points
+        rows = [rows[int(i * step)] for i in range(points)]
+    out = []
+    for r in rows:
+        out.append({
+            "ts": r[0], "cpu_pct": float(r[1] or 0),
+            "avg_rx": float(r[2] or 0) if r[2] is not None else None,
+            "online_onus": int(r[3] or 0),
+            "total_onus": int(r[4] or 0),
+        })
+    return {"ok": True, "olt_id": olt_id, "hours": hours, "items": out}
+
+
+@router.get("/api/admin/olt/olts/{olt_id}/history")
+def api_olt_history(request: Request, olt_id: int, hours: int = 24, points: int = 60):
+    """Polled telemetry history for sparklines.
+
+    Returns up to `points` of (ts, cpu_pct, avg_rx, online_onus) tuples
+    over the last `hours` window. Used by the dashboard sparklines and
+    the activity-mini-sparkline below the Reboot button."""
+    sc = _require_scope(request); cid = sc["company_id"]
+    hours  = max(1, min(168, int(hours)))
+    points = max(5, min(240, int(points)))
+    with engine.begin() as conn:
+        # Verify OLT scope
+        own = conn.exec_driver_sql(
+            "SELECT 1 FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not own:
+            raise HTTPException(404, "OLT not found")
+        rows = conn.exec_driver_sql(
+            "SELECT ts, cpu_pct, avg_rx, online_onus, total_onus FROM olt_polls "
+            "WHERE olt_id=? AND ts >= datetime('now', ?) "
+            "ORDER BY id ASC LIMIT ?",
+            (olt_id, f"-{hours} hours", points * 4)).fetchall()
+    # Down-sample to `points` evenly distributed.
+    if len(rows) > points:
+        step = len(rows) / points
+        rows = [rows[int(i * step)] for i in range(points)]
+    out = []
+    for r in rows:
+        out.append({
+            "ts": r[0], "cpu_pct": float(r[1] or 0),
+            "avg_rx": float(r[2] or 0) if r[2] is not None else None,
+            "online_onus": int(r[3] or 0),
+            "total_onus": int(r[4] or 0),
+        })
+    return {"ok": True, "olt_id": olt_id, "hours": hours, "items": out}
+
+
+@router.get("/api/admin/olt/activity")
+def api_activity(request: Request, limit: int = 25):
+    """Role-scoped recent activity feed.
+       admin: every alert in the company
+       sub_lco: only alerts on ONUs assigned to this sub-lco's customers
+       employee: only alerts where the actor matches the logged-in user
+    """
+    sc = _require_scope(request)
+    cid, role, actor = sc["company_id"], sc["role"], sc["actor"]
+    sess = request.session
+    base = (
+        "SELECT a.id, a.olt_id, o.name AS olt_name, a.onu_id, a.kind, "
+        "a.level, a.title, a.message, a.acked, a.acked_by, a.created_at "
+        "FROM olt_alerts a LEFT JOIN olts o ON o.id=a.olt_id "
+        "WHERE a.company_id=?"
+    )
+    args = [cid]
+    if role == "sub_lco":
+        # Match ONUs whose linked customer belongs to this sub-lco.
+        sub_lco_db_id = sess.get("sub_lco_db_id") or sess.get("sub_lco_id")
+        base += (" AND a.onu_id IN (SELECT n.id FROM onus n JOIN customers c "
+                 "ON c.customer_id=n.customer_id WHERE n.company_id=? "
+                 "AND c.sub_lco_id=?)")
+        args += [cid, sub_lco_db_id]
+    elif role == "employee":
+        # Look for actor name in either acked_by OR the title prefix
+        # (we record actor in titles like "Wi-Fi config queued by <actor>").
+        base += (" AND (a.acked_by=? OR a.title LIKE ? OR a.message LIKE ?)")
+        like = f"%by {actor}%"
+        args += [actor, like, like]
+    base += " ORDER BY a.id DESC LIMIT ?"
+    args.append(int(max(1, min(limit, 100))))
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(base, tuple(args)).fetchall()
+    keys = ("id", "olt_id", "olt_name", "onu_id", "kind", "level",
+            "title", "message", "acked", "acked_by", "created_at")
+    items = [dict(zip(keys, r)) for r in rows]
+    return {"ok": True, "role": role, "items": items}
+
+
+@router.get("/api/admin/olt/onus/{onu_id}/customer-creds")
+def api_onu_customer_creds(request: Request, onu_id: int):
+    """Pulls the linked customer's portal credentials for one-click WAN
+    auto-fill.  Tenant-scoped + role-scoped (admin/sub_lco/employee)."""
+    sc = _require_scope(request)
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT customer_id FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        cust_id = row[0]
+        if not cust_id:
+            return {"ok": False, "error": "No customer linked to this ONU. "
+                    "Click on the ONU row's 'Customer' field to link first."}
+        cust = conn.exec_driver_sql(
+            "SELECT customer_id, customer_name, username, pppoe_password, "
+            "       customer_phone, plan_id FROM customers "
+            "WHERE customer_id=? AND company_id=?",
+            (cust_id, cid)).fetchone()
+    if not cust:
+        return {"ok": False, "error": f"Customer {cust_id} not found in this company."}
+    return {"ok": True, "customer": {
+        "customer_id": cust[0], "name": cust[1] or "",
+        "username": cust[2] or "", "password": cust[3] or "",
+        "phone": cust[4] or "", "plan_id": cust[5],
+    }}
+
+
+# ── GenieACS TR-069 helper + provisioning endpoint ─────────────────────
+def _genieacs_provision(cid: str, *, device_serial: str,
+                        params: dict) -> dict:
+    """POST a SetParameterValues task to GenieACS. Returns result dict.
+       _S40zd_  Now resolves the real GenieACS device _id by querying
+       SerialNumber first — works whether the device ID is the bare
+       serial OR the more common OUI-ProductClass-Serial format."""
+    s = _settings_for(cid)
+    base = (s.get("genieacs_url") or "").rstrip("/")
+    if not base:
+        return {"ok": False,
+                "error": "GenieACS URL not configured in System Config."}
+    if not (device_serial or "").strip():
+        return {"ok": False, "error": "ONU has no serial number."}
+    try:
+        import urllib.request, urllib.parse, base64, json as _j
+        auth_hdr = None
+        if s.get("genieacs_username"):
+            tok = base64.b64encode(
+                f"{s['genieacs_username']}:{s.get('genieacs_password') or ''}"
+                .encode()).decode()
+            auth_hdr = "Basic " + tok
+        # 1. RESOLVE actual device _id  by querying with SerialNumber.
+        device_id = None
+        try:
+            q = _j.dumps({"_deviceId._SerialNumber": device_serial})
+            qurl = (base + "/devices?query=" + urllib.parse.quote(q)
+                    + "&projection=_id")
+            qreq = urllib.request.Request(qurl)
+            if auth_hdr: qreq.add_header("Authorization", auth_hdr)
+            with urllib.request.urlopen(qreq, timeout=8) as r:
+                arr = _j.loads(r.read(8192).decode("utf-8", "ignore") or "[]")
+                if isinstance(arr, list) and arr:
+                    device_id = arr[0].get("_id")
+        except Exception:
+            pass
+        # 2. If the lookup found nothing, the device hasn't checked in.
+        if not device_id:
+            return {"ok": False,
+                    "error": (f"ONU '{device_serial}' is not registered "
+                              "with GenieACS yet. The CPE must connect at "
+                              "least once via TR-069 (port 7547) before it "
+                              "can be provisioned. Check the ONU's "
+                              "InternetGatewayDevice.ManagementServer.URL "
+                              "configuration.")}
+        # 3. POST the SetParameterValues task to the real device _id.
+        url = (base + "/devices/" + urllib.parse.quote(device_id)
+               + "/tasks?connection_request")
+        task = {"name": "setParameterValues",
+                "parameterValues": [[k, v, "xsd:string"]
+                                     for k, v in params.items()]}
+        req = urllib.request.Request(
+            url, data=_j.dumps(task).encode(),
+            headers={"Content-Type": "application/json"})
+        if auth_hdr: req.add_header("Authorization", auth_hdr)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return {"ok": True, "status": r.status,
+                    "device_id": device_id,
+                    "response": r.read(2048).decode("utf-8", "ignore")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
+    """_S40_AUTOPROV_ — Build the TR-069 parameter map from the current
+    ONU + linked customer state, then push to GenieACS. Used by the
+    auto-bridge after wifi/wan/customer changes. Always non-throwing —
+    returns {"ok": True/False, ...}.
+
+    Skips silently when:
+      * GenieACS URL is not configured for the company
+      * The auto-provision flag is OFF
+      * The ONU has no serial (can't address it)
+      * No actionable parameters can be built
+    """
+    try:
+        s = _settings_for(cid)
+        if not (s.get("genieacs_url") or "").strip():
+            return {"ok": False, "skip": "genieacs_not_configured"}
+        # default ON when column is NULL/missing
+        if int(s.get("genieacs_auto_provision") or 0) == 0:
+            # Explicitly OFF
+            if "genieacs_auto_provision" in s and s["genieacs_auto_provision"] == 0:
+                return {"ok": False, "skip": "auto_provision_disabled"}
+        with engine.begin() as conn:
+            row = conn.exec_driver_sql(
+                "SELECT serial, wifi_ssid, wifi_password, wan_mode, "
+                "wan_username, wan_password, wan_vlan, customer_id, "
+                # _S40c_DUALBAND_ extras
+                "wifi_band_split, wifi_ssid_5g, wifi_password_5g, "
+                "wifi_radio_24_enabled, wifi_radio_5_enabled, "
+                "wifi_auto_24, wifi_auto_5, wifi_channel_24, wifi_channel_5, "
+                "wifi_bw_24, wifi_bw_5 "
+                "FROM onus WHERE id=? AND company_id=?",
+                (onu_id, cid)).fetchone()
+        if not row:
+            return {"ok": False, "skip": "onu_not_found"}
+        (serial, wifi_ssid, wifi_pw, wan_mode, wan_user, wan_pw, wan_vlan,
+         cust_id, band_split, ssid_5g, pw_5g, r24_en, r5_en,
+         auto_24, auto_5, ch_24, ch_5, bw_24, bw_5) = row
+        if not (serial or "").strip():
+            return {"ok": False, "skip": "onu_has_no_serial"}
+        # If linked to a customer and that customer has pppoe creds set,
+        # prefer them (single source of truth — billing system).
+        if cust_id:
+            try:
+                with engine.begin() as conn:
+                    crow = conn.exec_driver_sql(
+                        "SELECT username, pppoe_password FROM customers "
+                        "WHERE customer_id=? AND company_id=?",
+                        (cust_id, cid)).fetchone()
+                if crow:
+                    if crow[0]:
+                        wan_user = wan_user or crow[0]
+                    if crow[1]:
+                        wan_pw = wan_pw or crow[1]
+                    if not wan_mode:
+                        wan_mode = "pppoe"
+            except Exception:
+                pass
+        params = {}
+        # ── 2.4 GHz radio (WLANConfiguration.1) ─────────────────────
+        WL24 = "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1"
+        if wifi_ssid:
+            params[f"{WL24}.SSID"] = wifi_ssid
+        if wifi_pw:
+            params[f"{WL24}.KeyPassphrase"] = wifi_pw
+        if r24_en is not None:
+            params[f"{WL24}.Enable"] = "true" if r24_en else "false"
+        if auto_24 is not None:
+            params[f"{WL24}.AutoChannelEnable"] = "true" if auto_24 else "false"
+        if auto_24 == 0 and ch_24:
+            params[f"{WL24}.Channel"] = str(int(ch_24))
+        if bw_24 and bw_24.lower() != "auto":
+            params[f"{WL24}.OperatingChannelBandwidth"] = bw_24
+        # ── 5 GHz radio (WLANConfiguration.5) ───────────────────────
+        # When band_split is 0/None, mirror the 2.4 GHz creds so a
+        # single-band caller still configures a usable 5 GHz network.
+        WL5 = "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5"
+        # When band_split=0, mirror 2.4 GHz creds (ignore stale ssid_5g/pw_5g).
+        # When band_split=1, prefer 5 GHz-specific creds, fall back to 2.4 if blank.
+        if band_split:
+            eff_ssid_5 = ssid_5g or wifi_ssid
+            eff_pw_5   = pw_5g   or wifi_pw
+        else:
+            eff_ssid_5 = wifi_ssid
+            eff_pw_5   = wifi_pw
+        if eff_ssid_5:
+            params[f"{WL5}.SSID"] = eff_ssid_5
+        if eff_pw_5:
+            params[f"{WL5}.KeyPassphrase"] = eff_pw_5
+        if r5_en is not None:
+            params[f"{WL5}.Enable"] = "true" if r5_en else "false"
+        if auto_5 is not None:
+            params[f"{WL5}.AutoChannelEnable"] = "true" if auto_5 else "false"
+        if auto_5 == 0 and ch_5:
+            params[f"{WL5}.Channel"] = str(int(ch_5))
+        if bw_5 and bw_5.lower() != "auto":
+            params[f"{WL5}.OperatingChannelBandwidth"] = bw_5
+        # ── WAN / PPPoE ─────────────────────────────────────────────
+        if (wan_mode or "").lower() == "pppoe" and wan_user:
+            params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username"] = wan_user
+            if wan_pw:
+                params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Password"] = wan_pw
+        if not params:
+            _log_acs_push(cid, onu_id=onu_id, serial=serial,
+                          customer_id=cust_id, reason=reason,
+                          result={"ok": False, "skip": "no_params_to_push"},
+                          params=params)
+            return {"ok": False, "skip": "no_params_to_push"}
+        res = _genieacs_provision(cid, device_serial=serial, params=params)
+        _log_acs_push(cid, onu_id=onu_id, serial=serial,
+                      customer_id=cust_id, reason=reason,
+                      result=res, params=params)
+        # Emit alert so it's visible in the admin OLT/alerts panel
+        try:
+            _emit_alert(cid, olt_id=None, onu_id=onu_id,
+                        kind="info", level="info",
+                        title=f"Auto-provision (TR-069): {'OK' if res.get('ok') else 'FAIL'}",
+                        message=(reason + " — " if reason else "")
+                                + (res.get("error") or f"queued {len(params)} param(s)"))
+        except Exception:
+            pass
+        return res
+    except Exception as e:
+        try:
+            _log_acs_push(cid, onu_id=onu_id, serial=None,
+                          customer_id=None, reason=reason,
+                          result={"ok": False, "error": str(e)},
+                          params=None)
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)}
+
+
+def _log_acs_push(cid: str, *, onu_id, serial, customer_id, reason,
+                  result: dict, params):
+    """_S40b_ — persist a row in acs_push_log. Best-effort, swallow errors."""
+    try:
+        import json as _json
+        ok_v = 1 if result.get("ok") else 0
+        skip_v = result.get("skip") or ""
+        err_v = result.get("error") or ""
+        pjson = _json.dumps(params or {}, default=str) if params else None
+        with engine.begin() as _c:
+            _c.exec_driver_sql(
+                "INSERT INTO acs_push_log (company_id, onu_id, onu_serial, "
+                "customer_id, reason, ok, skip, error, params_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (cid, onu_id, serial or "", customer_id or "",
+                 reason or "", ok_v, skip_v, err_v, pjson))
+    except Exception:
+        pass
+
+
+@router.get("/api/admin/olt/settings")
+def api_get_settings(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+    return {"ok": True, "settings": _settings_for(cid)}
+
+
+@router.put("/api/admin/olt/settings")
+def api_put_settings(request: Request, body: SettingsIn):
+    cid, _ = _require_admin(request)
+    with engine.begin() as conn:
+        exists = conn.exec_driver_sql(
+            "SELECT 1 FROM olt_settings WHERE company_id=?", (cid,)
+        ).fetchone()
+        if exists:
+            conn.exec_driver_sql(
+                "UPDATE olt_settings SET rx_warn_dbm=?, rx_crit_dbm=?, "
+                "fiber_cut_pct=?, fiber_cut_min=?, poll_interval=?, "
+                "wa_enabled=?, wa_target=?, email_enabled=?, email_target=?, "
+                "genieacs_url=?, genieacs_username=?, "
+                "genieacs_password=COALESCE(NULLIF(?,''), genieacs_password), "
+                "genieacs_auto_provision=?, "
+                "updated_at=datetime('now') WHERE company_id=?",
+                (body.rx_warn_dbm, body.rx_crit_dbm, body.fiber_cut_pct,
+                 body.fiber_cut_min, body.poll_interval,
+                 int(body.wa_enabled), body.wa_target or "",
+                 int(body.email_enabled), body.email_target or "",
+                 body.genieacs_url or "", body.genieacs_username or "",
+                 body.genieacs_password or "",
+                 int(body.genieacs_auto_provision or 0), cid),
+            )
+        else:
+            conn.exec_driver_sql(
+                "INSERT INTO olt_settings (company_id, rx_warn_dbm, "
+                "rx_crit_dbm, fiber_cut_pct, fiber_cut_min, poll_interval, "
+                "wa_enabled, wa_target, email_enabled, email_target) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (cid, body.rx_warn_dbm, body.rx_crit_dbm, body.fiber_cut_pct,
+                 body.fiber_cut_min, body.poll_interval,
+                 int(body.wa_enabled), body.wa_target or "",
+                 int(body.email_enabled), body.email_target or ""),
+            )
+    return {"ok": True}
+
+# ──────────────────────────────────────────────────────────────────────────
+# _S39R5Q — TR-069 / GenieACS admin web UI
+# ──────────────────────────────────────────────────────────────────────────
+def _genie_base_for(cid: str) -> Optional[str]:
+    s = _settings_for(cid)
+    u = (s.get("genieacs_url") or "").rstrip("/")
+    return u or None
+
+
+def _genie_call(base: str, path: str, method: str = "GET",
+                payload: dict = None, params: dict = None):
+    import urllib.request, urllib.parse, json as _json
+    url = base + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    body = None
+    if payload is not None:
+        body = _json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, method=method,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            txt = resp.read().decode() or "null"
+            try:
+                return _json.loads(txt)
+            except Exception:
+                return {"raw": txt}
+    except Exception as e:
+        raise HTTPException(502, f"genieacs_error: {e}")
+
+
+def _genie_flatten(devs: list) -> list:
+    items = []
+    for d in devs or []:
+        dev = (d.get("_deviceId") or {})
+        igd = (d.get("InternetGatewayDevice") or {})
+        try:
+            ssid = (igd.get("LANDevice", {}).get("1", {})
+                    .get("WLANConfiguration", {}).get("1", {})
+                    .get("SSID", {}).get("_value"))
+        except Exception:
+            ssid = None
+        try:
+            wan_ip = (igd.get("WANDevice", {}).get("1", {})
+                      .get("WANConnectionDevice", {}).get("1", {})
+                      .get("WANPPPConnection", {}).get("1", {})
+                      .get("ExternalIPAddress", {}).get("_value"))
+        except Exception:
+            wan_ip = None
+        try:
+            sw = igd.get("DeviceInfo", {}).get("SoftwareVersion", {}).get("_value")
+        except Exception:
+            sw = None
+        items.append({
+            "id": d.get("_id"),
+            "serial": dev.get("_SerialNumber"),
+            "oui": dev.get("_OUI"),
+            "product_class": dev.get("_ProductClass"),
+            "last_inform": d.get("_lastInform"),
+            "software_version": sw,
+            "wifi_ssid": ssid,
+            "wan_ip": wan_ip,
+        })
+    return items
+
+
+@router.get("/admin/genieacs", response_class=HTMLResponse)
+def page_genieacs(request: Request):
+    cid, _ = _require_admin(request)
+    sc = _require_scope(request)
+    ctx = _portal_context(request, sc, "olt_genieacs")
+    base = _genie_base_for(cid)
+    ctx["genieacs_url"] = base or ""
+    s = _settings_for(cid)
+    ctx["settings"] = s
+    # _S40_AUTOPROV_ — expose flag so the page can toggle it
+    ctx["auto_provision"] = int(s.get("genieacs_auto_provision") or 0) == 1
+    return templates.TemplateResponse("admin_genieacs.html", ctx)
+
+
+@router.post("/api/admin/genieacs/auto-provision")
+def api_genie_set_autoprov(request: Request, body: dict = Body(default={})):
+    """_S40_AUTOPROV_ — toggle the auto-provision flag without a full
+    OLT-settings round-trip."""
+    cid, _ = _require_admin(request)
+    val = 1 if bool(body.get("enabled")) else 0
+    with engine.begin() as conn:
+        exists = conn.exec_driver_sql(
+            "SELECT 1 FROM olt_settings WHERE company_id=?", (cid,)
+        ).fetchone()
+        if exists:
+            conn.exec_driver_sql(
+                "UPDATE olt_settings SET genieacs_auto_provision=?, "
+                "updated_at=datetime('now') WHERE company_id=?",
+                (val, cid))
+        else:
+            conn.exec_driver_sql(
+                "INSERT INTO olt_settings (company_id, genieacs_auto_provision) "
+                "VALUES (?, ?)", (cid, val))
+    return {"ok": True, "enabled": bool(val)}
+
+
+@router.get("/api/admin/genieacs/recent-pushes")
+def api_genie_recent_pushes(request: Request, limit: int = 10):
+    """_S40b_ — last N TR-069 auto-pushes for this company (for the
+    GenieACS page widget). Most recent first."""
+    cid, _ = _require_admin(request)
+    limit = max(1, min(int(limit or 10), 100))
+    items = []
+    try:
+        with engine.begin() as conn:
+            rows = conn.exec_driver_sql(
+                "SELECT l.id, l.onu_id, l.onu_serial, l.customer_id, "
+                "l.reason, l.ok, l.skip, l.error, l.created_at, "
+                "n.wifi_ssid, n.wan_mode "
+                "FROM acs_push_log l "
+                "LEFT JOIN onus n ON n.id = l.onu_id AND n.company_id = l.company_id "
+                "WHERE l.company_id=? "
+                "ORDER BY l.id DESC LIMIT ?",
+                (cid, limit)).fetchall()
+        for r in rows:
+            items.append({
+                "id": r[0], "onu_id": r[1], "serial": r[2] or "",
+                "customer_id": r[3] or "", "reason": r[4] or "",
+                "ok": bool(r[5]), "skip": r[6] or "", "error": r[7] or "",
+                "created_at": r[8] or "",
+                "wifi_ssid": r[9] or "", "wan_mode": r[10] or "",
+            })
+    except Exception as e:
+        return {"ok": False, "error": str(e), "items": []}
+    return {"ok": True, "items": items}
+
+
+class BulkRepushIn(BaseModel):
+    onu_ids: Optional[List[int]] = None  # if None/empty -> all eligible
+    olt_id: Optional[int] = None         # filter by OLT
+    only_linked: bool = True             # only ONUs bound to a customer
+
+
+
+
+
+# ═══ _S40zy_  DELETE an ONU after factory-reset (frees serial / cleanup) ════
+@router.delete("/api/admin/olt/onus/{onu_id}")
+def api_delete_onu(request: Request, onu_id: int):
+    sc = _require_scope(request); cid, actor = sc["company_id"], sc["actor"]
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT n.id, n.olt_id, n.serial, n.status, n.customer_id, "
+            "       c.sub_lco_id, c.created_by_employee_id "
+            "FROM onus n "
+            "LEFT JOIN customers c ON c.customer_id=n.customer_id "
+            "AND c.company_id=n.company_id "
+            "WHERE n.id=? AND n.company_id=?",
+            (onu_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        # _S40zz_  Role scope — only admin can delete any ONU; sub-LCO /
+        # employee can delete only their own customer's ONU.
+        if sc["role"] == "sub_lco":
+            sid = request.session.get("sub_lco_db_id")
+            if not sid or row[5] != int(sid):
+                raise HTTPException(403, "ONU not in your sub-LCO scope")
+        elif sc["role"] == "employee":
+            eid = request.session.get("employee_id")
+            if not eid:
+                raise HTTPException(403, "Not authenticated")
+            # _S40zβ_  Employee can delete own OR sub-LCO sibling's ONU
+            if row[6] != int(eid):
+                with engine.begin() as eng_z:
+                    er = eng_z.exec_driver_sql(
+                        "SELECT sub_lco_id FROM employees WHERE id=? AND company_id=?",
+                        (int(eid), cid)).fetchone()
+                if not (er and er[0] and row[5] == int(er[0])):
+                    raise HTTPException(403, "ONU not in your employee scope")
+        # Safety guard — ONU must be offline / unprovisioned. Refuse to
+        # delete a live customer's ONU; the operator must factory-reset
+        # (or terminate the customer) first.
+        status = (row[3] or "").lower()
+        if status == "online":
+            raise HTTPException(400, "Cannot delete an ONLINE ONU. "
+                "Factory-reset or unprovision it first.")
+        conn.exec_driver_sql(
+            "DELETE FROM onus WHERE id=? AND company_id=?",
+            (onu_id, cid))
+        # Best-effort: drop any in-flight alerts referencing this ONU
+        try:
+            conn.exec_driver_sql(
+                "DELETE FROM olt_alerts WHERE onu_id=? AND company_id=?",
+                (onu_id, cid))
+        except Exception:
+            pass
+        # _S40zγ_  Cascade — remove the network_hardware pin tied to this
+        # ONU so the map doesn't keep an orphan pin around.
+        try:
+            conn.exec_driver_sql(
+                "DELETE FROM network_hardware "
+                "WHERE company_id=? AND kind='onu' AND ref_onu_id=?",
+                (cid, onu_id))
+        except Exception:
+            pass
+        # Audit
+        try:
+            conn.exec_driver_sql(
+                "INSERT INTO audit_log (company_id, actor, action, entity, "
+                "entity_id, meta) VALUES (?,?,?,?,?,?)",
+                (cid, actor, "delete", "onu", onu_id,
+                 f"serial={row[2]} olt_id={row[1]}"))
+        except Exception:
+            pass
+    return {"ok": True, "id": onu_id, "message": "ONU deleted."}
+
+
+@router.post("/api/admin/olt/onus/bulk-repush")
+def api_onu_bulk_repush(request: Request, body: BulkRepushIn):
+    """_S40b_ — Force a TR-069 re-push for many ONUs at once. Useful
+    after firmware/OLT swap or after a long ACS outage."""
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only")
+    cid = sc["company_id"]
+    s = _settings_for(cid)
+    if not (s.get("genieacs_url") or "").strip():
+        raise HTTPException(400, "GenieACS URL not configured")
+    where = ["company_id = ?"]
+    args = [cid]
+    if body.onu_ids:
+        # parameterised IN-list
+        ph = ",".join(["?"] * len(body.onu_ids))
+        where.append(f"id IN ({ph})")
+        args.extend(body.onu_ids)
+    if body.olt_id:
+        where.append("olt_id = ?")
+        args.append(body.olt_id)
+    if body.only_linked:
+        where.append("customer_id IS NOT NULL AND customer_id <> ''")
+    where.append("serial IS NOT NULL AND serial <> ''")
+    sql = f"SELECT id FROM onus WHERE {' AND '.join(where)} ORDER BY id ASC"
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(sql, tuple(args)).fetchall()
+    total = len(rows)
+    if total == 0:
+        return {"ok": True, "total": 0, "ok_count": 0,
+                "fail_count": 0, "results": [],
+                "message": "No matching ONUs to push."}
+    results = []
+    ok_n = fail_n = 0
+    # Cap per call to avoid blocking too long synchronously.
+    cap = 200
+    for (oid,) in rows[:cap]:
+        r = _genieacs_auto_push(cid, oid, reason=f"bulk-repush by {sc['actor']}")
+        is_ok = bool(r.get("ok"))
+        if is_ok: ok_n += 1
+        else: fail_n += 1
+        results.append({"onu_id": oid, "ok": is_ok,
+                        "skip": r.get("skip") or "",
+                        "error": r.get("error") or ""})
+    return {"ok": True, "total": total, "processed": len(results),
+            "ok_count": ok_n, "fail_count": fail_n,
+            "capped": total > cap, "results": results}
+
+
+@router.get("/api/admin/genieacs/devices")
+def api_genie_devices(request: Request, q: str = "", limit: int = 100):
+    cid, _ = _require_admin(request)
+    base = _genie_base_for(cid)
+    if not base:
+        return {"ok": False, "error": "genieacs_not_configured", "items": []}
+    import json as _json
+    qobj = {}
+    if q:
+        qobj = {"$or": [
+            {"_deviceId._SerialNumber": {"$regex": q, "$options": "i"}},
+            {"_deviceId._ProductClass": {"$regex": q, "$options": "i"}},
+        ]}
+    qs = {
+        "query": _json.dumps(qobj),
+        "limit": limit,
+        "projection": ("_id,_deviceId,_lastInform,"
+                        "InternetGatewayDevice.DeviceInfo.SoftwareVersion,"
+                        "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID,"
+                        "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress"),
+    }
+    data = _genie_call(base, "/devices", "GET", params=qs) or []
+    return {"ok": True, "items": _genie_flatten(data if isinstance(data, list) else [])}
+
+
+@router.post("/api/admin/genieacs/device/{device_id:path}/task")
+def api_genie_task(device_id: str, request: Request, body: dict = Body(...)):
+    cid, _ = _require_admin(request)
+    base = _genie_base_for(cid)
+    if not base:
+        raise HTTPException(400, "genieacs_not_configured")
+    kind = body.get("kind") or ""
+    payload = {"name": kind}
+    if kind == "refreshObject":
+        payload["objectName"] = body.get("objectName", "")
+    elif kind == "setParameterValues":
+        payload["parameterValues"] = body.get("parameterValues") or []
+    elif kind == "addObject":
+        payload["objectName"] = body.get("objectName", "")
+    from urllib.parse import quote
+    path = f"/devices/{quote(device_id, safe='')}/tasks"
+    r = _genie_call(base, path, "POST", payload=payload,
+                    params={"connection_request": 1})
+    return {"ok": True, "task": r}
+
+
+@router.post("/api/admin/genieacs/device/{device_id:path}/wifi")
+def api_genie_wifi(device_id: str, request: Request, body: dict = Body(...)):
+    cid, _ = _require_admin(request)
+    base = _genie_base_for(cid)
+    if not base:
+        raise HTTPException(400, "genieacs_not_configured")
+    ssid = body.get("ssid")
+    pw = body.get("password")
+    if not ssid and not pw:
+        raise HTTPException(400, "ssid_or_password_required")
+    pvs = []
+    if ssid:
+        pvs.append(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+                    ssid, "xsd:string"])
+    if pw:
+        pvs.extend([
+            ["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey",
+             pw, "xsd:string"],
+            ["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+             pw, "xsd:string"],
+        ])
+    from urllib.parse import quote
+    r = _genie_call(base, f"/devices/{quote(device_id, safe='')}/tasks",
+                    "POST",
+                    payload={"name": "setParameterValues",
+                             "parameterValues": pvs},
+                    params={"connection_request": 1})
+    return {"ok": True, "task": r}
+
+
+# ============================================================================
+# _v4727_  WireGuard provisioning — per-OLT peer keys + client .conf
+# ============================================================================
+import subprocess, ipaddress  # _v4727_  std-lib only
+
+WG_SERVER_PUBKEY   = 'rPNlggku9UuXJ5TlxcyyLW2/vSxOAJniJ8zQuKjw+g8='
+WG_SERVER_ENDPOINT = '185.199.53.93:51820'
+WG_DNS             = '1.1.1.1,8.8.8.8'
+WG_CONF_PATH       = "/etc/wireguard/wg0.conf"
+WG_PEER_BEGIN      = "# === BEGIN PEERS"
+WG_PEER_END        = "# === END PEERS"
+
+def _wg_genkeys():
+    """Generate (private, public) keypair via wg cli."""
+    priv = subprocess.check_output(["wg", "genkey"]).decode().strip()
+    pub  = subprocess.check_output(["wg", "pubkey"], input=priv.encode()).decode().strip()
+    return priv, pub
+
+def _wg_pick_next_ip(server_conf: str) -> str:
+    """_v4727wg2_  Find the next free address in the 10.50.0.0/16 pool.
+    Skips network/broadcast/server addresses and any peer already listed.
+    Capacity: 65,533 OLTs."""
+    used = set(["10.50.0.0", "10.50.0.1", "10.50.255.255"])
+    for m in re.finditer(r"AllowedIPs\s*=\s*([0-9.]+)/32", server_conf):
+        used.add(m.group(1))
+    # Sweep 10.50.0.2 .. 10.50.255.254 sequentially.
+    for third in range(0, 256):
+        start = 2 if third == 0 else 0
+        end   = 255 if third != 255 else 255
+        for fourth in range(start, end):
+            if third == 255 and fourth == 255: continue
+            ip = f"10.50.{third}.{fourth}"
+            if ip not in used:
+                return ip
+    raise HTTPException(500, "wg_pool_exhausted")
+
+def _wg_append_peer(name: str, pubkey: str, peer_ip: str) -> None:
+    """Append a peer block to wg0.conf (between BEGIN/END markers) and
+    hot-load it via `wg set wg0 peer ... allowed-ips ...`."""
+    block = (
+        f"\n# {name}\n"
+        f"[Peer]\n"
+        f"PublicKey = {pubkey}\n"
+        f"AllowedIPs = {peer_ip}/32\n"
+    )
+    with open(WG_CONF_PATH, "r") as f: txt = f.read()
+    if WG_PEER_END not in txt:
+        # Just append at end if markers missing
+        new_txt = txt + block
+    else:
+        new_txt = txt.replace(WG_PEER_END, block + WG_PEER_END, 1)
+    with open(WG_CONF_PATH, "w") as f: f.write(new_txt)
+    os.chmod(WG_CONF_PATH, 0o600)
+    # Hot-load peer
+    try:
+        subprocess.run(["wg", "set", "wg0",
+                        "peer", pubkey,
+                        "allowed-ips", f"{peer_ip}/32"],
+                       check=True, timeout=10)
+    except Exception as e:
+        # Fall back to full reload
+        try:
+            subprocess.run(["wg-quick", "down", "wg0"], timeout=10)
+            subprocess.run(["wg-quick", "up",   "wg0"], timeout=10)
+        except Exception: pass
+
+
+@router.post("/api/admin/olt/olts/{olt_id}/wg-config")
+def api_wg_config(request: Request, olt_id: int):
+    """_v4727_  Generate (or rotate) WireGuard credentials for an OLT and
+    return the client `.conf` text the operator pastes onto the OLT's router/
+    onsite PC."""
+    cid, _ = _require_admin(request)
+    with engine.begin() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id, name, connection_mode, vpn_address, vpn_peer_privkey, "
+            "       vpn_peer_pubkey FROM olts WHERE id=? AND company_id=?",
+            (olt_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "OLT not found")
+        # If we already have a keypair + address, just rebuild the client conf.
+        priv = row[4]; pub = row[5]; peer_ip = row[3] or ""
+        if not (priv and pub and peer_ip):
+            try:
+                with open(WG_CONF_PATH) as f: server_conf = f.read()
+            except Exception:
+                raise HTTPException(500, "wg_server_not_initialised")
+            priv, pub = _wg_genkeys()
+            peer_ip = _wg_pick_next_ip(server_conf)
+            _wg_append_peer(f"OLT-{olt_id}-{row[1]}", pub, peer_ip)
+            conn.exec_driver_sql(
+                "UPDATE olts SET vpn_peer_privkey=?, vpn_peer_pubkey=?, "
+                " vpn_address=?, connection_mode='vpn', host=? "
+                " WHERE id=? AND company_id=?",
+                (priv, pub, peer_ip, peer_ip, olt_id, cid))
+    client_conf = (
+        f"[Interface]\n"
+        f"PrivateKey = {priv}\n"
+        f"Address = {peer_ip}/16\n"
+        f"DNS = {WG_DNS}\n\n"
+        f"[Peer]\n"
+        f"PublicKey = {WG_SERVER_PUBKEY}\n"
+        f"Endpoint = {WG_SERVER_ENDPOINT}\n"
+        f"AllowedIPs = 10.50.0.0/24\n"
+        f"PersistentKeepalive = 25\n"
+    )
+    return {"ok": True, "client_conf": client_conf,
+            "vpn_address": peer_ip,
+            "server_pubkey": WG_SERVER_PUBKEY,
+            "server_endpoint": WG_SERVER_ENDPOINT}

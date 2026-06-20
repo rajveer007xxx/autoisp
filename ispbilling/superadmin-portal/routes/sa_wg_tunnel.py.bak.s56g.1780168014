@@ -1,0 +1,323 @@
+"""s56e — SuperAdmin Cloud Tunnel API for non-public-IP NAS (Mikrotik via WireGuard).
+
+Mounted under /opt/ispbilling/superadmin-portal/routes/sa_wg_tunnel.py.
+Endpoints:
+  POST   /api/superadmin/admins/{cid}/nas/{nas_id}/wg-setup
+  GET    /api/superadmin/admins/{cid}/nas/{nas_id}/wg-status
+  DELETE /api/superadmin/admins/{cid}/nas/{nas_id}/wg-tunnel
+
+Design:
+  • Server keys + wg0 interface already exist (10.50.0.1/16, port 51820).
+  • OLT peers occupy 10.50.0.x — we carve out 10.50.128.0/17 for NAS peers
+    (8192 NAS peers max, more than we'll ever need).
+  • Each peer gets a /30 inside that subnet: cloud side = .1, NAS side = .2.
+    Cloud side address is auto-assigned to wg0 alias.
+  • Per-NAS WG state is stored in nas_devices.wg_* columns (auto-migrated).
+"""
+from fastapi import APIRouter, Request, HTTPException
+from pydantic import BaseModel
+import subprocess, sqlite3, secrets, base64, time, datetime, os
+from typing import Optional
+
+router = APIRouter()
+
+
+def register(app, **_):
+    """Same shape as sa_nas_oneclick.register so main.py can wire us up."""
+    app.include_router(router)
+    print("[sa_wg_tunnel] superadmin router wired")
+
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+WG_IFACE = "wg0"
+WG_CONF  = "/etc/wireguard/wg0.conf"
+WG_SERVER_PUB = "/etc/wireguard/server_public.key"
+NAS_POOL_BASE = "10.50.128.0/17"   # 10.50.128.0 .. 10.50.255.255
+RADIUS_LISTEN = "10.50.0.1"        # Same VPS, accessible to every peer
+
+# Best-effort: read cloud endpoint hostname/IP for the Mikrotik script
+DEFAULT_ENDPOINT_HOST = os.environ.get("WG_PUBLIC_HOST", "185.199.53.93")
+DEFAULT_LISTEN_PORT = "51820"
+
+
+# ---------------------------------------------------------------------------
+# Schema migration (idempotent, runs on import).
+# ---------------------------------------------------------------------------
+def _ensure_schema():
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(nas_devices)")}
+        adds = []
+        if "wg_tunnel_ip"    not in cols: adds.append("ADD COLUMN wg_tunnel_ip TEXT")
+        if "wg_peer_pubkey"  not in cols: adds.append("ADD COLUMN wg_peer_pubkey TEXT")
+        if "wg_peer_privkey" not in cols: adds.append("ADD COLUMN wg_peer_privkey TEXT")
+        if "wg_provisioned_at" not in cols: adds.append("ADD COLUMN wg_provisioned_at TEXT")
+        for a in adds:
+            try: con.execute(f"ALTER TABLE nas_devices {a}")
+            except Exception: pass
+_ensure_schema()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _read_server_pubkey() -> str:
+    try:
+        return open(WG_SERVER_PUB).read().strip()
+    except Exception:
+        # Fallback: ask the live interface
+        try:
+            r = subprocess.run(["wg", "show", WG_IFACE, "public-key"],
+                               capture_output=True, text=True, timeout=4)
+            return (r.stdout or "").strip()
+        except Exception:
+            return ""
+
+
+def _gen_keypair():
+    """Return (private, public) base64 strings using `wg genkey | wg pubkey`."""
+    g = subprocess.run(["wg", "genkey"], capture_output=True, text=True, timeout=4)
+    priv = (g.stdout or "").strip()
+    p = subprocess.run(["wg", "pubkey"], input=priv,
+                       capture_output=True, text=True, timeout=4)
+    pub = (p.stdout or "").strip()
+    return priv, pub
+
+
+def _allocate_nas_ip(con) -> str:
+    """Pick the next free /30 in 10.50.128.0/17. NAS side = .2 of the /30."""
+    used = set()
+    for (ip,) in con.execute("SELECT wg_tunnel_ip FROM nas_devices "
+                             "WHERE wg_tunnel_ip IS NOT NULL AND wg_tunnel_ip != ''"):
+        used.add(ip.split("/")[0])
+    # Iterate /30 blocks: 10.50.128.0, .4, .8, ...
+    base = 128 * 256       # offset within 10.50.0.0/16 (host portion)
+    for n in range(base, 256 * 256, 4):
+        nas_side = f"10.50.{n // 256}.{(n % 256) + 2}"
+        if nas_side in used:
+            continue
+        return nas_side
+    raise HTTPException(status_code=507, detail="WG NAS pool exhausted")
+
+
+def _wg_set_peer(pubkey: str, allowed_ip: str):
+    """Add peer to LIVE wg0 with zero downtime."""
+    subprocess.run(
+        ["wg", "set", WG_IFACE, "peer", pubkey,
+         "allowed-ips", allowed_ip + "/32"],
+        check=True, timeout=5
+    )
+    # Persist into the on-disk config so survives reboot.
+    _persist_peer_in_conf(pubkey, allowed_ip, action="add")
+
+
+def _wg_remove_peer(pubkey: str):
+    if not pubkey: return
+    try:
+        subprocess.run(["wg", "set", WG_IFACE, "peer", pubkey, "remove"],
+                       check=False, timeout=5)
+    except Exception: pass
+    _persist_peer_in_conf(pubkey, "", action="remove")
+
+
+def _persist_peer_in_conf(pubkey: str, allowed_ip: str, action: str):
+    """Append/remove a [Peer] block in wg0.conf, kept between the two markers."""
+    BEGIN = "# === BEGIN PEERS (managed by /api/admin/olt/olts/<id>/wg-config) ==="
+    END   = "# === END PEERS ==="
+    try:
+        txt = open(WG_CONF).read()
+    except Exception:
+        return
+    if BEGIN not in txt or END not in txt:
+        return
+    head, mid_end = txt.split(BEGIN, 1)
+    mid, tail = mid_end.split(END, 1)
+    # Build new mid by filtering out existing peer blocks for this pubkey
+    blocks = [b.strip() for b in mid.split("\n\n") if b.strip()]
+    keep = [b for b in blocks if pubkey not in b]
+    if action == "add":
+        keep.append(
+            f"# NAS-PEER-{pubkey[:8]}\n[Peer]\n"
+            f"PublicKey = {pubkey}\nAllowedIPs = {allowed_ip}/32"
+        )
+    new_mid = "\n\n" + "\n\n".join(keep) + "\n\n"
+    new_txt = head + BEGIN + new_mid + END + tail
+    tmp = WG_CONF + ".tmp"
+    open(tmp, "w").write(new_txt)
+    os.replace(tmp, WG_CONF)
+    os.chmod(WG_CONF, 0o600)
+
+
+def _wg_show_peer(pubkey: str) -> dict:
+    """Return latest-handshake/rx/tx + endpoint for a single peer."""
+    if not pubkey:
+        return {}
+    try:
+        r = subprocess.run(["wg", "show", WG_IFACE, "dump"],
+                           capture_output=True, text=True, timeout=4)
+        for line in (r.stdout or "").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 6 and parts[0] == pubkey:
+                # parts: pubkey psk endpoint allowed-ips latest_handshake rx tx kalive
+                ts = int(parts[4]) if parts[4].isdigit() else 0
+                return {
+                    "peer_pubkey": pubkey,
+                    "endpoint":    parts[2] if parts[2] != "(none)" else "",
+                    "allowed_ips": parts[3],
+                    "last_handshake_epoch": ts,
+                    "rx_bytes": int(parts[5]) if parts[5].isdigit() else 0,
+                    "tx_bytes": int(parts[6]) if parts[6].isdigit() else 0,
+                }
+    except Exception:
+        pass
+    return {"peer_pubkey": pubkey}
+
+
+def _human_age(epoch: int) -> str:
+    if not epoch: return ""
+    dt = int(time.time()) - epoch
+    if dt < 90:   return f"{dt}s ago"
+    if dt < 3600: return f"{dt // 60}m ago"
+    if dt < 86400: return f"{dt // 3600}h {(dt % 3600) // 60}m ago"
+    return f"{dt // 86400}d ago"
+
+
+def _human_bytes(n: int) -> str:
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024: return f"{n:.1f} {u}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def _mikrotik_script(nas_priv: str, nas_ip: str, server_pub: str,
+                     endpoint_host: str, listen_port: str,
+                     radius_secret: str) -> str:
+    """Build a paste-ready RouterOS 7.x configuration block."""
+    return (
+        "# === Cloud Tunnel for autoispbilling.com — paste in Mikrotik terminal ===\n"
+        "/interface wireguard\n"
+        '  add name=cloud-tun listen-port=13231 \\\n'
+        f'      private-key="{nas_priv}"\n'
+        "/interface wireguard peers\n"
+        "  add interface=cloud-tun \\\n"
+        f'      public-key="{server_pub}" \\\n'
+        f'      endpoint-address={endpoint_host} endpoint-port={listen_port} \\\n'
+        "      allowed-address=10.50.0.0/16 persistent-keepalive=25s\n"
+        "/ip address\n"
+        f"  add address={nas_ip}/30 interface=cloud-tun\n"
+        "/ip route\n"
+        f"  add dst-address=10.50.0.0/16 gateway=cloud-tun\n"
+        "/radius\n"
+        f"  add address=10.50.0.1 secret={radius_secret} service=ppp,login,hotspot timeout=2s\n"
+        "/radius incoming\n"
+        "  set accept=yes\n"
+        "# === End ===\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared helper — used by both SuperAdmin 1-click and Admin Add-NAS flow.
+# ---------------------------------------------------------------------------
+def provision_peer_for_nas(nas_id: int, company_id: str) -> dict:
+    """Idempotent: if a peer already exists for this NAS, rotates the key
+    pair (old peer atomically removed from wg0). Returns a dict suitable
+    for direct JSON return: tunnel_ip, radius_ip, server_pubkey, endpoint,
+    mikrotik_script.
+
+    Raises HTTPException with the same status codes as the SA endpoint.
+    """
+    server_pub = _read_server_pubkey()
+    if not server_pub:
+        raise HTTPException(500, "WireGuard server public key not found "
+                            "(/etc/wireguard/server_public.key)")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM nas_devices WHERE id=? AND company_id=?",
+                          (nas_id, company_id)).fetchone()
+        if not row:
+            raise HTTPException(404, f"NAS {nas_id} not found for admin {company_id}")
+        # Revoke existing peer if rotating
+        if row["wg_peer_pubkey"]:
+            _wg_remove_peer(row["wg_peer_pubkey"])
+        nas_ip = _allocate_nas_ip(con)
+        priv, pub = _gen_keypair()
+        _wg_set_peer(pub, nas_ip)
+        con.execute(
+            "UPDATE nas_devices SET wg_tunnel_ip=?, wg_peer_pubkey=?, "
+            "  wg_peer_privkey=?, wg_provisioned_at=? WHERE id=?",
+            (f"{nas_ip}/30", pub, priv,
+             datetime.datetime.utcnow().isoformat(), nas_id)
+        )
+        radius_secret = row["secret"] or "changeme"
+        script = _mikrotik_script(
+            nas_priv=priv, nas_ip=nas_ip, server_pub=server_pub,
+            endpoint_host=DEFAULT_ENDPOINT_HOST,
+            listen_port=DEFAULT_LISTEN_PORT,
+            radius_secret=radius_secret,
+        )
+    return {
+        "ok": True,
+        "nas_id": nas_id,
+        "tunnel_ip": nas_ip,
+        "radius_ip": RADIUS_LISTEN,
+        "server_pubkey": server_pub,
+        "endpoint": f"{DEFAULT_ENDPOINT_HOST}:{DEFAULT_LISTEN_PORT}",
+        "mikrotik_script": script,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+class _SetupIn(BaseModel):
+    force_rotate: bool = False
+
+
+@router.post("/api/superadmin/admins/{cid}/nas/{nas_id}/wg-setup")
+def wg_setup(cid: str, nas_id: int, body: _SetupIn, request: Request):
+    if not request.session.get("superadmin"):
+        raise HTTPException(401, "Not authorised")
+    return provision_peer_for_nas(nas_id, cid)
+
+
+@router.get("/api/superadmin/admins/{cid}/nas/{nas_id}/wg-status")
+def wg_status(cid: str, nas_id: int, request: Request):
+    if not request.session.get("superadmin"):
+        raise HTTPException(401, "Not authorised")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT * FROM nas_devices WHERE id=? AND company_id=?",
+                          (nas_id, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, f"NAS {nas_id} not found for admin {cid}")
+        info = _wg_show_peer(row["wg_peer_pubkey"] or "")
+        ts = info.get("last_handshake_epoch", 0)
+        healthy = ts and (int(time.time()) - ts) < 180  # last 3 min
+        return {
+            "ok": True,
+            "tunnel_ip": (row["wg_tunnel_ip"] or "").split("/")[0],
+            "peer_pubkey": row["wg_peer_pubkey"] or "",
+            "endpoint": info.get("endpoint", ""),
+            "last_handshake_epoch": ts,
+            "last_handshake_human": _human_age(ts),
+            "rx_bytes": info.get("rx_bytes", 0),
+            "tx_bytes": info.get("tx_bytes", 0),
+            "rx_human": _human_bytes(info.get("rx_bytes", 0)),
+            "tx_human": _human_bytes(info.get("tx_bytes", 0)),
+            "healthy": bool(healthy),
+        }
+
+
+@router.delete("/api/superadmin/admins/{cid}/nas/{nas_id}/wg-tunnel")
+def wg_revoke(cid: str, nas_id: int, request: Request):
+    if not request.session.get("superadmin"):
+        raise HTTPException(401, "Not authorised")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        row = con.execute(
+            "SELECT wg_peer_pubkey FROM nas_devices WHERE id=? AND company_id=?",
+            (nas_id, cid)).fetchone()
+        if row and row[0]:
+            _wg_remove_peer(row[0])
+        con.execute(
+            "UPDATE nas_devices SET wg_tunnel_ip=NULL, wg_peer_pubkey=NULL, "
+            "  wg_peer_privkey=NULL, wg_provisioned_at=NULL WHERE id=?",
+            (nas_id,))
+    return {"ok": True, "revoked": True}

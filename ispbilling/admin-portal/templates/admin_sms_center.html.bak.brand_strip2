@@ -1,0 +1,154 @@
+{% extends base_template|default("base_admin.html") %}
+{% block title %}SMS Center - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.sms-card{background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.sms-card h3{margin:0 0 14px;font-size:18px;color:#0b1120;font-weight:600;}
+.sms-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:1024px){.sms-grid{grid-template-columns:1fr;}}
+.sms-textarea{width:100%;min-height:100px;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;}
+.sms-input{width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;}
+.sms-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;}
+.sms-btn:hover{opacity:.9;}
+.sms-btn.gray{background:#475569;}
+.sms-btn.danger{background:#ef4444;}
+.recipient-row{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;}
+.recipient-row small{color:#64748b;}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+.tag.sent{background:#dcfce7;color:#15803d;}
+.tag.failed{background:#fee2e2;color:#b91c1c;}
+.tag.pending{background:#fef3c7;color:#a16207;}
+.char-count{color:#64748b;font-size:12px;margin-top:4px;}
+.recipient-pill{display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#4338ca;padding:4px 10px;border-radius:20px;font-size:12px;margin:2px;}
+.recipient-pill button{background:none;border:none;color:#4338ca;cursor:pointer;font-weight:700;}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;}
+table td{padding:10px;border-bottom:1px solid #e2e8f0;font-size:13px;}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+</style>
+
+<section class="content-header"><h1>SMS Center<small>Send single & bulk SMS via MSG91</small></h1></section>
+
+<section class="content">
+<div class="sms-grid">
+  <!-- Single / Bulk send -->
+  <div class="sms-card">
+    <h3><i class="bi bi-chat-text-fill" style="color:#6366f1"></i> Compose SMS</h3>
+    <div style="margin-bottom:12px;">
+      <label style="font-weight:600;font-size:13px;">Recipients</label>
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <input type="text" id="recipientSearch" class="sms-input" placeholder="Search customer name / phone / id..." data-testid="sms-recipient-search" oninput="searchCust()" />
+        <button class="sms-btn gray" type="button" onclick="addAllActive()" data-testid="sms-add-active-btn">+ All Active</button>
+      </div>
+      <div id="searchResults" style="max-height:160px;overflow:auto;margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;display:none;"></div>
+      <div id="selectedPills" style="margin-top:10px;min-height:32px;"></div>
+      <div class="char-count"><span id="recipientCount">0</span> recipients selected</div>
+    </div>
+    <label style="font-weight:600;font-size:13px;">Message</label>
+    <textarea id="smsBody" class="sms-textarea" placeholder="Type SMS body. Use {{name}} as placeholder for customer name." data-testid="sms-body" oninput="updateChars()"></textarea>
+    <div class="char-count"><span id="charCount">0</span> chars · <span id="smsCount">1</span> SMS</div>
+    <div style="margin-top:14px;display:flex;gap:8px;">
+      <button class="sms-btn" onclick="sendSMS()" data-testid="sms-send-btn">Send SMS</button>
+      <button class="sms-btn gray" onclick="document.getElementById('smsBody').value=''; selected=[]; renderSelected();">Clear</button>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="sms-card">
+    <h3><i class="bi bi-list-ul" style="color:#10b981"></i> Recent SMS Logs <button class="sms-btn gray" style="float:right;padding:6px 12px;font-size:12px;" onclick="loadLogs()" data-testid="sms-refresh-logs-btn">Refresh</button></h3>
+    <div id="smsLogsTable" style="max-height:540px;overflow:auto;">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script>
+let selected = [];
+let allRecipients = [];
+
+async function searchCust(){
+  const q = document.getElementById('recipientSearch').value.trim();
+  if(!q){ document.getElementById('searchResults').style.display='none'; return; }
+  const r = await fetch('/api/sms/recipients?q='+encodeURIComponent(q)+'&limit=50',{credentials:'include'});
+  const d = await r.json();
+  if(!d.success){ return; }
+  allRecipients = d.items;
+  const div = document.getElementById('searchResults');
+  div.innerHTML = d.items.map(x =>
+    `<div class="recipient-row" onclick='addRecipient(${JSON.stringify(x).replace(/'/g,"&#39;")})' style="cursor:pointer;">
+       <div style="flex:1"><b>${x.name||'-'}</b> <small>${x.phone}</small><br><small>${x.customer_id} · ${x.locality||''} · ${x.status||''}</small></div>
+     </div>`
+  ).join('') || '<div class="empty">No matches</div>';
+  div.style.display='block';
+}
+function addRecipient(x){
+  if(selected.find(s=>s.customer_id===x.customer_id)) return;
+  selected.push(x);
+  renderSelected();
+  document.getElementById('searchResults').style.display='none';
+  document.getElementById('recipientSearch').value='';
+}
+async function addAllActive(){
+  const r = await fetch('/api/sms/recipients?limit=2000',{credentials:'include'});
+  const d = await r.json();
+  if(!d.success) return;
+  d.items.filter(x=>x.status==='Active').forEach(x=>{
+    if(!selected.find(s=>s.customer_id===x.customer_id)) selected.push(x);
+  });
+  renderSelected();
+}
+function removeRecipient(cid){
+  selected = selected.filter(s=>s.customer_id!==cid); renderSelected();
+}
+function renderSelected(){
+  document.getElementById('selectedPills').innerHTML = selected.map(x =>
+    `<span class="recipient-pill" data-testid="sms-pill-${x.customer_id}">${x.name||x.phone} <button onclick="removeRecipient('${x.customer_id}')">×</button></span>`
+  ).join('');
+  document.getElementById('recipientCount').textContent = selected.length;
+}
+function updateChars(){
+  const v = document.getElementById('smsBody').value;
+  document.getElementById('charCount').textContent = v.length;
+  document.getElementById('smsCount').textContent = Math.max(1, Math.ceil(v.length/160));
+}
+async function sendSMS(){
+  const body = document.getElementById('smsBody').value.trim();
+  if(!body){ alert('Type a message'); return; }
+  if(selected.length===0){ alert('Pick at least one recipient'); return; }
+  if(!confirm(`Send SMS to ${selected.length} recipient(s)?`)) return;
+  const r = await fetch('/api/sms/send',{
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({recipients: selected, body})
+  });
+  const d = await r.json();
+  if(d.success){
+    alert(`Sent: ${d.sent} · Failed: ${d.failed}`);
+    selected = []; renderSelected(); document.getElementById('smsBody').value=''; updateChars();
+    loadLogs();
+  } else {
+    alert('Error: '+(d.message||'unknown'));
+  }
+}
+async function loadLogs(){
+  const r = await fetch('/api/sms/logs?limit=100',{credentials:'include'});
+  const d = await r.json();
+  if(!d.success){ document.getElementById('smsLogsTable').innerHTML='<div class="empty">Error</div>'; return; }
+  if(d.items.length===0){ document.getElementById('smsLogsTable').innerHTML='<div class="empty">No SMS logs yet</div>'; return; }
+  document.getElementById('smsLogsTable').innerHTML = `
+    <table><thead><tr><th>When</th><th>To</th><th>Body</th><th>Status</th></tr></thead><tbody>
+    ${d.items.map(x => `
+      <tr>
+        <td><small>${x.created_at.substring(0,16)}</small></td>
+        <td><b>${x.name||'-'}</b><br><small>${x.phone}</small></td>
+        <td><small>${(x.body||'').substring(0,80)}${(x.body||'').length>80?'…':''}</small></td>
+        <td><span class="tag ${x.status==='sent'?'sent':'failed'}">${x.status}</span>
+            ${x.error?`<br><small style="color:#b91c1c">${x.error.substring(0,40)}</small>`:''}</td>
+      </tr>
+    `).join('')}
+    </tbody></table>`;
+}
+loadLogs();
+</script>
+{% endblock %}

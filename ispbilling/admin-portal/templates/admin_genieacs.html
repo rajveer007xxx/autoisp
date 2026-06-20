@@ -1,0 +1,294 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}TR-069 / ACS · AutoISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --g-bg:#0B0F1A; --g-card:#161D2E; --g-line:#1F2940;
+    --g-fg:#E7ECF5; --g-mute:#8A93A6; --g-cyan:#00E5FF;
+    --g-violet:#7C5CFF; --g-green:#22C55E; --g-amber:#F59E0B;
+    --g-red:#EF4444;
+  }
+  .g-shell { color:var(--g-fg); padding:18px 6px 60px; }
+  .g-h1 { font-size:22px; font-weight:800; letter-spacing:-.4px; margin:0 0 4px; }
+  .g-sub { color:var(--g-mute); font-size:13px; margin-bottom:18px; }
+  .g-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .g-tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--g-mute);
+    border:1px solid var(--g-line); background:var(--g-card); }
+  .g-tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,
+    var(--g-cyan), var(--g-violet)); border-color:transparent; font-weight:700; }
+  .g-row { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .g-row input { flex:1; min-width:240px; background:var(--g-card);
+    color:var(--g-fg); border:1px solid var(--g-line); border-radius:12px;
+    padding:10px 14px; font-size:14px; }
+  .g-btn { padding:10px 16px; border-radius:12px; border:none; font-weight:700;
+    cursor:pointer; font-size:13px; }
+  .g-btn.primary { background:linear-gradient(135deg, var(--g-cyan), var(--g-violet)); color:#0B0F1A; }
+  .g-btn.warn    { background:var(--g-amber); color:#0B0F1A; }
+  .g-btn.danger  { background:var(--g-red); color:#fff; }
+  .g-btn.ghost   { background:transparent; border:1px solid var(--g-line); color:var(--g-fg); }
+  .g-card { background:var(--g-card); border:1px solid var(--g-line);
+    border-radius:14px; padding:14px; margin-bottom:10px; }
+  .g-dev { display:grid; grid-template-columns:auto 1fr auto;
+    gap:14px; align-items:center; }
+  .g-dev .icon { width:42px; height:42px; border-radius:12px;
+    background:rgba(0,229,255,.08); display:flex; align-items:center;
+    justify-content:center; }
+  .g-dev .meta { font-size:13px; color:var(--g-mute); }
+  .g-dev .ttl { color:var(--g-fg); font-weight:700; }
+  table.g-tbl { width:100%; border-collapse:collapse; }
+  table.g-tbl th, table.g-tbl td { text-align:left; padding:10px 12px;
+    border-bottom:1px solid var(--g-line); font-size:13px; }
+  table.g-tbl th { color:var(--g-mute); font-weight:600;
+    text-transform:uppercase; font-size:10.5px; letter-spacing:1px; }
+  .pill { padding:3px 9px; border-radius:99px; font-size:11px; font-weight:700; }
+  .pill.ok   { background:rgba(34,197,94,.16); color:var(--g-green); }
+  .pill.warn { background:rgba(245,158,11,.16); color:var(--g-amber); }
+  .empty { text-align:center; padding:32px; color:var(--g-mute); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55);
+    display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal.on { display:flex; }
+  .modal .mc { background:var(--g-card); border:1px solid var(--g-line);
+    border-radius:18px; padding:24px; max-width:420px; width:92%; }
+  .modal label { display:block; color:var(--g-mute); font-size:11px;
+    margin-top:14px; text-transform:uppercase; letter-spacing:1px; }
+  .modal input { width:100%; padding:10px 12px; border-radius:10px;
+    border:1px solid var(--g-line); background:var(--g-bg); color:var(--g-fg);
+    font-size:14px; margin-top:6px; }
+</style>
+
+<div class="g-shell" data-testid="genieacs-shell">
+  <h1 class="g-h1">TR-069 / ACS</h1>
+  <p class="g-sub">Manage CPE/ONT devices that have provisioned with the
+    ACS server. Tap a row to expand. Changes execute on the next inform cycle.</p>
+
+  <nav class="g-tabs">
+    <a href="/admin/olt/dashboard" data-testid="g-tab-dashboard">OLT Dashboard</a>
+    <a href="/admin/olt/onus" data-testid="g-tab-onus">ONU Manage</a>
+    <a href="/admin/olt/alerts" data-testid="g-tab-alerts">Alerts</a>
+    <a class="on" href="/admin/genieacs" data-testid="g-tab-genieacs">TR-069</a>
+    <a href="/admin/olt/system-config" data-testid="g-tab-sysconfig">System Config</a>
+  </nav>
+
+  {% if not genieacs_url %}
+    <div class="g-card" data-testid="genieacs-not-configured">
+      <strong style="color:var(--g-amber);">⚠ ACS URL not set.</strong>
+      Open <a href="/admin/olt/system-config" style="color:var(--g-cyan);">System Config</a>
+      and fill in the ACS NBI URL (e.g. <code>https://acs.autoispbilling.com:7557</code>).
+    </div>
+  {% else %}
+    <div class="g-card" style="display:flex;align-items:center;gap:12px;">
+      <div style="font-size:20px;">🔗</div>
+      <div style="flex:1;">
+        <div class="g-dev .meta">ACS NBI</div>
+        <code style="color:var(--g-cyan);" data-testid="g-nbi-url">{{ genieacs_url }}</code>
+      </div>
+      <!-- _S40_AUTOPROV_ toggle -->
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"
+             title="Auto-push Wi-Fi / WAN / PPPoE updates to ACS as soon as they are saved">
+        <input type="checkbox" id="g-autoprov-toggle"
+               data-testid="g-autoprov-toggle"
+               {% if auto_provision %}checked{% endif %}
+               onchange="toggleAutoProv(this.checked)" />
+        <span style="user-select:none;">Auto-Provision <span style="color:var(--g-mute);">(push on save)</span></span>
+      </label>
+    </div>
+    <script>
+      async function toggleAutoProv(enabled) {
+        try {
+          const r = await fetch("/api/admin/genieacs/auto-provision", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({enabled: enabled}),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || "save failed");
+        } catch (e) {
+          alert("Failed to update auto-provision flag: " + e.message);
+          document.getElementById("g-autoprov-toggle").checked = !enabled;
+        }
+      }
+    </script>
+
+    <!-- _S40b_ — Last 10 ACS pushes widget -->
+    <div class="g-card" data-testid="g-recent-pushes-card"
+         style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:18px;">📜</div>
+        <div style="flex:1;font-weight:600;">Recent Auto-Pushes</div>
+        <button class="g-btn ghost" type="button" onclick="loadRecentPushes()"
+                data-testid="g-recent-refresh-btn"
+                style="font-size:12px;padding:4px 10px;">Refresh</button>
+      </div>
+      <div id="g-recent-list" data-testid="g-recent-list"
+           style="font-size:12px;color:var(--g-mute);font-family:monospace;line-height:1.6;">
+        Loading…
+      </div>
+    </div>
+    <script>
+      async function loadRecentPushes() {
+        const box = document.getElementById("g-recent-list");
+        box.innerText = "Loading…";
+        try {
+          const r = await fetch("/api/admin/genieacs/recent-pushes?limit=10");
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || "fetch failed");
+          if (!j.items.length) {
+            box.innerHTML = '<span style="color:var(--g-mute);">No pushes yet — settings will start logging here as soon as Wi-Fi / WAN / PPPoE updates are saved.</span>';
+            return;
+          }
+          box.innerHTML = j.items.map(it => {
+            const ts = (it.created_at || "").replace("T", " ").substring(0, 16);
+            const who = it.customer_id ? ("→ " + it.customer_id)
+                       : (it.serial ? "ONU " + it.serial : "");
+            const status = it.ok
+              ? '<span style="color:#3dd67b;">✓ OK</span>'
+              : '<span style="color:#ef6a6a;">✗ ' + (it.skip || it.error || "fail") + '</span>';
+            const reason = it.reason ? ' (' + it.reason + ')' : '';
+            return `<div data-testid="g-recent-row-${it.id}">${ts} — ${status} ${who}${reason}</div>`;
+          }).join("");
+        } catch (e) {
+          box.innerText = "Error: " + (e.message || e);
+        }
+      }
+      // Auto-load on page open
+      document.addEventListener("DOMContentLoaded", loadRecentPushes);
+    </script>
+
+    <div class="g-row">
+      <input id="g-q" placeholder="Search by serial / product class…"
+             data-testid="g-search-input" />
+      <button class="g-btn primary" onclick="loadDevices()"
+              data-testid="g-search-btn">Search</button>
+      <button class="g-btn ghost" onclick="loadDevices()"
+              data-testid="g-refresh-btn">Refresh</button>
+    </div>
+
+    <div id="g-list" data-testid="g-list">
+      <div class="empty" data-testid="g-empty">Loading…</div>
+    </div>
+  {% endif %}
+
+  <!-- Wi-Fi modal -->
+  <div class="modal" id="g-wifi-modal" data-testid="g-wifi-modal">
+    <div class="mc">
+      <h3 style="margin:0 0 6px;">Edit Wi-Fi</h3>
+      <p style="color:var(--g-mute);margin:0 0 6px;font-size:12px;">
+        SN: <code id="g-wifi-sn"></code></p>
+      <label>SSID</label>
+      <input id="g-wifi-ssid" placeholder="MyHomeWiFi" data-testid="g-wifi-ssid" />
+      <label>Password (leave blank to keep)</label>
+      <input id="g-wifi-pw" placeholder="••••••" data-testid="g-wifi-pw" />
+      <div style="display:flex;gap:10px;margin-top:18px;">
+        <button class="g-btn ghost" onclick="closeWifi()"
+                data-testid="g-wifi-cancel">Cancel</button>
+        <button class="g-btn primary" onclick="saveWifi()"
+                data-testid="g-wifi-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let _devs = [];
+let _editing = null;
+
+function escHtml(s){return (s+'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+async function loadDevices(){
+  const list = document.getElementById('g-list');
+  if(!list) return;
+  const q = document.getElementById('g-q').value.trim();
+  list.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const r = await fetch(`/api/admin/genieacs/devices?q=${encodeURIComponent(q)}&limit=200`);
+    const j = await r.json();
+    if(!j.ok){
+      list.innerHTML = `<div class="empty" style="color:var(--g-amber);">${escHtml(j.error||'Failed to load')}</div>`;
+      return;
+    }
+    _devs = j.items || [];
+    if(!_devs.length){
+      list.innerHTML = '<div class="empty">No CPE devices reported yet.<br>'
+        +'Configure your ONUs/CPEs to use this ACS URL.</div>';
+      return;
+    }
+    list.innerHTML = `
+      <table class="g-tbl"><thead><tr>
+        <th>Serial</th><th>Product</th><th>Software</th>
+        <th>SSID</th><th>WAN IP</th><th>Last Inform</th><th></th>
+      </tr></thead><tbody>` + _devs.map((d, i) => `
+        <tr data-testid="g-row-${escHtml(d.serial||d.id)}">
+          <td><strong>${escHtml(d.serial||'—')}</strong>
+              <div class="g-dev .meta" style="font-size:10.5px;">OUI ${escHtml(d.oui||'')}</div></td>
+          <td>${escHtml(d.product_class||'—')}</td>
+          <td>${escHtml(d.software_version||'—')}</td>
+          <td>${escHtml(d.wifi_ssid||'—')}</td>
+          <td>${escHtml(d.wan_ip||'—')}</td>
+          <td>${escHtml(d.last_inform||'—')}</td>
+          <td style="white-space:nowrap;">
+            <button class="g-btn primary" data-testid="g-wifi-${i}"
+                    onclick="openWifi(${i})">Wi-Fi</button>
+            <button class="g-btn warn" data-testid="g-reboot-${i}"
+                    onclick="sendTask(${i},'reboot','Reboot')">Reboot</button>
+            <button class="g-btn danger" data-testid="g-factory-${i}"
+                    onclick="sendTask(${i},'factoryReset','Factory Reset')">Factory</button>
+          </td>
+        </tr>
+      `).join('') + '</tbody></table>';
+  } catch(e){
+    list.innerHTML = `<div class="empty" style="color:var(--g-red);">Error: ${escHtml(e.message||e)}</div>`;
+  }
+}
+
+async function sendTask(idx, kind, label){
+  const d = _devs[idx]; if(!d) return;
+  if(!confirm(`Send ${label} to ${d.serial}?`)) return;
+  try {
+    const r = await fetch(`/api/admin/genieacs/device/${encodeURIComponent(d.id)}/task`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind })
+    });
+    const j = await r.json();
+    alert(j.ok ? `${label} queued. Will execute on next inform.` : (j.detail || 'Failed'));
+  } catch(e){ alert(e.message||e); }
+}
+
+function openWifi(idx){
+  const d = _devs[idx]; if(!d) return;
+  _editing = d;
+  document.getElementById('g-wifi-sn').textContent = d.serial || d.id;
+  document.getElementById('g-wifi-ssid').value = d.wifi_ssid || '';
+  document.getElementById('g-wifi-pw').value = '';
+  document.getElementById('g-wifi-modal').classList.add('on');
+}
+function closeWifi(){
+  document.getElementById('g-wifi-modal').classList.remove('on');
+  _editing = null;
+}
+async function saveWifi(){
+  if(!_editing) return;
+  const ssid = document.getElementById('g-wifi-ssid').value.trim();
+  const pw   = document.getElementById('g-wifi-pw').value;
+  if(!ssid && !pw){ alert('Enter SSID or Password'); return; }
+  try {
+    const r = await fetch(`/api/admin/genieacs/device/${encodeURIComponent(_editing.id)}/wifi`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ssid, password: pw })
+    });
+    const j = await r.json();
+    if(j.ok){ alert('Wi-Fi update queued. Will apply on next inform.'); closeWifi(); loadDevices(); }
+    else alert(j.detail || 'Failed');
+  } catch(e){ alert(e.message||e); }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('g-list')) loadDevices();
+  const inp = document.getElementById('g-q');
+  if (inp) inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadDevices();
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,223 @@
+"""
+twilio_whatsapp.py — Session 2026.02
+================================================================
+Backwards-compatibility shim. Every public symbol of the original
+Twilio module now delegates to MSG91 WhatsApp templates.
+
+Twilio SDK is no longer imported anywhere by this file. Callers
+keep working without code changes.
+
+Mapping:
+    send_invoice_whatsapp     → MSG91 `invoice_generated`
+    send_pay_link_whatsapp    → MSG91 `payment_link`
+    bulk_send_pay_link        → MSG91 `payment_link` per row
+    send_admin_reminder       → MSG91 `payment_link`
+    _send_freeform(to, body)  → BEST-EFFORT routing:
+                                 detects content (pay-link / receipt /
+                                 wifi-recover / alert / sub-lco) and
+                                 picks the right template; otherwise
+                                 returns {success: False, "error":
+                                 "freeform_disabled_use_template"}.
+"""
+from __future__ import annotations
+import logging
+import re
+import sqlite3
+from db_compat import get_raw_conn as _compat_conn  # __s56Z_compat__
+from typing import Optional, Any, Dict, List
+import msg91_whatsapp as _m
+
+log = logging.getLogger("twilio_whatsapp")
+
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+
+
+def _normalise_phone(raw: str) -> Optional[str]:
+    """Return E.164 'whatsapp:+91...' shape that legacy callers expect.
+    They strip the prefix or pass it through, so we keep the prefix."""
+    d = _m.normalise_phone(raw or "")
+    return f"whatsapp:+{d}" if d else None
+
+
+def _strip_wa_prefix(to_: str) -> str:
+    return (to_ or "").replace("whatsapp:+", "").replace("whatsapp:", "")
+
+
+def _company_for(company_name: str) -> Dict[str, Any]:
+    """Lookup company_address + company_id for a given company name."""
+    try:
+        con = _compat_conn(timeout=3.0)
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT company_id, company_address, company_phone "
+            "  FROM companies WHERE company_name = ? LIMIT 1",
+            (company_name or "",),
+        ).fetchone()
+        con.close()
+        if row:
+            return {"company_id": row[0], "company_address": row[1] or "",
+                    "company_phone": row[2] or ""}
+    except Exception:
+        pass
+    return {"company_id": None, "company_address": "", "company_phone": ""}
+
+
+def send_pay_link_whatsapp(phone: str, customer_name: str,
+                            amount_due: float, pay_url: str,
+                            company_name: str = "") -> Dict[str, Any]:
+    info = _company_for(company_name)
+    return _m.send_payment_link(
+        phone=phone,
+        customer_name=customer_name or "Customer",
+        company_name=company_name or "AUTO ISP BILLING",
+        outstanding=(f"{float(amount_due or 0):.2f}".rstrip("0").rstrip(".")),
+        pay_url=pay_url or "",
+        support_phone=info["company_phone"] or "+918085868114",
+        company_address=info["company_address"],
+        company_id=info["company_id"],
+    )
+
+
+def send_invoice_whatsapp(phone: str, customer_name: str, amount: float,
+                           invoice_url: str = "", pdf_url: str = "",
+                           invoice_no: str = "", company_name: str = "",
+                           **_kw) -> Dict[str, Any]:
+    info = _company_for(company_name)
+    # No template variable for invoice URL — combine into invoice_no for
+    # visibility, or omit. We use the invoice_no as-is.
+    return _m.send_invoice_generated(
+        phone=phone,
+        customer_name=customer_name or "Customer",
+        invoice_no=invoice_no or "—",
+        amount=f"{float(amount or 0):.2f}".rstrip("0").rstrip("."),
+        due_date="",  # legacy callers don't supply; left blank
+        support_phone=info["company_phone"] or "+918085868114",
+        company_name=company_name or "AUTO ISP BILLING",
+        company_address=info["company_address"],
+        company_id=info["company_id"],
+    )
+
+
+def send_admin_reminder(phone: str, admin_name: str, company_name: str,
+                          pay_url: str, amount: float, **_kw) -> Dict[str, Any]:
+    return send_pay_link_whatsapp(phone, admin_name, amount, pay_url,
+                                    company_name)
+
+
+def bulk_send_pay_link(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    ok = failed = 0
+    for it in items or []:
+        r = send_pay_link_whatsapp(
+            phone=it.get("phone", ""),
+            customer_name=it.get("name") or it.get("customer_name") or "",
+            amount_due=float(it.get("amount") or 0),
+            pay_url=it.get("url") or it.get("pay_url") or "",
+            company_name=it.get("company_name") or "",
+        )
+        if r.get("success"):
+            ok += 1
+        else:
+            failed += 1
+    return {"ok": ok, "failed": failed, "total": len(items or [])}
+
+
+# ─── content-aware freeform shim ─────────────────────────────────
+_PAY_URL_RE = re.compile(r"https?://[^\s]+/pay/[^\s]+", re.I)
+_RECEIPT_RE = re.compile(r"receipt", re.I)
+_RECOVER_RE = re.compile(r"wifi-recover|recovery link", re.I)
+_OLT_ALERT_RE = re.compile(r"OLT Alert|ALERT", re.I)
+_COMMISSION_RE = re.compile(r"Commission #|Commission \(", re.I)
+
+
+def _send_freeform(to_: str, body: str) -> Dict[str, Any]:
+    """Detect intent from body and route to the right template.
+    Returns {"success": False, "error": "freeform_disabled_use_template"}
+    when no template fits — caller should switch to a template API."""
+    phone = _strip_wa_prefix(to_)
+    if not phone:
+        return {"success": False, "error": "invalid phone"}
+    text = body or ""
+
+    # 1. wifi-recovery
+    if _RECOVER_RE.search(text):
+        url_m = re.search(r"https?://\S+wifi-recover/\S+", text)
+        if url_m:
+            return _m.send_wifi_recovery_link(
+                phone=phone, customer_name="Customer",
+                recovery_url=url_m.group(0),
+                company_name="AUTO ISP BILLING",
+                company_address="",
+            )
+
+    # 2. OLT alert (best-effort: title is first line after "ALERT")
+    if _OLT_ALERT_RE.search(text):
+        lines = [l for l in text.splitlines() if l.strip()]
+        title = lines[1] if len(lines) > 1 else (lines[0] if lines else "OLT Alert")
+        details = "\n".join(lines[2:])[:400] or "—"
+        return _m.send_olt_critical_alert(
+            phone=phone, company_name="AUTO ISP BILLING",
+            alert_title=title.strip(), alert_details=details.strip(),
+            company_address="",
+        )
+
+    # 3. Sub-LCO commission payout
+    if _COMMISSION_RE.search(text):
+        # Old body has standard structure — extract fields with regex.
+        def _grab(pat, default=""):
+            m = re.search(pat, text)
+            return (m.group(1).strip() if m else default)
+        return _m.send_sublco_commission_payout(
+            phone=phone,
+            sublco_name=_grab(r"Hi ([^,\n]+),"),
+            customer_name=_grab(r"Customer ([^\n]+)"),
+            base_amount=_grab(r"Base: Rs\.?([\d.,]+)"),
+            commission_pct=_grab(r"\u2022\s*([\d.]+)%"),
+            commission_amount=_grab(r"Commission: Rs\.?([\d.,]+)"),
+            status=_grab(r"Status: ([^\n]+)"),
+            receipt_url=_grab(r"(https?://\S+)"),
+            company_name="AUTO ISP BILLING",
+            company_address="",
+        )
+
+    # 4. Pay link
+    pay_m = _PAY_URL_RE.search(text)
+    if pay_m:
+        amt_m = re.search(r"Rs\.?\s*([\d,.]+)", text)
+        name_m = re.search(r"Hi ([^,\n]+),", text)
+        return _m.send_payment_link(
+            phone=phone,
+            customer_name=(name_m.group(1).strip() if name_m else "Customer"),
+            company_name="AUTO ISP BILLING",
+            outstanding=(amt_m.group(1).replace(",","") if amt_m else "0"),
+            pay_url=pay_m.group(0),
+            support_phone="+918085868114",
+            company_address="",
+        )
+
+    # 5. Receipt PDF link
+    if _RECEIPT_RE.search(text):
+        url_m = re.search(r"https?://\S+/receipt", text)
+        if url_m:
+            txn_m = re.search(r"Txn\s+([^,)\s]+)", text)
+            amt_m = re.search(r"Rs\.?\s*([\d,.]+)", text)
+            name_m = re.search(r"Hi ([^,\n]+),", text)
+            return _m.send_payment_receipt(
+                phone=phone,
+                customer_name=(name_m.group(1).strip() if name_m else "Customer"),
+                transaction_no=(txn_m.group(1) if txn_m else "—"),
+                amount=(amt_m.group(1).replace(",","") if amt_m else "0"),
+                receipt_url=url_m.group(0),
+                company_name="AUTO ISP BILLING",
+                company_address="",
+            )
+
+    return {"success": False,
+            "error": "freeform_disabled_use_template",
+            "message": ("MSG91 doesn't support freeform messages. "
+                         "Pick an approved template instead.")}
+
+
+# Legacy convenience used by main.py's sandbox debug endpoint
+def _get_client(): return None
+def _last_err(): return "twilio_disabled"
+def _from_number(): return ""

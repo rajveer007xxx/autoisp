@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refund &amp; Return Policy &middot; Auto ISP Billing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root{--brand-900:#0b1736;--brand-700:#1a2d7d;--brand-500:#3d5afe;--brand-400:#5b7bff;--accent-500:#00d4b4;--accent-400:#22e1c2;--ink-900:#0b1224;--ink-700:#2b3552;--ink-500:#5c6785;--ink-300:#aab2c8;--surface:#f6f8fc;--card:#fff;--line:#e4e8f3;--radius-lg:18px;--radius-md:12px;--shadow-sm:0 2px 10px rgba(11,18,36,.06);--shadow-md:0 10px 30px rgba(11,18,36,.08)}
+        *{box-sizing:border-box}
+        html,body{margin:0;padding:0;font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink-900);background:var(--surface);-webkit-font-smoothing:antialiased}
+        a{text-decoration:none;color:inherit}
+        h1,h2,h3,h4,h5,h6{font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;letter-spacing:-.01em;margin:0}
+        p{margin:0 0 10px;line-height:1.75;color:var(--ink-700)}
+        ul,ol{margin:8px 0 16px;padding-left:22px}
+        ul li,ol li{line-height:1.8;color:var(--ink-700)}
+        .container-xxl{max-width:1100px;margin:0 auto;padding:0 22px}
+
+        .site-nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.9);backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--line)}
+        .nav-wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
+        .brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--ink-900);font-size:1.08rem}
+        .brand-logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--brand-500),#7c3aff);display:grid;place-items:center;color:#fff;box-shadow:0 8px 22px rgba(61,90,254,.35)}
+        .nav-links{display:flex;gap:28px;list-style:none;padding:0;margin:0}
+        .nav-links a{color:var(--ink-700);font-weight:500;font-size:.95rem}
+        .nav-links a:hover{color:var(--brand-500)}
+        .nav-cta{display:flex;gap:10px;align-items:center}
+        .btn{display:inline-flex;gap:8px;align-items:center;justify-content:center;border:0;cursor:pointer;font-weight:600;border-radius:999px;padding:10px 18px;font-size:.92rem;transition:transform .15s ease,box-shadow .2s ease,background .2s ease,color .2s ease}
+        .btn-ghost{background:transparent;color:var(--ink-900);border:1px solid var(--line)}
+        .btn-ghost:hover{border-color:var(--brand-500);color:var(--brand-500)}
+        .btn-primary{background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;box-shadow:0 12px 26px rgba(61,90,254,.32)}
+        .btn-primary:hover{transform:translateY(-1px);color:#fff}
+        .btn-light{background:#fff;color:var(--ink-900)}
+        .btn-light:hover{color:var(--brand-500)}
+        .nav-burger{display:none;border:0;background:transparent;font-size:1.4rem;color:var(--ink-700)}
+        @media (max-width:900px){.nav-links,.nav-cta .btn-ghost{display:none}.nav-burger{display:inline-flex}}
+
+        .page-hero{position:relative;overflow:hidden;color:#fff;padding:70px 0 80px;background:radial-gradient(900px 500px at 85% 0%,rgba(124,58,255,.35),transparent 60%),radial-gradient(700px 400px at 0% 100%,rgba(0,212,180,.28),transparent 60%),linear-gradient(135deg,#06102e 0%,#0b1a4a 45%,#1a2d7d 100%)}
+        .page-hero::before{content:"";position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=1600&q=70');background-size:cover;background-position:center;opacity:.12;mix-blend-mode:screen;pointer-events:none}
+        .page-hero .container-xxl{position:relative;z-index:2;text-align:center}
+        .eyebrow{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);padding:.4rem .9rem;border-radius:999px;font-size:.82rem;font-weight:500;color:#d5dcff}
+        .eyebrow .dot{width:8px;height:8px;background:var(--accent-400);border-radius:50%;box-shadow:0 0 0 4px rgba(34,225,194,.18)}
+        .page-hero h1{font-size:clamp(2rem,4vw,3rem);margin-top:16px;background:linear-gradient(180deg,#fff,#cfd6ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+        .page-hero p{max-width:680px;margin:14px auto 0;color:rgba(255,255,255,.78)}
+        .breadcrumb-light{display:inline-flex;gap:8px;align-items:center;color:rgba(255,255,255,.6);font-size:.85rem;margin-top:18px}
+        .breadcrumb-light a{color:rgba(255,255,255,.8)}
+
+        main{padding:60px 0}
+        .policy-wrap{display:grid;grid-template-columns:240px 1fr;gap:32px;align-items:flex-start}
+        @media (max-width:900px){.policy-wrap{grid-template-columns:1fr}}
+        .toc{position:sticky;top:90px;background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow-sm);max-height:calc(100vh - 120px);overflow:auto}
+        .toc h4{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-500);margin-bottom:12px;font-family:'Inter',sans-serif;font-weight:700}
+        .toc ol{list-style:none;padding:0;margin:0;counter-reset:tocitem}
+        .toc ol li{counter-increment:tocitem;margin-bottom:4px}
+        .toc ol li a{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:8px;font-size:.88rem;color:var(--ink-700);font-weight:500;line-height:1.3;transition:all .15s ease}
+        .toc ol li a::before{content:counter(tocitem,decimal-leading-zero);color:var(--ink-300);font-weight:600;font-size:.78rem;flex-shrink:0;padding-top:1px}
+        .toc ol li a:hover,.toc ol li a.active{background:linear-gradient(135deg,rgba(61,90,254,.08),rgba(124,58,255,.06));color:var(--brand-500)}
+        .toc ol li a:hover::before,.toc ol li a.active::before{color:var(--brand-500)}
+        @media (max-width:900px){.toc{position:static;max-height:none}}
+
+        .policy-body{background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);padding:42px 46px;box-shadow:var(--shadow-sm)}
+        @media (max-width:640px){.policy-body{padding:28px 22px}}
+        .last-updated{display:inline-flex;gap:8px;align-items:center;background:linear-gradient(135deg,rgba(61,90,254,.08),rgba(0,212,180,.08));border:1px solid rgba(61,90,254,.15);color:var(--brand-700);padding:8px 14px;border-radius:999px;font-size:.82rem;font-weight:500;margin-bottom:28px}
+
+        .highlight-box{background:linear-gradient(135deg,rgba(61,90,254,.07),rgba(0,212,180,.07));border:1px solid rgba(61,90,254,.2);border-left:4px solid var(--brand-500);padding:18px 22px;border-radius:12px;margin:18px 0}
+        .highlight-box p:last-child{margin-bottom:0}
+        .highlight-box.warn{background:linear-gradient(135deg,rgba(234,179,8,.07),rgba(239,68,68,.07));border-color:rgba(234,179,8,.25);border-left-color:#f59e0b}
+
+        .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 24px}
+        @media (max-width:640px){.stat-row{grid-template-columns:1fr}}
+        .stat-pill{background:#f6f8fc;border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center}
+        .stat-pill .big{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.6rem;background:linear-gradient(135deg,var(--brand-500),#7c3aff);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1.1}
+        .stat-pill .small{font-size:.82rem;color:var(--ink-500);margin-top:4px;font-weight:500}
+
+        .policy-section{padding:22px 0;border-bottom:1px solid var(--line)}
+        .policy-section:first-of-type{padding-top:0}
+        .policy-section:last-of-type{border-bottom:0}
+        .policy-section h3{font-size:1.35rem;margin-bottom:14px;display:flex;gap:12px;align-items:flex-start;scroll-margin-top:90px}
+        .policy-section h3 .num{display:inline-grid;place-items:center;min-width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;font-size:.85rem;font-weight:700;flex-shrink:0;padding:0 8px}
+        .policy-section h4{font-family:'Inter',sans-serif;font-size:1rem;margin-top:18px;margin-bottom:8px;color:var(--ink-900);font-weight:700}
+        .policy-section a{color:var(--brand-500);font-weight:600}
+        .policy-section a:hover{text-decoration:underline}
+
+        .contact-card{background:linear-gradient(135deg,rgba(61,90,254,.06),rgba(0,212,180,.06));border:1px solid rgba(61,90,254,.15);border-radius:var(--radius-md);padding:22px;margin-top:16px}
+        .contact-card strong{display:block;font-size:1.05rem;color:var(--ink-900);margin-bottom:10px}
+        .contact-card p{margin:4px 0;font-size:.95rem}
+
+        .cta-card{background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;border-radius:var(--radius-lg);padding:38px;text-align:center;margin-top:30px}
+        .cta-card h3{color:#fff;font-size:1.4rem;margin-bottom:10px}
+        .cta-card p{color:rgba(255,255,255,.9);margin-bottom:20px}
+
+        footer{background:#0b1224;color:#cbd3e9;padding:56px 0 20px;margin-top:40px}
+        .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:28px}
+        @media (max-width:900px){.foot-grid{grid-template-columns:1fr 1fr}}
+        @media (max-width:560px){.foot-grid{grid-template-columns:1fr}}
+        footer h5{color:#fff;font-size:1rem;margin-bottom:12px}
+        footer ul{list-style:none;padding:0;margin:0}
+        footer ul li{margin-bottom:8px;font-size:.9rem;color:#aab2c8}
+        footer ul li a{color:#aab2c8}
+        footer ul li a:hover{color:#fff}
+        .foot-brand{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:1.08rem;margin-bottom:10px}
+        .foot-brand .brand-logo{box-shadow:none}
+        .foot-brand-desc{font-size:.9rem;color:#9aa3bd}
+        .foot-bottom{border-top:1px solid rgba(255,255,255,.08);margin-top:36px;padding-top:18px;display:flex;justify-content:space-between;align-items:center;color:#8088a8;font-size:.82rem;flex-wrap:wrap;gap:10px}
+        .foot-social a{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#cbd3e9;margin-right:8px;font-size:1rem}
+        .foot-social a:hover{background:var(--brand-500);border-color:var(--brand-500);color:#fff}
+    
+    /* _S39R5I_CONTACT — restore broken nav typography */
+    .site-nav .brand-img { height: 36px !important; width: auto !important;
+        max-width: 200px; display: block; }
+    .site-nav .nav-wrap { display: flex; align-items: center; gap: 28px;
+        padding: 12px 24px; }
+    .site-nav .nav-links { display: flex; align-items: center; gap: 24px;
+        list-style: none; margin: 0 auto 0 0; padding: 0; }
+    .site-nav .nav-links a { font-size: 14px; font-weight: 500; color: var(--ink-700);
+        text-decoration: none; padding: 6px 0; transition: color .15s; }
+    .site-nav .nav-links a:hover { color: var(--brand-500); }
+    .site-nav .nav-cta { display: flex; align-items: center; gap: 10px; }
+    .site-nav .nav-cta .btn { font-size: 13px; font-weight: 600; padding: 8px 16px;
+        border-radius: 9px; text-decoration: none; display: inline-flex;
+        align-items: center; gap: 6px; }
+    .site-nav .nav-cta .btn-ghost { background: transparent; border: 1px solid var(--line);
+        color: var(--ink-700); }
+    .site-nav .nav-cta .btn-primary { background: linear-gradient(135deg, var(--brand-500), #7c3aff);
+        color: #fff; border: 0; }
+
+    /* _S39R5U_MOBILE_NAV_ — mobile hamburger + slide-down menu */
+    @media (max-width: 900px){
+      .site-nav .nav-links, .nav-bar .nav-links,
+      .site-nav .nav-cta, .nav-bar .cta { display: none !important; }
+      .nav-toggle-mobile { display: inline-flex !important; }
+    }
+    .nav-toggle-mobile { display: none; background: transparent; border: 0;
+      color: #2b3552; font-size: 1.6rem; padding: 6px 10px; cursor: pointer;
+      align-items: center; }
+    .mobile-menu-public { display: none; position: absolute; top: 100%;
+      left: 16px; right: 16px; background: #fff; border-radius: 12px;
+      box-shadow: 0 14px 32px rgba(11,18,36,.12); padding: 14px 18px;
+      flex-direction: column; gap: 10px; margin-top: 8px; z-index: 60;
+      border: 1px solid #e4e8f3; }
+    .mobile-menu-public.open { display: flex; }
+    .mobile-menu-public a { color: #2b3552; font-weight: 500; padding: 10px 4px;
+      border-bottom: 1px solid #eef0f7; text-decoration: none; font-size: 14px; }
+    .mobile-menu-public a:last-child { border-bottom: 0; }
+</style>
+    <link rel="stylesheet" href="/static/css/site-header.css"> <!-- _S39R5K_GLOBAL_ -->
+    <style>/* _S39R5K_GLOBAL_ 80% desktop zoom */
+      @media (min-width: 992px){ html { zoom: 0.8; } }
+    </style>
+<!-- _S40zμ_  Profanity shield -->
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+</head>
+<body>
+<nav class="site-nav">
+    <div class="container-xxl nav-wrap">
+        <a class="brand" href="/" aria-label="AutoISPBilling">
+                <img src="/static/img/autoispbilling-logo-wide.png" alt="AutoISPBilling" class="brand-img">
+            </a>
+        <ul class="nav-links">
+            <li><a href="/#features">Features</a></li>
+            <li><a href="/#how">How it works</a></li>
+            <li><a href="/#integrations">Integrations</a></li>
+            <li><a href="/pricing">Pricing</a></li>
+            <li><a href="/faq">FAQ</a></li>
+            <li><a href="/contact">Contact</a></li>
+        </ul>
+        <div class="nav-cta">
+            <a class="btn btn-ghost" href="/login"><i class="bi bi-person"></i> Sign In</a>
+            <a class="btn btn-primary" href="/#demo">Get Started <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <button class="nav-burger" aria-label="Menu"><i class="bi bi-list"></i></button>
+    </div>
+
+        <button class="nav-toggle-mobile" id="navToggleMobileE_NAV_" aria-label="Menu" data-tag="_S39R5U_MOBILE_NAV_"><i class="bi bi-list"></i></button>
+        <div class="mobile-menu-public" id="mobileMenuPublicE_NAV_">
+          <a href="/#features">Features</a>
+          <a href="/#how">How it works</a>
+          <a href="/#integrations">Integrations</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/#demo">Request Demo</a>
+          <a href="/contact">Contact</a>
+          <a href="/login"><i class="bi bi-box-arrow-in-right"></i> Sign In</a>
+        </div>
+</nav>
+
+<section class="page-hero">
+    <div class="container-xxl">
+        <span class="eyebrow"><span class="dot"></span> Legal</span>
+        <h1>Refund &amp; Return Policy</h1>
+        <p>Clear rules around refunds, cancellations and subscription changes for Auto ISP Billing.</p>
+        <div class="breadcrumb-light"><a href="/">Home</a> <i class="bi bi-chevron-right"></i> <span>Refund Policy</span></div>
+    </div>
+</section>
+
+<main>
+    <div class="container-xxl">
+        <div class="policy-wrap">
+            <aside class="toc">
+                <h4>On this page</h4>
+                <ol>
+                    <li><a href="#s1">Overview</a></li>
+                    <li><a href="#s2">Free trial period</a></li>
+                    <li><a href="#s3">Refund eligibility</a></li>
+                    <li><a href="#s4">Non-refundable cases</a></li>
+                    <li><a href="#s5">Subscription cancellation</a></li>
+                    <li><a href="#s6">Refund request process</a></li>
+                    <li><a href="#s7">Upgrade &amp; downgrade</a></li>
+                    <li><a href="#s8">Chargebacks &amp; disputes</a></li>
+                    <li><a href="#s9">Special circumstances</a></li>
+                    <li><a href="#s10">Annual subscriptions</a></li>
+                    <li><a href="#s11">Add-on services</a></li>
+                    <li><a href="#s12">Exceptions</a></li>
+                    <li><a href="#s13">Policy changes</a></li>
+                    <li><a href="#s14">Contact</a></li>
+                </ol>
+            </aside>
+
+            <div class="policy-body">
+                <span class="last-updated"><i class="bi bi-calendar-event"></i> Last updated: November 10, 2025</span>
+
+                <div class="highlight-box"><p><strong>Important:</strong> Auto ISP Billing is a software-as-a-service (SaaS) platform. As a digital service, refunds are handled differently than physical products. Please read this policy carefully before subscribing.</p></div>
+
+                <div class="stat-row">
+                    <div class="stat-pill"><div class="big">14 days</div><div class="small">Free trial</div></div>
+                    <div class="stat-pill"><div class="big">30 days</div><div class="small">Money-back guarantee</div></div>
+                    <div class="stat-pill"><div class="big">5&ndash;7 days</div><div class="small">Refund processing</div></div>
+                </div>
+
+                <div class="policy-section"><h3 id="s1"><span class="num">01</span> Overview</h3>
+                    <p>At Auto ISP Billing, we strive to provide the best ISP management software and customer satisfaction. This Refund &amp; Return Policy outlines the circumstances under which refunds may be issued and the process for requesting them.</p>
+                    <p>By subscribing to Auto ISP Billing, you acknowledge that you have read and understood this policy.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s2"><span class="num">02</span> Free trial period</h3>
+                    <p>We offer a <strong>14-day free trial</strong> for new users to evaluate our platform before committing to a paid subscription.</p>
+                    <h4>2.1 Trial features</h4>
+                    <ul>
+                        <li>Access to all core features</li>
+                        <li>Limited to 10 test customers</li>
+                        <li>No payment information required</li>
+                        <li>No automatic billing after trial ends</li>
+                        <li>Full technical support during trial</li>
+                    </ul>
+                    <h4>2.2 Trial conversion</h4>
+                    <p>After the trial period, you can choose to subscribe to a paid plan. Your trial data will be retained and accessible in your paid account.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s3"><span class="num">03</span> Refund eligibility</h3>
+                    <h4>3.1 30-Day money-back guarantee</h4>
+                    <p>We offer a <strong>30-day money-back guarantee</strong> for first-time subscribers. If you are not satisfied with Auto ISP Billing within the first 30 days of your initial paid subscription, you may request a full refund.</p>
+                    <div class="highlight-box">
+                        <p><strong>Conditions for 30-day refund:</strong></p>
+                        <ul>
+                            <li>Must be a first-time paid subscriber</li>
+                            <li>Request must be made within 30 days of initial payment</li>
+                            <li>Applies to monthly or annual subscriptions</li>
+                            <li>Does not apply to renewal payments</li>
+                            <li>Account must not have violated Terms of Service</li>
+                        </ul>
+                    </div>
+                    <h4>3.2 Service failure refunds</h4>
+                    <p>You may be eligible for a prorated refund if:</p>
+                    <ul>
+                        <li><strong>Extended downtime:</strong> Platform is unavailable for more than 48 consecutive hours due to our fault</li>
+                        <li><strong>Critical feature failure:</strong> Core billing or payment features are non-functional for more than 72 hours</li>
+                        <li><strong>Data loss:</strong> We are unable to restore your data due to our system failure (rare, as we maintain multiple backups)</li>
+                    </ul>
+                    <h4>3.3 Billing errors</h4>
+                    <p>If you were charged incorrectly due to a billing system error, we will issue a full refund for the erroneous charge within 5-7 business days.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s4"><span class="num">04</span> Non-refundable situations</h3>
+                    <div class="highlight-box warn"><p>Refunds will <strong>NOT</strong> be issued in the following cases:</p></div>
+                    <ul>
+                        <li><strong>Renewal payments:</strong> Subscription renewals (monthly or annual) are non-refundable</li>
+                        <li><strong>Partial month usage:</strong> No prorated refunds for partial month cancellations</li>
+                        <li><strong>Change of mind:</strong> After the 30-day guarantee period, refunds are not issued for change of mind</li>
+                        <li><strong>Lack of usage:</strong> Not using the platform does not qualify for a refund</li>
+                        <li><strong>Feature expectations:</strong> Refunds are not issued if the platform doesn&rsquo;t meet your specific expectations (use the free trial to evaluate)</li>
+                        <li><strong>Third-party costs:</strong> Costs for third-party services (SMS, WhatsApp, payment gateway fees) are non-refundable</li>
+                        <li><strong>Terms violation:</strong> Accounts suspended or terminated for violating Terms of Service</li>
+                        <li><strong>Upgrade/downgrade:</strong> Changing subscription plans does not qualify for refunds</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s5"><span class="num">05</span> Subscription cancellation</h3>
+                    <h4>5.1 How to cancel</h4>
+                    <p>You can cancel your subscription at any time through:</p>
+                    <ul>
+                        <li>Account Settings &rarr; Subscription &rarr; Cancel Subscription</li>
+                        <li>Contacting support at <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a></li>
+                        <li>Calling {{ support_phone }}</li>
+                    </ul>
+                    <h4>5.2 Cancellation effect</h4>
+                    <ul>
+                        <li>Cancellation takes effect at the end of the current billing period</li>
+                        <li>You retain access until the paid period expires</li>
+                        <li>No refund for the remaining days in the current billing period</li>
+                        <li>Automatic renewal is disabled</li>
+                        <li>You have 30 days to export your data after cancellation</li>
+                    </ul>
+                    <h4>5.3 Reactivation</h4>
+                    <p>You can reactivate your account within 90 days of cancellation. After 90 days, your data will be permanently deleted.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s6"><span class="num">06</span> Refund request process</h3>
+                    <h4>6.1 How to request a refund</h4>
+                    <p>To request a refund, follow these steps:</p>
+                    <ol>
+                        <li>Email <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a> with subject &ldquo;Refund Request&rdquo;</li>
+                        <li>Include your account details (Company ID, Admin ID, registered email)</li>
+                        <li>Provide reason for refund request</li>
+                        <li>Include transaction ID or payment receipt</li>
+                        <li>Specify preferred refund method</li>
+                    </ol>
+                    <h4>6.2 Refund processing time</h4>
+                    <ul>
+                        <li><strong>Review period:</strong> 2-3 business days to review your request</li>
+                        <li><strong>Approval notification:</strong> Email confirmation if approved</li>
+                        <li><strong>Processing time:</strong> 5-7 business days for refund to be processed</li>
+                        <li><strong>Bank credit:</strong> Additional 5-10 business days depending on your bank</li>
+                    </ul>
+                    <h4>6.3 Refund methods</h4>
+                    <p>Refunds are issued to the original payment method:</p>
+                    <ul>
+                        <li><strong>Credit/Debit Card:</strong> Refunded to the same card</li>
+                        <li><strong>UPI:</strong> Refunded to the same UPI ID</li>
+                        <li><strong>Net Banking:</strong> Refunded to the same bank account</li>
+                        <li><strong>Wallet:</strong> Refunded to the same wallet</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s7"><span class="num">07</span> Upgrade and downgrade policy</h3>
+                    <h4>7.1 Upgrading your plan</h4>
+                    <ul>
+                        <li>Upgrades take effect immediately</li>
+                        <li>You are charged the prorated difference for the remaining billing period</li>
+                        <li>New customer limits apply immediately</li>
+                    </ul>
+                    <h4>7.2 Downgrading your plan</h4>
+                    <ul>
+                        <li>Downgrades take effect at the next billing cycle</li>
+                        <li>No refund for the difference in the current billing period</li>
+                        <li>You must reduce customers to fit the new plan limit before downgrade</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s8"><span class="num">08</span> Chargebacks and disputes</h3>
+                    <h4>8.1 Chargeback policy</h4>
+                    <p>If you initiate a chargeback with your bank without first contacting us:</p>
+                    <ul>
+                        <li>Your account will be immediately suspended</li>
+                        <li>We will provide transaction evidence to your bank</li>
+                        <li>Chargeback fees may be charged to your account</li>
+                        <li>Account reactivation requires payment of outstanding amounts plus chargeback fees</li>
+                    </ul>
+                    <h4>8.2 Dispute resolution</h4>
+                    <p>Before initiating a chargeback, please contact us at <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a>. We are committed to resolving billing disputes fairly and promptly.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s9"><span class="num">09</span> Special circumstances</h3>
+                    <h4>9.1 Technical issues</h4>
+                    <p>If you experience technical issues preventing platform use:</p>
+                    <ul>
+                        <li>Contact support immediately at {{ support_phone }}</li>
+                        <li>We will work to resolve the issue within 24-48 hours</li>
+                        <li>If unresolved, you may be eligible for a prorated refund</li>
+                    </ul>
+                    <h4>9.2 Force majeure</h4>
+                    <p>Refunds are not provided for service interruptions caused by events beyond our control (natural disasters, government actions, internet outages, etc.).</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s10"><span class="num">10</span> Annual subscription refunds</h3>
+                    <p>Annual subscriptions receive a discount compared to monthly billing. Refund terms for annual subscriptions:</p>
+                    <ul>
+                        <li><strong>Within 30 days:</strong> Full refund under money-back guarantee</li>
+                        <li><strong>After 30 days:</strong> No refunds for annual subscriptions</li>
+                        <li><strong>Cancellation:</strong> Access continues until the annual period ends</li>
+                        <li><strong>No prorating:</strong> No prorated refunds for unused months</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s11"><span class="num">11</span> Add-on services</h3>
+                    <p>Refunds for add-on services (additional SMS credits, WhatsApp credits, etc.):</p>
+                    <ul>
+                        <li>Unused credits are non-refundable</li>
+                        <li>Credits remain valid for 12 months from purchase</li>
+                        <li>Credits are transferable if you upgrade plans</li>
+                        <li>Credits are forfeited upon account closure</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s12"><span class="num">12</span> Exceptions and special cases</h3>
+                    <p>We may consider refund requests outside this policy on a case-by-case basis for exceptional circumstances. Contact us at <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a> to discuss your situation.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s13"><span class="num">13</span> Policy changes</h3>
+                    <p>We reserve the right to modify this Refund &amp; Return Policy at any time. Changes will be communicated via:</p>
+                    <ul>
+                        <li>Email notification to registered users</li>
+                        <li>Prominent notice on the platform</li>
+                        <li>Updated policy page with revision date</li>
+                    </ul>
+                    <p>Changes do not apply retroactively to subscriptions purchased before the change.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s14"><span class="num">14</span> Contact information</h3>
+                    <p>For refund requests, billing questions, or policy clarifications, contact us:</p>
+                    <div class="contact-card">
+                        <strong>Auto ISP Billing &mdash; Billing Support</strong>
+                        <p><i class="bi bi-envelope"></i> <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a></p>
+                        <p><i class="bi bi-telephone"></i> <a href="tel:+918085868114">{{ support_phone }}</a></p>
+                        <p><i class="bi bi-whatsapp"></i> WhatsApp: {{ support_phone }}</p>
+                        <p><i class="bi bi-clock"></i> Support Hours: Monday &ndash; Saturday, 10:00 AM &ndash; 7:00 PM IST</p>
+                    </div>
+                </div>
+
+                <div class="cta-card">
+                    <h3>Our commitment to you</h3>
+                    <p>We are committed to your satisfaction. If you have any concerns about our service, please reach out to us before requesting a refund &mdash; we&rsquo;re here to help resolve any issues.</p>
+                    <p><strong>Try our 14-day free trial risk-free!</strong></p>
+                    <a href="/#demo" class="btn btn-light"><i class="bi bi-rocket-takeoff"></i> Request Demo</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer>
+    <div class="container-xxl">
+        <div class="foot-grid">
+            <div>
+                <div class="foot-brand"><span class="brand-logo"><i class="bi bi-broadcast-pin"></i></span><span>Auto ISP Billing</span></div>
+                <p class="foot-brand-desc">The modern ISP operations platform &mdash; billing, CRM, support and automation in one place.</p>
+                <div class="foot-social" style="margin-top:18px;">
+                    <a href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
+                    <a href="#" aria-label="Twitter"><i class="bi bi-twitter-x"></i></a>
+                    <a href="#" aria-label="LinkedIn"><i class="bi bi-linkedin"></i></a>
+                    <a href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
+                </div>
+            </div>
+            <div><h5>Product</h5><ul><li><a href="/#features">Features</a></li><li><a href="/#integrations">Integrations</a></li><li><a href="/#demo">Request Demo</a></li><li><a href="/login">Sign In</a></li><!-- __PUBLIC_FOOTER_SITEMAP__ --><li><a href="/sitemap" data-testid="footer-sitemap-link">Site Map</a></li></ul></div>
+            <div><h5>Company</h5><ul><li><a href="/contact">Contact Us</a></li><li><a href="/faq">FAQ / Help</a></li><li><a href="/privacy-policy">Privacy Policy</a></li><li><a href="/terms-of-service">Terms of Service</a></li><li><a href="/refund-policy">Refund Policy</a></li></ul></div>
+            <div><h5>Reach us</h5><ul><li><i class="bi bi-telephone"></i> {{ support_phone }}</li><li><i class="bi bi-envelope"></i> support@autoispbilling.com</li><li><i class="bi bi-whatsapp"></i> WhatsApp support available</li><li><i class="bi bi-clock"></i> Mon&ndash;Sat, 10 AM &ndash; 7 PM IST</li></ul></div>
+        </div>
+        <div class="foot-bottom"><span>&copy; 2026 Auto ISP Billing. All rights reserved.</span><span>Made with <i class="bi bi-heart-fill" style="color:#ef4444"></i> for Indian ISPs</span></div>
+    </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function(){
+    var tocLinks = document.querySelectorAll('.toc a');
+    var sections = Array.from(document.querySelectorAll('.policy-section h3[id]'));
+    function onScroll(){
+        var pos = window.scrollY + 120;
+        var active = sections[0];
+        for (var i=0;i<sections.length;i++){ if (sections[i].offsetTop - 20 <= pos) active = sections[i]; }
+        tocLinks.forEach(function(a){ a.classList.toggle('active', a.getAttribute('href') === '#' + active.id); });
+    }
+    window.addEventListener('scroll', onScroll); onScroll();
+    tocLinks.forEach(function(a){ a.addEventListener('click', function(e){
+        var id = a.getAttribute('href').slice(1); var el = document.getElementById(id);
+        if (el){ e.preventDefault(); window.scrollTo({ top: el.offsetTop - 80, behavior: 'smooth' }); }
+    }); });
+})();
+</script>
+
+<script data-tag="_S39R5U_MOBILE_NAV_">
+(function(){
+  var sfx = "E_NAV_";
+  var btn = document.getElementById('navToggleMobile' + sfx);
+  var menu = document.getElementById('mobileMenuPublic' + sfx);
+  if (btn && menu) {
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    menu.querySelectorAll('a').forEach(function(a){
+      a.addEventListener('click', function(){ menu.classList.remove('open'); });
+    });
+    document.addEventListener('click', function(ev){
+      if (!menu.contains(ev.target) && !btn.contains(ev.target)) menu.classList.remove('open');
+    });
+  }
+})();
+</script>
+</body>
+</html>

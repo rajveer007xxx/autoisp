@@ -1,0 +1,14 @@
+*.tar.gz
+*.tgz
+*.zip
+*.bak
+*.bak-*
+*.bak_*
+*.backup
+*.swp
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+node_modules/

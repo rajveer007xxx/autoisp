@@ -1,0 +1,108 @@
+{% extends "base_user.html" %}
+{% block title %}My Profile — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title">
+  <div>
+    <h1>My Profile</h1>
+    <p>Your details on file.</p>
+  </div>
+</div>
+
+{# _v4730_PROFILE_IMG_  Avatar + change-photo widget. #}
+<div class="card" style="display:flex;align-items:center;gap:18px;margin-bottom:18px;" data-testid="profile-photo-card">
+  {% set _img = customer.photograph_path if customer and customer.photograph_path else "" %}
+  <div id="prof-img-wrap" style="position:relative;flex:0 0 auto;">
+    {% if _img %}
+      <img id="profImg"
+           src="{{ _img if _img.startswith('/') or _img.startswith('http') else '/' ~ _img }}"
+           data-testid="profile-photo"
+           style="width:96px;height:96px;border-radius:50%;object-fit:cover;border:2px solid var(--border, #e2e8f0);">
+    {% else %}
+      <div id="profImg"
+           data-testid="profile-photo-placeholder"
+           style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;">
+        {{ (customer.customer_name|default('U'))[0]|upper }}
+      </div>
+    {% endif %}
+    <label for="profImgInput" title="Change photo"
+           data-testid="profile-photo-edit"
+           style="position:absolute;right:-2px;bottom:-2px;background:#0ea5e9;color:#fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2);">
+      <i class="bi bi-camera-fill" style="font-size:13px;"></i>
+    </label>
+    <input type="file" id="profImgInput" accept="image/*"
+           data-testid="profile-photo-input"
+           style="display:none;" onchange="uploadProfImg(this)">
+  </div>
+  <div style="flex:1;">
+    <div style="font-size:18px;font-weight:700;">{{ customer.customer_name|default('') }}</div>
+    <div style="color:#64748b;font-size:13px;">{{ customer.customer_id|default('') }}</div>
+    <div id="profImgMsg" style="font-size:12px;margin-top:6px;"></div>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+<div class="card"><h3><i class="bi bi-person-circle"></i> Personal</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div><label>Customer ID</label><input value="{{ customer.customer_id }}" disabled></div>
+    <div><label>Username</label><input value="{{ customer.username|default('') }}" disabled></div>
+    <div style="grid-column:1/-1;"><label>Full name</label><input value="{{ customer.customer_name|default('') }}" disabled></div>
+    <div><label>Mobile</label><input value="{{ customer.customer_phone|default('') }}" disabled></div>
+    <div><label>Email</label><input value="{{ customer.customer_email|default('') }}" disabled></div>
+    <div style="grid-column:1/-1;"><label>Address</label><input value="{{ customer.address|default('') }}" disabled></div>
+    <div><label>Locality</label><input value="{{ customer.locality|default('') }}" disabled></div>
+    <div><label>City</label><input value="{{ customer.city|default('') }}" disabled></div>
+  </div>
+</div>
+<div class="card"><h3><i class="bi bi-shield-lock"></i> Change Web Portal Password</h3>
+  <div style="padding:12px 14px;border-radius:10px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.2);font-size:12.5px;color:var(--text-mid);margin-bottom:14px;line-height:1.5;">
+    <i class="bi bi-info-circle-fill" style="color:#0ea5e9;"></i>
+    <strong style="color:#7dd3fc;">Note:</strong> This only changes your <strong>web portal login</strong> password. Your internet (PPPoE / Wi-Fi) password is managed separately and your service will keep working without any router changes.
+  </div>
+  <form id="pwForm" onsubmit="event.preventDefault();changePw();">
+    <div style="display:grid;gap:12px;">
+      <div><label>Current password</label><input type="password" id="oldPw" required></div>
+      <div><label>New password (min 8 chars)</label><input type="password" id="newPw" required minlength="8"></div>
+      <div><label>Confirm new password</label><input type="password" id="cnfPw" required></div>
+      <button type="submit" class="btn primary"><i class="bi bi-check2"></i> Update password</button>
+      <div id="pwMsg" style="font-size:13px;margin-top:6px;"></div>
+    </div>
+  </form>
+</div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function changePw(){
+  const o=document.getElementById('oldPw').value, n=document.getElementById('newPw').value, c=document.getElementById('cnfPw').value;
+  const m=document.getElementById('pwMsg');
+  if(n!==c){ m.textContent="Passwords don't match"; m.style.color='#f87171'; return; }
+  const r=await fetch('/api/customer/me/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:o,new:n})});
+  const d=await r.json();
+  m.textContent=d.message||(d.success?'Updated ✓':'Failed'); m.style.color = d.success?'#34d399':'#f87171';
+  if(d.success){ document.getElementById('pwForm').reset(); }
+}
+
+async function uploadProfImg(inp){
+  const m = document.getElementById('profImgMsg');
+  if (!inp.files || !inp.files[0]) return;
+  const f = inp.files[0];
+  if (f.size > 5*1024*1024) { m.textContent='File must be under 5 MB'; m.style.color='#f87171'; return; }
+  const fd = new FormData();
+  fd.append('photograph', f);
+  m.textContent = 'Uploading…'; m.style.color = '#0ea5e9';
+  try {
+    const r = await fetch('/api/customer/me/photograph', {method:'POST', body:fd, credentials:'include'});
+    const d = await r.json();
+    if (d.success) {
+      m.textContent = 'Updated ✓'; m.style.color = '#34d399';
+      const img = document.getElementById('profImg');
+      if (img && img.tagName === 'IMG') img.src = d.url + '?t=' + Date.now();
+      else setTimeout(()=>location.reload(), 600);
+    } else {
+      m.textContent = d.message || 'Upload failed'; m.style.color = '#f87171';
+    }
+  } catch(e) {
+    m.textContent = 'Network error'; m.style.color = '#f87171';
+  }
+}
+</script>
+{% endblock %}

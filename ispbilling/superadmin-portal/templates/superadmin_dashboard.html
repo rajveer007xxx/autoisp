@@ -1,0 +1,308 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Dashboard - Superadmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .welcome-banner {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #ec4899 100%);
+        color: #fff;
+        border-radius: var(--radius);
+        padding: 22px 26px;
+        margin-bottom: 20px;
+        box-shadow: 0 15px 35px rgba(79, 70, 229, .22);
+        position: relative; overflow: hidden;
+    }
+    .welcome-banner::before {
+        content: ''; position: absolute;
+        top: -60px; right: -60px; width: 240px; height: 240px;
+        background: radial-gradient(circle, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 70%);
+    }
+    .welcome-banner::after {
+        content: ''; position: absolute;
+        bottom: -80px; left: -80px; width: 260px; height: 260px;
+        background: radial-gradient(circle, rgba(255,255,255,.14) 0%, rgba(255,255,255,0) 70%);
+    }
+    .welcome-banner .welcome-eyebrow {
+        text-transform: uppercase; letter-spacing: .14em;
+        font-size: 11px; font-weight: 700; opacity: .85;
+        margin-bottom: 6px;
+    }
+    .welcome-banner h2 {
+        color: #fff !important; font-weight: 800; font-size: 24px;
+        margin: 0 0 6px; letter-spacing: -0.01em;
+    }
+    .welcome-banner p { color: rgba(255,255,255,.85); margin: 0; font-size: 14px; }
+    .welcome-banner .btn-light-inverse {
+        background: rgba(255,255,255,.15); color: #fff !important;
+        border: 1px solid rgba(255,255,255,.3);
+        font-weight: 600; padding: 8px 16px; border-radius: var(--radius-sm);
+        font-size: 13px;
+    }
+    .welcome-banner .btn-light-inverse:hover { background: rgba(255,255,255,.25); color: #fff !important; }
+    .welcome-actions { position: relative; z-index: 2; display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* _S40zκ_  Live activity badges in welcome banner */
+    .visit-badges{position:relative;z-index:2;display:flex;flex-wrap:wrap;
+                   gap:10px;margin-top:14px;}
+    .vbadge{background:rgba(255,255,255,.12);
+             border:1px solid rgba(255,255,255,.22);
+             border-radius:14px;padding:10px 14px;
+             color:#fff;font-size:12px;line-height:1.2;
+             min-width:148px;backdrop-filter:blur(4px);
+             display:flex;flex-direction:column;gap:6px;
+             transition:transform .12s, background .12s;}
+    .vbadge:hover{background:rgba(255,255,255,.2);transform:translateY(-1px);}
+    .vbadge .vb-head{display:flex;align-items:center;gap:7px;
+                      font-weight:700;letter-spacing:.08em;
+                      text-transform:uppercase;font-size:10px;opacity:.92;}
+    .vbadge.live .vb-dot{width:9px;height:9px;border-radius:50%;
+                          background:#22c55e;
+                          box-shadow:0 0 0 3px rgba(34,197,94,.3);
+                          animation:vb-pulse 1.6s infinite;}
+    @keyframes vb-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .vbadge.today .vb-dot, .vbadge.month .vb-dot{
+        width:9px;height:9px;border-radius:50%;background:#fbbf24;}
+    .vbadge.month .vb-dot{background:#a78bfa;}
+    .vbadge .vb-total{font-size:24px;font-weight:800;
+                        letter-spacing:-.01em;line-height:1;}
+    .vbadge .vb-break{display:flex;gap:8px;font-size:10.5px;
+                        color:rgba(255,255,255,.78);font-weight:600;}
+    .vbadge .vb-break span{display:inline-flex;align-items:center;gap:3px;}
+    .vbadge .vb-break i{font-size:11px;opacity:.85;}
+
+    .summary-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+        box-shadow: var(--shadow-xs);
+        margin-bottom: 20px;
+        position: relative; overflow: hidden;
+    }
+    .summary-card .summary-icon {
+        width: 48px; height: 48px; border-radius: 14px;
+        display: inline-flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 22px; margin-bottom: 16px;
+    }
+    .summary-card .summary-label { color: var(--muted); font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+    .summary-card .summary-value {
+        font-size: 28px; font-weight: 800; margin: 0;
+        color: var(--text); letter-spacing: -0.02em;
+    }
+    .summary-card .summary-meta { color: var(--muted); font-size: 12.5px; margin-top: 6px; font-weight: 500; }
+    .summary-card.primary .summary-icon { background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 10px 20px rgba(99,102,241,.3); }
+    .summary-card.success .summary-icon { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px rgba(16,185,129,.3); }
+
+    .status-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; font-size: 11.5px; font-weight: 600;
+        border-radius: 999px; letter-spacing: 0.02em;
+    }
+    .status-pill.active { background: var(--success-soft); color: #047857; }
+    .status-pill.deactive { background: var(--warning-soft); color: #b45309; }
+    .status-pill.suspended { background: var(--danger-soft); color: #b91c1c; }
+
+    .empty-hint {
+        padding: 28px 20px; text-align: center; color: var(--muted);
+        font-size: 13.5px;
+    }
+
+    @media (max-width: 575px) {
+        .welcome-banner { padding: 18px 20px; }
+        .welcome-banner h2 { font-size: 20px; }
+        .summary-card { padding: 18px; }
+        .summary-card .summary-value { font-size: 24px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Dashboard <small>Overview of your platform</small></h1>
+</section>
+
+<section class="content">
+    <div class="welcome-banner">
+        <div class="welcome-eyebrow">Hello, {{ user_name or 'Superadmin' }}</div>
+        <h2>Welcome back to Auto ISP Billing</h2>
+        <p>Here's what's happening across your admins, packages and invoices today.</p>
+
+        {# _S40zκ_  Live + today + 30-day login badges #}
+        {% set ls = login_stats or {'live':{'admin':0,'sub_lco':0,'employee':0,'total':0},
+                                     'today':{'admin':0,'sub_lco':0,'employee':0,'total':0},
+                                     'month':{'admin':0,'sub_lco':0,'employee':0,'total':0}} %}
+        <div class="visit-badges" data-testid="dashboard-visit-badges">
+          <div class="vbadge live" data-testid="badge-live" title="Active sessions in the last 5 minutes">
+            <div class="vb-head"><span class="vb-dot"></span> Live now</div>
+            <div class="vb-total">{{ ls.live.total }}</div>
+            <div class="vb-break">
+              <span title="Admins"><i class="bi bi-shield-fill-check"></i> {{ ls.live.admin }}</span>
+              <span title="Sub-LCOs"><i class="bi bi-diagram-2"></i> {{ ls.live.sub_lco }}</span>
+              <span title="Employees"><i class="bi bi-person-badge"></i> {{ ls.live.employee }}</span>
+            </div>
+          </div>
+          <div class="vbadge today" data-testid="badge-today" title="Unique users who logged in today (IST)">
+            <div class="vb-head"><span class="vb-dot"></span> Today</div>
+            <div class="vb-total">{{ ls.today.total }}</div>
+            <div class="vb-break">
+              <span title="Admins"><i class="bi bi-shield-fill-check"></i> {{ ls.today.admin }}</span>
+              <span title="Sub-LCOs"><i class="bi bi-diagram-2"></i> {{ ls.today.sub_lco }}</span>
+              <span title="Employees"><i class="bi bi-person-badge"></i> {{ ls.today.employee }}</span>
+            </div>
+          </div>
+          <div class="vbadge month" data-testid="badge-month" title="Unique users who logged in over the last 30 days">
+            <div class="vb-head"><span class="vb-dot"></span> Last 30 days</div>
+            <div class="vb-total">{{ ls.month.total }}</div>
+            <div class="vb-break">
+              <span title="Admins"><i class="bi bi-shield-fill-check"></i> {{ ls.month.admin }}</span>
+              <span title="Sub-LCOs"><i class="bi bi-diagram-2"></i> {{ ls.month.sub_lco }}</span>
+              <span title="Employees"><i class="bi bi-person-badge"></i> {{ ls.month.employee }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="welcome-actions">
+            <a href="/superadmin/admins/add" class="btn btn-light-inverse"><i class="bi bi-plus-circle"></i>&nbsp; Add Admin</a>
+            <a href="/superadmin/packages" class="btn btn-light-inverse"><i class="bi bi-box-seam"></i>&nbsp; Manage Packages</a>
+            <a href="/superadmin/reports" class="btn btn-light-inverse"><i class="bi bi-bar-chart"></i>&nbsp; View Reports</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-aqua">
+                <div class="inner">
+                    <h3>{{ total_admins }}</h3>
+                    <p>Total Admins</p>
+                </div>
+                <div class="icon"><i class="bi bi-people-fill"></i></div>
+                <a href="/superadmin/admins" class="small-box-footer">
+                    <span>View all</span> <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>{{ active_admins }}</h3>
+                    <p>Active Admins</p>
+                </div>
+                <div class="icon"><i class="bi bi-check-circle-fill"></i></div>
+                <a href="/superadmin/admins?status=Active" class="small-box-footer">
+                    <span>Filter active</span> <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-yellow">
+                <div class="inner">
+                    <h3>{{ deactive_admins }}</h3>
+                    <p>Deactivated</p>
+                </div>
+                <div class="icon"><i class="bi bi-pause-circle-fill"></i></div>
+                <a href="/superadmin/admins?status=Deactive" class="small-box-footer">
+                    <span>Needs attention</span> <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-red">
+                <div class="inner">
+                    <h3>{{ suspended_admins }}</h3>
+                    <p>Suspended</p>
+                </div>
+                <div class="icon"><i class="bi bi-slash-circle-fill"></i></div>
+                <a href="/superadmin/admins?status=Suspended" class="small-box-footer">
+                    <span>Review suspended</span> <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 col-xs-12">
+            <div class="summary-card primary">
+                <div class="summary-icon"><i class="bi bi-wallet2"></i></div>
+                <p class="summary-label">Total Dues</p>
+                <p class="summary-value">&#8377;{{ '{:,}'.format(total_dues|round|int) }}</p>
+                <div class="summary-meta">Outstanding balance from all admin subscriptions</div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xs-12">
+            <div class="summary-card success">
+                <div class="summary-icon"><i class="bi bi-cash-coin"></i></div>
+                <p class="summary-label">Total Payments</p>
+                <p class="summary-value">&#8377;{{ '{:,}'.format(total_payments|round|int) }}</p>
+                <div class="summary-meta">Lifetime payments received from admins</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-xs-12">
+            <div class="box">
+                <div class="box-header with-border">
+                    <h3 class="box-title"><i class="bi bi-clock-history"></i> &nbsp;Recent Admins</h3>
+                    <div class="box-tools">
+                        <a href="/superadmin/admins" class="btn btn-default btn-sm">
+                            <i class="bi bi-arrow-up-right-square"></i>&nbsp; See all
+                        </a>
+                    </div>
+                </div>
+                <div class="box-body" style="padding: 0 !important;">
+                    {% if recent_admins and recent_admins|length > 0 %}
+                    <div class="table-responsive">
+                        <table class="table table-hover" style="margin-bottom: 0;">
+                            <thead>
+                                <tr>
+                                    <th>Company</th>
+                                    <th>Admin</th>
+                                    <th>Contact</th>
+                                    <th>Status</th>
+                                    <th>End Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for admin in recent_admins %}
+                                <tr>
+                                    <td>
+                                        <div style="font-weight: 600; color: var(--text);">{{ admin.company_name }}</div>
+                                        <div style="font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">#{{ admin.company_id }}</div>
+                                    </td>
+                                    <td>{{ admin.admin_name }}</td>
+                                    <td>
+                                        <div style="font-size: 13px;">{{ admin.admin_email }}</div>
+                                        <div style="font-size: 12px; color: var(--muted);">{{ admin.admin_mobile }}</div>
+                                    </td>
+                                    <td>
+                                        {% if admin.status == 'Active' %}
+                                            <span class="status-pill active"><i class="bi bi-circle-fill" style="font-size: 7px;"></i> Active</span>
+                                        {% elif admin.status == 'Suspended' %}
+                                            <span class="status-pill suspended"><i class="bi bi-circle-fill" style="font-size: 7px;"></i> Suspended</span>
+                                        {% else %}
+                                            <span class="status-pill deactive"><i class="bi bi-circle-fill" style="font-size: 7px;"></i> Deactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ admin.end_date.strftime('%d-%m-%Y') if admin.end_date else '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="empty-hint">
+                        <i class="bi bi-inbox" style="font-size: 32px; color: var(--muted); display: block; margin-bottom: 8px;"></i>
+                        No admins yet. <a href="/superadmin/admins/add">Add your first admin</a> to get started.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

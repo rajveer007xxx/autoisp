@@ -1,0 +1,474 @@
+/* =====================================================================
+ *  E1 GLOBAL VISIBILITY OVERRIDES  (s58j_visibility)
+ *  Purpose: Eliminate dim/grey/faded text and make badges glow.
+ *  Loaded AFTER e1-modern.css to win cascade.
+ * ===================================================================== */
+
+/* ---------- 1. CORE TEXT COLOR TOKENS — bright, high-contrast ---------- */
+:root{
+  /* keep light theme readable: still dark on light bg but no faded greys */
+  --muted:              #1F2937 !important;
+  --text-3:             #111827 !important;
+  --text-2:             #0B1224 !important;
+  --e1-muted:           #1F2937 !important;
+  --e1-text-3:          #111827 !important;
+  --e1-text-2:          #0B1224 !important;
+}
+
+/* On dark theme — use bright white + cyan/amber accents */
+html.e1-dark, body.e1-dark, html.e1-dark body{
+  --muted:              #E6EEFB !important;
+  --text:               #FFFFFF !important;
+  --text-2:             #F1F5FB !important;
+  --text-3:             #E2EAF8 !important;
+  --e1-muted:           #E6EEFB !important;
+  --e1-text:            #FFFFFF !important;
+  --e1-text-2:          #F1F5FB !important;
+  --e1-text-3:          #E2EAF8 !important;
+}
+
+/* ---------- 2. KILL ALL DIM / GREY / FADED TEXT UTILITIES ---------- */
+.text-muted,
+.text-secondary,
+.text-gray, .text-gray-light, .text-gray-dark,
+.text-gray-100,.text-gray-200,.text-gray-300,.text-gray-400,
+.text-gray-500,.text-gray-600,.text-gray-700,.text-gray-800,.text-gray-900,
+small.text-muted, .small.text-muted,
+.form-text, .help-block, .hint, .subtle, .meta, .text-light, .text-dim,
+.text-faded, .text-disabled, .text-placeholder,
+label.text-muted, .description, .desc{
+  color: #0B1224 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+}
+
+/* On dark theme make those same classes bright white */
+html.e1-dark .text-muted,
+html.e1-dark .text-secondary,
+html.e1-dark .text-gray, html.e1-dark .text-gray-light, html.e1-dark .text-gray-dark,
+html.e1-dark .text-gray-100, html.e1-dark .text-gray-200, html.e1-dark .text-gray-300,
+html.e1-dark .text-gray-400, html.e1-dark .text-gray-500, html.e1-dark .text-gray-600,
+html.e1-dark .text-gray-700, html.e1-dark .text-gray-800, html.e1-dark .text-gray-900,
+html.e1-dark small.text-muted, html.e1-dark .small.text-muted,
+html.e1-dark .form-text, html.e1-dark .help-block, html.e1-dark .hint,
+html.e1-dark .subtle, html.e1-dark .meta, html.e1-dark .text-light,
+html.e1-dark .text-dim, html.e1-dark .text-faded, html.e1-dark .text-disabled,
+html.e1-dark .text-placeholder, html.e1-dark label.text-muted,
+html.e1-dark .description, html.e1-dark .desc{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 8px rgba(56,189,248,0.18);
+  opacity: 1 !important;
+}
+
+/* Generic page text on dark surfaces gets pumped up */
+html.e1-dark body,
+html.e1-dark .content-wrapper,
+html.e1-dark .card,
+html.e1-dark .box,
+html.e1-dark .modal-content,
+html.e1-dark p,
+html.e1-dark span,
+html.e1-dark li,
+html.e1-dark td,
+html.e1-dark th,
+html.e1-dark dt,
+html.e1-dark dd,
+html.e1-dark label,
+html.e1-dark .form-label{
+  color: #FFFFFF;
+}
+
+/* Headings — extra bright + subtle cyan glow on dark */
+h1,h2,h3,h4,h5,h6,
+.h1,.h2,.h3,.h4,.h5,.h6,
+.card-title, .box-title, .page-title, .section-title{
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+html.e1-dark h1, html.e1-dark h2, html.e1-dark h3,
+html.e1-dark h4, html.e1-dark h5, html.e1-dark h6,
+html.e1-dark .h1, html.e1-dark .h2, html.e1-dark .h3,
+html.e1-dark .h4, html.e1-dark .h5, html.e1-dark .h6,
+html.e1-dark .card-title, html.e1-dark .box-title,
+html.e1-dark .page-title, html.e1-dark .section-title{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 10px rgba(56,189,248,0.28);
+}
+
+/* Tables — readable on every theme */
+.table, .table td, .table th,
+table.dataTable, table.dataTable td, table.dataTable th{
+  color: var(--text) !important;
+}
+html.e1-dark .table, html.e1-dark .table td, html.e1-dark .table th,
+html.e1-dark table.dataTable, html.e1-dark table.dataTable td,
+html.e1-dark table.dataTable th{
+  color: #FFFFFF !important;
+}
+html.e1-dark .table thead th,
+html.e1-dark table.dataTable thead th{
+  color: #FDE68A !important;            /* warm amber for table headers */
+  text-shadow: 0 0 8px rgba(245,158,11,0.30);
+  font-weight: 700 !important;
+}
+
+/* DataTables info / paging / length / search — kill dim */
+.dataTables_info, .dataTables_length, .dataTables_filter,
+.dataTables_filter label, .dataTables_length label,
+.dataTables_paginate .paginate_button{
+  color: var(--text) !important;
+  opacity: 1 !important;
+}
+html.e1-dark .dataTables_info,
+html.e1-dark .dataTables_length,
+html.e1-dark .dataTables_filter,
+html.e1-dark .dataTables_filter label,
+html.e1-dark .dataTables_length label,
+html.e1-dark .dataTables_paginate .paginate_button{
+  color: #FFFFFF !important;
+}
+
+/* Inputs — bright placeholders, no grey blur */
+input::placeholder, textarea::placeholder, select::placeholder{
+  color: #475569 !important;
+  opacity: 1 !important;
+}
+html.e1-dark input::placeholder,
+html.e1-dark textarea::placeholder,
+html.e1-dark select::placeholder{
+  color: #CBD5E1 !important;
+  opacity: 0.9 !important;
+}
+
+/* Sidebar links / labels — never dim */
+.sidebar .nav-link, .main-sidebar .nav-link,
+.sidebar a, .main-sidebar a,
+.sidebar .nav-header, .main-sidebar .nav-header{
+  color: #ECF3FF !important;
+  opacity: 1 !important;
+}
+.sidebar .nav-link:hover, .main-sidebar .nav-link:hover{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 10px rgba(56,189,248,0.55);
+}
+
+/* Sidebar SECTION HEADER labels (MAIN / SUPPORT / COMMUNICATION / MARKETING)
+   — AdminLTE uses <li class="header">. Make them glowing cyan/amber. */
+.sidebar li.header, .main-sidebar li.header,
+.sidebar .nav-header, .main-sidebar .nav-header,
+.sidebar-menu .header, .sidebar .menu-header,
+.sidebar .sidebar-heading, .main-sidebar .sidebar-heading{
+  color: #67E8F9 !important;              /* bright cyan */
+  font-weight: 800 !important;
+  letter-spacing: 1.4px !important;
+  text-transform: uppercase;
+  opacity: 1 !important;
+  text-shadow: 0 0 10px rgba(6,182,212,0.55);
+  padding: 14px 16px 6px !important;
+  font-size: 11px !important;
+}
+
+/* Alternate accent (amber) for every 2nd header to add variety */
+.sidebar li.header:nth-of-type(4n+3),
+.main-sidebar li.header:nth-of-type(4n+3),
+.sidebar .nav-header:nth-of-type(4n+3),
+.main-sidebar .nav-header:nth-of-type(4n+3){
+  color: #FCD34D !important;              /* warm amber */
+  text-shadow: 0 0 10px rgba(245,158,11,0.55);
+}
+
+/* Breadcrumb / muted toolbar text */
+.breadcrumb, .breadcrumb a, .breadcrumb-item, .breadcrumb-item a,
+.breadcrumb-item.active{
+  color: var(--text) !important;
+  opacity: 1 !important;
+}
+html.e1-dark .breadcrumb,
+html.e1-dark .breadcrumb a,
+html.e1-dark .breadcrumb-item,
+html.e1-dark .breadcrumb-item a{
+  color: #FFFFFF !important;
+}
+html.e1-dark .breadcrumb-item.active{
+  color: #FDE68A !important;
+  text-shadow: 0 0 8px rgba(245,158,11,0.35);
+}
+
+/* ---------- 3. GLOWING BADGES — vivid + visible ---------- */
+.badge, .label, .e1-badge,
+span.badge, a.badge, button.badge{
+  font-weight: 700 !important;
+  letter-spacing: 0.2px;
+  padding: 0.40em 0.75em !important;
+  border-radius: 999px !important;
+  color: #FFFFFF !important;
+  text-shadow: 0 0 6px rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 0 14px rgba(59,130,246,0.45),
+    0 2px 6px rgba(15,23,42,0.20);
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+.badge:hover, .label:hover, .e1-badge:hover{
+  transform: translateY(-1px);
+  filter: saturate(1.15);
+}
+
+/* Status-coloured badges — strong neon look */
+.badge-success, .badge.bg-success, .badge-bg-success, .label-success,
+.badge.badge-active, .badge-active, .badge-online{
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%) !important;
+  box-shadow: 0 0 14px rgba(16,185,129,0.65), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-danger, .badge.bg-danger, .label-danger,
+.badge-inactive, .badge-offline, .badge-error{
+  background: linear-gradient(135deg, #EF4444 0%, #B91C1C 100%) !important;
+  box-shadow: 0 0 14px rgba(239,68,68,0.65), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-warning, .badge.bg-warning, .label-warning, .badge-pending{
+  background: linear-gradient(135deg, #F59E0B 0%, #B45309 100%) !important;
+  color: #1B1006 !important;
+  text-shadow: 0 0 6px rgba(255,255,255,0.35);
+  box-shadow: 0 0 14px rgba(245,158,11,0.65), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-info, .badge.bg-info, .label-info{
+  background: linear-gradient(135deg, #06B6D4 0%, #0E7490 100%) !important;
+  box-shadow: 0 0 14px rgba(6,182,212,0.65), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-primary, .badge.bg-primary, .label-primary{
+  background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%) !important;
+  box-shadow: 0 0 14px rgba(59,130,246,0.65), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-secondary, .badge.bg-secondary, .label-default, .badge-default{
+  background: linear-gradient(135deg, #64748B 0%, #334155 100%) !important;
+  box-shadow: 0 0 12px rgba(148,163,184,0.55), 0 2px 6px rgba(15,23,42,0.20);
+}
+.badge-dark, .badge.bg-dark{
+  background: linear-gradient(135deg, #1F2937 0%, #0B1224 100%) !important;
+  box-shadow: 0 0 12px rgba(56,189,248,0.45), 0 2px 6px rgba(15,23,42,0.30);
+}
+.badge-light, .badge.bg-light{
+  background: linear-gradient(135deg, #F1F5F9 0%, #CBD5E1 100%) !important;
+  color: #0B1224 !important;
+  text-shadow: none;
+  box-shadow: 0 0 14px rgba(226,232,240,0.65), 0 2px 6px rgba(15,23,42,0.10);
+}
+
+/* Outline / soft badges — convert to glowing solids for visibility */
+.badge-soft-success, .badge-outline-success{
+  background: rgba(16,185,129,0.18) !important;
+  color: #6EE7B7 !important;
+  border: 1px solid rgba(16,185,129,0.55) !important;
+  box-shadow: 0 0 12px rgba(16,185,129,0.45);
+}
+.badge-soft-danger, .badge-outline-danger{
+  background: rgba(239,68,68,0.18) !important;
+  color: #FCA5A5 !important;
+  border: 1px solid rgba(239,68,68,0.55) !important;
+  box-shadow: 0 0 12px rgba(239,68,68,0.45);
+}
+.badge-soft-warning, .badge-outline-warning{
+  background: rgba(245,158,11,0.18) !important;
+  color: #FCD34D !important;
+  border: 1px solid rgba(245,158,11,0.55) !important;
+  box-shadow: 0 0 12px rgba(245,158,11,0.45);
+}
+.badge-soft-info, .badge-outline-info{
+  background: rgba(6,182,212,0.18) !important;
+  color: #67E8F9 !important;
+  border: 1px solid rgba(6,182,212,0.55) !important;
+  box-shadow: 0 0 12px rgba(6,182,212,0.45);
+}
+.badge-soft-primary, .badge-outline-primary{
+  background: rgba(59,130,246,0.18) !important;
+  color: #93C5FD !important;
+  border: 1px solid rgba(59,130,246,0.55) !important;
+  box-shadow: 0 0 12px rgba(59,130,246,0.45);
+}
+
+/* Bootstrap 5 .text-bg-* utilities used by some pages */
+.text-bg-secondary, .text-bg-light{ color:#FFFFFF !important; }
+
+/* ---------- 4. LINKS — always visible ---------- */
+a, .link{
+  color: #2563EB;
+}
+html.e1-dark a, html.e1-dark .link{
+  color: #93C5FD;
+}
+html.e1-dark a:hover, html.e1-dark .link:hover{
+  color: #FFFFFF;
+  text-shadow: 0 0 10px rgba(56,189,248,0.6);
+}
+
+/* ---------- 5. BUTTONS w/ ghost / outline / link — visibility ---------- */
+.btn-link, .btn-outline-secondary, .btn-light{
+  color: var(--text) !important;
+}
+html.e1-dark .btn-link,
+html.e1-dark .btn-outline-secondary,
+html.e1-dark .btn-light{
+  color: #FFFFFF !important;
+}
+
+/* ---------- 6. KPI / STAT NUMBERS — emphasise ---------- */
+.kpi-value, .stat-number, .stat-value,
+.info-box-number, .small-box h3, .description-block .description-text{
+  color: var(--text) !important;
+  font-weight: 800 !important;
+}
+html.e1-dark .kpi-value,
+html.e1-dark .stat-number,
+html.e1-dark .stat-value,
+html.e1-dark .info-box-number,
+html.e1-dark .small-box h3{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 12px rgba(56,189,248,0.45);
+}
+
+/* ---------- 7. ALERTS — keep readable ---------- */
+.alert{ color: #0B1224 !important; font-weight: 600 !important; }
+html.e1-dark .alert{ color: #FFFFFF !important; }
+html.e1-dark .alert-info { background: rgba(6,182,212,0.18) !important; border-color: rgba(6,182,212,0.45) !important; }
+html.e1-dark .alert-success { background: rgba(16,185,129,0.18) !important; border-color: rgba(16,185,129,0.45) !important; }
+html.e1-dark .alert-warning { background: rgba(245,158,11,0.18) !important; border-color: rgba(245,158,11,0.45) !important; color:#FDE68A !important; }
+html.e1-dark .alert-danger  { background: rgba(239,68,68,0.18) !important; border-color: rgba(239,68,68,0.45) !important; }
+
+/* ---------- 8. CARDS / BOXES on dark theme ---------- */
+html.e1-dark .card, html.e1-dark .box, html.e1-dark .modal-content{
+  color: #FFFFFF;
+}
+html.e1-dark .card-header, html.e1-dark .box-header{
+  color: #FFFFFF !important;
+}
+html.e1-dark .card-header .card-title,
+html.e1-dark .box-header .box-title{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 10px rgba(56,189,248,0.28);
+}
+
+/* ---------- 9. PILL / TAG / CHIP fallbacks ---------- */
+.pill, .chip, .tag, .e1-pill, .e1-chip{
+  color: #FFFFFF;
+  text-shadow: 0 0 6px rgba(0,0,0,0.45);
+  border-radius: 999px;
+  padding: 0.25em 0.7em;
+  box-shadow: 0 0 12px rgba(59,130,246,0.45);
+}
+
+/* ---------- 10. Safety net: any element with inline grey color ---------- */
+[style*="color:#999"], [style*="color: #999"],
+[style*="color:#aaa"], [style*="color: #aaa"],
+[style*="color:#bbb"], [style*="color: #bbb"],
+[style*="color:#ccc"], [style*="color: #ccc"],
+[style*="color:#888"], [style*="color: #888"],
+[style*="color:#777"], [style*="color: #777"],
+[style*="color:gray"], [style*="color: gray"],
+[style*="color:grey"], [style*="color: grey"],
+[style*="color:lightgray"], [style*="color: lightgray"],
+[style*="color:silver"], [style*="color: silver"]{
+  color: var(--text) !important;
+}
+html.e1-dark [style*="color:#999"], html.e1-dark [style*="color: #999"],
+html.e1-dark [style*="color:#aaa"], html.e1-dark [style*="color: #aaa"],
+html.e1-dark [style*="color:#bbb"], html.e1-dark [style*="color: #bbb"],
+html.e1-dark [style*="color:#ccc"], html.e1-dark [style*="color: #ccc"],
+html.e1-dark [style*="color:#888"], html.e1-dark [style*="color: #888"],
+html.e1-dark [style*="color:#777"], html.e1-dark [style*="color: #777"],
+html.e1-dark [style*="color:gray"], html.e1-dark [style*="color: gray"],
+html.e1-dark [style*="color:grey"], html.e1-dark [style*="color: grey"],
+html.e1-dark [style*="color:lightgray"], html.e1-dark [style*="color: lightgray"],
+html.e1-dark [style*="color:silver"], html.e1-dark [style*="color: silver"]{
+  color: #FFFFFF !important;
+}
+
+/* ---------- 11. Subtle pulse animation for status dots / live badges ---------- */
+@keyframes e1BadgePulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(16,185,129,0.65), 0 2px 6px rgba(15,23,42,0.20); }
+  50%      { box-shadow: 0 0 22px rgba(16,185,129,0.90), 0 2px 8px rgba(15,23,42,0.25); }
+}
+.badge-online, .badge.live, .badge-active.live{
+  animation: e1BadgePulse 1.8s ease-in-out infinite;
+}
+
+/* ---------- 12. Form labels & values bright on dark ---------- */
+html.e1-dark .form-control, html.e1-dark .form-select{
+  color: #FFFFFF !important;
+}
+
+/* ---------- 13. DataTables: highlight stripes preserved, text bright ---------- */
+html.e1-dark table.dataTable tbody tr td a{
+  color: #93C5FD !important;
+}
+html.e1-dark table.dataTable tbody tr td a:hover{
+  color: #FFFFFF !important;
+  text-shadow: 0 0 10px rgba(56,189,248,0.6);
+}
+
+/* ---------- 14. Dashboard chips / stat sub-labels / KPI footnotes ---------- */
+.chip, .chip.muted, .stat-sub, .stat-label,
+.kpi-sub, .kpi-label, .info-box-text, .small-box p,
+.description-block .description-header,
+.text-uppercase.small, .small.text-uppercase{
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px;
+  text-shadow: 0 0 6px rgba(56,189,248,0.20);
+}
+
+/* Chip variants — glowing colored pills */
+.chip{
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(56,189,248,0.14) !important;
+  border: 1px solid rgba(56,189,248,0.40);
+  color: #93E5FF !important;
+  box-shadow: 0 0 10px rgba(56,189,248,0.28);
+}
+.chip.muted{
+  background: rgba(148,163,184,0.18) !important;
+  border-color: rgba(148,163,184,0.45);
+  color: #E2EAF8 !important;
+  box-shadow: 0 0 10px rgba(148,163,184,0.30);
+}
+.chip.success, .chip.green{
+  background: rgba(16,185,129,0.16) !important;
+  border-color: rgba(16,185,129,0.45);
+  color: #86EFAC !important;
+  box-shadow: 0 0 10px rgba(16,185,129,0.40);
+}
+.chip.warning, .chip.amber{
+  background: rgba(245,158,11,0.18) !important;
+  border-color: rgba(245,158,11,0.45);
+  color: #FCD34D !important;
+  box-shadow: 0 0 10px rgba(245,158,11,0.40);
+}
+.chip.danger, .chip.red{
+  background: rgba(239,68,68,0.18) !important;
+  border-color: rgba(239,68,68,0.45);
+  color: #FCA5A5 !important;
+  box-shadow: 0 0 10px rgba(239,68,68,0.40);
+}
+
+/* Stat sub labels — small caps amber accent for nice readability */
+.stat-sub, .info-box-text, .small-box p{
+  color: #FDE68A !important;
+  text-shadow: 0 0 8px rgba(245,158,11,0.25);
+}
+
+/* ---------- 15. Card subheadings, "today / this month" descriptions ---------- */
+p.card-text, p.box-text, .card .text, .box .text,
+.card p, .box p{
+  color: #F1F5FB !important;
+}
+html.e1-dark .card p, html.e1-dark .box p{
+  color: #FFFFFF !important;
+}
+
+/* ---------- 16. Anything inheriting from old --muted variable ---------- */
+.text-on-muted, .on-muted, .muted-text{
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}

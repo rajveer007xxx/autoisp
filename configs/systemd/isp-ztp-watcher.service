@@ -1,0 +1,12 @@
+[Unit]
+Description=AutoISPBilling ZTP GenieACS watcher
+After=isp-admin.service postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/ispbilling/admin-portal
+EnvironmentFile=/etc/ispbilling.env
+ExecStart=/opt/ispbilling/venv/bin/python3 /opt/ispbilling/admin-portal/ztp_watcher_cron.py
+StandardOutput=journal
+StandardError=journal

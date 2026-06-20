@@ -1,0 +1,239 @@
+{% extends "base_admin.html" %}
+{% set active_page = 'olt_profiles' %}
+{% block title %}ZTP Profile Engine{% endblock %}
+
+{% block content %}
+<style>
+  .pe-wrap{padding:18px;color:#e2e8f0;background:#0a0f1c;min-height:calc(100vh - 60px)}
+  .pe-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+  .pe-head h1{font-size:22px;font-weight:700;margin:0;color:#fff}
+  .pe-head .sub{color:#94a3b8;font-size:13px;margin-top:4px}
+  .pe-btn{background:linear-gradient(135deg,#0ea5e9,#3b82f6);color:#fff;border:none;
+          padding:8px 16px;border-radius:8px;font-weight:500;cursor:pointer;font-size:13px;
+          display:inline-flex;align-items:center;gap:6px;transition:.2s}
+  .pe-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,130,246,.4)}
+  .pe-btn.ghost{background:#1e293b;border:1px solid #334155}
+  .pe-btn.danger{background:#7f1d1d;border:1px solid #991b1b}
+  .pe-card{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:18px;
+           margin-bottom:14px}
+  table.pe-tbl{width:100%;border-collapse:collapse;font-size:13px}
+  table.pe-tbl th{color:#94a3b8;font-weight:500;text-align:left;padding:10px 12px;
+                  border-bottom:1px solid #334155;font-size:11px;text-transform:uppercase;
+                  letter-spacing:.06em}
+  table.pe-tbl td{padding:12px;border-bottom:1px solid #1e293b;color:#e2e8f0}
+  table.pe-tbl tr:hover td{background:rgba(34,211,238,.05)}
+  .pe-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
+           font-weight:600;background:#1e293b;color:#cbd5e1}
+  .pe-pill.pppoe{background:#1e3a8a;color:#bfdbfe}
+  .pe-pill.ipoe{background:#3b1e6a;color:#ddd6fe}
+  .pe-pill.static{background:#0a4d3b;color:#a7f3d0}
+  .pe-pill.bridge{background:#7a3e0e;color:#fed7aa}
+
+  .pe-mask{position:fixed;inset:0;background:rgba(2,6,23,.78);backdrop-filter:blur(4px);
+           display:none;z-index:1000;align-items:center;justify-content:center}
+  .pe-mask.active{display:flex}
+  .pe-modal{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:22px;
+            width:min(580px,90vw);max-height:88vh;overflow-y:auto}
+  .pe-modal h3{font-size:16px;font-weight:700;margin:0 0 14px;color:#fff}
+  .pe-modal label{display:block;font-size:11px;color:#94a3b8;text-transform:uppercase;
+                  letter-spacing:.06em;margin:10px 0 4px}
+  .pe-modal input,.pe-modal select{width:100%;background:#020617;border:1px solid #334155;
+                                    border-radius:6px;padding:8px 10px;color:#e2e8f0;
+                                    font-size:13px}
+  .pe-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pe-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+
+  .pe-empty{text-align:center;padding:60px 20px;color:#94a3b8}
+  .pe-empty i{font-size:48px;color:#475569;margin-bottom:14px;display:block}
+
+  .pe-toast{position:fixed;right:20px;bottom:20px;background:#0f172a;border:1px solid #22d3ee;
+            border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:13px;z-index:2000;
+            box-shadow:0 8px 24px rgba(0,0,0,.4);transform:translateY(100px);opacity:0;
+            transition:.25s;max-width:380px}
+  .pe-toast.show{transform:translateY(0);opacity:1}
+  .pe-toast.error{border-color:#ef4444}
+</style>
+
+<div class="pe-wrap" data-testid="profile-engine-root">
+  <div class="pe-head">
+    <div>
+      <h1><i class="bi bi-gear-fill" style="color:#22d3ee"></i> ZTP Profile Engine</h1>
+      <div class="sub">Reusable service profile templates for Zero-Touch Provisioning. Bind a profile to an ONU and ZTP auto-applies it.</div>
+    </div>
+    <button class="pe-btn" onclick="peOpen()" data-testid="btn-new-profile">
+      <i class="bi bi-plus-circle"></i> New Profile
+    </button>
+  </div>
+
+  <div class="pe-card">
+    <table class="pe-tbl" data-testid="profile-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Conn Type</th><th>VLAN</th>
+          <th>QoS DL / UL</th><th>WiFi SSID Tpl</th><th>Inform</th><th>Updated</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="peTbody">
+        <tr><td colspan="8" class="pe-empty">
+          <i class="bi bi-hourglass-split"></i> Loading profiles…
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="pe-mask" id="peMask">
+  <div class="pe-modal">
+    <h3 id="peTitle">New Service Profile</h3>
+    <label>Profile Name *</label>
+    <input id="peName" placeholder="e.g. Residential 50Mbps PPPoE" data-testid="profile-name">
+    <div class="pe-row">
+      <div>
+        <label>Connection Type *</label>
+        <select id="peType" data-testid="profile-conn-type">
+          <option value="pppoe">PPPoE</option>
+          <option value="ipoe">IPoE</option>
+          <option value="static">Static IP</option>
+          <option value="bridge">Bridge Mode</option>
+        </select>
+      </div>
+      <div>
+        <label>VLAN ID</label>
+        <input id="peVlan" type="number" placeholder="100" data-testid="profile-vlan">
+      </div>
+    </div>
+    <div class="pe-row">
+      <div><label>QoS Download (kbps)</label><input id="peDl" type="number" placeholder="51200" data-testid="profile-dl"></div>
+      <div><label>QoS Upload (kbps)</label><input id="peUl" type="number" placeholder="51200" data-testid="profile-ul"></div>
+    </div>
+    <div class="pe-row">
+      <div><label>WiFi SSID Template</label><input id="peSsid" placeholder="MyISP-{customer_id}" data-testid="profile-ssid"></div>
+      <div><label>WiFi Password Template</label><input id="pePw" placeholder="auto-8" data-testid="profile-pw"></div>
+    </div>
+    <div class="pe-row">
+      <div>
+        <label>Band Split (2.4 / 5 GHz separate)</label>
+        <select id="peSplit" data-testid="profile-split"><option value="0">Combined</option><option value="1">Split</option></select>
+      </div>
+      <div>
+        <label>ACS Inform Interval (sec)</label>
+        <input id="peInform" type="number" value="300" data-testid="profile-inform">
+      </div>
+    </div>
+    <div class="pe-footer">
+      <button class="pe-btn ghost" onclick="peCloseModal()">Cancel</button>
+      <button class="pe-btn" id="peSaveBtn" onclick="peSave()" data-testid="profile-save">Save Profile</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let PE_LIST = [];
+let PE_EDIT = null;
+function $(s){return document.querySelector(s);}
+function toast(m, k='info'){
+  const el = document.createElement('div');
+  el.className = `pe-toast ${k}`;
+  el.textContent = m; document.body.appendChild(el);
+  setTimeout(()=>el.classList.add('show'),10);
+  setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),300);},3500);
+}
+async function api(method, path, body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body)opts.body=JSON.stringify(body);
+  const r=await fetch(path,opts);
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.statusText);}
+  return r.json();
+}
+async function peLoad(){
+  try{
+    const r = await api('GET','/api/admin/olt/profiles');
+    PE_LIST = r.profiles||[];
+    const tb = $('#peTbody');
+    if(!PE_LIST.length){
+      tb.innerHTML = `<tr><td colspan="8" class="pe-empty">
+        <i class="bi bi-inbox"></i> No profiles yet — click "New Profile" to create your first ZTP template
+      </td></tr>`;
+      return;
+    }
+    tb.innerHTML = PE_LIST.map(p=>{
+      const dl = p.qos_dl_kbps ? `${Math.round(p.qos_dl_kbps/1024)} Mbps` : '—';
+      const ul = p.qos_ul_kbps ? `${Math.round(p.qos_ul_kbps/1024)} Mbps` : '—';
+      return `<tr data-testid="profile-row-${p.id}">
+        <td><strong>${p.name}</strong></td>
+        <td><span class="pe-pill ${p.connection_type}">${p.connection_type.toUpperCase()}</span></td>
+        <td>${p.vlan || '—'}</td>
+        <td>${dl} / ${ul}</td>
+        <td>${p.wifi_ssid_tpl || '—'}</td>
+        <td>${p.acs_inform_int} s</td>
+        <td style="color:#94a3b8;font-size:11px">${p.updated_at ? new Date(p.updated_at).toLocaleString() : '—'}</td>
+        <td style="text-align:right">
+          <button class="pe-btn ghost" onclick="peEdit(${p.id})" data-testid="edit-${p.id}"><i class="bi bi-pencil"></i></button>
+          <button class="pe-btn danger" onclick="peDel(${p.id})" data-testid="del-${p.id}"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    $('#peTbody').innerHTML = `<tr><td colspan="8" class="pe-empty"><i class="bi bi-x-circle"></i> ${e.message}</td></tr>`;
+  }
+}
+function peOpen(){
+  PE_EDIT = null;
+  $('#peTitle').textContent = 'New Service Profile';
+  ['peName','peVlan','peDl','peUl','peSsid','pePw'].forEach(id=>$(`#${id}`).value='');
+  $('#peType').value='pppoe'; $('#peSplit').value='0'; $('#peInform').value='300';
+  $('#peMask').classList.add('active');
+}
+function peEdit(id){
+  const p = PE_LIST.find(x=>x.id===id);
+  if(!p) return;
+  PE_EDIT = id;
+  $('#peTitle').textContent = `Edit: ${p.name}`;
+  $('#peName').value = p.name;
+  $('#peType').value = p.connection_type;
+  $('#peVlan').value = p.vlan || '';
+  $('#peDl').value = p.qos_dl_kbps || '';
+  $('#peUl').value = p.qos_ul_kbps || '';
+  $('#peSsid').value = p.wifi_ssid_tpl || '';
+  $('#pePw').value = p.wifi_pw_tpl || '';
+  $('#peSplit').value = p.wifi_band_split ? '1' : '0';
+  $('#peInform').value = p.acs_inform_int || 300;
+  $('#peMask').classList.add('active');
+}
+function peCloseModal(){ $('#peMask').classList.remove('active'); }
+async function peSave(){
+  const body = {
+    name: $('#peName').value.trim(),
+    connection_type: $('#peType').value,
+    vlan: $('#peVlan').value || null,
+    qos_dl_kbps: $('#peDl').value || null,
+    qos_ul_kbps: $('#peUl').value || null,
+    wifi_ssid_tpl: $('#peSsid').value.trim() || null,
+    wifi_pw_tpl: $('#pePw').value.trim() || null,
+    wifi_band_split: $('#peSplit').value === '1',
+    acs_inform_int: parseInt($('#peInform').value || 300),
+  };
+  if(!body.name){ toast('Name required','error'); return; }
+  try{
+    if(PE_EDIT){
+      await api('PUT', `/api/admin/olt/profiles/${PE_EDIT}`, body);
+      toast('Profile updated','info');
+    }else{
+      await api('POST', '/api/admin/olt/profiles', body);
+      toast('Profile created','info');
+    }
+    peCloseModal(); peLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+async function peDel(id){
+  const p = PE_LIST.find(x=>x.id===id);
+  if(!confirm(`Delete profile "${p.name}"? Bound ONUs will be detached.`)) return;
+  try{
+    await api('DELETE', `/api/admin/olt/profiles/${id}`);
+    toast('Profile deleted','info'); peLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+peLoad();
+</script>
+{% endblock %}

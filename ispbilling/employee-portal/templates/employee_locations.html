@@ -1,0 +1,364 @@
+{% extends "base_employee.html" %}
+
+{% block title %}Locations Management - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Locations Management
+        <small>Manage service areas and localities</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Locations</h3>
+            <div class="box-tools pull-right">
+                <button type="button" class="btn btn-success" data-toggle="modal" data-target="#addLocationModal">
+                    <i class="fa fa-plus"></i> Add Location
+                </button>
+            </div>
+        </div>
+        <div class="box-body">
+            <table id="locationsTable" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>City</th>
+                        <th>State</th>
+                        <th>Pincode</th>
+                        <th>Status</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="8" class="text-center">Loading locations...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Add Location Modal -->
+<div class="modal fade" id="addLocationModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title">Add New Location</h4>
+            </div>
+            <form id="addLocationForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Location Name *</label>
+                        <input type="text" class="form-control" name="name" placeholder="Enter area/locality name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>City</label>
+                        <input type="text" class="form-control" name="city" placeholder="Enter city">
+                    </div>
+                    <div class="form-group">
+                        <label>State</label>
+                        <select class="form-control" name="state">
+                            <option value="">Select State</option>
+                            <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                            <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                            <option value="Assam">Assam</option>
+                            <option value="Bihar">Bihar</option>
+                            <option value="Chandigarh">Chandigarh</option>
+                            <option value="Chhattisgarh">Chhattisgarh</option>
+                            <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                            <option value="Delhi">Delhi</option>
+                            <option value="Goa">Goa</option>
+                            <option value="Gujarat">Gujarat</option>
+                            <option value="Haryana">Haryana</option>
+                            <option value="Himachal Pradesh">Himachal Pradesh</option>
+                            <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                            <option value="Jharkhand">Jharkhand</option>
+                            <option value="Karnataka">Karnataka</option>
+                            <option value="Kerala">Kerala</option>
+                            <option value="Ladakh">Ladakh</option>
+                            <option value="Lakshadweep">Lakshadweep</option>
+                            <option value="Madhya Pradesh">Madhya Pradesh</option>
+                            <option value="Maharashtra">Maharashtra</option>
+                            <option value="Manipur">Manipur</option>
+                            <option value="Meghalaya">Meghalaya</option>
+                            <option value="Mizoram">Mizoram</option>
+                            <option value="Nagaland">Nagaland</option>
+                            <option value="Odisha">Odisha</option>
+                            <option value="Puducherry">Puducherry</option>
+                            <option value="Punjab">Punjab</option>
+                            <option value="Rajasthan">Rajasthan</option>
+                            <option value="Sikkim">Sikkim</option>
+                            <option value="Tamil Nadu">Tamil Nadu</option>
+                            <option value="Telangana">Telangana</option>
+                            <option value="Tripura">Tripura</option>
+                            <option value="Uttar Pradesh">Uttar Pradesh</option>
+                            <option value="Uttarakhand">Uttarakhand</option>
+                            <option value="West Bengal">West Bengal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Pincode</label>
+                        <input type="text" class="form-control" name="pincode" placeholder="Enter pincode" maxlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" name="status">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Add Location</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Location Modal -->
+<div class="modal fade" id="editLocationModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title">Edit Location</h4>
+            </div>
+            <form id="editLocationForm">
+                <input type="hidden" name="location_id" id="edit_location_id">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Location Name *</label>
+                        <input type="text" class="form-control" name="name" id="edit_name" placeholder="Enter area/locality name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>City</label>
+                        <input type="text" class="form-control" name="city" id="edit_city" placeholder="Enter city">
+                    </div>
+                    <div class="form-group">
+                        <label>State</label>
+                        <select class="form-control" name="state" id="edit_state">
+                            <option value="">Select State</option>
+                            <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                            <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                            <option value="Assam">Assam</option>
+                            <option value="Bihar">Bihar</option>
+                            <option value="Chandigarh">Chandigarh</option>
+                            <option value="Chhattisgarh">Chhattisgarh</option>
+                            <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                            <option value="Delhi">Delhi</option>
+                            <option value="Goa">Goa</option>
+                            <option value="Gujarat">Gujarat</option>
+                            <option value="Haryana">Haryana</option>
+                            <option value="Himachal Pradesh">Himachal Pradesh</option>
+                            <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                            <option value="Jharkhand">Jharkhand</option>
+                            <option value="Karnataka">Karnataka</option>
+                            <option value="Kerala">Kerala</option>
+                            <option value="Ladakh">Ladakh</option>
+                            <option value="Lakshadweep">Lakshadweep</option>
+                            <option value="Madhya Pradesh">Madhya Pradesh</option>
+                            <option value="Maharashtra">Maharashtra</option>
+                            <option value="Manipur">Manipur</option>
+                            <option value="Meghalaya">Meghalaya</option>
+                            <option value="Mizoram">Mizoram</option>
+                            <option value="Nagaland">Nagaland</option>
+                            <option value="Odisha">Odisha</option>
+                            <option value="Puducherry">Puducherry</option>
+                            <option value="Punjab">Punjab</option>
+                            <option value="Rajasthan">Rajasthan</option>
+                            <option value="Sikkim">Sikkim</option>
+                            <option value="Tamil Nadu">Tamil Nadu</option>
+                            <option value="Telangana">Telangana</option>
+                            <option value="Tripura">Tripura</option>
+                            <option value="Uttar Pradesh">Uttar Pradesh</option>
+                            <option value="Uttarakhand">Uttarakhand</option>
+                            <option value="West Bengal">West Bengal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Pincode</label>
+                        <input type="text" class="form-control" name="pincode" id="edit_pincode" placeholder="Enter pincode" maxlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" name="status" id="edit_status">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Location</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Load locations on page load
+    loadLocations();
+    
+    function loadLocations() {
+        $.ajax({
+            url: '/api/locations/list',
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    var tbody = $('#locationsTable tbody');
+                    tbody.empty();
+                    
+                    if (response.locations.length === 0) {
+                        tbody.append('<tr><td colspan="8" class="text-center">No locations found. Click "Add Location" to create one.</td></tr>');
+                    } else {
+                        $.each(response.locations, function(index, location) {
+                            var statusBadge = location.status === 'Active' 
+                                ? '<span class="label label-success">Active</span>' 
+                                : '<span class="label label-danger">Inactive</span>';
+                            
+                            var row = '<tr>' +
+                                '<td>' + location.id + '</td>' +
+                                '<td>' + location.name + '</td>' +
+                                '<td>' + (location.city || '-') + '</td>' +
+                                '<td>' + (location.state || '-') + '</td>' +
+                                '<td>' + (location.pincode || '-') + '</td>' +
+                                '<td>' + statusBadge + '</td>' +
+                                '<td>' + location.created_at + '</td>' +
+                                '<td>' +
+                                    '<button class="btn btn-sm btn-primary edit-location" data-id="' + location.id + '" data-name="' + location.name + '" data-city="' + location.city + '" data-state="' + location.state + '" data-pincode="' + location.pincode + '" data-status="' + location.status + '">' +
+                                        '<i class="fa fa-edit"></i> Edit' +
+                                    '</button> ' +
+                                    '<button class="btn btn-sm btn-danger delete-location" data-id="' + location.id + '" data-name="' + location.name + '">' +
+                                        '<i class="fa fa-trash"></i> Delete' +
+                                    '</button>' +
+                                '</td>' +
+                            '</tr>';
+                            tbody.append(row);
+                        });
+                    }
+                } else {
+                    var tbody = $('#locationsTable tbody');
+                    tbody.empty();
+                    tbody.append('<tr><td colspan="8" class="text-center text-danger">Error loading locations: ' + response.message + '</td></tr>');
+                }
+            },
+            error: function(xhr, status, error) {
+                var tbody = $('#locationsTable tbody');
+                tbody.empty();
+                tbody.append('<tr><td colspan="8" class="text-center text-danger">Failed to load locations. Please refresh the page.</td></tr>');
+            }
+        });
+    }
+    
+    // Add location form submission
+    $('#addLocationForm').submit(function(e) {
+        e.preventDefault();
+        
+        $.ajax({
+            url: '/api/locations/create',
+            method: 'POST',
+            data: $(this).serialize(),
+            success: function(response) {
+                if (response.success) {
+                    alert('Location added successfully!');
+                    $('#addLocationModal').modal('hide');
+                    $('#addLocationForm')[0].reset();
+                    loadLocations();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Failed to add location: ' + error);
+            }
+        });
+    });
+    
+    // Edit location button click
+    $(document).on('click', '.edit-location', function() {
+        var id = $(this).data('id');
+        var name = $(this).data('name');
+        var city = $(this).data('city');
+        var state = $(this).data('state');
+        var pincode = $(this).data('pincode');
+        var status = $(this).data('status');
+        
+        $('#edit_location_id').val(id);
+        $('#edit_name').val(name);
+        $('#edit_city').val(city);
+        $('#edit_state').val(state);
+        $('#edit_pincode').val(pincode);
+        $('#edit_status').val(status);
+        
+        $('#editLocationModal').modal('show');
+    });
+    
+    // Edit location form submission
+    $('#editLocationForm').submit(function(e) {
+        e.preventDefault();
+        
+        $.ajax({
+            url: '/api/locations/update',
+            method: 'POST',
+            data: $(this).serialize(),
+            success: function(response) {
+                if (response.success) {
+                    alert('Location updated successfully!');
+                    $('#editLocationModal').modal('hide');
+                    loadLocations();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Failed to update location: ' + error);
+            }
+        });
+    });
+    
+    // Delete location button click
+    $(document).on('click', '.delete-location', function() {
+        var id = $(this).data('id');
+        var name = $(this).data('name');
+        
+        if (confirm('Are you sure you want to delete location "' + name + '"?')) {
+            $.ajax({
+                url: '/api/locations/delete',
+                method: 'POST',
+                data: { location_id: id },
+                success: function(response) {
+                    if (response.success) {
+                        alert('Location deleted successfully!');
+                        loadLocations();
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    alert('Failed to delete location: ' + error);
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

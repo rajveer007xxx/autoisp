@@ -1,0 +1,429 @@
+"""s56W — Outage Correlator + AI Notification Text (Phase C)
+
+Detects fiber-cut and signal-degradation events by correlating ONU status
+changes across the existing `onus` table. When ≥N ONUs sharing the same
+parent splitter or PON port go offline within a short window, an
+`outage_events` row is created with the affected span.
+
+Optional AI: when EMERGENT_LLM_KEY is present, Claude Sonnet generates a
+1–2 line customer-facing message. If the LLM call fails or the key is
+missing, we fall back to a deterministic template — never blocks the
+correlator.
+
+Tables (idempotent):
+  * `outage_events`             — one row per detected outage
+  * `outage_event_onus`         — junction: which ONUs each event affects
+  * `outage_notifications`      — generated message texts, ready for MSG91/email
+  * `signal_degradation_events` — linear-regression alerts (predictive)
+
+Public API:
+  GET  /api/admin/outages?status=open|closed|all&hours=24
+  POST /api/admin/outages/{id}/notify           -> generate texts (sync, fallback safe)
+  POST /api/admin/outages/{id}/close            -> manual close
+  POST /api/admin/outages/tick                  -> manual cycle (cron entrypoint)
+
+Detector cycle (`tick_detect_outages()`):
+  1. Snapshot ONU status into onu_status_history (or read from existing).
+  2. For each ONU that flipped online->offline since last tick, group by
+     (olt_id, pon_port_index) and by parent splitter (network_hardware).
+  3. If cluster size >= 3 within last 5 min, create an outage event.
+  4. Also run signal_degradation: linear regression on the last 7 days of
+     rx_dbm samples; if slope predicts <-25 dBm in next 14 days -> alert.
+
+Called every 60s by isp-queue-worker (we register a Dramatiq actor at
+the bottom of this module if dramatiq is importable; otherwise the
+worker's existing cron mechanism is used).
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from db_compat import get_raw_conn as _compat_conn  # __s56Z_compat__
+import statistics
+import time
+from collections import defaultdict
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List, Dict, Any
+
+from fastapi import APIRouter, Request, HTTPException
+
+
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+CLUSTER_MIN_ONUS  = 3              # >=N ONUs offline => suspected outage
+CLUSTER_WINDOW_S  = 300            # within 5 min
+SLOPE_SAMPLES_MIN = 30             # minimum signal samples to attempt prediction
+SLOPE_PREDICT_DAYS = 14
+SLOPE_THRESHOLD_DBM = -25.0        # below which the link is considered failing
+
+
+router = APIRouter()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Schema
+# ────────────────────────────────────────────────────────────────────────
+def _ensure_schema() -> None:
+    with _compat_conn(timeout=10) as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS outage_events_v2 (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            kind        TEXT NOT NULL,            -- 'fiber_cut'|'pon_down'|'splitter_down'|'signal_degradation'
+            severity    TEXT DEFAULT 'crit',      -- info|warn|crit
+            scope_kind  TEXT,                     -- 'pon_port'|'splitter'|'feeder'|'onu'
+            scope_id    TEXT,                     -- "olt_id:port_index" / "hw_id" / "onu_id"
+            details     TEXT,                     -- JSON
+            opened_at   TEXT NOT NULL,
+            closed_at   TEXT,
+            ack_by      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_outage_v2_company_open ON outage_events_v2(company_id, closed_at);
+
+        CREATE TABLE IF NOT EXISTS outage_event_onus_v2 (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id    INTEGER NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            UNIQUE(event_id, onu_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_outage_v2_event ON outage_event_onus_v2(event_id);
+        CREATE INDEX IF NOT EXISTS idx_outage_v2_onu   ON outage_event_onus_v2(onu_id);
+
+        CREATE TABLE IF NOT EXISTS outage_notifications_v2 (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id    INTEGER NOT NULL,
+            company_id  TEXT NOT NULL,
+            channel     TEXT NOT NULL,            -- whatsapp|email|sms
+            customer_id TEXT,                     -- nullable for bulk
+            text        TEXT NOT NULL,
+            ai_used     INTEGER DEFAULT 0,
+            sent        INTEGER DEFAULT 0,
+            sent_at     TEXT,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_outnotif_v2_event ON outage_notifications_v2(event_id);
+
+        CREATE TABLE IF NOT EXISTS signal_degradation_events_v2 (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            slope_db_per_day REAL,
+            predicted_fail_in_days REAL,
+            opened_at   TEXT NOT NULL,
+            closed_at   TEXT,
+            UNIQUE(onu_id, opened_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sd_v2_company_open ON signal_degradation_events_v2(company_id, closed_at);
+        """)
+_ensure_schema()
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Detection
+# ────────────────────────────────────────────────────────────────────────
+def tick_detect_outages() -> dict:
+    """Run one detection cycle. Idempotent. Returns counts.
+
+    Strategy:
+      • Look at ONUs currently offline whose last_offline timestamp lies
+        within the cluster window.
+      • Group by (olt_id, pon_port_index) and by parent splitter (from
+        network_hardware with kind='splitter_*').
+      • Create one outage_event per cluster.
+      • Avoid duplicates: if an open event with same scope exists, skip.
+    """
+    created_outage = 0
+    created_sd = 0
+    window_iso = (datetime.now(timezone.utc) - timedelta(seconds=CLUSTER_WINDOW_S)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    with _compat_conn(timeout=15) as con:
+        con.row_factory = sqlite3.Row
+        # 1) collect offline ONUs in window
+        offline = [dict(r) for r in con.execute(
+            "SELECT id, company_id, olt_id, pon_port_index, customer_id, last_offline "
+            "FROM onus WHERE status='offline' AND last_offline IS NOT NULL "
+            "AND last_offline >= ?",
+            (window_iso,)).fetchall()]
+        if offline:
+            # group by (company_id, olt_id, pon_port_index)
+            buckets = defaultdict(list)
+            for o in offline:
+                key = (o["company_id"], o["olt_id"], o["pon_port_index"])
+                buckets[key].append(o)
+            for (cid, olt_id, pon_idx), onus in buckets.items():
+                if len(onus) < CLUSTER_MIN_ONUS:
+                    continue
+                scope_id = f"{olt_id}:{pon_idx}"
+                existing = con.execute(
+                    "SELECT id FROM outage_events_v2 WHERE company_id=? AND scope_kind='pon_port' "
+                    "AND scope_id=? AND closed_at IS NULL", (cid, scope_id)).fetchone()
+                if existing:
+                    eid = existing["id"]
+                else:
+                    cur = con.execute(
+                        "INSERT INTO outage_events_v2 (company_id, kind, severity, scope_kind, "
+                        "scope_id, details, opened_at) VALUES (?,?,?,?,?,?,?)",
+                        (cid, "fiber_cut", "crit", "pon_port", scope_id,
+                         json.dumps({"olt_id": olt_id, "pon_port_index": pon_idx,
+                                     "onu_count": len(onus)}),
+                         _utc_iso()))
+                    eid = cur.lastrowid
+                    created_outage += 1
+                for o in onus:
+                    try:
+                        con.execute(
+                            "INSERT OR IGNORE INTO outage_event_onus_v2 (event_id, onu_id) VALUES (?,?)",
+                            (eid, o["id"]))
+                    except Exception:
+                        pass
+
+        # 2) signal degradation prediction (only when enough samples).
+        # Cheap heuristic: per ONU run linear regression on last 7 days.
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        candidate_onus = con.execute(
+            "SELECT DISTINCT onu_id, company_id FROM onu_signal_samples "
+            "WHERE ts >= ? AND rx_dbm IS NOT NULL",
+            (seven_days_ago,)).fetchall()
+        for r in candidate_onus:
+            onu_id = r["onu_id"]; cid = r["company_id"]
+            samples = con.execute(
+                "SELECT ts, rx_dbm FROM onu_signal_samples WHERE onu_id=? AND ts>=? "
+                "AND rx_dbm IS NOT NULL ORDER BY ts ASC", (onu_id, seven_days_ago)).fetchall()
+            if len(samples) < SLOPE_SAMPLES_MIN:
+                continue
+            try:
+                t0 = datetime.fromisoformat(samples[0]["ts"].replace("Z","+00:00")).timestamp()
+                xs = []; ys = []
+                for s in samples:
+                    t = datetime.fromisoformat(s["ts"].replace("Z","+00:00")).timestamp()
+                    xs.append((t - t0) / 86400.0)
+                    ys.append(float(s["rx_dbm"]))
+                n = len(xs); sx = sum(xs); sy = sum(ys)
+                sxx = sum(x*x for x in xs); sxy = sum(x*y for x,y in zip(xs,ys))
+                denom = (n*sxx - sx*sx)
+                if denom == 0: continue
+                slope = (n*sxy - sx*sy) / denom    # dB / day
+                intercept = (sy - slope*sx) / n
+                current_rx = ys[-1]
+                # Only alert on negative slopes that predict crossing the threshold.
+                if slope >= -0.05: continue
+                days_to_threshold = (SLOPE_THRESHOLD_DBM - current_rx) / slope
+                if days_to_threshold <= 0 or days_to_threshold > SLOPE_PREDICT_DAYS:
+                    continue
+                # de-dup: skip if open SD event already exists for this ONU
+                exists = con.execute(
+                    "SELECT id FROM signal_degradation_events_v2 WHERE onu_id=? AND closed_at IS NULL",
+                    (onu_id,)).fetchone()
+                if exists: continue
+                con.execute(
+                    "INSERT INTO signal_degradation_events_v2 "
+                    "(company_id, onu_id, slope_db_per_day, predicted_fail_in_days, opened_at) "
+                    "VALUES (?,?,?,?,?)",
+                    (cid, onu_id, slope, days_to_threshold, _utc_iso()))
+                created_sd += 1
+            except Exception:
+                continue
+    return {"ok": True, "outages_opened": created_outage, "degradations_opened": created_sd}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Notification text generation (Claude with deterministic fallback)
+# ────────────────────────────────────────────────────────────────────────
+def _fallback_template(event: dict, customer_name: Optional[str], etd_min: int) -> str:
+    name = customer_name or "Customer"
+    kind = (event.get("kind") or "outage").replace("_", " ").title()
+    eta = f"~{etd_min} min" if etd_min else "shortly"
+    return (
+        f"Hi {name}, we have detected a {kind} affecting your area. "
+        f"Our field team is on it; ETA: {eta}. Ticket ID #{event.get('id')}."
+    )
+
+
+def _generate_ai_text(event: dict, customer_name: Optional[str], etd_min: int) -> tuple[str, bool]:
+    """Try Claude via emergentintegrations; fall back to template on any error."""
+    api_key = os.environ.get("EMERGENT_LLM_KEY") or os.environ.get("EMERGENT_API_KEY")
+    if not api_key:
+        return _fallback_template(event, customer_name, etd_min), False
+    try:
+        import asyncio
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        prompt = (
+            "You are a polite ISP customer-care assistant. Write ONE short message "
+            "(max 280 chars) for the customer below, in their preferred language English. "
+            "Acknowledge the outage, give the ETA, and ask them to wait. No emojis. "
+            f"Customer: {customer_name or 'valued customer'}. "
+            f"Outage kind: {event.get('kind')}. "
+            f"ETA minutes: {etd_min}. "
+            f"Ticket ID: {event.get('id')}."
+        )
+        chat = (LlmChat(api_key=api_key, session_id=f"outage-{event.get('id')}-{customer_name}",
+                        system_message="You write short polite outage updates.")
+                .with_model("anthropic", "claude-sonnet-4-6"))
+
+        async def _run():
+            text = ""
+            try:
+                from emergentintegrations.llm.chat import TextDelta, StreamDone  # type: ignore
+                async for ev in chat.stream_message(UserMessage(text=prompt)):
+                    if isinstance(ev, TextDelta):
+                        text += ev.content
+                    elif isinstance(ev, StreamDone):
+                        break
+            except Exception:
+                # send_message fallback if stream isn't available.
+                resp = await chat.send_message(UserMessage(text=prompt))
+                text = str(resp) if resp else ""
+            return text.strip()
+
+        # Run async safely from sync context.
+        loop = asyncio.new_event_loop()
+        try:
+            text = loop.run_until_complete(asyncio.wait_for(_run(), timeout=12.0))
+        finally:
+            loop.close()
+        if not text:
+            return _fallback_template(event, customer_name, etd_min), False
+        return text[:600], True
+    except Exception as e:
+        print(f"[outage_correlator] AI fallback ({e})")
+        return _fallback_template(event, customer_name, etd_min), False
+
+
+# ────────────────────────────────────────────────────────────────────────
+# REST API
+# ────────────────────────────────────────────────────────────────────────
+def _scope(request: Request):
+    from olt_routes import _require_scope  # local import to avoid cycle at import time
+    return _require_scope(request)
+
+
+@router.get("/api/admin/outages-v2")
+def list_outages(request: Request):
+    sc = _scope(request)
+    status = (request.query_params.get("status") or "open").lower()
+    try:
+        hours = int(request.query_params.get("hours") or 168)
+    except Exception:
+        hours = 168
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    sql = ("SELECT id, kind, severity, scope_kind, scope_id, details, opened_at, "
+           "closed_at, ack_by FROM outage_events_v2 WHERE company_id=? AND opened_at>=?")
+    params: List[Any] = [sc["company_id"], cutoff]
+    if status == "open":
+        sql += " AND closed_at IS NULL"
+    elif status == "closed":
+        sql += " AND closed_at IS NOT NULL"
+    sql += " ORDER BY opened_at DESC LIMIT 500"
+    with _compat_conn(timeout=10) as con:
+        rows = con.execute(sql, params).fetchall()
+    out = []
+    for r in rows:
+        try: det = json.loads(r[5]) if r[5] else {}
+        except Exception: det = {}
+        out.append({"id": r[0], "kind": r[1], "severity": r[2],
+                    "scope_kind": r[3], "scope_id": r[4], "details": det,
+                    "opened_at": r[6], "closed_at": r[7], "ack_by": r[8]})
+    return {"ok": True, "outages": out}
+
+
+@router.post("/api/admin/outages-v2/{eid}/close")
+def close_outage(eid: int, request: Request):
+    sc = _scope(request)
+    user = sc.get("actor") or "admin"
+    with _compat_conn(timeout=10) as con:
+        r = con.execute(
+            "UPDATE outage_events_v2 SET closed_at=?, ack_by=? "
+            "WHERE id=? AND company_id=? AND closed_at IS NULL",
+            (_utc_iso(), user, eid, sc["company_id"]))
+        rc = r.rowcount
+    if rc == 0:
+        raise HTTPException(404, "Outage not found or already closed")
+    return {"ok": True, "closed": eid}
+
+
+@router.post("/api/admin/outages-v2/{eid}/notify")
+def notify_outage(eid: int, request: Request):
+    sc = _scope(request)
+    body = {}
+    try:
+        body = request.json() if hasattr(request, "json") else {}
+    except Exception:
+        body = {}
+    etd_min = 0
+    try:
+        # FastAPI doesn't pre-parse JSON for non-typed handlers; read once.
+        import asyncio
+        async def _read():
+            try: return await request.json()
+            except Exception: return {}
+        loop = asyncio.new_event_loop()
+        try:
+            body = loop.run_until_complete(_read()) or {}
+        finally:
+            loop.close()
+        etd_min = int(body.get("etd_minutes") or 0)
+    except Exception:
+        pass
+
+    with _compat_conn(timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        ev = con.execute(
+            "SELECT * FROM outage_events_v2 WHERE id=? AND company_id=?",
+            (eid, sc["company_id"])).fetchone()
+        if not ev:
+            raise HTTPException(404, "Outage not found")
+        ev = dict(ev)
+        # Affected ONUs -> customers
+        rows = con.execute(
+            "SELECT o.customer_id, c.full_name "
+            "FROM outage_event_onus_v2 eo JOIN onus o ON o.id=eo.onu_id "
+            "LEFT JOIN customers c ON c.customer_id=o.customer_id AND c.company_id=o.company_id "
+            "WHERE eo.event_id=? AND o.customer_id IS NOT NULL AND o.customer_id != ''",
+            (eid,)).fetchall()
+        targets = [dict(r) for r in rows]
+
+    generated = 0
+    ai_used_any = False
+    with _compat_conn(timeout=10) as con:
+        for t in targets:
+            text, ai_used = _generate_ai_text(ev, t.get("full_name"), etd_min)
+            ai_used_any = ai_used_any or ai_used
+            con.execute(
+                "INSERT INTO outage_notifications_v2 "
+                "(event_id, company_id, channel, customer_id, text, ai_used) "
+                "VALUES (?,?,?,?,?,?)",
+                (eid, sc["company_id"], "whatsapp", t.get("customer_id"), text,
+                 1 if ai_used else 0))
+            generated += 1
+    return {"ok": True, "generated": generated, "ai_used": ai_used_any,
+            "affected_customers": len(targets)}
+
+
+@router.post("/api/admin/outages-v2/tick")
+def manual_tick(request: Request):
+    _scope(request)  # auth only — tick itself spans companies
+    return tick_detect_outages()
+
+
+# AI Outage detection HTML page (admin sidebar entry).
+from fastapi.responses import HTMLResponse  # noqa: E402
+
+@router.get("/admin/outages-v2", response_class=HTMLResponse)
+def outages_page(request: Request):
+    sc = _scope(request)
+    from olt_routes import _portal_context  # local import to keep top-of-file clean
+    from olt_routes import templates as _tpl  # type: ignore
+    ctx = _portal_context(request, sc, "outages_v2")
+    return _tpl.TemplateResponse("admin_outages_v2.html", ctx)
+
+
+def register(app, **_):
+    app.include_router(router)
+    print("[outage_correlator] router wired — s56W Phase C")

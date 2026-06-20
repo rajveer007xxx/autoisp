@@ -1,0 +1,724 @@
+# Route /api/* by Referer so JS fetches on /admin/... go to admin-portal, etc.
+map $http_referer $api_backend {
+    default                  "127.0.0.1:8001";
+    "~*/superadmin(/|$)"     "127.0.0.1:8004";
+    "~*/admin(/|$)"          "127.0.0.1:8001";
+    "~*/employee(/|$)"       "127.0.0.1:8001";
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    client_max_body_size 25M;
+    # --- Mobile APK download (public) ---
+    # _S39R5W_MOBILE_SRC_ v2 source tarball download
+    location = /AutoISPBilling-mobile-v2.0.0-source.tar.gz {
+        alias /var/www/autoispbilling-public/dist/AutoISPBilling-mobile-v2.0.0-source.tar.gz;
+        default_type application/gzip;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling-mobile-v2.0.0-source.tar.gz"';
+    }
+
+    # __APK_REGEX_FALLBACK__  Generic regex serves any AutoISPBilling-v*.apk
+    location ~ ^/AutoISPBilling(?:[-.][\w.-]+)?\.apk$ {
+        root /var/www/autoispbilling-public;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition 'attachment';
+    }
+
+    # __PLAYSTORE_ASSETS__  Static images for Play Store listing (icon, feature graphic)
+    location /playstore/ {
+        root /var/www/autoispbilling-public;
+        autoindex off;
+        add_header Cache-Control 'public, max-age=86400';
+    }
+
+    # __AAB_REGEX_FALLBACK__  Serve Android App Bundle (.aab) for Play Store uploads
+    location ~ ^/AutoISPBilling(?:[-.][\w.-]+)?\.aab$ {
+        root /var/www/autoispbilling-public;
+        default_type application/octet-stream;
+        add_header Content-Disposition 'attachment';
+    }
+
+    # _S39R5Z_APK_V2_ v2 compiled APK download
+                                                                        location = /AutoISPBilling-v4.7.4.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.4.apk"';
+        }
+        location = /AutoISPBilling-v4.7.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.3.apk"';
+        }
+        location = /AutoISPBilling-v4.7.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.2.apk"';
+        }
+        location = /AutoISPBilling-v4.7.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.1.apk"';
+        }
+        location = /AutoISPBilling-v4.7.0.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.0.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.9.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.9.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.8.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.8.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.7.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.7.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.6.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.6.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.5.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.5.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.4.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.4.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.3.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.2.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.1.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.0.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.0.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.3.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.2.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.1.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.4.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.4.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.4.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.3.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.3.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.3.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.2.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.2.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.2.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.1.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.1.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.1.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.apk";
+        add_header X-Content-Type-Options nosniff;
+    }
+    location = /AutoISPBilling-v3.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v3.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v3.apk";
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v2.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v2.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling-v2.apk"';
+    }
+
+    location = /AutoISPBilling.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling.apk;
+        types { application/vnd.android.package-archive apk; }
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling.apk"';
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+    location ^~ /apk/ { alias /var/www/autoispbilling-public/; index install.html; default_type text/html; }
+    location = /promo-poster.html { alias /var/www/autoispbilling-public/promo-poster.html; default_type text/html; }
+    location = /promo { return 301 /promo-poster.html; }
+    location = /apk { return 301 /apk/; }
+
+
+    # s26.8b: redirect-to-captive-https
+    # Walled-garden users get dst-nat'd here from Mikrotik with foreign
+    # Host headers (google.com, facebook.com, etc.). Redirect straight to
+    # https://pay.autoispbilling.com/pay/captive so the browser gets a
+    # VALID cert (no warning) AND the captive endpoint auto-identifies
+    # the user via Mikrotik /ppp/active and pre-fills their ID.
+    # Also makes OS captive-portal detectors (Android /generate_204,
+    # Apple captive.apple.com, Windows msftconnecttest.com) see a
+    # redirect and auto-prompt the user with "Sign in to network".
+    # _S45E_CAPTIVE_GUARD — only redirect to captive when the visitor is
+    # clearly NOT trying to reach a portal/API path. Without this guard the
+    # rule blocks admins/employees/sub-LCOs from logging in via the bare IP.
+    set $captive_redirect 0;
+    if ($host !~* "^(www\.)?autoispbilling\.com$|^pay\.autoispbilling\.com$") {
+        set $captive_redirect 1;
+    }
+    if ($request_uri ~* "^/(admin|employee|sub-lco|superadmin|customer|api|static|uploads|hotspot|login|logout|pay|password-reset|auth|ws)(/|$|\?)") {
+        set $captive_redirect 0;
+    }
+    if ($captive_redirect = 1) {
+        return 302 https://pay.autoispbilling.com/pay/captive;
+    }
+
+    # Long timeouts for PDF / export endpoints
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Real-Port      $remote_port;  # X-Real-Port for captive conntrack lookup
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # --- Role-prefixed portals (path-based routing) ---
+    location /superadmin { proxy_pass http://127.0.0.1:8004; }
+    location /admin      { proxy_pass http://127.0.0.1:8001; }
+    location /employee   { proxy_pass http://127.0.0.1:8001; }
+    # customer dashboard lives on admin-portal
+    location /customer   {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+    location /sub-lco    { proxy_pass http://127.0.0.1:8001; }
+    location /api/mobile/ { proxy_pass http://127.0.0.1:8005; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; }
+    location /api/sub-lco/ { proxy_pass http://127.0.0.1:8001; }
+    location /api/superadmin/ { proxy_pass http://127.0.0.1:8004; }
+
+    # --- Login/logout + password-reset APIs: single portal that handles all 4 roles ---
+    location = /login            { proxy_pass http://127.0.0.1:8001; }
+    location = /logout           { proxy_pass http://127.0.0.1:8001; }
+    location = /auth/sso         { proxy_pass http://127.0.0.1:8001; }
+    location = /api/auth/login   { proxy_pass http://127.0.0.1:8001; }
+    location /ws/ { proxy_pass http://127.0.0.1:8001; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade; proxy_set_header Host $host; proxy_read_timeout 3600s; proxy_send_timeout 3600s; }
+    # __SITEMAP_PUBLIC_REPOINT__
+    location = /sitemap.xml      { proxy_pass http://127.0.0.1:8000; }
+    location = /robots.txt       { proxy_pass http://127.0.0.1:8000; }
+    location = /sitemap          { proxy_pass http://127.0.0.1:8000; }
+    # Per-role sitemaps still served by admin portal:
+    location = /admin/sitemap    { proxy_pass http://127.0.0.1:8001; }
+    location = /sub-lco/sitemap  { proxy_pass http://127.0.0.1:8001; }
+    location = /employee/sitemap { proxy_pass http://127.0.0.1:8001; }
+    location = /customer/sitemap { proxy_pass http://127.0.0.1:8001; }
+    location ^~ /api/auth/       { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Shared assets: served from admin-portal (same static dir across portals) ---
+    location /static  { proxy_pass http://127.0.0.1:8001; }
+    location /hotspot { proxy_pass http://127.0.0.1:8001; }
+    location /uploads { proxy_pass http://127.0.0.1:8001; }
+
+    # Session 25.2: public pay / walled-garden routes go to admin-portal
+    location /pay  { proxy_pass http://127.0.0.1:8001; }
+    location /password-reset { proxy_pass http://127.0.0.1:8001; }
+    location /api/pay { proxy_pass http://127.0.0.1:8001; }
+
+    # _S39R5N_PUBLIC_API_ public-portal form endpoints
+    location = /api/demo-request { proxy_pass http://127.0.0.1:8000; }
+    location = /api/contact-form { proxy_pass http://127.0.0.1:8000; }
+    location = /api/account-deletion-request { proxy_pass http://127.0.0.1:8000; }
+
+    # --- Other /api/*: route by Referer to the portal that owns the UI page ---
+    location /api/ { proxy_pass http://$api_backend; }
+
+    # --- Marketing / homepage / contact / faq / privacy etc. ---
+    location / { proxy_pass http://127.0.0.1:8000; }
+}
+
+
+server {
+    server_name www.autoispbilling.com autoispbilling.com; # managed by Certbot
+    client_max_body_size 25M;
+    # --- Mobile APK download (public) ---
+    # _S39R5W_MOBILE_SRC_ v2 source tarball download
+    location = /AutoISPBilling-mobile-v2.0.0-source.tar.gz {
+        alias /var/www/autoispbilling-public/dist/AutoISPBilling-mobile-v2.0.0-source.tar.gz;
+        default_type application/gzip;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling-mobile-v2.0.0-source.tar.gz"';
+    }
+
+    # _S39R5Z_APK_V2_ v2 compiled APK download
+        location = /AutoISPBilling-v4.7.29.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.29.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.28.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.28.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.27.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.27.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.20.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.20.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.19.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.19.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.18.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.18.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.16.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.16.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.15.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.15.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.14.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.14.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.13.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.13.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.12.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.12.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.11.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.11.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.10.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.10.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.9.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.9.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.8.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.8.apk"';
+            try_files $uri =404;
+        }
+        # __APK_REGEX_FALLBACK_HTTPS__  Serves any AutoISPBilling-v*.apk
+        location ~ ^/AutoISPBilling(?:[-.][\w.-]+)?\.apk$ {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment';
+            try_files $uri =404;
+        }
+
+        # __PLAYSTORE_ASSETS_HTTPS__  Static images for Play Store listing
+        location /playstore/ {
+            root /var/www/autoispbilling-public;
+            autoindex off;
+            add_header Cache-Control 'public, max-age=86400';
+            try_files $uri =404;
+        }
+        # __AAB_REGEX_FALLBACK_HTTPS__  Serves any AutoISPBilling-v*.aab (Play Store)
+        location ~ ^/AutoISPBilling(?:[-.][\w.-]+)?\.aab$ {
+            root /var/www/autoispbilling-public;
+            default_type application/octet-stream;
+            add_header Content-Disposition 'attachment';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.7.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.7.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.6.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.6.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.4.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.4.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.3.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.2.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.1.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.7.0.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.7.0.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.9.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.9.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.8.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.8.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.7.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.7.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.6.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.6.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.5.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.5.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.4.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.4.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.3.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.2.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.1.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.6.0.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.6.0.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.3.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.3.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.2.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.2.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.1.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.1.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.5.apk {
+            root /var/www/autoispbilling-public;
+            default_type application/vnd.android.package-archive;
+            add_header Content-Disposition 'attachment; filename="AutoISPBilling-v4.5.apk"';
+            try_files $uri =404;
+        }
+        location = /AutoISPBilling-v4.4.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.4.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.4.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.3.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.3.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.3.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.2.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.2.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.2.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.1.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.1.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.1.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v4.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v4.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v4.apk";
+        add_header X-Content-Type-Options nosniff;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v3.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v3.apk;
+        add_header Content-Disposition "attachment; filename=AutoISPBilling-v3.apk";
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    location = /AutoISPBilling-v2.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling-v2.apk;
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling-v2.apk"';
+    }
+
+    location = /AutoISPBilling.apk {
+        alias /var/www/autoispbilling-public/AutoISPBilling.apk;
+        types { application/vnd.android.package-archive apk; }
+        default_type application/vnd.android.package-archive;
+        add_header Content-Disposition 'attachment; filename="AutoISPBilling.apk"';
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+    location ^~ /apk/ { alias /var/www/autoispbilling-public/; index install.html; default_type text/html; }
+    location = /promo-poster.html { alias /var/www/autoispbilling-public/promo-poster.html; default_type text/html; }
+    location = /promo { return 301 /promo-poster.html; }
+    location = /apk { return 301 /apk/; }
+
+
+    # Long timeouts for PDF / export endpoints
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Real-Port      $remote_port;  # X-Real-Port for captive conntrack lookup
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # --- Role-prefixed portals (path-based routing) ---
+    location /superadmin { proxy_pass http://127.0.0.1:8004; }
+    location /admin      { proxy_pass http://127.0.0.1:8001; }
+    location /employee   { proxy_pass http://127.0.0.1:8001; }
+    # customer dashboard lives on admin-portal
+    location /customer   {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+    location /sub-lco    { proxy_pass http://127.0.0.1:8001; }
+    location /api/mobile/ { proxy_pass http://127.0.0.1:8005; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; }
+    location /api/sub-lco/ { proxy_pass http://127.0.0.1:8001; }
+    location /api/superadmin/ { proxy_pass http://127.0.0.1:8004; }
+
+    # --- Login/logout + password-reset APIs: single portal that handles all 4 roles ---
+    location = /login            { proxy_pass http://127.0.0.1:8001; }
+    location = /logout           { proxy_pass http://127.0.0.1:8001; }
+    location = /auth/sso         { proxy_pass http://127.0.0.1:8001; }
+    location = /api/auth/login   { proxy_pass http://127.0.0.1:8001; }
+    location /ws/ { proxy_pass http://127.0.0.1:8001; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $connection_upgrade; proxy_set_header Host $host; proxy_read_timeout 3600s; proxy_send_timeout 3600s; }
+    # __SITEMAP_PROXY_2_FIXED__
+    location = /sitemap.xml      { proxy_pass http://127.0.0.1:8000; }
+    location = /robots.txt       { proxy_pass http://127.0.0.1:8000; }
+    location = /sitemap          { proxy_pass http://127.0.0.1:8000; }
+    location = /admin/sitemap    { proxy_pass http://127.0.0.1:8001; }
+    location = /sub-lco/sitemap  { proxy_pass http://127.0.0.1:8001; }
+    location = /employee/sitemap { proxy_pass http://127.0.0.1:8001; }
+    location = /customer/sitemap { proxy_pass http://127.0.0.1:8001; }
+    location ^~ /api/auth/       { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Shared assets: served from admin-portal (same static dir across portals) ---
+    location /static  { proxy_pass http://127.0.0.1:8001; }
+    location /hotspot { proxy_pass http://127.0.0.1:8001; }
+    location /uploads { proxy_pass http://127.0.0.1:8001; }
+
+    # Session 25.2: public pay / walled-garden routes go to admin-portal
+    location /pay  { proxy_pass http://127.0.0.1:8001; }
+    location /password-reset { proxy_pass http://127.0.0.1:8001; }
+    location /api/pay { proxy_pass http://127.0.0.1:8001; }
+
+    # _S39R5N_PUBLIC_API_ public-portal form endpoints
+    location = /api/demo-request { proxy_pass http://127.0.0.1:8000; }
+    location = /api/contact-form { proxy_pass http://127.0.0.1:8000; }
+    location = /api/account-deletion-request { proxy_pass http://127.0.0.1:8000; }
+
+    # --- Other /api/*: route by Referer to the portal that owns the UI page ---
+    location /api/ { proxy_pass http://$api_backend; }
+
+    # --- Marketing / homepage / contact / faq / privacy etc. ---
+    location / { proxy_pass http://127.0.0.1:8000; }
+
+
+    listen [::]:443 ssl; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/autoispbilling.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/autoispbilling.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+
+
+    # Friendly fallback when upstream is briefly unavailable (e.g. systemd restart).
+    proxy_intercept_errors on;
+    recursive_error_pages on;
+    error_page 502 503 504 = @upstream_down;
+    location @upstream_down {
+        internal;
+        root /opt/ispbilling/static_err;
+        try_files /upstream_down.html =502;
+        add_header Cache-Control "no-store";
+        default_type text/html;
+    }
+}
+
+server {
+    if ($host = www.autoispbilling.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = autoispbilling.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80 ;
+    listen [::]:80 ;
+    server_name www.autoispbilling.com autoispbilling.com;
+    return 404; # managed by Certbot
+
+
+
+}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment History · {{ company.company_name if company else "Pay" }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --line:#1f2937; --text:#e2e8f0; --muted:#94a3b8; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; min-height:100vh; margin:0; }
+  .wrap { max-width: 940px; margin: 24px auto; padding: 0 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+          padding: 22px; margin-bottom: 16px; box-shadow: 0 4px 22px rgba(0,0,0,.35); }
+  .hdr { display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .logo { height:48px; background:#fff; padding:4px 8px; border-radius:8px; }
+  .fallback { width:48px; height:48px; border-radius:14px;
+              background:linear-gradient(135deg,#1e40af,#10b981);
+              display:grid; place-items:center; color:#fff; font-weight:800; font-size:20px; }
+  .label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  .balance-pill { display:inline-block; padding:6px 14px; border-radius:999px;
+                  background:#7f1d1d; color:#fecaca; font-weight:600; font-size:12px;
+                  letter-spacing:.5px; text-transform:uppercase; }
+  .balance-pill.ok { background:#065f46; color:#a7f3d0; }
+  .row-item { display:grid; grid-template-columns: 1.4fr 1fr 1fr 1fr;
+              gap:14px; padding:14px 0; border-bottom:1px solid #1f2937;
+              align-items:center; }
+  .row-item:last-child { border-bottom: 0; }
+  .row-item .amount { font-size:18px; font-weight:700; color:#a7f3d0; font-family:'SF Mono',Menlo,monospace; }
+  .row-item .amount.neg { color:#fca5a5; }
+  .row-item .date { color: var(--muted); font-size:12px; }
+  .gw-badge { display:inline-block; padding:3px 9px; border-radius:6px; font-size:11px;
+              font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+  .gw-razorpay{ background:#1e40af; color:#dbeafe; }
+  .gw-payu    { background:#065f46; color:#a7f3d0; }
+  .gw-cashfree{ background:#7c2d12; color:#fed7aa; }
+  .gw-phonepe { background:#581c87; color:#e9d5ff; }
+  .gw-ccavenue{ background:#831843; color:#fce7f3; }
+  .gw-stripe  { background:#4338ca; color:#c7d2fe; }
+  .gw-manual  { background:#334155; color:#cbd5e1; }
+  .refund-tag { background:#7f1d1d; color:#fecaca; padding:2px 8px; border-radius:5px;
+                font-size:10px; font-weight:700; letter-spacing:.5px; }
+  .txn-mono { font-family:'SF Mono',Menlo,monospace; font-size:12px; color:#cbd5e1; word-break:break-all; }
+  .empty { text-align:center; color:var(--muted); padding:34px 0; }
+  .pay-btn { display:inline-block; padding:10px 22px; border-radius:8px;
+             background:linear-gradient(135deg,#059669,#10b981); color:#fff;
+             text-decoration:none; font-weight:600; font-size:14px;
+             box-shadow:0 4px 14px rgba(16,185,129,.35); }
+  @media (max-width:600px){ .row-item{ grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <div class="hdr">
+      {% if company and company.logo_path %}
+        <img src="{{ company.logo_path if company.logo_path.startswith('/') or company.logo_path.startswith('http') else '/' + company.logo_path }}" class="logo" alt="{{ company.company_name }}" data-testid="hist-logo">
+      {% else %}
+        <div class="fallback">{{ (company.company_name if company else 'A')[0]|upper }}</div>
+      {% endif %}
+      <div style="flex:1;">
+        <div class="label">{{ company.company_name if company else 'Your ISP' }}</div>
+        <div style="font-size:20px;font-weight:600;" data-testid="hist-cust-name">
+          {{ customer.customer_name or customer.customer_id }}
+        </div>
+        <div class="label">Customer ID: <strong>{{ customer.customer_id }}</strong></div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label" style="margin-bottom:4px;">Current Outstanding</div>
+        {% if balance > 0 %}
+          <span class="balance-pill" data-testid="hist-balance">&#8377; {{ "%.0f"|format(balance) }} due</span>
+        {% else %}
+          <span class="balance-pill ok" data-testid="hist-balance">All paid</span>
+        {% endif %}
+      </div>
+    </div>
+    {% if balance > 0 %}
+      <a href="/pay/{{ customer.customer_id }}" class="pay-btn" data-testid="hist-pay-now-btn">
+        <i class="fa fa-bolt"></i> Pay &#8377;{{ "%.0f"|format(balance) }} Now
+      </a>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="label" style="font-size:13px;color:#cbd5e1;margin-bottom:10px;">
+      <i class="fa fa-receipt"></i> Recent Payments
+    </div>
+
+    {% if items %}
+      {% for it in items %}
+      <div class="row-item" data-testid="hist-row-{{ it.id }}">
+        <div>
+          {% if it.gateway %}
+            <span class="gw-badge gw-{{ it.gateway }}">{{ it.gateway }}</span>
+          {% else %}
+            <span class="gw-badge gw-manual">{{ it.mode }}</span>
+          {% endif %}
+          {% if it.is_refund %}
+            <span class="refund-tag">REFUND</span>
+          {% endif %}
+          {% if it.txn_no %}
+            <div class="txn-mono">{{ it.txn_no }}</div>
+          {% endif %}
+        </div>
+        <div class="date">{{ it.paid_at or '—' }}</div>
+        <div class="amount {% if it.is_refund %}neg{% endif %}">
+          {% if it.is_refund %}-{% else %}+{% endif %}&#8377;{{ "%.0f"|format(it.amount|abs) }}
+        </div>
+        <div class="date" style="font-size:12px;">{{ it.remarks }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty" data-testid="hist-empty">
+        <i class="fa fa-inbox" style="font-size:36px;color:#475569;"></i>
+        <div style="margin-top:10px;">No payments recorded yet.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div style="text-align:center;color:#475569;font-size:11px;margin-top:24px;">
+    Powered by Auto ISP Billing · Secure Payment History
+  </div>
+</div>
+</body>
+</html>

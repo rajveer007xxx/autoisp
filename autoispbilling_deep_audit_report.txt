@@ -1,0 +1,400 @@
+==========================================================
+AUTOISPBILLING DEEP PRODUCTION AUDIT
+Generated: 2026-06-21 00:49:46 IST
+==========================================================
+
+=== [1] SYSTEMD SERVICES (autoispbilling / isp / genieacs / radius / nginx / openresty) ===
+  freeradius.service                             loaded    active   running FreeRADIUS multi-protocol policy server
+  genieacs-cwmp.service                          loaded    active   running GenieACS cwmp
+  genieacs-fs.service                            loaded    active   running GenieACS fs
+  genieacs-nbi.service                           loaded    active   running GenieACS nbi
+  genieacs-ui.service                            loaded    active   running GenieACS ui
+  isp-admin.service                              loaded    active   running ISP Billing - Admin Portal
+  isp-auto-renew-customers.service               loaded    inactive dead    ISP Billing - Auto-Renew Expired Customers (daily)
+  isp-auto-renew.service                         loaded    inactive dead    ISP Billing - Auto Renew Expired Admins (daily)
+  isp-db-backup.service                          loaded    inactive dead    ISP daily SQLite backup
+● isp-due-alerts.service                         loaded    failed   failed  AutoISP Billing — Daily push due-alert dispatcher
+  isp-email-drain.service                        loaded    inactive dead    AutoISP Billing — enqueue pending-email drain
+  isp-employee.service                           loaded    active   running ISP Billing - Employee Portal
+  isp-mobile-api.service                         loaded    active   running AutoISP Billing - Mobile API (FastAPI on :8005)
+  isp-nas-alert.service                          loaded    inactive dead    ISP Billing - NAS hardware vitals watcher (Telegram alerts)
+  isp-nas-healthcheck.service                    loaded    inactive dead    ISP Billing — NAS Health Check (auto-heal secret/address drift)
+  isp-nas-pulse.service                          loaded    inactive dead    ISP Billing — NAS Health Pulse (60s TCP reachability → nas_devices.last_status)
+  isp-nightly-recompute.service                  loaded    inactive dead    AutoISP Billing — nightly ledger recompute
+  isp-online-sync.service                        loaded    inactive dead    ISP Billing — Online Users Sync (direct MikroTik, off-the-worker)
+  isp-outage.service                             loaded    inactive dead    ISP Outage Detector cron
+  isp-payment-reminder.service                   loaded    inactive dead    ISP Billing - Payment Reminders (3/7/14 day dunning)
+  isp-public.service                             loaded    active   running ISP Billing - Public Portal
+  isp-pw-sync.service                            loaded    inactive dead    AutoISP — sync detected PPPoE passwords to customers DB
+  isp-queue-worker.service                       loaded    active   running AutoISP Billing — Dramatiq worker pool
+  isp-retention.service                          loaded    inactive dead    ISP Billing - 2-Year Retention Sweeper (daily)
+  isp-rsc-backup.service                         loaded    inactive dead    Auto ISP Billing — nightly RouterOS .rsc backup for every Active NAS
+  isp-s42j-backfill.service                      loaded    inactive dead    S42J — Backfill company_id on shared FreeRADIUS tables (tenant isolation)
+  isp-sla.service                                loaded    inactive dead    ISP Ticket SLA escalation checker
+  isp-superadmin.service                         loaded    active   running ISP Billing - SuperAdmin Portal
+  isp-voucher-expiry.service                     loaded    inactive dead    ISP Billing — expire unused vouchers whose expires_at has passed
+  isp-ztp-watcher.service                        loaded    inactive dead    AutoISPBilling ZTP GenieACS watcher
+  mongod.service                                 loaded    active   running MongoDB Database Server
+  networkd-dispatcher.service                    loaded    inactive dead    Dispatcher daemon for systemd-networkd
+  nginx.service                                  loaded    active   running A high performance web server and a reverse proxy server
+  pcscd.service                                  loaded    inactive dead    PC/SC Smart Card Daemon
+  postgresql.service                             loaded    active   exited  PostgreSQL RDBMS
+  postgresql@16-main.service                     loaded    active   running PostgreSQL Cluster 16-main
+  redis-server.service                           loaded    active   running Advanced key-value store
+  systemd-ask-password-console.service           loaded    inactive dead    Dispatch Password Requests to Console
+  systemd-bsod.service                           loaded    inactive dead    Displays emergency message in full screen.
+  vlan-radius-sync.service                       loaded    active   running Auto ISP Billing — per-user VLAN to FreeRADIUS sync worker
+  wa-expiry-reminder.service                     loaded    inactive dead    AutoISP WhatsApp expiry reminders (T-1/T-2/T-3 days)
+
+=== [2] LISTENING PORTS ===
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                  
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=1929165,fd=17))                                           
+LISTEN 0      200        127.0.0.1:5432       0.0.0.0:*    users:(("postgres",pid=1929215,fd=7))                                                   
+LISTEN 0      2048         0.0.0.0:8003       0.0.0.0:*    users:(("uvicorn",pid=1929302,fd=14))                                                   
+LISTEN 0      2048         0.0.0.0:8001       0.0.0.0:*    users:(("uvicorn",pid=2704399,fd=18))                                                   
+LISTEN 0      2048         0.0.0.0:8000       0.0.0.0:*    users:(("uvicorn",pid=1929304,fd=13))                                                   
+LISTEN 0      2048         0.0.0.0:8005       0.0.0.0:*    users:(("uvicorn",pid=2213203,fd=13))                                                   
+LISTEN 0      2048         0.0.0.0:8004       0.0.0.0:*    users:(("uvicorn",pid=1929360,fd=14))                                                   
+LISTEN 0      511          0.0.0.0:80         0.0.0.0:*    users:(("nginx",pid=2373576,fd=5),("nginx",pid=2373575,fd=5),("nginx",pid=2327416,fd=5))
+LISTEN 0      4096       127.0.0.1:27017      0.0.0.0:*    users:(("mongod",pid=1929248,fd=9))                                                     
+LISTEN 0      4096         0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=1929174,fd=3),("systemd",pid=1,fd=280))                              
+LISTEN 0      511        127.0.0.1:6379       0.0.0.0:*    users:(("redis-server",pid=1929234,fd=6))                                               
+LISTEN 0      511          0.0.0.0:443        0.0.0.0:*    users:(("nginx",pid=2373576,fd=7),("nginx",pid=2373575,fd=7),("nginx",pid=2327416,fd=7))
+LISTEN 0      5            0.0.0.0:9191       0.0.0.0:*    users:(("python",pid=1929444,fd=16))                                                    
+LISTEN 0      4096       127.0.0.1:65529      0.0.0.0:*    users:(("monarx-agent",pid=2629162,fd=10))                                              
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=1929165,fd=15))                                           
+LISTEN 0      3            0.0.0.0:1723       0.0.0.0:*    users:(("pptpd",pid=316102,fd=6))                                                       
+LISTEN 0      511                *:7547             *:*    users:(("node",pid=2673196,fd=21))                                                      
+LISTEN 0      511                *:7557             *:*    users:(("node",pid=1929251,fd=21))                                                      
+LISTEN 0      511                *:7567             *:*    users:(("node",pid=1929250,fd=21))                                                      
+LISTEN 0      511                *:7577             *:*    users:(("node",pid=1929252,fd=21))                                                      
+LISTEN 0      511            [::1]:6379          [::]:*    users:(("redis-server",pid=1929234,fd=7))                                               
+LISTEN 0      511             [::]:80            [::]:*    users:(("nginx",pid=2373576,fd=6),("nginx",pid=2373575,fd=6),("nginx",pid=2327416,fd=6))
+LISTEN 0      4096            [::]:22            [::]:*    users:(("sshd",pid=1929174,fd=4),("systemd",pid=1,fd=281))                              
+LISTEN 0      511             [::]:443           [::]:*    users:(("nginx",pid=2373576,fd=8),("nginx",pid=2373575,fd=8),("nginx",pid=2327416,fd=8))
+LISTEN 0      200            [::1]:5432          [::]:*    users:(("postgres",pid=1929215,fd=6))                                                   
+
+=== [3] POSTGRESQL STATUS ===
+active
+Ver Cluster Port Status Owner    Data directory              Log file
+16  main    5432 online postgres /var/lib/postgresql/16/main /var/log/postgresql/postgresql-16-main.log
+
+=== [4] REDIS STATUS ===
+active
+active
+PONG
+
+=== [5] FREERADIUS STATUS ===
+active
+always
+attr_filter
+chap
+detail
+detail.log
+digest
+dynamic_clients
+eap
+echo
+exec
+
+=== [6] GENIEACS STATUS ===
+  genieacs-cwmp             active
+  genieacs-nbi              active
+  genieacs-fs               active
+  genieacs-ui               active
+
+=== [7] MONGODB STATUS ===
+active
+[ 'admin', 'config', 'genieacs', 'local' ]
+
+=== [8] NGINX / OPENRESTY STATUS ===
+active
+inactive
+acs-autoispbilling
+ispbilling
+olt-webproxy-autoispbilling
+pay-autoispbilling
+2026/06/21 00:49:47 [warn] 2705065#2705065: protocol options redefined for 0.0.0.0:443 in /etc/nginx/sites-enabled/pay-autoispbilling:27
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+/tmp/audit.sh: line 50: openresty: command not found
+
+=== [9] CERTBOT / SSL ===
+README
+acs.autoispbilling.com
+autoispbilling.com
+olt.autoispbilling.com
+pay.autoispbilling.com
+  Certificate Name: acs.autoispbilling.com
+    Domains: acs.autoispbilling.com
+    Expiry Date: 2026-07-28 20:09:25+00:00 (VALID: 38 days)
+  Certificate Name: autoispbilling.com
+    Domains: autoispbilling.com www.autoispbilling.com
+    Expiry Date: 2026-07-21 07:25:47+00:00 (VALID: 30 days)
+  Certificate Name: olt.autoispbilling.com
+    Domains: *.olt.autoispbilling.com olt.autoispbilling.com
+    Expiry Date: 2026-08-30 18:46:53+00:00 (VALID: 70 days)
+  Certificate Name: pay.autoispbilling.com
+    Domains: pay.autoispbilling.com
+    Expiry Date: 2026-07-21 06:44:24+00:00 (VALID: 30 days)
+
+=== [10] CRON JOBS (system + root) ===
+cert-renewal-reminder
+certbot
+docker-image-prune
+e2scrub_all
+isp-onu-ticks
+isp-pg-backup-retention
+monarx-update
+sysstat
+wa_reactivation_reminder
+no crontab for root
+
+=== [11] /opt/ispbilling structure ===
+/opt/ispbilling
+/opt/ispbilling/static
+/opt/ispbilling/static/images
+/opt/ispbilling/static/data
+/opt/ispbilling/static/css
+/opt/ispbilling/static/img
+/opt/ispbilling/static_err
+/opt/ispbilling/logs
+/opt/ispbilling/services
+/opt/ispbilling/services/__pycache__
+/opt/ispbilling/superadmin-portal
+/opt/ispbilling/superadmin-portal/static
+/opt/ispbilling/superadmin-portal/routes
+/opt/ispbilling/superadmin-portal/__pycache__
+/opt/ispbilling/superadmin-portal/templates
+/opt/ispbilling/superadmin-portal/backups_fork
+/opt/ispbilling/venv
+/opt/ispbilling/venv/lib
+/opt/ispbilling/venv/include
+/opt/ispbilling/venv/bin
+/opt/ispbilling/_disabled_profanity
+/opt/ispbilling/rsc_backups
+/opt/ispbilling/rsc_backups/49776204
+/opt/ispbilling/rsc_backups/14150129
+/opt/ispbilling/rsc_backups/12345678
+/opt/ispbilling/rsc_backups/15378763
+/opt/ispbilling/rsc_backups/87174529
+/opt/ispbilling/mobile-api
+/opt/ispbilling/mobile-api/__pycache__
+/opt/ispbilling/task_queue
+
+=== [12] .env FILES discovered ===
+/etc/ispbilling.env
+
+=== [13] SQLITE REFERENCES IN CODE ===
+--- sqlite3.connect ---
+/opt/ispbilling/superadmin-portal/sa_backups.py:19:        src = sqlite3.connect(_DB_PATH)
+/opt/ispbilling/superadmin-portal/sa_backups.py:20:        dst = sqlite3.connect(raw)
+/opt/ispbilling/superadmin-portal/sa_backups.py:30:        eng = sqlite3.connect(_DB_PATH)
+/opt/ispbilling/superadmin-portal/main_full.py:77:    conn = sqlite3.connect(DB_PATH)
+/opt/ispbilling/superadmin-portal/database.py:588:    conn = sqlite3.connect(DB_PATH)
+/opt/ispbilling/superadmin-portal/database.py:1067:    conn = sqlite3.connect(DB_PATH)
+/opt/ispbilling/superadmin-portal/db_compat.py:4:should call `get_raw_conn()` instead of `sqlite3.connect(DB_PATH)`.
+/opt/ispbilling/superadmin-portal/db_compat.py:696:        return sqlite3.connect(path, timeout=timeout)
+/opt/ispbilling/superadmin-portal/db_compat.py:703:        con = sqlite3.connect(p, timeout=timeout)
+/opt/ispbilling/superadmin-portal/db_compat.py:715:    raw.autocommit = True   # Match sqlite3 default behavior (sqlite3.connect
+/opt/ispbilling/venv/lib64/python3.12/site-packages/filelock/_read_write.py:157:        self._con = sqlite3.connect(self.lock_file, check_same_thread=False)
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:96:    sqlite3.connect(
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/base.py:737:    conn = sqlite3.connect(":memory:")
+/opt/ispbilling/venv/lib/python3.12/site-packages/filelock/_read_write.py:157:        self._con = sqlite3.connect(self.lock_file, check_same_thread=False)
+/opt/ispbilling/venv/lib/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:96:    sqlite3.connect(
+/opt/ispbilling/venv/lib/python3.12/site-packages/sqlalchemy/dialects/sqlite/base.py:737:    conn = sqlite3.connect(":memory:")
+/opt/ispbilling/mobile-api/db_compat.py:4:should call `get_raw_conn()` instead of `sqlite3.connect(DB_PATH)`.
+/opt/ispbilling/mobile-api/db_compat.py:696:        return sqlite3.connect(path, timeout=timeout)
+/opt/ispbilling/mobile-api/db_compat.py:703:        con = sqlite3.connect(p, timeout=timeout)
+/opt/ispbilling/mobile-api/db_compat.py:715:    raw.autocommit = True   # Match sqlite3 default behavior (sqlite3.connect
+/opt/ispbilling/mobile-api/main.py:1:# __PHASE0_BUSY_TIMEOUT_INSTALL__ — must run before any sqlite3.connect
+/opt/ispbilling/mobile-api/main.py:94:    return sqlite3.connect(f"file:{RADACCT_PATH}?mode=ro", uri=True, timeout=5)
+/opt/ispbilling/mobile_api_v3.py:216:            ra = sqlite3.connect("file:/var/lib/freeradius/radacct.db?mode=ro",
+/opt/ispbilling/migrate_add_received_amount.py:12:    conn = sqlite3.connect(DB_PATH)
+/opt/ispbilling/database.py:630:    conn = sqlite3.connect(DB_PATH)
+--- sqlite:/// ---
+/opt/ispbilling/superadmin-portal/database.py:10:SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
+/opt/ispbilling/superadmin-portal/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/superadmin-portal/db_compat.py:701:        if DATABASE_URL.startswith("sqlite:////"):
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:4966:        engine = create_engine('sqlite:///foo.db')
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/automap.py:48:    engine = create_engine("sqlite:///mydatabase.db")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/automap.py:104:    engine = create_engine("sqlite:///mydatabase.db")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/automap.py:268:    engine = create_engine("sqlite:///mydatabase.db")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/automap.py:331:    engine = create_engine("sqlite:///mydatabase.db")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/automap.py:442:    engine = create_engine("sqlite:///mydatabase.db")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/session.py:882:                'leader':create_async_engine("sqlite+aiosqlite:///leader.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/session.py:883:                'other':create_async_engine("sqlite+aiosqlite:///other.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/session.py:884:                'follower1':create_async_engine("sqlite+aiosqlite:///follower1.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/session.py:885:                'follower2':create_async_engine("sqlite+aiosqlite:///follower2.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/scoping.py:814:                'leader':create_async_engine("sqlite+aiosqlite:///leader.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/scoping.py:815:                'other':create_async_engine("sqlite+aiosqlite:///other.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/scoping.py:816:                'follower1':create_async_engine("sqlite+aiosqlite:///follower1.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/ext/asyncio/scoping.py:817:                'follower2':create_async_engine("sqlite+aiosqlite:///follower2.db"),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:14:    :connectstring: sqlite+pysqlite:///file_path
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:40:    e = create_engine('sqlite:///path/to/database.db')
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:46:    e = create_engine('sqlite:////path/to/database.db')
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:52:    e = create_engine('sqlite:///C:\\path\\to\\database.db')
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:73:    e = create_engine("sqlite:///file:path/to/database?mode=ro&uri=true")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:90:        "sqlite:///file:path/to/database?"
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:244:    engine = create_engine("sqlite:///myfile.db", poolclass=NullPool)
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/pysqlite.py:284:    engine = create_engine('sqlite:///mydb.db',
+--- autoispbilling.db ---
+/opt/ispbilling/invoice_period_for_payment.py:28:DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/superadmin-portal/sa_backups.py:9:_DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/superadmin-portal/database.py:8:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/superadmin-portal/routes/sa_wg_tunnel.py:31:DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/superadmin-portal/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/superadmin-portal/db_compat.py:695:    if path is not None and "autoispbilling.db" not in path:
+/opt/ispbilling/superadmin-portal/main.py:6816:_BANNER_DB = _os_s39r5y.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/mobile-api/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/mobile-api/db_compat.py:695:    if path is not None and "autoispbilling.db" not in path:
+/opt/ispbilling/mobile-api/main.py:44:DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/migrate_add_received_amount.py:9:DB_PATH = BASE_DIR / "autoispbilling.db"
+/opt/ispbilling/database.py:13:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/task_queue/tasks.py:50:    DB = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/task_queue/tasks.py:168:    DB = "/var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/task_queue/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/task_queue/db_compat.py:695:    if path is not None and "autoispbilling.db" not in path:
+/opt/ispbilling/employee-portal/database.py:8:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/employee-portal/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/employee-portal/db_compat.py:695:    if path is not None and "autoispbilling.db" not in path:
+/opt/ispbilling/backups/pre_menu_20260421_024244/database.py:8:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/backups/pre_final_20260421_043916/database.py:8:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/backups/pre_plans_20260421_025851/database.py:8:DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+/opt/ispbilling/db_compat.py:49:DEFAULT_SQLITE = "sqlite:////var/lib/autoispbilling/autoispbilling.db"
+/opt/ispbilling/db_compat.py:695:    if path is not None and "autoispbilling.db" not in path:
+/opt/ispbilling/cron/backup_cron.py:5:DB = "/var/lib/autoispbilling/autoispbilling.db"
+--- sqlite_master ---
+/opt/ispbilling/superadmin-portal/database.py:712:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='received_tracker'")
+/opt/ispbilling/superadmin-portal/database.py:731:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_reminders'")
+/opt/ispbilling/superadmin-portal/database.py:760:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employees'")
+/opt/ispbilling/superadmin-portal/database.py:813:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='permissions'")
+/opt/ispbilling/superadmin-portal/database.py:876:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_permissions'")
+/opt/ispbilling/superadmin-portal/database.py:897:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_sequences'")
+/opt/ispbilling/superadmin-portal/database.py:952:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_locality_assignments'")
+/opt/ispbilling/superadmin-portal/database.py:1019:        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='superadmins'")
+/opt/ispbilling/superadmin-portal/db_compat.py:95:# sqlite_master(name, type, sql) -> pg_tables / pg_indexes translation.
+/opt/ispbilling/superadmin-portal/db_compat.py:97:    r"""FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=\s*('[^']+'|\?|%s)""",
+/opt/ispbilling/superadmin-portal/db_compat.py:101:    r"""\bsqlite_master\b""", re.IGNORECASE,
+/opt/ispbilling/superadmin-portal/db_compat.py:394:    # 3c. sqlite_master -> pg_tables (used for table-existence probes).
+/opt/ispbilling/superadmin-portal/db_compat.py:408:            s = _RE_SQLITE_MASTER_GENERIC.sub("(SELECT NULL AS name WHERE FALSE) AS sqlite_master", s)
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/base.py:862:    "system" tables that are present in schemas such as ``sqlite_master``.
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/dialects/sqlite/base.py:2116:            "sqlite_master", "table", schema, sqlite_include_internal
+--- PRAGMA ---
+/opt/ispbilling/superadmin-portal/main_full.py:80:    cursor.execute("PRAGMA table_info(customers)")
+/opt/ispbilling/superadmin-portal/database.py:592:        cursor.execute("PRAGMA table_info(customers)")
+/opt/ispbilling/superadmin-portal/database.py:615:        cursor.execute("PRAGMA table_info(companies)")
+/opt/ispbilling/superadmin-portal/database.py:634:        cursor.execute("PRAGMA index_list(invoices)")
+/opt/ispbilling/superadmin-portal/database.py:644:        cursor.execute("PRAGMA table_info(locations)")
+/opt/ispbilling/superadmin-portal/database.py:698:        cursor.execute("PRAGMA table_info(superadmin_packages)")
+/opt/ispbilling/superadmin-portal/database.py:749:        cursor.execute("PRAGMA table_info(companies)")
+/opt/ispbilling/superadmin-portal/database.py:762:            cursor.execute("PRAGMA table_info(employees)")
+/opt/ispbilling/superadmin-portal/database.py:914:        cursor.execute("PRAGMA table_info(customers)")
+/opt/ispbilling/superadmin-portal/database.py:979:        cursor.execute("PRAGMA table_info(companies)")
+/opt/ispbilling/superadmin-portal/database.py:1004:        cursor.execute("PRAGMA table_info(admins)")
+/opt/ispbilling/superadmin-portal/routes/sa_wg_tunnel.py:50:        cols = {r[1] for r in con.execute("PRAGMA table_info(nas_devices)")}
+/opt/ispbilling/superadmin-portal/db_compat.py:706:            con.execute("PRAGMA journal_mode=WAL")
+/opt/ispbilling/superadmin-portal/db_compat.py:707:            con.execute("PRAGMA busy_timeout=10000")
+/opt/ispbilling/superadmin-portal/main.py:418:    cursor.execute("PRAGMA table_info(customers)")
+
+=== [14] PROCESSES OPENING THE SQLITE DB ===
+lsof on /var/lib/autoispbilling/autoispbilling.db:
+
+All .db files under /var/lib/autoispbilling:
+-rw-r--r-- 1 root root 206434304 Jun 21 00:49 /var/lib/autoispbilling/autoispbilling.db
+-rw-rw-r-- 1 freerad freerad 59478016 Jun 21 00:49 /var/lib/freeradius/radacct.db
+
+lsof on FreeRADIUS sqlite:
+COMMAND       PID    USER   FD   TYPE DEVICE SIZE/OFF   NODE NAME
+python3   1929296    root    4ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root    7ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root    9ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   11ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   13ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   15ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   17ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   19ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+python3   1929296    root   21ur  REG    8,1 59478016 564276 /var/lib/freeradius/radacct.db
+
+=== [15] HARDCODED localhost / 127.0.0.1 IN PYTHON ===
+--- localhost references ---
+601
+--- 127.0.0.1 references ---
+288
+--- top 15 files with these references ---
+/opt/ispbilling/superadmin-portal/routes/sa_wg_tunnel.py
+/opt/ispbilling/superadmin-portal/routes/sa_nas_oneclick.py
+/opt/ispbilling/superadmin-portal/main.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/starlette/middleware/wsgi.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/rich/logging.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/cluster.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/sentinel.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/connection.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/asyncio/cluster.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/asyncio/sentinel.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/asyncio/connection.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/asyncio/client.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/redis/client.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/jsonschema/tests/_suite.py
+/opt/ispbilling/venv/lib64/python3.12/site-packages/prometheus_client/exposition.py
+
+=== [16] SQLALCHEMY ENGINE INVOCATIONS ===
+/opt/ispbilling/nas_alert_watcher.py:157:    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
+/opt/ispbilling/superadmin-portal/database.py:18:engine = create_engine(SQLALCHEMY_DATABASE_URL, **_engine_kwargs)
+/opt/ispbilling/superadmin-portal/db_compat.py:862:        _engine = create_engine(DATABASE_URL, **kwargs)
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/sql/events.py:75:        some_engine = create_engine("postgresql://scott:tiger@host/test")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/sql/schema.py:1889:                engine = create_engine(
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/sql/elements.py:5134:        engine = create_engine("oracle+cx_oracle://some_dsn")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/sql/sqltypes.py:2345:        engine = create_engine(
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/sql/base.py:1298:                "argument to create_engine()."
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/pool/events.py:49:        engine = create_engine("postgresql+psycopg2://scott:tiger@localhost/test")
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:1516:                SomeMappedClass: create_engine('postgresql+psycopg2://engine1'),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:1517:                SomeDeclarativeBase: create_engine('postgresql+psycopg2://engine2'),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:1518:                some_mapper: create_engine('postgresql+psycopg2://engine3'),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:1519:                some_table: create_engine('postgresql+psycopg2://engine4'),
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:4898:        engine = create_engine('postgresql+psycopg2://scott:tiger@localhost/')
+/opt/ispbilling/venv/lib64/python3.12/site-packages/sqlalchemy/orm/session.py:4966:        engine = create_engine('sqlite:///foo.db')
+
+=== [17] FIREWALL / UFW ===
+Status: inactive
+
+=== [18] BACKUP SCRIPTS / CRONS REFERENCING SQLITE ===
+/root/.expo/native-modules-cache/content-v2/sha512/97/bc/4f9d1c7a8b1082275dd98d639852358751e178cadece15cbfbaff9194499dbe068259687dc71356d73b35fb458ec4a885d2cdd637631ef6311575e76c915
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@types/node/ts5.7/index.d.ts
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@types/node/sqlite.d.ts
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@types/node/process.d.ts
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@types/node/ts5.6/index.d.ts
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@types/node/index.d.ts
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/mime-db/db.json
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@babel/highlight/node_modules/color-name/.npmignore
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@babel/code-frame/node_modules/color-name/.npmignore
+/root/.npm/_npx/e25a38a8cc65d08e/node_modules/@expo/package-manager/node_modules/color-name/.npmignore
+
+=== [19] DISK / UPLOADS / LOGS ===
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           795M  1.3M  793M   1% /run
+/dev/sda1        96G   46G   51G  48% /
+tmpfs           3.9G  2.3M  3.9G   1% /dev/shm
+tmpfs           5.0M     0  5.0M   0% /run/lock
+1.3G	/opt/ispbilling
+1.5G	/var/lib/autoispbilling
+454M	/var/lib/mongodb
+8.0K	/var/lib/redis
+8.3G	/var/log
+
+=== [20] POSTGRESQL DATABASES + SIZES ===
+                                                                                         List of databases
+      Name      |   Owner    | Encoding | Locale Provider | Collate |  Ctype  | ICU Locale | ICU Rules |   Access privileges   |  Size   | Tablespace |                Description                 
+----------------+------------+----------+-----------------+---------+---------+------------+-----------+-----------------------+---------+------------+--------------------------------------------
+ autoispbilling | ispbilling | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           |                       | 651 MB  | pg_default | 
+ postgres       | postgres   | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           |                       | 7503 kB | pg_default | default administrative connection database
+ template0      | postgres   | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | =c/postgres          +| 7345 kB | pg_default | unmodifiable empty database
+                |            |          |                 |         |         |            |           | postgres=CTc/postgres |         |            | 
+ template1      | postgres   | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | =c/postgres          +| 7567 kB | pg_default | default template for new databases
+                |            |          |                 |         |         |            |           | postgres=CTc/postgres |         |            | 
+(4 rows)
+
+
+==========================================================
+END OF AUDIT
+==========================================================

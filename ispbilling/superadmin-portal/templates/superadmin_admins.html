@@ -1,0 +1,1720 @@
+{% extends "base_superadmin.html" %}
+
+
+
+{% block title %}Admin Management - Superadmin{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap.min.css">
+<style>
+    .action-btn {
+        margin: 2px;
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+    .modal-body .form-group label {
+        font-weight: bold;
+    }
+    .info-row {
+        margin-bottom: 10px;
+        padding: 8px;
+        background-color: #f9f9f9;
+        border-left: 3px solid #3c8dbc;
+    }
+    .info-label {
+        font-weight: bold;
+        color: #333;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Admin Management<small>Manage all admin accounts</small></h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Admin List</h3>
+            <div class="box-tools pull-right">
+                <button type="button" class="btn btn-success" id="saBulkWaReminderBtn" data-testid="sa-bulk-wa-reminder"
+                        style="background:#25D366;border-color:#1fb357;margin-right:6px;">
+                    <i class="fa fa-whatsapp"></i> Send WhatsApp Reminder (Inactive Admins)
+                </button>
+                <a href="/superadmin/admins/add" class="btn btn-primary">
+                    <i class="fa fa-plus"></i> Add Admin
+                </a>
+            </div>
+            <script>
+            (function(){
+              function onReady(fn){
+                if (document.readyState !== 'loading') fn();
+                else document.addEventListener('DOMContentLoaded', fn);
+              }
+              onReady(function(){
+                var btn = document.getElementById('saBulkWaReminderBtn');
+                if (!btn) return;
+                btn.addEventListener('click', function(){
+                  if (!confirm('Send WhatsApp renewal reminder to ALL admins with status '+
+                               'Suspended / Deactive / Deactivated / Expired?\n\n'+
+                               'Sends to admin_mobile via Twilio.')) return;
+                  btn.disabled = true;
+                  var originalHtml = btn.innerHTML;
+                  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending…';
+                  fetch('/api/superadmin/admins/bulk-send-pay-reminder-whatsapp',
+                        {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+                    .then(function(r){ return r.json(); })
+                    .then(function(d){
+                      btn.disabled = false; btn.innerHTML = originalHtml;
+                      if (d.success) {
+                        alert('Queued ' + d.queued + ' reminder(s). '+
+                              'Skipped ' + d.skipped + ' (no mobile). '+
+                              'Total inactive: ' + d.total_inactive + '.');
+                      } else {
+                        alert('Failed: ' + (d.message || 'unknown'));
+                      }
+                    })
+                    .catch(function(e){
+                      btn.disabled = false; btn.innerHTML = originalHtml;
+                      alert('Request error: ' + e);
+                    });
+                });
+              });
+            })();
+            </script>
+        </div>
+        <div class="box-body">
+            <table id="adminsTable" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Company ID</th>
+                        <th>Company Name</th>
+                        <th>Admin Name</th>
+                        <th>Email</th>
+                        <th>Mobile</th>
+                        <th>Package</th>
+                        <th>Status</th>
+                        <th>End Date</th>
+                        <th>Balance</th>
+                        <th>Customers</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- View Admin Details Modal -->
+<div class="modal fade" id="viewAdminModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Admin Details</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>Company Information</h4>
+                        <div class="info-row">
+                            <span class="info-label">Company ID:</span> <span id="view_company_id"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Company Name:</span> <span id="view_company_name"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Address:</span> <span id="view_address"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">City/State:</span> <span id="view_city_state"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Package:</span> <span id="view_package"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Admin Type:</span> <span id="view_admin_type"></span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Admin Information</h4>
+                        <div class="info-row">
+                            <span class="info-label">Admin Name:</span> <span id="view_admin_name"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Email:</span> <span id="view_admin_email"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Mobile:</span> <span id="view_admin_mobile"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Admin ID:</span> <span id="view_admin_id"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Password:</span> <span id="view_password"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="row" style="margin-top: 20px;">
+                    <div class="col-md-12">
+                        <h4>Subscription & Usage</h4>
+                        <div class="col-md-4">
+                            <div class="info-row">
+                                <span class="info-label">Start Date:</span> <span id="view_start_date"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="info-row">
+                                <span class="info-label">End Date:</span> <span id="view_end_date"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="info-row">
+                                <span class="info-label">Status:</span> <span id="view_status"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="info-row">
+                                <span class="info-label">Total Users Created:</span> <span id="view_total_users"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="info-row">
+                                <span class="info-label">Total Due:</span> <span id="view_balance" style="color: red; font-weight: bold;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NAS Console Modal (SuperAdmin-only) — runs Mikrotik + RADIUS actions on a specific tenant's NAS devices -->
+<div class="modal fade" id="nasConsoleModal" tabindex="-1" role="dialog" aria-labelledby="nasConsoleModalLabel">
+    <div class="modal-dialog modal-lg" style="width: 94%; max-width: 1280px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0f172a; color:#fff;">
+                <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:0.85;">&times;</button>
+                <h4 class="modal-title" id="nasConsoleModalLabel">
+                    <i class="fa fa-server"></i> NAS Console —
+                    <span id="nc_company_name" style="opacity:0.95;"></span>
+                    <small id="nc_company_id" style="opacity:0.7; font-weight:400;"></small>
+                </h4>
+                <p style="margin:6px 0 0 0; font-size:12px; color:#cbd5e1;">SuperAdmin-only. These operations touch live Mikrotik routers and Radius — use with care.</p>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;">
+                <!-- Tenant-wide toolbar -->
+                <div style="background:#fef3c7; border:1px solid #fde68a; padding:10px 12px; border-radius:6px; margin-bottom:12px;">
+                    <strong style="color:#92400e;">Tenant-wide actions:</strong>
+                    <button type="button" class="btn btn-sm" style="background:#059669;color:#fff;border:none;margin-left:8px;" onclick="ncSyncAllFR()" data-testid="sa-nc-sync-all-fr"><i class="fa fa-refresh"></i> Sync-All Radius</button>
+                    <button type="button" class="btn btn-sm" style="background:#0891b2;color:#fff;border:none;margin-left:6px;" onclick="ncSyncClients()" data-testid="sa-nc-sync-clients"><i class="fa fa-shield"></i> Sync Clients</button>
+                    <button type="button" class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;margin-left:6px;" onclick="ncRadiusDiagnose()" data-testid="sa-nc-radius-diagnose"><i class="fa fa-stethoscope"></i> RADIUS Diagnose</button>
+                    <button type="button" class="btn btn-sm" style="background:#d97706;color:#fff;border:none;margin-left:6px;" onclick="ncBulkGenPppoe()" data-testid="sa-nc-bulk-gen-pppoe"><i class="fa fa-magic"></i> Gen PPPoE Passwords</button>
+                </div>
+
+                <!-- NAS list -->
+                <h5 style="margin-top:4px;">NAS devices <span id="nc_list_status" style="font-weight:400; color:#6b7280;"></span></h5>
+                <table class="table table-bordered" style="margin-bottom:0;">
+                    <thead style="background:#f3f4f6;">
+                        <tr><th>#</th><th>Name</th><th>IP:Port</th><th>Status</th><th>Provisioned</th><th style="width:440px;">Per-NAS actions</th></tr>
+                    </thead>
+                    <tbody id="nc_nas_tbody">
+                        <tr><td colspan="6" class="text-center" style="color:#6b7280;">Loading NAS devices…</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- Status snapshot -->
+                <h5 style="margin-top:18px;">Live NAS status <small id="nc_status_sub" style="color:#6b7280;"></small></h5>
+                <div id="nc_status_panel" style="background:#0b1220; color:#cbd5e1; font-family: monospace; font-size:12px; padding:12px; border-radius:6px; min-height:80px; max-height:320px; overflow:auto;">
+                    <span style="color:#6b7280;">Click <strong>Status</strong> on any NAS row above.</span>
+                </div>
+
+                <!-- Action output -->
+                <h5 style="margin-top:18px;">Action output</h5>
+                <pre id="nc_action_output" style="background:#111827; color:#e5e7eb; font-family:monospace; font-size:12px; padding:12px; border-radius:6px; min-height:100px; max-height:420px; overflow:auto;">(actions will log here)</pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- RADIUS diagnose prompt modal -->
+<div class="modal fade" id="ncRadtestModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">RADIUS Diagnose — radtest</h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label>PPPoE username</label><input type="text" class="form-control" id="nc_rt_user" placeholder="e.g. mp.dilip.fibernet"></div>
+                <div class="form-group"><label>PPPoE password</label><input type="text" class="form-control" id="nc_rt_pass" placeholder="as stored in the customer's row"></div>
+                <p class="muted" style="color:#6b7280;">Sends a simulated PAP Access-Request to our local Radius and shows the full reply (Access-Accept + Framed-Pool + Mikrotik-Rate-Limit, or Access-Reject + reason).</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="ncRunRadtest()"><i class="fa fa-play"></i> Run radtest</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Edit Admin Modal -->
+
+<!-- __SA_FF_CHECKBOX_VISIBILITY_v4727__ -->
+<style>
+/* SA Edit Admin — make feature flag checkboxes solid + clearly visible
+   against the dark feature-flag container background. */
+#editAdminForm .form-group input[type="checkbox"][id^="edit_enable_"],
+#editAdminForm .form-group input[type="checkbox"]#edit_payment_gateway_enabled {
+    appearance: auto !important;
+    -webkit-appearance: checkbox !important;
+    -moz-appearance: checkbox !important;
+    background: #FFFFFF !important;
+    border: 2px solid #93C5FD !important;
+    border-radius: 4px !important;
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px !important;
+    min-height: 20px !important;
+    accent-color: #2563EB !important;
+    box-shadow: 0 0 0 1px rgba(96,165,250,.35), 0 2px 6px rgba(0,0,0,.25) !important;
+    flex-shrink: 0 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: inline-block !important;
+}
+#editAdminForm .form-group label[for^="edit_enable_"],
+#editAdminForm .form-group input[type="checkbox"][id^="edit_enable_"] + span,
+#editAdminForm .form-group input[type="checkbox"]#edit_payment_gateway_enabled + span {
+    color: #F1F5F9 !important;
+}
+/* Force the parent label of each feature-flag checkbox to be visible */
+#editAdminForm .form-group label:has(> #edit_enable_whatsapp_api),
+#editAdminForm .form-group label:has(> #edit_enable_online_payment),
+#editAdminForm .form-group label:has(> #edit_payment_gateway_enabled) {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    align-items: center !important;
+    gap: 10px !important;
+}
+</style>
+<div class="modal fade" id="editAdminModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" style="width: 90%; max-width: 1200px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Edit Admin</h4>
+            </div>
+            <form id="editAdminForm" enctype="multipart/form-data">
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <input type="hidden" id="edit_company_id" name="company_id">
+                    
+                    <!-- Company Details Section -->
+                    <div style="background: #f9f9f9; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
+                        <h5 style="border-bottom: 2px solid #3c8dbc; padding-bottom: 5px; margin-top: 0;">Company Details</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Company ID (Read-only)</label>
+                                    <input type="text" class="form-control" id="edit_company_id_display" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Company Name *</label>
+                                    <input type="text" class="form-control" name="company_name" id="edit_company_name" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Company Logo</label>
+                                    <input type="file" class="form-control" name="company_logo" accept="image/*" id="edit_company_logo">
+                                    <small class="text-muted">Max 2MB. Leave empty to keep current logo.</small>
+                                    <div id="edit_logo_preview" style="margin-top: 10px;"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Address</label>
+                                    <textarea class="form-control" name="company_address" id="edit_company_address" rows="2"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>Country</label>
+                                    <input type="text" class="form-control" id="edit_country" name="country" value="India" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>State</label>
+                                    <select class="form-control" id="edit_state" name="state">
+                                        <option value="">Select State</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>City</label>
+                                    <input type="text" class="form-control" id="edit_city" name="city">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label>Pincode</label>
+                                    <input type="text" class="form-control" id="edit_pincode" name="pincode" pattern="[0-9]{6}" maxlength="6">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>GST Number</label>
+                                    <input type="text" class="form-control" id="edit_gst_number" name="gst_number" maxlength="15">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>GST Invoice Needed *</label>
+                                    <select class="form-control" id="edit_gst_invoice_needed" name="gst_invoice_needed" required>
+                                        <option value="1">Yes</option>
+                                        <option value="0">No</option>
+                                    </select>
+                                    <small class="text-muted">If Yes, GST numbers will be shown on invoice and tax will be added to the amount</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Company Email *</label>
+                                    <input type="email" class="form-control" name="company_email" id="edit_company_email" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Company Phone *</label>
+                                    <input type="text" class="form-control" name="company_phone" id="edit_company_phone" required>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Admin Details Section -->
+                    <div style="background: #f9f9f9; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
+                        <h5 style="border-bottom: 2px solid #3c8dbc; padding-bottom: 5px; margin-top: 0;">Admin Details</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Admin ID (Read-only)</label>
+                                    <input type="text" class="form-control" id="edit_admin_id_display" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Admin Name *</label>
+                                    <input type="text" class="form-control" name="admin_name" id="edit_admin_name" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Profile Image</label>
+                                    <input type="file" class="form-control" name="profile_image" accept="image/*" id="edit_profile_image">
+                                    <small class="text-muted">Max 2MB. Leave empty to keep current image.</small>
+                                    <div id="edit_profile_preview" style="margin-top: 10px;"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>New Password (leave blank to keep current)</label>
+                                    <input type="password" class="form-control" name="password" id="edit_password" minlength="6" autocomplete="new-password" data-tag="_S39R5S_PWD_INPUT_">
+                                    <small class="text-muted">Only fill if you want to change the password</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Admin Email *</label>
+                                    <input type="email" class="form-control" name="admin_email" id="edit_admin_email" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Admin Mobile</label>
+                                    <input type="text" class="form-control" name="admin_mobile" id="edit_admin_mobile" pattern="[0-9]{10}" maxlength="10">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Subscription Details Section -->
+                    <div style="background: #f9f9f9; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
+                        <h5 style="border-bottom: 2px solid #3c8dbc; padding-bottom: 5px; margin-top: 0;">Subscription Details</h5>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Package *</label>
+                                    <select class="form-control" name="package" id="edit_package" required>
+                                        <option value="">Loading packages...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Admin Type *</label>
+                                    <select class="form-control" name="admin_type" id="edit_admin_type" required>
+                                        <option value="Trial">Trial (7 days)</option>
+                                        <option value="Regular">Regular</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4" id="edit_period_row" style="display: none;">
+                                <div class="form-group">
+                                    <label>Period (Months) *</label>
+                                    <select class="form-control" name="period_months" id="edit_period_months">
+                                        <option value="1">1 Month</option>
+                                        <option value="3">3 Months</option>
+                                        <option value="6">6 Months</option>
+                                        <option value="12">12 Months</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bank Details Section -->
+                    <div style="background: #f9f9f9; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
+                        <h5 style="border-bottom: 2px solid #3c8dbc; padding-bottom: 5px; margin-top: 0;">Bank Details</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Bank Name</label>
+                                    <input type="text" class="form-control" id="edit_bank_name" name="bank_name">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Account Number</label>
+                                    <input type="text" class="form-control" id="edit_account_number" name="account_number">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Branch Code</label>
+                                    <input type="text" class="form-control" id="edit_branch_code" name="branch_code">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Branch Location</label>
+                                    <input type="text" class="form-control" id="edit_branch_location" name="branch_location">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>IFSC Code</label>
+                                    <input type="text" class="form-control" id="edit_branch_ifsc" name="branch_ifsc">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>UPI ID</label>
+                                    <input type="text" class="form-control" id="edit_upi_id" name="upi_id">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>QR Code for Payments</label>
+                                    <input type="file" class="form-control" name="qr_code" accept="image/*" id="edit_qr_code">
+                                    <small class="text-muted">Max 2MB. Leave empty to keep current QR code.</small>
+                                    <div id="edit_qr_preview" style="margin-top: 10px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Additional Details Section -->
+                    <div style="background: #f9f9f9; padding: 15px; margin-bottom: 20px; border: 1px solid #ddd;">
+                        <h5 style="border-bottom: 2px solid #3c8dbc; padding-bottom: 5px; margin-top: 0;">Additional Details</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Declaration</label>
+                                    <textarea class="form-control" id="edit_declaration" name="declaration" rows="3"></textarea>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Terms & Conditions</label>
+                                    <textarea class="form-control" id="edit_terms_conditions" name="terms_conditions" rows="3"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- __FEATURE_FLAGS_REPOSITIONED__ Feature flags now inside modal-body before footer -->
+                <div class="form-group" style="padding:14px 16px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:10px;margin-top:18px;">
+                    <label style="font-weight:700;display:block;margin-bottom:10px;color:#93C5FD;font-size:13.5px;letter-spacing:0.04em;text-transform:uppercase;">
+                        <i class="fa fa-toggle-on" style="margin-right:6px"></i>Feature Flags
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin-bottom:8px;color:#E2E8F0;cursor:pointer;">
+                        <input type="checkbox" id="edit_enable_online_payment" name="enable_online_payment" value="1" style="width:18px;height:18px;accent-color:#60A5FA;cursor:pointer;"> Enable Online Payment
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin-bottom:8px;color:#E2E8F0;cursor:pointer;">
+                        <input type="checkbox" id="edit_enable_whatsapp_api" name="enable_whatsapp_api" value="1" style="width:18px;height:18px;accent-color:#60A5FA;cursor:pointer;"> Enable WhatsApp API
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:500;color:#E2E8F0;cursor:pointer;">
+                        <input type="checkbox" id="edit_payment_gateway_enabled" name="payment_gateway_enabled" value="1" data-testid="sa-edit-pg-enabled" style="width:18px;height:18px;accent-color:#60A5FA;cursor:pointer;"> Enable Payment Gateway Setup
+                    </label>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Renew Subscription Modal -->
+<div class="modal fade" id="renewSubscriptionModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Renew Admin Subscription</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-12">
+                        <h4>Current Information</h4>
+                        <table class="table table-bordered">
+                            <tr>
+                                <th width="30%">Company Name</th>
+                                <td id="renew_company_name"></td>
+                            </tr>
+                            <tr>
+                                <th>Company ID</th>
+                                <td id="renew_company_id"></td>
+                            </tr>
+                            <tr>
+                                <th>Current Package</th>
+                                <td id="renew_current_package"></td>
+                            </tr>
+                            <tr>
+                                <th>Current End Date</th>
+                                <td id="renew_end_date"></td>
+                            </tr>
+                            <tr>
+                                <th>Total Customers</th>
+                                <td id="renew_total_customers"></td>
+                            </tr>
+                            <tr>
+                                <th>Current Balance</th>
+                                <td id="renew_balance"></td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <form id="renewSubscriptionForm">
+                    <input type="hidden" id="renew_admin_company_id">
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Select Package <span class="text-danger">*</span></label>
+                                <select class="form-control" id="renew_package" required>
+                                    <option value="">Loading packages...</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Period (Months) <span class="text-danger">*</span></label>
+                                <select class="form-control" id="renew_months" required>
+                                    <option value="1">1 Month</option>
+                                    <option value="2">2 Months</option>
+                                    <option value="3" selected>3 Months</option>
+                                    <option value="6">6 Months</option>
+                                    <option value="12">12 Months</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Start Date <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="renew_start_date" placeholder="DD/MM/YYYY" autocomplete="off" required>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>End Date (Auto-calculated)</label>
+                                <input type="text" class="form-control" id="renew_calculated_end_date" readonly style="background-color: #f5f5f5;" placeholder="DD/MM/YYYY">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>GST Invoice Needed <span class="text-danger">*</span></label>
+                                <select class="form-control" id="renew_gst_invoice" required>
+                                    <option value="yes">Yes</option>
+                                    <option value="no">No</option>
+                                </select>
+                                <small class="text-muted">If Yes, GST numbers will be shown on invoice and tax will be added to the amount</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> After renewal, the admin status will be set to <strong>Deactivated</strong> until payment is received. An invoice will be generated and sent via email.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmRenewBtn">
+                    <i class="fa fa-refresh"></i> Renew Subscription
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Payment Modal -->
+<div class="modal fade" id="addPaymentModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Add Payment</h4>
+            </div>
+            <form id="addPaymentForm">
+                <div class="modal-body">
+                    <input type="hidden" id="payment_company_id">
+                    
+                    <div class="form-group">
+                        <label>Amount *</label>
+                        <input type="number" class="form-control" id="payment_amount" step="0.01" min="0.01" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Payment Date *</label>
+                        <input type="date" class="form-control" id="payment_date" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Payment Method *</label>
+                        <select class="form-control" id="payment_method" required>
+                            <option value="Cash">Cash</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Card">Card</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Note</label>
+                        <textarea class="form-control" id="payment_note" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Add Payment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Transaction History Modal -->
+<div class="modal fade" id="transactionHistoryModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Transaction History</h4>
+            </div>
+            <div class="modal-body" id="transactionHistoryContent">
+                <p class="text-center">Loading...</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker3.standalone.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js"></script>
+<script>
+function _ddmmyyyyToIso(s) {
+    if (!s) return '';
+    var parts = String(s).split(/[\/\-\.]/);
+    if (parts.length !== 3) return '';
+    return parts[2] + '-' + String(parts[1]).padStart(2,'0') + '-' + String(parts[0]).padStart(2,'0');
+}
+function _dateToDdmmyyyy(d) {
+    if (!d) return '';
+    var dd = String(d.getDate()).padStart(2,'0');
+    var mm = String(d.getMonth()+1).padStart(2,'0');
+    return dd + '/' + mm + '/' + d.getFullYear();
+}
+</script>
+<script>
+$(document).ready(function() {
+    populateStatesDropdown();
+    
+    var table = $('#adminsTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: '/api/superadmin/admins',
+        columns: [
+            { data: 'company_id' },
+            { data: 'company_name' },
+            { data: 'admin_name' },
+            { data: 'admin_email' },
+            { data: 'admin_mobile' },
+            { data: 'package' },
+            { 
+                data: 'status',
+                render: function(data) {
+                    if (data === 'Active') return '<span class="label label-success">Active</span>';
+                    if (data === 'Suspended') return '<span class="label label-danger">Suspended</span>';
+                    return '<span class="label label-warning">Deactive</span>';
+                }
+            },
+            { 
+                data: 'end_date',
+                render: function(data) {
+                    return data ? new Date(data).toLocaleDateString('en-GB') : 'N/A';
+                }
+            },
+            { 
+                data: 'balance_amount',
+                render: function(data, type, row) {
+                    // Hide balance for trial admins
+                    if (row.admin_type === 'Trial' || data === null) {
+                        return '<span class="text-muted">N/A</span>';
+                    }
+                    return '₹' + Math.round(data || 0).toLocaleString('en-IN');
+                }
+            },
+            { 
+                data: 'customers_count',
+                defaultContent: '0',
+                orderable: false,
+                searchable: false
+            },
+            {
+                data: null,
+                orderable: false,
+                render: function(data, type, row) {
+                    var statusIcon = row.status === 'Active' ? 
+                        '<a href="#" onclick="toggleStatus(\'' + row.company_id + '\', \'Deactive\'); return false;" title="Deactivate"><i class="fa fa-toggle-on text-success" style="font-size: 18px;"></i></a>' :
+                        '<a href="#" onclick="toggleStatus(\'' + row.company_id + '\', \'Active\'); return false;" title="Activate"><i class="fa fa-toggle-off text-danger" style="font-size: 18px;"></i></a>';
+                    
+                    return '<a href="/superadmin/admins/' + encodeURIComponent(row.company_id) + '/nas" title="NAS Console (Mikrotik + RADIUS actions)" data-testid="sa-nas-console-' + row.company_id + '"><i class="fa fa-server text-primary" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="viewAdmin(\'' + row.company_id + '\'); return false;" title="View"><i class="fa fa-eye text-info" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="changeAdminPassword(\'' + row.company_id + '\', \'' + (row.admin_id || '') + '\'); return false;" title="Change Password" data-testid="admin-change-pw"><i class="fa fa-key text-warning" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="editAdmin(\'' + row.company_id + '\'); return false;" title="Edit"><i class="fa fa-pencil text-primary" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           statusIcon + ' ' +
+                           '<a href="#" onclick="viewTransactionHistory(\'' + row.company_id + '\'); return false;" title="Transaction History"><i class="fa fa-history text-info" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="sendReminder(\'' + row.company_id + '\'); return false;" title="Send Reminder"><i class="fa fa-bell text-warning" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="renewSubscription(\'' + row.company_id + '\'); return false;" title="Renew Subscription"><i class="fa fa-refresh text-success" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="extendExpiry(\'' + row.company_id + '\'); return false;" title="Extend Expiry Date (no payment)"><i class="fa fa-calendar-plus-o text-primary" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="collectPayment(\'' + row.company_id + '\'); return false;" title="Collect Payment"><i class="fa fa-money text-success" style="font-size: 16px; margin: 0 5px;"></i></a> ' +
+                           '<a href="#" onclick="deleteAdmin(\'' + row.company_id + '\'); return false;" title="Delete"><i class="fa fa-trash text-danger" style="font-size: 16px; margin: 0 5px;"></i></a>';
+                }
+            }
+        ]
+    });
+    
+    // Set today's date as default for payment date
+    $('#payment_date').val(new Date().toISOString().split('T')[0]);
+    
+    // Show/hide period months based on admin type in edit form
+    $('#edit_admin_type').change(function() {
+        if ($(this).val() === 'Regular') {
+            $('#edit_period_row').show();
+        } else {
+            $('#edit_period_row').hide();
+        }
+    });
+});
+
+function viewAdmin(companyId) {
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/details',
+        type: 'GET',
+        success: function(response) {
+            var details = response.details;
+            $('#view_company_id').text(details.company_id);
+            $('#view_company_name').text(details.company_name);
+            $('#view_address').text(details.company_address || 'N/A');
+            $('#view_city_state').text((details.city || '') + ', ' + (details.state || ''));
+            $('#view_package').text(details.package);
+            $('#view_admin_type').text(details.admin_type);
+            $('#view_admin_name').text(details.admin_name);
+            $('#view_admin_email').text(details.admin_email);
+            $('#view_admin_mobile').text(details.admin_mobile || 'N/A');
+            $('#view_admin_id').text(details.admin_id);
+            $('#view_password').text(details.password_note);
+            $('#view_start_date').text(details.start_date ? new Date(details.start_date).toLocaleDateString('en-GB') : 'N/A');
+            $('#view_end_date').text(details.end_date ? new Date(details.end_date).toLocaleDateString('en-GB') : 'N/A');
+            $('#view_status').html('<span class="label label-' + (details.status === 'Active' ? 'success' : 'warning') + '">' + details.status + '</span>');
+            $('#view_total_users').text(details.total_users);
+            
+            // Hide balance for trial admins
+            if (details.admin_type === 'Trial' || details.balance_amount === null) {
+                $('#view_balance').text('N/A');
+            } else {
+                $('#view_balance').text('₹' + Math.round(details.balance_amount).toLocaleString('en-IN'));
+            }
+            
+            $('#viewAdminModal').modal('show');
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to load admin details'));
+        }
+    });
+}
+
+function editAdmin(companyId) {
+    loadPackagesForEdit(function() {
+        $.ajax({
+            url: '/api/superadmin/admins/' + companyId,
+            type: 'GET',
+            success: function(response) {
+                var admin = response.admin;
+                $('#edit_company_id').val(admin.company_id);
+                $('#edit_company_id_display').val(admin.company_id);
+                $('#edit_company_name').val(admin.company_name);
+                $('#edit_company_email').val(admin.company_email);
+                $('#edit_company_phone').val(admin.company_phone);
+                $('#edit_company_address').val(admin.company_address);
+                $('#edit_country').val(admin.country || 'India');
+                $('#edit_state').val(admin.state || '');
+                $('#edit_city').val(admin.city || '');
+                $('#edit_pincode').val(admin.pincode || '');
+                $('#edit_gst_number').val(admin.gst_number || '');
+                $('#edit_gst_invoice_needed').val(admin.gst_invoice_needed !== undefined ? admin.gst_invoice_needed : 1);
+                
+                $('#edit_admin_id_display').val(admin.admin_id);
+                $('#edit_admin_name').val(admin.admin_name);
+                $('#edit_admin_email').val(admin.admin_email);
+                $('#edit_admin_mobile').val(admin.admin_mobile || '');
+                
+                $('#edit_package').val(admin.package);
+                $('#edit_admin_type').val(admin.admin_type);
+                $('#edit_period_months').val(admin.period_months || 1);
+                
+                $('#edit_bank_name').val(admin.bank_name || '');
+                $('#edit_account_number').val(admin.account_number || '');
+                $('#edit_branch_code').val(admin.branch_code || '');
+                $('#edit_branch_location').val(admin.branch_location || '');
+                $('#edit_branch_ifsc').val(admin.branch_ifsc || '');
+                $('#edit_upi_id').val(admin.upi_id || '');
+                
+                $('#edit_declaration').val(admin.declaration || '');
+                $('#edit_terms_conditions').val(admin.terms_conditions || '');
+                
+                if (admin.logo_path) {
+                    $('#edit_logo_preview').html('<img src="/uploads/' + admin.company_id + '/' + admin.logo_path.split('/').pop() + '" style="max-width: 200px; max-height: 200px;">');
+                }
+                if (admin.profile_image_path) {
+                    $('#edit_profile_preview').html('<img src="/uploads/' + admin.company_id + '/' + admin.profile_image_path.split('/').pop() + '" style="max-width: 200px; max-height: 200px;">');
+                }
+                if (admin.bank_qr_code) {
+                    $('#edit_qr_preview').html('<img src="/uploads/' + admin.company_id + '/' + admin.bank_qr_code.split('/').pop() + '" style="max-width: 200px; max-height: 200px;">');
+                }
+                
+                if (admin.admin_type === 'Regular') {
+                    $('#edit_period_row').show();
+                } else {
+                    $('#edit_period_row').hide();
+                }
+                
+                // _S39R5S_PWD_CLEAR_ — wipe any browser-autofilled
+                // password so saving the modal doesn't silently
+                // overwrite the admin's real password.
+                $('#edit_password').val('');
+                $('#editAdminModal').modal('show');
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to load admin data'));
+            }
+        });
+    });
+}
+
+function loadPackagesForEdit(callback) {
+    $.ajax({
+        url: '/api/superadmin/packages',
+        type: 'GET',
+        success: function(response) {
+            var packages = Array.isArray(response) ? response : (response.packages || []);
+            var options = '<option value="">Select Package</option>';
+            packages.forEach(function(pkg) {
+                var name = pkg.name || pkg.package_name || '';
+                var price = Number(pkg.price ?? pkg.package_price ?? 0);
+                options += '<option value="' + name + '">' + 
+                          name + ' - ₹' + Math.round(price).toLocaleString('en-IN') + '</option>';
+            });
+            $('#edit_package').html(options);
+            if (callback) callback();
+        },
+        error: function() {
+            $('#edit_package').html('<option value="">Error loading packages</option>');
+            if (callback) callback();
+        }
+    });
+}
+
+function populateStatesDropdown() {
+    var states = [
+        "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
+        "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand",
+        "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur",
+        "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
+        "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
+        "Uttar Pradesh", "Uttarakhand", "West Bengal",
+        "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu",
+        "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry"
+    ];
+    
+    var options = '<option value="">Select State</option>';
+    states.forEach(function(state) {
+        options += '<option value="' + state + '">' + state + '</option>';
+    });
+    $('#edit_state').html(options);
+}
+
+$('#editAdminForm').submit(function(e) {
+    e.preventDefault();
+    
+    var companyId = $('#edit_company_id').val();
+    var formData = new FormData(this);
+    
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId,
+        type: 'PUT',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(response) {
+            alert('Admin updated successfully!');
+            $('#editAdminModal').modal('hide');
+            $('#adminsTable').DataTable().ajax.reload();
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to update admin'));
+        }
+    });
+});
+
+function collectPayment(companyId) {
+    $('#payment_company_id').val(companyId);
+    $('#addPaymentForm')[0].reset();
+    $('#payment_date').val(new Date().toISOString().split('T')[0]);
+    $('#addPaymentModal').modal('show');
+}
+
+$('#addPaymentForm').submit(function(e) {
+    e.preventDefault();
+    
+    var companyId = $('#payment_company_id').val();
+    var paymentData = {
+        amount: parseFloat($('#payment_amount').val()),
+        payment_date: $('#payment_date').val(),
+        payment_method: $('#payment_method').val(),
+        note: $('#payment_note').val()
+    };
+    
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/payments',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(paymentData),
+        success: function(response) {
+            alert('Payment added successfully! New balance: ₹' + Math.round(response.new_balance).toLocaleString('en-IN'));
+            $('#addPaymentModal').modal('hide');
+            $('#adminsTable').DataTable().ajax.reload();
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to add payment'));
+        }
+    });
+});
+
+function toggleStatus(companyId, newStatus) {
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/toggle-status',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ status: newStatus }),
+        success: function(response) {
+            $('#adminsTable').DataTable().ajax.reload();
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to toggle status'));
+        }
+    });
+}
+
+function deleteAdmin(companyId) {
+    if (confirm('Are you sure you want to delete this admin? This will deactivate the admin account.')) {
+        $.ajax({
+            url: '/api/superadmin/admins/' + companyId,
+            type: 'DELETE',
+            success: function() {
+                alert('Admin deleted successfully!');
+                $('#adminsTable').DataTable().ajax.reload();
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to delete admin'));
+            }
+        });
+    }
+}
+
+function viewTransactionHistory(companyId) {
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/transactions',
+        type: 'GET',
+        success: function(response) {
+            var transactions = response.transactions || [];
+            var html = '<table class="table table-bordered table-striped"><thead><tr>' +
+                      '<th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Reference</th><th>Note</th><th>Actions</th>' +
+                      '</tr></thead><tbody>';
+            
+            if (transactions.length === 0) {
+                html += '<tr><td colspan="7" class="text-center">No transactions found</td></tr>';
+            } else {
+                transactions.forEach(function(t) {
+                    var actionBtns = '';
+                    if (t.transaction_type === 'renewal' && t.invoice_id) {
+                        // Invoice actions
+                        actionBtns = '<a href="/api/superadmin/invoices/' + t.invoice_id + '/download" class="btn btn-xs btn-primary" target="_blank" title="Download Invoice">' +
+                                    '<i class="fa fa-download"></i></a> ' +
+                                    '<a href="#" onclick="resendInvoiceFromHistory(' + t.invoice_id + '); return false;" class="btn btn-xs btn-info" title="Resend Invoice">' +
+                                    '<i class="fa fa-envelope"></i></a>';
+                    } else if (t.transaction_type === 'payment' && t.id) {
+                        // Payment receipt actions
+                        actionBtns = '<a href="/api/superadmin/payments/' + t.id + '/receipt/download" class="btn btn-xs btn-primary" target="_blank" title="Download Receipt">' +
+                                    '<i class="fa fa-download"></i></a> ' +
+                                    '<a href="#" onclick="resendReceiptFromHistory(' + t.id + '); return false;" class="btn btn-xs btn-info" title="Resend Receipt">' +
+                                    '<i class="fa fa-envelope"></i></a> ' +
+                                    '<a href="#" onclick="deletePaymentFromHistory(' + t.id + ', \'' + companyId + '\'); return false;" class="btn btn-xs btn-danger" title="Delete Payment (adds amount back as due)">' +
+                                    '<i class="fa fa-trash"></i></a>';
+                    } else {
+                        actionBtns = '<span class="text-muted">N/A</span>';
+                    }
+                    
+                    html += '<tr>' +
+                           '<td>' + (t.transaction_date ? new Date(t.transaction_date).toLocaleDateString('en-GB') : 'N/A') + '</td>' +
+                           '<td>' + (t.transaction_type || 'Payment') + '</td>' +
+                           '<td>₹' + Math.round(Number(t.amount || 0)).toLocaleString('en-IN') + '</td>' +
+                           '<td>' + (t.payment_method || 'N/A') + '</td>' +
+                           '<td>' + (t.reference_no || 'N/A') + '</td>' +
+                           '<td>' + (t.note || 'N/A') + '</td>' +
+                           '<td>' + actionBtns + '</td>' +
+                           '</tr>';
+                });
+            }
+            html += '</tbody></table>';
+            
+            $('#transactionHistoryContent').html(html);
+            $('#transactionHistoryModal').modal('show');
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to load transaction history'));
+        }
+    });
+}
+
+function resendInvoiceFromHistory(invoiceId) {
+    if (confirm('Resend invoice via email?')) {
+        $.ajax({
+            url: '/api/superadmin/invoices/' + invoiceId + '/resend',
+            type: 'POST',
+            contentType: 'application/json',
+            success: function(response) {
+                alert(response.message || 'Invoice sent successfully!');
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to send invoice'));
+            }
+        });
+    }
+}
+
+function resendReceiptFromHistory(transactionId) {
+    if (confirm('Resend payment receipt via email?')) {
+        $.ajax({
+            url: '/api/superadmin/payments/' + transactionId + '/receipt/resend',
+            type: 'POST',
+            contentType: 'application/json',
+            success: function(response) {
+                alert(response.message || 'Receipt sent successfully!');
+            },
+            error: function(xhr) {
+                var errorMsg = 'Error: ';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg += xhr.responseJSON.message;
+                } else if (xhr.status === 404) {
+                    errorMsg += 'Receipt PDF not found. It may not have been generated yet.';
+                } else {
+                    errorMsg += 'Failed to send receipt';
+                }
+                alert(errorMsg);
+            }
+        });
+    }
+}
+
+function deletePaymentFromHistory(transactionId, companyId) {
+    if (!confirm('Delete this payment? The paid amount will be added back to the admin\'s due balance.')) return;
+    $.ajax({
+        url: '/api/superadmin/payments/' + transactionId,
+        type: 'DELETE',
+        success: function(response) {
+            alert(response.message || 'Payment deleted. Due balance restored.');
+            viewTransactionHistory(companyId);
+            $('#adminsTable').DataTable().ajax.reload(null, false);
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to delete payment'));
+        }
+    });
+}
+window.deletePaymentFromHistory = deletePaymentFromHistory;
+
+function extendExpiry(companyId) {
+    var currentEnd = prompt('Enter new expiry date (DD/MM/YYYY):');
+    if (!currentEnd) return;
+    var iso = _ddmmyyyyToIso(currentEnd);
+    if (!iso) {
+        alert('Invalid date format. Use DD/MM/YYYY.');
+        return;
+    }
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/extend-expiry',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ end_date: iso }),
+        success: function(response) {
+            alert(response.message || ('Expiry extended to ' + currentEnd + '. Admin can now log in until that date even with due balance.'));
+            $('#adminsTable').DataTable().ajax.reload(null, false);
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to extend expiry'));
+        }
+    });
+}
+window.extendExpiry = extendExpiry;
+
+function sendReminder(companyId) {
+    if (confirm('Send payment reminder to this admin?')) {
+        $.ajax({
+            url: '/api/superadmin/admins/' + companyId + '/send-reminder',
+            type: 'POST',
+            contentType: 'application/json',
+            success: function(response) {
+                alert(response.message || 'Reminder sent successfully!');
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to send reminder'));
+            }
+        });
+    }
+}
+
+function renewSubscription(companyId) {
+    // Load admin summary
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/summary',
+        type: 'GET',
+        success: function(response) {
+            if (response.success && response.summary) {
+                var summary = response.summary;
+                
+                // Populate current information
+                $('#renew_company_name').text(summary.company_name);
+                $('#renew_company_id').text(summary.company_id);
+                $('#renew_current_package').text(summary.current_package);
+                $('#renew_end_date').text(summary.end_date ? new Date(summary.end_date).toLocaleDateString('en-GB') : 'N/A');
+                $('#renew_total_customers').text(summary.total_customers);
+                $('#renew_balance').text('₹' + Math.round(summary.balance).toLocaleString('en-IN'));
+                $('#renew_admin_company_id').val(companyId);
+                
+                // Set default start date to current end date or today
+                var startDate = new Date();
+                if (summary.end_date) {
+                    var endDate = new Date(summary.end_date);
+                    if (endDate > startDate) {
+                        startDate = endDate;
+                    }
+                }
+                // Initialize bootstrap-datepicker (idempotent) and seed with DD/MM/YYYY value
+                $('#renew_start_date').datepicker('destroy');
+                $('#renew_start_date')
+                    .datepicker({
+                        format: 'dd/mm/yyyy',
+                        autoclose: true,
+                        todayHighlight: true
+                    })
+                    .datepicker('setDate', startDate);
+
+                // Calculate initial end date
+                calculateRenewEndDate();
+                
+                // Show modal
+                $('#renewSubscriptionModal').modal('show');
+            } else {
+                alert('Error loading admin summary: ' + (response.error || 'Unknown error'));
+            }
+        },
+        error: function(xhr) {
+            alert('Error loading admin summary: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to load summary'));
+        }
+    });
+    
+    // Load packages for dropdown
+    $.ajax({
+        url: '/api/superadmin/packages',
+        type: 'GET',
+        success: function(response) {
+            if (response.success && response.packages) {
+                var options = '';
+                response.packages.forEach(function(pkg) {
+                    var name = pkg.package_name || pkg.name || '';
+                    var price = Number(pkg.package_price ?? pkg.price ?? 0);
+                    var users = pkg.user_count ?? pkg.max_users ?? 0;
+                    options += '<option value="' + name + '" data-price="' + price + '">' + 
+                              name + ' - ₹' + Math.round(price).toLocaleString('en-IN') + '/month (' + users + ' users)</option>';
+                });
+                $('#renew_package').html(options);
+            }
+        },
+        error: function(xhr) {
+            $('#renew_package').html('<option value="">Error loading packages</option>');
+        }
+    });
+}
+
+function calculateRenewEndDate() {
+    var startDateStr = $('#renew_start_date').val();
+    var months = parseInt($('#renew_months').val());
+
+    if (startDateStr && months > 0) {
+        var iso = _ddmmyyyyToIso(startDateStr);
+        if (!iso) { $('#renew_calculated_end_date').val(''); return; }
+        var start = new Date(iso + 'T00:00:00');
+        var end = new Date(start);
+        end.setMonth(end.getMonth() + months);
+        // Subscription period is inclusive of the last day, so subtract 1 day
+        // to match the invoice PDF (e.g. 19/03 + 1 month -> 18/04, not 19/04)
+        end.setDate(end.getDate() - 1);
+
+        $('#renew_calculated_end_date').val(_dateToDdmmyyyy(end));
+    }
+}
+
+// Auto-calculate end date when start date or months change
+$(document).on('change', '#renew_start_date, #renew_months', function() {
+    calculateRenewEndDate();
+});
+
+// Handle renew confirmation
+$(document).on('click', '#confirmRenewBtn', function() {
+    var companyId = $('#renew_admin_company_id').val();
+    var packageName = $('#renew_package').val();
+    var months = parseInt($('#renew_months').val());
+    var startDateDisplay = $('#renew_start_date').val();
+    var startDateIso = _ddmmyyyyToIso(startDateDisplay);
+    var gstInvoice = $('#renew_gst_invoice').val();
+
+    if (!packageName || !months || !startDateIso || !gstInvoice) {
+        alert('Please fill in all required fields (Start Date must be DD/MM/YYYY)');
+        return;
+    }
+
+    // Disable button to prevent double-click
+    $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+
+    $.ajax({
+        url: '/api/superadmin/admins/' + companyId + '/renew',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            months: months,
+            period_months: months,
+            start_date: startDateIso,
+            package_name: packageName,
+            gst_invoice_needed: gstInvoice === 'yes'
+        }),
+        success: function(response) {
+            if (response.success) {
+                alert('Subscription renewed successfully!\n\n' +
+                      'Invoice Number: ' + response.invoice_no + '\n' +
+                      'New End Date: ' + new Date(response.new_end_date).toLocaleDateString('en-GB') + '\n' +
+                      'New Balance: ₹' + Math.round(response.new_balance).toLocaleString('en-IN') + '\n\n' +
+                      'Admin status set to Deactivated until payment is received.');
+                $('#renewSubscriptionModal').modal('hide');
+                $('#adminsTable').DataTable().ajax.reload();
+            } else {
+                alert('Error: ' + (response.error || 'Failed to renew subscription'));
+            }
+        },
+        error: function(xhr) {
+            alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to renew subscription'));
+        },
+        complete: function() {
+            $('#confirmRenewBtn').prop('disabled', false).html('<i class="fa fa-refresh"></i> Renew Subscription');
+        }
+    });
+});
+
+// Ensure functions are globally accessible for inline onclick handlers
+window.editAdmin = editAdmin;
+window.viewAdmin = viewAdmin;
+window.toggleStatus = toggleStatus;
+window.viewTransactionHistory = viewTransactionHistory;
+window.sendReminder = sendReminder;
+window.renewSubscription = renewSubscription;
+window.collectPayment = collectPayment;
+window.deleteAdmin = deleteAdmin;
+
+// Clean up modal backdrops to prevent blocking clicks
+$('#renewAdminModal, #editAdminModal, #viewAdminModal, #transactionHistoryModal, #collectPaymentModal').on('hidden.bs.modal', function() {
+    $('body').removeClass('modal-open');
+    $('.modal-backdrop').remove();
+});
+
+// Clean up any stale backdrop on page load
+$(document).ready(function() {
+    $('body').removeClass('modal-open');
+    $('.modal-backdrop').remove();
+});
+
+// =====================================================================
+// SuperAdmin NAS Console — runs Mikrotik + RADIUS actions on behalf of
+// a specific tenant. All HTTP calls go to /api/superadmin/admins/{cid}/...
+// which proxies to the admin-portal over 127.0.0.1 with an internal token.
+// =====================================================================
+var __nc = {companyId: null, companyName: null, nasList: []};
+
+function ncLog(label, obj) {
+    var pre = document.getElementById('nc_action_output');
+    var ts  = new Date().toLocaleTimeString();
+    var txt;
+    try { txt = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2); } catch (e) { txt = String(obj); }
+    pre.textContent = '[' + ts + '] ' + label + '\n' + txt + '\n\n' + pre.textContent;
+}
+
+function openNasConsole(companyId, companyName) {
+    __nc.companyId = companyId;
+    __nc.companyName = companyName || companyId;
+    document.getElementById('nc_company_name').textContent = __nc.companyName;
+    document.getElementById('nc_company_id').textContent = ' (' + companyId + ')';
+    document.getElementById('nc_action_output').textContent = '(actions will log here)';
+    document.getElementById('nc_status_panel').innerHTML = '<span style="color:#6b7280;">Click <strong>Status</strong> on any NAS row above.</span>';
+    document.getElementById('nc_status_sub').textContent = '';
+    ncReloadNasList();
+    $('#nasConsoleModal').modal('show');
+}
+window.openNasConsole = openNasConsole;
+
+function ncReloadNasList() {
+    var tb = document.getElementById('nc_nas_tbody');
+    tb.innerHTML = '<tr><td colspan="6" class="text-center" style="color:#6b7280;">Loading…</td></tr>';
+    document.getElementById('nc_list_status').textContent = '';
+    $.ajax({
+        url: '/api/superadmin/admins/' + encodeURIComponent(__nc.companyId) + '/nas/list',
+        method: 'GET', dataType: 'json',
+        success: function(d) {
+            var rows = (d && d.nas_devices) || [];
+            __nc.nasList = rows;
+            if (!rows.length) {
+                tb.innerHTML = '<tr><td colspan="6" class="text-center" style="color:#6b7280;">No NAS devices for this tenant.</td></tr>';
+                document.getElementById('nc_list_status').textContent = '(0 NAS)';
+                return;
+            }
+            var html = '';
+            rows.forEach(function(n, i) {
+                var st = (n.status === 'Active') ? '<span style="color:#059669;">● Active</span>' : '<span style="color:#6b7280;">○ Inactive</span>';
+                var prov = n.provisioned_at ? n.provisioned_at.replace('T', ' ').slice(0, 16) : '<span style="color:#9ca3af;">Never</span>';
+                html += '<tr>';
+                html += '<td>' + (i + 1) + '</td>';
+                html += '<td><strong>' + (n.name || '') + '</strong></td>';
+                html += '<td><code>' + (n.ip_address || '') + ':' + (n.port || 8728) + '</code></td>';
+                html += '<td>' + st + '</td>';
+                html += '<td>' + prov + '</td>';
+                html += '<td>';
+                html += btn('sa-nc-test-' + n.id, '#3b82f6', 'fa-plug', 'Test', 'ncTestNas(' + n.id + ')');
+                html += btn('sa-nc-status-' + n.id, '#0891b2', 'fa-heartbeat', 'Status', 'ncStatusNas(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-autoconfig-' + n.id, '#2563eb', 'fa-magic', 'Auto-Cfg', 'ncAutoConfigure(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-radius-only-' + n.id, '#16a34a', 'fa-shield', 'Radius-only', 'ncRadiusOnly(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-walled-' + n.id, '#f97316', 'fa-leaf', 'Walled-Garden', 'ncWalledGarden(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-rsc-' + n.id, '#059669', 'fa-download', '.rsc', 'ncRsc(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-pppoe-' + n.id, '#f59e0b', 'fa-key', 'PPPoE', 'ncPppoeSecrets(' + n.id + ')');
+                html += btn('sa-nc-unblock-' + n.id, '#ea580c', 'fa-unlock', 'Unblock', 'ncUnblock(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-fix-pppoe-' + n.id, '#7c3aed', 'fa-wrench', 'Fix PPPoE', 'ncFixPppoe(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-sync-secret-' + n.id, '#c026d3', 'fa-key', 'Sync Secret', 'ncSyncSecret(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += btn('sa-nc-unprov-' + n.id, '#b91c1c', 'fa-undo', 'Unprov', 'ncUnprovision(' + n.id + ', "' + (n.name||'').replace(/"/g,'&quot;') + '")');
+                html += '</td></tr>';
+            });
+            tb.innerHTML = html;
+            document.getElementById('nc_list_status').textContent = '(' + rows.length + ' NAS)';
+        },
+        error: function(xhr) {
+            tb.innerHTML = '<tr><td colspan="6" class="text-danger text-center">Failed to load NAS list (' + xhr.status + ')</td></tr>';
+        }
+    });
+}
+
+function btn(testid, color, icon, label, onclick) {
+    return '<button data-testid="' + testid + '" class="btn btn-xs" style="background:' + color + ';color:#fff;border:none;margin:1px 2px;" onclick="' + onclick + '" title="' + label + '"><i class="fa ' + icon + '"></i> ' + label + '</button>';
+}
+
+// ----- Per-NAS actions -----
+function ncPost(path, body, label) {
+    return $.ajax({
+        url: '/api/superadmin/admins/' + encodeURIComponent(__nc.companyId) + path,
+        method: 'POST', contentType: 'application/json',
+        data: JSON.stringify(body || {}), dataType: 'json',
+    }).done(function(d) { ncLog(label + ' ✓', d); })
+      .fail(function(xhr) { ncLog(label + ' ✗ (HTTP ' + xhr.status + ')', xhr.responseJSON || xhr.responseText); });
+}
+function ncGet(path, label) {
+    return $.ajax({
+        url: '/api/superadmin/admins/' + encodeURIComponent(__nc.companyId) + path,
+        method: 'GET', dataType: 'json',
+    }).done(function(d) { ncLog(label + ' ✓', d); })
+      .fail(function(xhr) { ncLog(label + ' ✗ (HTTP ' + xhr.status + ')', xhr.responseJSON || xhr.responseText); });
+}
+
+function ncTestNas(nasId)             { ncPost('/nas/' + nasId + '/test-connection', {}, 'Test NAS ' + nasId); }
+function ncStatusNas(nasId, name) {
+    var panel = document.getElementById('nc_status_panel');
+    panel.textContent = 'Loading status for NAS ' + nasId + '…';
+    document.getElementById('nc_status_sub').textContent = '— ' + (name || '');
+    ncGet('/nas/' + nasId + '/status', 'Status NAS ' + nasId).done(function(d) {
+        var lines = [];
+        lines.push('identity:           ' + (d.identity || '—'));
+        lines.push('version:            ' + (d.version || '—'));
+        lines.push('online PPPoE users: ' + (d.online_pppoe_count != null ? d.online_pppoe_count : '—'));
+        lines.push('radius clients:     ' + JSON.stringify(d.radius_clients || 'n/a'));
+        lines.push('radius CoA open:    ' + (d.radius_incoming_accept ? '✓ yes' : '✗ no'));
+        lines.push('ppp use-radius:     ' + (d.ppp_aaa_use_radius ? '✓ yes' : '✗ no'));
+        lines.push('pppoe servers:      ' + JSON.stringify(d.pppoe_servers || 'n/a'));
+        lines.push('pool usage:         ' + JSON.stringify(d.pool_usage || 'n/a'));
+        lines.push('firewall drops:     ' + JSON.stringify(d.firewall_drops || 'n/a'));
+        panel.textContent = lines.join('\n');
+    }).fail(function(){ panel.textContent = 'Failed to load status.'; });
+}
+function ncRadiusOnly(nasId, name) {
+    if (!confirm('Switch "' + name + '" to RADIUS-only?\n\n' +
+                 'All local PPPoE secrets on the router will be disabled.\n' +
+                 'Authentication will be delegated to Radius.\n\n' +
+                 'OK    = proceed\nCancel = abort')) return;
+    ncPost('/nas/' + nasId + '/switch-to-radius-only', {}, 'Switch-to-RADIUS-only NAS ' + nasId);
+}
+
+function ncWalledGarden(nasId, name) {
+    if (!confirm('Deploy Walled-Garden firewall rules on "' + name + '"?\n\n' +
+                 'This lets Expired/Suspended users reach only your billing portal & payment gateway.\n\n' +
+                 'OK = deploy\nCancel = abort')) return;
+    ncPost('/nas/' + nasId + '/deploy-walled-garden', {}, 'Deploy Walled-Garden on NAS ' + nasId);
+}
+
+function ncAutoConfigure(nasId, name) {
+    var dry = confirm('Auto-Configure "' + name + '"?\n\nOK    = DRY-RUN (preview commands, no changes)\nCancel = APPLY LIVE (dangerous)');
+    ncPost('/nas/' + nasId + '/auto-configure',
+           {dry_run: !!dry, firewall_nat_baseline: true, parking_pool: true,
+            pppoe_server: true, queue_types: true, ip_pools: true,
+            radius_client: true, with_audit_log: true, with_wan_drop: false},
+           (dry ? '[DRY-RUN] ' : '[LIVE] ') + 'Auto-Configure NAS ' + nasId);
+}
+function ncRsc(nasId, name) {
+    ncPost('/nas/' + nasId + '/generate-rsc',
+           {firewall_nat_baseline: true, parking_pool: true, pppoe_server: true,
+            queue_types: true, ip_pools: true, radius_client: true,
+            with_audit_log: true, with_wan_drop: false},
+           'Generate .rsc for NAS ' + nasId);
+}
+function ncPppoeSecrets(nasId)        { ncGet('/nas/' + nasId + '/pppoe-secrets', 'PPPoE secrets on NAS ' + nasId); }
+function ncUnblock(nasId, name) {
+    if (!confirm('Emergency-UNBLOCK "' + name + '"?\nRemoves WAN-drop firewall rules so the router becomes reachable.')) return;
+    ncPost('/nas/' + nasId + '/emergency-unblock', {}, 'Emergency Unblock NAS ' + nasId);
+}
+function ncFixPppoe(nasId, name) {
+    if (!confirm('Fix PPPoE profile on "' + name + '"?\nForce-sets /ppp/profile isp-default with correct local-address + remote-address(pool), and points every /interface/pppoe-server/server at it.')) return;
+    ncPost('/nas/' + nasId + '/ensure-pppoe-profile', {}, 'Fix PPPoE Profile on NAS ' + nasId);
+}
+function ncSyncSecret(nasId, name) {
+    if (!confirm('Sync RADIUS secret to "' + name + '"?\nForce-updates the router\'s /radius entry secret to match our DB so the router can validate our Access-Accept replies.')) return;
+    ncPost('/nas/' + nasId + '/sync-radius-secret', {}, 'Sync RADIUS secret on NAS ' + nasId);
+}
+function ncUnprovision(nasId, name) {
+    if (!confirm('⚠️ UNPROVISION "' + name + '"?\nThis REMOVES everything Auto-Configure pushed to the router (PPPoE server, pools, RADIUS client, firewall, queues). Existing sessions will drop.\n\nAre you absolutely sure?')) return;
+    if (!confirm('Last chance — type OK in the next prompt to confirm.')) return;
+    var typed = prompt('Type UNPROVISION to confirm:');
+    if (typed !== 'UNPROVISION') { alert('Cancelled.'); return; }
+    ncPost('/nas/' + nasId + '/unprovision', {}, 'UNPROVISION NAS ' + nasId);
+}
+
+// ----- Tenant-wide actions -----
+function ncSyncAllFR()   { if (!confirm('Rebuild Radius (clients.conf + isp-users + reload) for this tenant?')) return; ncPost('/freeradius/sync-all', {}, 'Sync-All Radius'); }
+function ncSyncClients() { if (!confirm('Rewrite Radius clients.conf from this tenant\'s Active NAS list and reload?')) return; ncPost('/freeradius/sync-clients', {}, 'Sync Clients'); }
+function ncBulkGenPppoe(){ if (!confirm('Generate a fresh PPPoE password for every customer in this tenant WHO DOES NOT have one?')) return; ncPost('/pppoe/bulk-generate', {overwrite: false}, 'Bulk-gen PPPoE passwords'); }
+function ncRadiusDiagnose() {
+    $('#nc_rt_user').val(''); $('#nc_rt_pass').val('');
+    $('#ncRadtestModal').modal('show');
+}
+function ncRunRadtest() {
+    var u = ($('#nc_rt_user').val() || '').trim();
+    var p = ($('#nc_rt_pass').val() || '').trim();
+    if (!u || !p) { alert('Enter username + password'); return; }
+    $('#ncRadtestModal').modal('hide');
+    ncPost('/freeradius/test-auth', {username: u, password: p}, 'radtest ' + u);
+}
+
+window.openNasConsole = openNasConsole;
+
+
+
+$(document).on('shown.bs.modal', '#editAdminModal', function () {
+    // Session 25.6 - preload feature flags for this company
+    var cid = $('#edit_company_id').val() || $('#editAdminForm [name=company_id]').val() || '';
+    if (!cid) return;
+    fetch('/api/superadmin/admins/' + cid + '/flags')
+        .then(function(r){return r.json();})
+        .then(function(d){
+            if (d.success) {
+                document.getElementById('edit_enable_online_payment').checked = !!d.enable_online_payment;
+                document.getElementById('edit_enable_whatsapp_api').checked   = !!d.enable_whatsapp_api;
+                document.getElementById('edit_payment_gateway_enabled').checked = !!d.payment_gateway_enabled;
+            }
+        });
+});
+</script>
+
+<div class="modal fade" id="changePwModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-key text-warning"></i> Change Admin Password</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div class="form-group">
+          <label>Admin</label>
+          <input id="cpw_admin_label" class="form-control" readonly style="background:#f1f5f9;">
+        </div>
+        <div class="form-group">
+          <label>New Password *</label>
+          <input id="cpw_new" type="password" class="form-control" minlength="4"
+                 data-testid="cpw-new" autocomplete="new-password" placeholder="Min 4 chars">
+        </div>
+        <div class="form-group">
+          <label>Confirm Password *</label>
+          <input id="cpw_confirm" type="password" class="form-control" minlength="4"
+                 data-testid="cpw-confirm" autocomplete="new-password" placeholder="Re-enter password">
+        </div>
+        <div id="cpw_msg" style="color:#b91c1c;font-size:13px;margin-top:6px;"></div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button type="button" class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button type="button" class="btn btn-primary" id="cpw_save_btn"
+                data-testid="cpw-save" style="background:#059669;color:#fff;border:none;">
+          <i class="fa fa-check"></i> Save New Password
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _cpwCompanyId = null;
+function changeAdminPassword(companyId, adminId) {
+    _cpwCompanyId = companyId;
+    document.getElementById('cpw_admin_label').value = adminId + ' (Company ' + companyId + ')';
+    document.getElementById('cpw_new').value = '';
+    document.getElementById('cpw_confirm').value = '';
+    document.getElementById('cpw_msg').innerText = '';
+    document.getElementById('cpw_msg').style.color = '#b91c1c';
+    $('#changePwModal').modal('show');
+    setTimeout(function(){ document.getElementById('cpw_new').focus(); }, 300);
+}
+document.getElementById('cpw_save_btn').addEventListener('click', function() {
+    var newPw = document.getElementById('cpw_new').value;
+    var cfm = document.getElementById('cpw_confirm').value;
+    var msg = document.getElementById('cpw_msg');
+    msg.style.color = '#b91c1c';
+    if (!newPw || newPw.length < 4) { msg.innerText = 'Password must be at least 4 characters.'; return; }
+    if (newPw !== cfm) { msg.innerText = 'Passwords do not match.'; return; }
+    var btn = this; btn.disabled = true;
+    var orig = btn.innerHTML; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
+    fetch('/api/superadmin/admins/' + _cpwCompanyId + '/change-password', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({new_password: newPw, confirm_password: cfm})
+    }).then(function(r){return r.json();}).then(function(d){
+        btn.disabled = false; btn.innerHTML = orig;
+        if (d.success) {
+            msg.style.color = '#059669';
+            msg.innerText = '✓ ' + (d.message || 'Password updated.');
+            setTimeout(function(){ $('#changePwModal').modal('hide'); }, 1200);
+        } else {
+            msg.innerText = d.message || 'Password update failed.';
+        }
+    }).catch(function(e){
+        btn.disabled = false; btn.innerHTML = orig;
+        msg.innerText = 'Request error: ' + e;
+    });
+});
+window.changeAdminPassword = changeAdminPassword;
+</script>
+
+{% endblock %}
+
+

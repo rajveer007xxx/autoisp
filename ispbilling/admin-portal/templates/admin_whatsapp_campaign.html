@@ -1,0 +1,250 @@
+{% extends "base_admin.html" %}
+{% block title %}WhatsApp Campaigns - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.wa-card{background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.wa-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:1024px){.wa-grid{grid-template-columns:1fr;}}
+.wa-input{width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;}
+.wa-textarea{width:100%;min-height:100px;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;}
+.wa-btn{background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;}
+.wa-btn.gray{background:#475569;}
+.wa-btn:hover{opacity:.9;}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;}
+table td{padding:10px;border-bottom:1px solid #e2e8f0;font-size:13px;}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;}
+.tag.draft{background:#fef3c7;color:#a16207;}
+.tag.completed{background:#dcfce7;color:#15803d;}
+.tag.sending{background:#dbeafe;color:#1d4ed8;}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+</style>
+<section class="content-header"><h1>WhatsApp Campaigns<small>Send bulk WhatsApp messages to your customers</small></h1></section>
+<section class="content">
+<div class="wa-grid">
+  <div class="wa-card">
+    <h3 style="margin:0 0 14px;display:flex;align-items:center;gap:8px;"><i class="bi bi-whatsapp" style="color:#25d366;"></i> Create Campaign</h3>
+    <label style="font-weight:600;font-size:13px;">Campaign Name</label>
+    <input id="wcName" class="wa-input" placeholder="e.g. Diwali Offer 2026" data-testid="wa-campaign-name" />
+    <label style="font-weight:600;font-size:13px;margin-top:10px;display:block;">Target</label>
+    <select id="wcTarget" class="wa-input" data-testid="wa-campaign-target">
+      <option value="all">All Customers</option>
+      <option value="active">Active Only</option>
+      <option value="expired">Expired Only</option>
+    </select>
+    <!-- __CAMPAIGN_FILTERS_UI__ -->
+    <label style="font-weight:600;font-size:13px;margin-top:10px;display:block;">
+      User Type <small style="color:#94a3b8">(broadband / cable TV / all)</small>
+    </label>
+    <select id="wcServiceType" class="wa-input" data-testid="wa-campaign-service-type">
+      <option value="all">All Types</option>
+      <option value="Broadband">Broadband</option>
+      <option value="Cable TV">Cable TV</option>
+    </select>
+    <label style="font-weight:600;font-size:13px;margin-top:10px;display:block;">
+      Locality <small style="color:#94a3b8">(send to a specific area only)</small>
+    </label>
+    <select id="wcLocality" class="wa-input" data-testid="wa-campaign-locality">
+      <option value="all">All Localities</option>
+    </select>
+    <label style="font-weight:600;font-size:13px;margin-top:10px;display:block;">Use Template *</label>
+    <select id="wcTemplate" class="wa-input" data-testid="wa-campaign-template" onchange="useTpl()">
+      <option value="">-- Or write fresh body below --</option>
+    </select>
+    <label style="font-weight:600;font-size:13px;margin-top:10px;display:block;">Message Body (use {{name}} for customer name)</label>
+    <textarea id="wcBody" class="wa-textarea" placeholder="Hi {{name}}, ..." data-testid="wa-campaign-body"></textarea>
+    <div style="margin-top:14px;display:flex;gap:8px;">
+      <button class="wa-btn" onclick="createCampaign()" data-testid="wa-create-btn">Create Draft</button>
+    </div>
+  </div>
+  <div class="wa-card">
+    <h3 style="margin:0 0 14px;">
+      <!-- S42C-LABEL --> Verified Templates
+      <!-- === S42B-HIDE-NEW-TPL ===
+        Per user request: admins can ONLY use Meta-approved templates
+        synced from WhatsApp provider. New templates must be created and approved
+        in the WhatsApp provider dashboard. + New button hidden here. -->
+      <button class="wa-btn gray" style="float:right;padding:6px 12px;font-size:12px;"
+              onclick="loadTpls()" data-testid="wa-refresh-tpls-btn"
+              title="Refresh WhatsApp templates">⟳ Refresh</button>
+    </h3>
+    <div id="wcTemplates" style="max-height:520px;overflow:auto;"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+
+<!-- __WA_TPL_INLINE_FORM__  Inline template creation modal -->
+<div id="tplFormBackdrop" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;align-items:center;justify-content:center;" onclick="closeNewTplForm(event)">
+  <div style="background:#fff;border-radius:14px;padding:24px 28px;width:480px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25);" onclick="event.stopPropagation()">
+    <h3 style="margin:0 0 14px;display:flex;align-items:center;gap:8px;"><i class="bi bi-file-earmark-text" style="color:#6366f1"></i> New Template</h3>
+    <label style="font-weight:600;font-size:13px;">Template Name</label>
+    <input id="tplName" class="wa-input" placeholder="e.g. Diwali Offer" data-testid="wa-tpl-name-input" />
+    <div style="margin-top:14px;padding:10px 12px;background:#f1f5f9;
+         border-radius:8px;font-size:11px;line-height:1.7;color:#334155">
+      <!-- __NUMBERED_PLACEHOLDERS_UI__ -->
+      <b style="color:#1e293b">Available placeholders</b> <span style="color:#64748b">(paste anywhere in body — Meta-approval ready)</span>:<br>
+      → <code>{{1}}</code> = customer name (e.g. <i>DILIP NAMDEV</i>)<br>
+      → <code>{{2}}</code> = your company name (e.g. <i>CITY WIFI</i>)<br>
+      → <code>{{3}}</code> = date (e.g. <i>13-05-2026</i>) — fill at send time<br>
+      → <code>{{4}}</code> = time / ETA (e.g. <i>2 hours</i>) — fill at send time<br>
+      → <code>{{5}}</code> = locality (e.g. <i>ANANTPURA</i>)<br>
+      <span style="color:#64748b;font-style:italic;display:block;margin-top:4px">Copy this body to WhatsApp provider dashboard for Meta approval — the variables match.</span>
+    </div>
+    <label style="font-weight:600;font-size:13px;margin-top:12px;display:block;">Body Text</label>
+    <textarea id="tplBody" class="wa-textarea" rows="6" placeholder="Hi {{name}}, ..." data-testid="wa-tpl-body-input"></textarea>
+    <div id="tplFormErr" style="color:#dc2626;font-size:12px;margin-top:8px;display:none"></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="wa-btn gray" onclick="closeNewTplForm()" data-testid="wa-tpl-cancel-btn">Cancel</button>
+      <button class="wa-btn" onclick="saveNewTpl()" data-testid="wa-tpl-save-btn">Save Template</button>
+    </div>
+  </div>
+</div>
+
+<div class="wa-card">
+  <h3 style="margin:0 0 14px;">Campaign History <button class="wa-btn gray" style="float:right;padding:6px 12px;font-size:12px;" onclick="loadCampaigns()" data-testid="wa-refresh-campaigns-btn">Refresh</button></h3>
+  <div id="wcList"><div class="empty">Loading…</div></div>
+</div>
+</section>
+
+<script>
+let _tpls = [];
+async function loadTpls(){
+  // === S42B-FETCH-MSG91 ===
+  // Pulls verified Meta-approved templates from MSG91. Falls back to
+  // the legacy local table if MSG91 is unreachable or unconfigured.
+  let d;
+  try {
+    const r = await fetch('/api/admin/wa-templates/msg91', {credentials:'include'});
+    d = await r.json();
+  } catch(e) { d = {success:false}; }
+  if (!d.success || !(d.items||[]).length) {
+    // Fallback: legacy local templates.
+    const r2 = await fetch('/api/admin/wa-templates', {credentials:'include'});
+    d = await r2.json();
+  }
+  if (!d.success) return;
+  _tpls = d.items;
+  document.getElementById('wcTemplate').innerHTML =
+    '<option value="">-- Pick a verified template --</option>' +
+    _tpls.map(t => `<option value="${t.id}">${t.name}${t.language ? ' ('+t.language+')' : ''}${t.status ? ' — '+t.status : ''}</option>`).join('');
+  document.getElementById('wcTemplates').innerHTML = _tpls.length === 0
+    ? '<div class="empty">No verified WhatsApp templates yet. Create + approve them in the WhatsApp provider dashboard.</div>'
+    : '<table><tbody>' + _tpls.map(t => `
+        <tr data-testid="wa-tpl-row-${t.id}">
+          <td>
+            <b>${t.name}</b>
+            <small style="color:#64748b">${t.language || 'en'} · ${(t.category||'').toUpperCase()} · ${(t.status||'').toUpperCase()}</small>
+            <br><small style="color:#475569">${(t.body_text||'').substring(0,160)}</small>
+          </td>
+          <td><span style="color:#0e7d4b;font-weight:600;font-size:11px;">✓ Verified</span></td>
+        </tr>`).join('') + '</tbody></table>';
+}
+function useTpl(){
+  const id=document.getElementById('wcTemplate').value;
+  const t=_tpls.find(x=>x.id==id);
+  if(t) document.getElementById('wcBody').value=t.body_text;
+}
+function openNewTplForm(){
+  document.getElementById('tplName').value='';
+  document.getElementById('tplBody').value='';
+  document.getElementById('tplFormErr').style.display='none';
+  document.getElementById('tplFormBackdrop').style.display='flex';
+}
+function closeNewTplForm(ev){
+  document.getElementById('tplFormBackdrop').style.display='none';
+}
+async function saveNewTpl(){
+  const name=document.getElementById('tplName').value.trim();
+  const body=document.getElementById('tplBody').value.trim();
+  const errEl=document.getElementById('tplFormErr');
+  errEl.style.display='none';
+  if(!name){errEl.textContent='Template name is required.'; errEl.style.display='block'; return;}
+  if(!body){errEl.textContent='Body text is required.'; errEl.style.display='block'; return;}
+  try {
+    const r=await fetch('/api/admin/wa-templates',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({name,body_text:body})});
+    const d=await r.json();
+    if(d.success){closeNewTplForm(); loadTpls();}
+    else {errEl.textContent=d.message||'Failed to save.'; errEl.style.display='block';}
+  } catch(e){
+    errEl.textContent='Network error: '+e.message; errEl.style.display='block';
+  }
+}
+// Backwards-compat: keep newTplPrompt as an alias
+async function newTplPrompt(){ openNewTplForm(); }
+async function delTpl(id){
+  if(!confirm('Delete template?')) return;
+  const r=await fetch('/api/admin/wa-templates/'+id,{method:'DELETE',credentials:'include'});
+  if((await r.json()).success) loadTpls();
+}
+async function createCampaign(){
+  const name=document.getElementById('wcName').value.trim();
+  const tt=document.getElementById('wcTarget').value;
+  const tpl=document.getElementById('wcTemplate').value||null;
+  const body=document.getElementById('wcBody').value.trim();
+  if(!name){alert('Name required'); return;}
+  if(!tpl && !body){alert('Either pick a template or write body'); return;}
+  const r=await fetch('/api/admin/wa-campaigns',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,target_type:tt,template_id:tpl?Number(tpl):null,body,
+      service_type:document.getElementById('wcServiceType').value,
+      locality:document.getElementById('wcLocality').value})});
+  const d=await r.json();
+  if(d.success){
+    alert(`Draft created — ${d.total_recipients} recipients in scope`);
+    document.getElementById('wcName').value=''; document.getElementById('wcBody').value='';
+    loadCampaigns();
+  } else alert(d.message);
+}
+async function loadCampaigns(){
+  const r=await fetch('/api/admin/wa-campaigns',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){return;}
+  if(d.items.length===0){document.getElementById('wcList').innerHTML='<div class="empty">No campaigns yet</div>';return;}
+  document.getElementById('wcList').innerHTML=`
+  <table><thead><tr><th>Name</th><th>Target</th><th>Total</th><th>Sent</th><th>Failed</th><th>Status</th><th>When</th><th>Actions</th></tr></thead><tbody>
+  ${d.items.map(x=>`
+    <tr data-testid="wa-camp-row-${x.id}">
+      <td><b>${x.name}</b>${x.template?'<br><small>'+x.template+'</small>':''}</td>
+      <td>${x.target_type}</td>
+      <td>${x.total}</td>
+      <td>${x.sent}</td>
+      <td>${x.failed}</td>
+      <td><span class="tag ${x.status}">${x.status}</span></td>
+      <td><small>${x.created_at.substring(0,16)}</small></td>
+      <td>${x.status==='draft'?`<button class="wa-btn" style="padding:6px 10px;font-size:11px;" onclick="sendCamp(${x.id})" data-testid="wa-send-${x.id}">Send Now</button>`:'-'}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+async function sendCamp(id){
+  if(!confirm('Send this campaign now?')) return;
+  const r=await fetch('/api/admin/wa-campaigns/'+id+'/send',{method:'POST',credentials:'include'});
+  const d=await r.json();
+  if(d.success){alert(`Sent: ${d.sent} · Failed: ${d.failed}`); loadCampaigns();} else alert(d.message);
+}
+async function loadFilterOpts(){
+  try {
+    const r = await fetch('/api/admin/wa-campaigns/filter-options', {credentials:'include'});
+    const d = await r.json();
+    if (!d.success) return;
+    const stSel = document.getElementById('wcServiceType');
+    const lcSel = document.getElementById('wcLocality');
+    const baseTypes = ['Broadband', 'Cable TV'];
+    const seen = new Set(baseTypes);
+    const extras = (d.service_types||[]).filter(x => x && !seen.has(x));
+    stSel.innerHTML = '<option value="all">All Types</option>' +
+      baseTypes.map(s=>`<option value="${s}">${s}</option>`).join('') +
+      extras.map(s=>`<option value="${s}">${s}</option>`).join('');
+    lcSel.innerHTML = '<option value="all">All Localities</option>' +
+      (d.localities||[]).map(s=>`<option value="${s}">${s}</option>`).join('');
+  } catch(e) {}
+}
+async function bootstrapTemplates(){
+  // Seed default starter templates if this company has none yet.
+  try {
+    await fetch('/api/admin/wa-templates/seed-defaults', {method:'POST', credentials:'include'});
+  } catch(e) {}
+  loadTpls();
+}
+bootstrapTemplates(); loadCampaigns(); loadFilterOpts();
+</script>
+{% endblock %}

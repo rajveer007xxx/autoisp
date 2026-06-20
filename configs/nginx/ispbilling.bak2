@@ -1,0 +1,160 @@
+# Route /api/* by Referer so JS fetches on /admin/... go to admin-portal, etc.
+map $http_referer $api_backend {
+    default                  "127.0.0.1:8001";
+    "~*/superadmin(/|$)"     "127.0.0.1:8004";
+    "~*/admin(/|$)"          "127.0.0.1:8001";
+    "~*/employee(/|$)"       "127.0.0.1:8003";
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    client_max_body_size 25M;
+
+    # s26.8b: redirect-to-captive-https
+    # Walled-garden users get dst-nat'd here from Mikrotik with foreign
+    # Host headers (google.com, facebook.com, etc.). Redirect straight to
+    # https://pay.autoispbilling.com/pay/captive so the browser gets a
+    # VALID cert (no warning) AND the captive endpoint auto-identifies
+    # the user via Mikrotik /ppp/active and pre-fills their ID.
+    # Also makes OS captive-portal detectors (Android /generate_204,
+    # Apple captive.apple.com, Windows msftconnecttest.com) see a
+    # redirect and auto-prompt the user with "Sign in to network".
+    if ($host !~* "^(www\.)?autoispbilling\.com$|^pay\.autoispbilling\.com$") {
+        return 302 https://pay.autoispbilling.com/pay/captive;
+    }
+
+    # Long timeouts for PDF / export endpoints
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # --- Role-prefixed portals (path-based routing) ---
+    location /superadmin { proxy_pass http://127.0.0.1:8004; }
+    location /admin      { proxy_pass http://127.0.0.1:8001; }
+    location /employee   { proxy_pass http://127.0.0.1:8001; }
+    # customer dashboard lives on admin-portal
+    location /customer   { proxy_pass http://127.0.0.1:8001; }
+    location /sub-lco    { proxy_pass http://127.0.0.1:8001; }
+    location /api/sub-lco/ { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Login/logout + password-reset APIs: single portal that handles all 4 roles ---
+    location = /login            { proxy_pass http://127.0.0.1:8001; }
+    location = /logout           { proxy_pass http://127.0.0.1:8001; }
+    location = /api/auth/login   { proxy_pass http://127.0.0.1:8001; }
+    location ^~ /api/auth/       { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Shared assets: served from admin-portal (same static dir across portals) ---
+    location /static  { proxy_pass http://127.0.0.1:8001; }
+    location /hotspot { proxy_pass http://127.0.0.1:8001; }
+    location /uploads { proxy_pass http://127.0.0.1:8001; }
+
+    # Session 25.2: public pay / walled-garden routes go to admin-portal
+    location /pay  { proxy_pass http://127.0.0.1:8001; }
+    location /password-reset { proxy_pass http://127.0.0.1:8001; }
+    location /api/pay { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Other /api/*: route by Referer to the portal that owns the UI page ---
+    location /api/ { proxy_pass http://$api_backend; }
+
+    # --- Marketing / homepage / contact / faq / privacy etc. ---
+    location / { proxy_pass http://127.0.0.1:8000; }
+}
+
+
+server {
+    server_name www.autoispbilling.com autoispbilling.com; # managed by Certbot
+    client_max_body_size 25M;
+
+    # Long timeouts for PDF / export endpoints
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # --- Role-prefixed portals (path-based routing) ---
+    location /superadmin { proxy_pass http://127.0.0.1:8004; }
+    location /admin      { proxy_pass http://127.0.0.1:8001; }
+    location /employee   { proxy_pass http://127.0.0.1:8001; }
+    # customer dashboard lives on admin-portal
+    location /customer   { proxy_pass http://127.0.0.1:8001; }
+    location /sub-lco    { proxy_pass http://127.0.0.1:8001; }
+    location /api/sub-lco/ { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Login/logout + password-reset APIs: single portal that handles all 4 roles ---
+    location = /login            { proxy_pass http://127.0.0.1:8001; }
+    location = /logout           { proxy_pass http://127.0.0.1:8001; }
+    location = /api/auth/login   { proxy_pass http://127.0.0.1:8001; }
+    location ^~ /api/auth/       { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Shared assets: served from admin-portal (same static dir across portals) ---
+    location /static  { proxy_pass http://127.0.0.1:8001; }
+    location /hotspot { proxy_pass http://127.0.0.1:8001; }
+    location /uploads { proxy_pass http://127.0.0.1:8001; }
+
+    # Session 25.2: public pay / walled-garden routes go to admin-portal
+    location /pay  { proxy_pass http://127.0.0.1:8001; }
+    location /password-reset { proxy_pass http://127.0.0.1:8001; }
+    location /api/pay { proxy_pass http://127.0.0.1:8001; }
+
+    # --- Other /api/*: route by Referer to the portal that owns the UI page ---
+    location /api/ { proxy_pass http://$api_backend; }
+
+    # --- Marketing / homepage / contact / faq / privacy etc. ---
+    location / { proxy_pass http://127.0.0.1:8000; }
+
+
+    listen [::]:443 ssl; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/autoispbilling.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/autoispbilling.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+
+
+    # Friendly fallback when upstream is briefly unavailable (e.g. systemd restart).
+    proxy_intercept_errors on;
+    recursive_error_pages on;
+    error_page 502 503 504 = @upstream_down;
+    location @upstream_down {
+        internal;
+        root /opt/ispbilling/static_err;
+        try_files /upstream_down.html =502;
+        add_header Cache-Control "no-store";
+        default_type text/html;
+    }
+}
+
+server {
+    if ($host = www.autoispbilling.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = autoispbilling.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80 ;
+    listen [::]:80 ;
+    server_name www.autoispbilling.com autoispbilling.com;
+    return 404; # managed by Certbot
+
+
+
+}

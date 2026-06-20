@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Privacy Policy · Auto ISP Billing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="How we collect, use, and protect your information when you use Auto ISP Billing.">
+<meta name="theme-color" content="#050810">
+<link rel="icon" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="/static/css/e1-public.css?v=3">
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+</head>
+<body>
+<style>
+/* Pricing tiles */
+.price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;}
+.price-card{position:relative;padding:32px 28px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease;}
+.price-card:hover{transform:translateY(-6px);border-color:var(--border-strong);box-shadow:0 24px 60px rgba(99,102,241,.25);}
+.price-card.popular{border-color:rgba(34,211,238,.5);background:linear-gradient(165deg,rgba(34,211,238,.08),rgba(20,30,48,.85));}
+.price-card.popular::before{content:"MOST POPULAR";position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23;padding:5px 14px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.12em;font-family:'JetBrains Mono',monospace;box-shadow:var(--glow-cyan);}
+.price-ico{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;margin-bottom:18px;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.price-card.popular .price-ico{background:linear-gradient(135deg,var(--c-cyan),var(--c-indigo));box-shadow:var(--glow-cyan);}
+.price-name{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:6px;}
+.price-desc{font-size:13.5px;color:var(--t-fg-mute);margin-bottom:18px;min-height:42px;line-height:1.55;}
+.price-amt{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;}
+.price-amt .num{font-family:'Plus Jakarta Sans',sans-serif;font-size:42px;font-weight:800;background:linear-gradient(135deg,#fff,#94a3b8);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;}
+.price-amt .per{color:var(--t-fg-mute);font-size:14px;}
+.price-gst{font-size:11.5px;color:var(--t-fg-mute);margin-bottom:24px;font-family:'JetBrains Mono',monospace;}
+.price-feats{list-style:none;padding:0;margin:0 0 26px;border-top:1px dashed var(--border-1);padding-top:20px;}
+.price-feats li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--t-fg-soft);padding:6px 0;}
+.price-feats li i{color:var(--c-green);flex-shrink:0;font-size:16px;margin-top:2px;}
+.price-cta{display:block;text-align:center;padding:13px 18px;border-radius:11px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff!important;font-weight:700;font-size:13.5px;text-decoration:none;box-shadow:0 8px 22px rgba(99,102,241,.45),inset 0 1px 0 rgba(255,255,255,.18);transition:transform .15s ease,box-shadow .15s ease;}
+.price-cta:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.price-card.popular .price-cta{background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23!important;box-shadow:var(--glow-cyan);}
+
+/* Contact 2-col */
+.cx-grid{display:grid;grid-template-columns:1.05fr 1.4fr;gap:30px;}
+@media(max-width:991px){.cx-grid{grid-template-columns:1fr;}}
+.cx-card{padding:32px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);}
+.cx-card h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:#fff;font-weight:700;margin:0 0 18px;display:flex;align-items:center;gap:10px;}
+.cx-card h3 .icobox{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.cx-info{display:flex;gap:14px;padding:14px 0;border-bottom:1px dashed var(--border-1);}
+.cx-info:last-child{border-bottom:none;}
+.cx-info .ico{width:42px;height:42px;border-radius:12px;background:rgba(99,102,241,.15);border:1px solid var(--border-1);color:var(--c-cyan);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.cx-info h4{font-size:14px;font-weight:700;color:#fff;margin:0 0 2px;}
+.cx-info p{font-size:13px;color:var(--t-fg-soft);margin:0;line-height:1.5;}
+.cx-info p a{color:var(--c-cyan);}
+.cx-info p.muted{color:var(--t-fg-mute);font-size:12px;}
+.cx-callout{margin-top:18px;padding:16px 18px;border-radius:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(99,102,241,.08));border:1px solid rgba(34,211,238,.25);}
+.cx-callout h4{font-size:13px;color:var(--c-cyan);margin:0 0 8px;text-transform:uppercase;letter-spacing:.08em;font-family:'JetBrains Mono',monospace;}
+.cx-callout ul{margin:0;padding-left:18px;color:var(--t-fg-soft);font-size:13.5px;}
+.cx-quick{margin-top:20px;}
+.cx-quick a{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-radius:12px;border:1px solid var(--border-1);background:rgba(255,255,255,.02);color:var(--t-fg-soft);font-size:14px;margin-bottom:10px;transition:all .15s ease;text-decoration:none;}
+.cx-quick a:hover{border-color:var(--border-strong);background:rgba(99,102,241,.08);color:#fff;transform:translateX(3px);}
+.cx-quick a i.bi-chevron-right{color:var(--c-cyan);}
+.cx-form .form-group{margin-bottom:14px;}
+.cx-form label{display:block;font-size:12.5px;color:var(--t-fg-soft);font-weight:600;margin-bottom:6px;}
+.cx-form .req{color:var(--c-rose);}
+.cx-form .form-control,.cx-form .form-select,.cx-form textarea{width:100%;padding:12px 14px;border-radius:11px;background:rgba(8,12,22,.6);border:1px solid var(--border-1);color:#fff;font-size:14px;font-family:inherit;transition:border-color .15s ease,box-shadow .15s ease;}
+.cx-form .form-control::placeholder,.cx-form textarea::placeholder{color:var(--t-fg-faint);}
+.cx-form .form-control:focus,.cx-form .form-select:focus,.cx-form textarea:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.cx-form .form-select option{background:#0a0f1c;color:#fff;}
+.cx-form button[type=submit]{display:flex;justify-content:center;align-items:center;gap:8px;width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-weight:700;font-size:14px;border:none;cursor:pointer;box-shadow:0 8px 22px rgba(99,102,241,.45);transition:transform .15s ease;}
+.cx-form button[type=submit]:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.cx-form .alert{margin-top:14px;padding:12px 14px;border-radius:11px;font-size:13.5px;display:none;}
+.cx-form .alert.show{display:block;}
+.cx-form .alert-ok{background:rgba(52,211,153,.12);color:#86efac;border:1px solid rgba(52,211,153,.3);}
+.cx-form .alert-err{background:rgba(248,113,113,.12);color:#fda4af;border:1px solid rgba(248,113,113,.3);}
+
+/* FAQ */
+.faq-search{max-width:640px;margin:0 auto 28px;position:relative;}
+.faq-search input{width:100%;padding:16px 50px;border-radius:999px;background:var(--surface-elev);border:1px solid var(--border-2);color:#fff;font-size:15px;backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+.faq-search input::placeholder{color:var(--t-fg-mute);}
+.faq-search input:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.faq-search .bi-search{position:absolute;left:20px;top:50%;transform:translateY(-50%);color:var(--c-cyan);font-size:18px;}
+.faq-search .clr{position:absolute;right:18px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--t-fg-mute);font-size:18px;cursor:pointer;display:none;}
+.faq-search .clr.show{display:block;}
+.faq-cats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:36px;}
+.faq-cat{padding:10px 18px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border-1);color:var(--t-fg-soft);font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all .2s ease;}
+.faq-cat:hover{border-color:var(--border-strong);color:#fff;background:rgba(99,102,241,.10);}
+.faq-cat.active{background:linear-gradient(135deg,#6366f1,#4f46e5);border-color:transparent;color:#fff;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.faq-sec{margin-bottom:36px;}
+.faq-sec h3{display:flex;align-items:center;gap:14px;font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 18px;}
+.faq-sec h3 .ico{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.faq-item{background:var(--surface);border:1px solid var(--border-1);border-radius:14px;margin-bottom:10px;overflow:hidden;backdrop-filter:blur(20px);transition:border-color .2s ease;}
+.faq-item:hover{border-color:var(--border-2);}
+.faq-q{padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer;color:#fff;font-size:15px;font-weight:600;line-height:1.4;}
+.faq-q .chev{color:var(--c-cyan);transition:transform .25s ease;flex-shrink:0;}
+.faq-q.active .chev{transform:rotate(180deg);}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease,padding .25s ease;color:var(--t-fg-soft);font-size:14px;line-height:1.7;}
+.faq-a.show{max-height:1500px;padding:0 22px 18px;}
+.faq-a p{color:var(--t-fg-soft);}
+.faq-a ul{padding-left:22px;margin:8px 0;}
+.faq-a strong{color:#fff;}
+.faq-a a{color:var(--c-cyan);}
+.faq-a code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+.faq-a h5{color:var(--c-cyan)!important;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.04em;margin:16px 0 8px!important;text-transform:uppercase;}
+.faq-noresults{text-align:center;padding:50px 20px;color:var(--t-fg-mute);display:none;}
+.faq-noresults.show{display:block;}
+.faq-noresults i{font-size:48px;color:var(--c-indigo);margin-bottom:14px;}
+.faq-cta{margin-top:50px;text-align:center;padding:50px 30px;border-radius:20px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(34,211,238,.08));border:1px solid var(--border-2);backdrop-filter:blur(20px);}
+.faq-cta h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:24px;color:#fff;margin:0 0 10px;}
+.faq-cta p{color:var(--t-fg-soft);margin:0 0 22px;}
+.faq-cta-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;}
+
+/* Policy / TOC */
+.policy-grid{display:grid;grid-template-columns:280px 1fr;gap:40px;align-items:flex-start;}
+@media(max-width:991px){.policy-grid{grid-template-columns:1fr;}}
+.policy-toc{position:sticky;top:120px;padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.policy-toc h4{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.policy-toc ol{margin:0;padding-left:18px;display:grid;gap:7px;color:var(--t-fg-soft);font-size:13px;}
+.policy-toc ol a{color:var(--t-fg-soft);}
+.policy-toc ol a:hover{color:var(--c-cyan);}
+.policy-body{padding:36px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+@media(max-width:600px){.policy-body{padding:24px 20px;}}
+.policy-body .last-updated{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.30);color:var(--c-cyan);font-size:12px;font-family:'JetBrains Mono',monospace;margin-bottom:24px;}
+.policy-section{margin-bottom:34px;padding-bottom:24px;border-bottom:1px dashed var(--border-1);}
+.policy-section:last-child{border-bottom:none;}
+.policy-section h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 14px;display:flex;align-items:baseline;gap:14px;}
+.policy-section h3 .num{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--c-cyan);background:rgba(34,211,238,.08);padding:4px 10px;border-radius:8px;border:1px solid rgba(34,211,238,.25);}
+.policy-section h4{font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;color:#fff;margin:18px 0 8px;}
+.policy-section p,.policy-section li{color:var(--t-fg-soft);font-size:14.5px;line-height:1.75;}
+.policy-section p{margin:0 0 12px;}
+.policy-section ul{padding-left:22px;margin:8px 0 14px;}
+.policy-section a{color:var(--c-cyan);}
+.policy-section code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:13px;}
+.policy-section strong{color:#fff;}
+
+/* Sitemap */
+.sm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;}
+.sm-col{padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.sm-col h5{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.sm-col ul{list-style:none;margin:0;padding:0;display:grid;gap:8px;}
+.sm-col a{color:var(--t-fg-soft);font-size:14px;display:flex;align-items:center;gap:8px;transition:color .15s ease,transform .15s ease;}
+.sm-col a:hover{color:var(--c-cyan);transform:translateX(3px);}
+.sm-col a i{color:var(--c-indigo);font-size:13px;}
+</style><nav class="e1-nav" data-testid="public-nav">
+  <div class="e1-container">
+    <div class="e1-nav-inner">
+      <a href="/" class="e1-nav-brand" data-testid="nav-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+      </a>
+      <ul class="e1-nav-links">
+        <li><a href="/#features">Features</a></li>
+        <li><a href="/#how">How it works</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+      <div class="e1-nav-cta">
+        <a href="/login" class="btn btn-ghost btn-sm" data-testid="nav-signin">Sign In</a>
+        <a href="/#demo" class="btn btn-primary btn-sm" data-testid="nav-trial">Start Free Trial</a>
+      </div>
+      <button class="e1-nav-burger" aria-label="Open menu" data-testid="nav-burger">
+        <i class="bi bi-list" style="font-size:22px"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+<section class="e1-hero" style="padding:150px 0 60px;">
+  <div class="e1-hero-bg">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="fiber-line" style="top:30%; left:0; width:60%;"></span>
+    <span class="fiber-line f2" style="top:65%; left:0; width:75%; animation-delay:-2s;"></span>
+  </div>
+  <div class="e1-container" style="text-align:center; position:relative; z-index:2;">
+    <span class="kicker"><span class="dot"></span> LEGAL · HOW WE PROTECT YOU</span>
+    <h1 class="h1" style="font-size:clamp(36px,5vw,64px); margin:24px 0 16px;">Privacy Policy</h1>
+    <p class="lede" style="margin:0 auto;">How we collect, use, and protect your information when you use Auto ISP Billing.</p>
+  </div>
+</section>
+
+<section class="e1-sec" style="padding:30px 0 100px;">
+  <div class="e1-container">
+    <div class="policy-grid">
+      <aside class="policy-toc">
+        <h4>On this page</h4>
+                <ol>
+                    <li><a href="#s1">Introduction</a></li>
+                    <li><a href="#s2">Information we collect</a></li>
+                    <li><a href="#s3">How we use information</a></li>
+                    <li><a href="#s4">Data sharing</a></li>
+                    <li><a href="#s5">Data security</a></li>
+                    <li><a href="#s6">Data retention</a></li>
+                    <li><a href="#s7">Your rights</a></li>
+                    <li><a href="#s8">Cookies</a></li>
+                    <li><a href="#s9">Third-party links</a></li>
+                    <li><a href="#s10">Children&rsquo;s privacy</a></li>
+                    <li><a href="#s11">International transfers</a></li>
+                    <li><a href="#s12">Policy changes</a></li>
+                    <li><a href="#s13">Contact us</a></li>
+                    <li><a href="#s14">Compliance</a></li>
+                </ol>
+      </aside>
+      <div class="policy-body">
+        <span class="last-updated"><i class="bi bi-calendar-event"></i> Last updated: November 10, 2025</span>
+
+                <div class="policy-section"><h3 id="s1"><span class="num">01</span> Introduction</h3>
+                    <p>Auto ISP Billing (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;) is committed to protecting the privacy and security of your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our ISP billing and management software platform.</p>
+                    <p>By using Auto ISP Billing, you agree to the collection and use of information in accordance with this policy. If you do not agree with our policies and practices, please do not use our services.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s2"><span class="num">02</span> Information we collect</h3>
+                    <p>We collect several types of information to provide and improve our services:</p>
+                    <h4>2.1 Personal information</h4>
+                    <ul>
+                        <li><strong>Account information:</strong> Name, email address, phone number, company details, billing address</li>
+                        <li><strong>Customer data:</strong> Customer names, addresses, contact information, service plans, payment history</li>
+                        <li><strong>Payment information:</strong> Credit card details, bank account information, UPI IDs (processed securely through payment gateways)</li>
+                        <li><strong>Technical data:</strong> IP addresses, browser type, device information, login timestamps</li>
+                    </ul>
+                    <h4>2.2 Usage information</h4>
+                    <ul>
+                        <li>Service usage patterns and bandwidth consumption</li>
+                        <li>Transaction history and billing records</li>
+                        <li>Support tickets and communication logs</li>
+                        <li>System logs and error reports</li>
+                    </ul>
+                    <h4>2.3 Network integration data</h4>
+                    <ul>
+                        <li>MikroTik router configurations and connection logs</li>
+                        <li>RADIUS server authentication records</li>
+                        <li>Network performance metrics</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s-mobile"><span class="num">02b</span> Mobile app permissions (Android)</h3>
+                    <p>The <strong>AutoISP Billing</strong> Android application
+                    (package <code>com.autoispbilling.mobile</code>) requests
+                    the following runtime permissions. Each permission maps to
+                    a specific feature; if you deny it, only that feature is
+                    affected and the rest of the app continues to work normally.</p>
+                    <ul>
+                        <li><strong>CAMERA:</strong> Capture photographs of customer ID proof for KYC, installed network hardware, and physical payment receipts that you attach to complaint tickets.</li>
+                        <li><strong>ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION / ACCESS_BACKGROUND_LOCATION / FOREGROUND_SERVICE_LOCATION:</strong> Used <em>only by field-engineer accounts</em> to record where on-site work was performed and to dispatch the nearest engineer. Customer accounts do not transmit location.</li>
+                        <li><strong>RECORD_AUDIO:</strong> Powers the in-app speed-test diagnostic. Audio is processed locally on the device and never uploaded to our servers.</li>
+                        <li><strong>BLUETOOTH / BLUETOOTH_SCAN / BLUETOOTH_CONNECT:</strong> Pair with thermal Bluetooth receipt printers used by admin and sub-LCO accounts to print payment receipts.</li>
+                        <li><strong>POST_NOTIFICATIONS:</strong> Deliver bill reminders, ticket status updates and service alerts.</li>
+                        <li><strong>USE_BIOMETRIC / USE_FINGERPRINT:</strong> Faster sign-in via fingerprint or face unlock. The biometric template never leaves your phone &mdash; the app only stores a flag indicating that you have enabled biometric login.</li>
+                        <li><strong>READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE:</strong> Save downloaded PDF invoices and receipts to your phone's storage so you can view them offline.</li>
+                        <li><strong>INTERNET:</strong> Required to communicate with the AutoISP Billing servers over HTTPS.</li>
+                        <li><strong>VIBRATE / SYSTEM_ALERT_WINDOW:</strong> Subtle haptic feedback and on-screen tooltips for the speed-test overlay.</li>
+                    </ul>
+                    <p>You may revoke any permission at any time from
+                    <em>Android Settings &rarr; Apps &rarr; AutoISP Billing &rarr;
+                    Permissions</em>. The app does <strong>not</strong> use any
+                    third-party advertising SDK, does <strong>not</strong> read
+                    your contacts, SMS, call logs, photo gallery or files
+                    outside its own folder, and does <strong>not</strong>
+                    collect the Android Advertising ID.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s3"><span class="num">03</span> How we use your information</h3>
+                    <p>We use the collected information for the following purposes:</p>
+                    <ul>
+                        <li><strong>Service delivery:</strong> To provide ISP billing, customer management, and automated invoicing services</li>
+                        <li><strong>Payment processing:</strong> To process payments, generate invoices, and manage subscriptions</li>
+                        <li><strong>Communication:</strong> To send service notifications, billing reminders, and support responses via SMS, WhatsApp, and email</li>
+                        <li><strong>Network management:</strong> To integrate with MikroTik, RADIUS, and other network equipment for service provisioning</li>
+                        <li><strong>Analytics:</strong> To generate reports, analyse usage patterns, and improve service quality</li>
+                        <li><strong>Security:</strong> To detect fraud, prevent unauthorised access, and ensure platform security</li>
+                        <li><strong>Legal compliance:</strong> To comply with applicable laws, regulations, and legal processes</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s4"><span class="num">04</span> Data sharing and disclosure</h3>
+                    <p>We do not sell, trade, or rent your personal information to third parties. We may share your information in the following circumstances:</p>
+                    <h4>4.1 Service providers</h4>
+                    <ul>
+                        <li><strong>Payment gateways:</strong> Razorpay, PayU, CCAvenue for payment processing</li>
+                        <li><strong>SMS/WhatsApp providers:</strong> For sending notifications and alerts</li>
+                        <li><strong>Email services:</strong> For transactional emails and invoices</li>
+                        <li><strong>Cloud hosting:</strong> For data storage and platform hosting</li>
+                    </ul>
+                    <h4>4.2 Legal requirements</h4>
+                    <p>We may disclose your information if required by law, court order, or government regulation, or to protect our rights, property, or safety.</p>
+                    <h4>4.3 Business transfers</h4>
+                    <p>In the event of a merger, acquisition, or sale of assets, your information may be transferred to the acquiring entity.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s5"><span class="num">05</span> Data security</h3>
+                    <p>We implement industry-standard security measures to protect your information:</p>
+                    <ul>
+                        <li><strong>Encryption:</strong> 256-bit SSL/TLS encryption for data transmission</li>
+                        <li><strong>Access controls:</strong> Role-based access with multi-factor authentication</li>
+                        <li><strong>Secure storage:</strong> Encrypted database storage with regular backups</li>
+                        <li><strong>Network security:</strong> Firewall protection and intrusion detection systems</li>
+                        <li><strong>Regular audits:</strong> Periodic security assessments and vulnerability testing</li>
+                    </ul>
+                    <p>However, no method of transmission over the internet is 100% secure. While we strive to protect your information, we cannot guarantee absolute security.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s6"><span class="num">06</span> Data retention</h3>
+                    <p>We retain your information for as long as necessary to provide our services and comply with legal obligations:</p>
+                    <ul>
+                        <li><strong>Active accounts:</strong> Data retained while your account is active</li>
+                        <li><strong>Billing records:</strong> Retained for 7 years as per tax regulations</li>
+                        <li><strong>Transaction logs:</strong> Retained for 3 years for audit purposes</li>
+                        <li><strong>Deleted accounts:</strong> Personal data deleted within 90 days of account closure (except legally required records)</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s7"><span class="num">07</span> Your rights and choices</h3>
+                    <p>You have the following rights regarding your personal information:</p>
+                    <ul>
+                        <li><strong>Access:</strong> Request a copy of your personal data</li>
+                        <li><strong>Correction:</strong> Update or correct inaccurate information</li>
+                        <li><strong>Deletion:</strong> Request deletion of your data (subject to legal requirements)</li>
+                        <li><strong>Export:</strong> Download your data in a portable format</li>
+                        <li><strong>Opt-out:</strong> Unsubscribe from marketing communications</li>
+                        <li><strong>Restrict processing:</strong> Limit how we use your information</li>
+                    </ul>
+                    <p>To exercise these rights, contact us at <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a>.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s8"><span class="num">08</span> Cookies and tracking technologies</h3>
+                    <p>We use cookies and similar technologies to enhance your experience:</p>
+                    <ul>
+                        <li><strong>Essential cookies:</strong> Required for platform functionality and security</li>
+                        <li><strong>Session cookies:</strong> To maintain your login session</li>
+                        <li><strong>Analytics cookies:</strong> To understand usage patterns and improve services</li>
+                    </ul>
+                    <p>You can control cookies through your browser settings, but disabling them may affect platform functionality.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s9"><span class="num">09</span> Third-party links</h3>
+                    <p>Our platform may contain links to third-party websites or services. We are not responsible for the privacy practices of these external sites. We encourage you to review their privacy policies before providing any information.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s10"><span class="num">10</span> Children&rsquo;s privacy</h3>
+                    <p>Auto ISP Billing is not intended for use by individuals under 18 years of age. We do not knowingly collect personal information from children. If you believe we have collected information from a child, please contact us immediately.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s11"><span class="num">11</span> International data transfers</h3>
+                    <p>Your information may be transferred to and processed in countries other than your country of residence. We ensure appropriate safeguards are in place to protect your data in accordance with this Privacy Policy.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s12"><span class="num">12</span> Changes to this Privacy Policy</h3>
+                    <p>We may update this Privacy Policy from time to time. We will notify you of any material changes by:</p>
+                    <ul>
+                        <li>Posting the updated policy on our website</li>
+                        <li>Sending an email notification to registered users</li>
+                        <li>Displaying a prominent notice on the platform</li>
+                    </ul>
+                    <p>Your continued use of Auto ISP Billing after changes constitutes acceptance of the updated policy.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s13"><span class="num">13</span> Contact us</h3>
+                    <p>If you have questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us:</p>
+                    <div class="contact-card">
+                        <strong>Auto ISP Billing</strong>
+                        <p><i class="bi bi-envelope"></i> <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a></p>
+                        <p><i class="bi bi-telephone"></i> <a href="tel:+918085868114">{{ support_phone }}</a></p>
+                        <p><i class="bi bi-whatsapp"></i> WhatsApp: {{ support_phone }}</p>
+                    </div>
+                </div>
+
+                <div class="policy-section"><h3 id="s14"><span class="num">14</span> Compliance</h3>
+                    <p>Auto ISP Billing complies with applicable data protection laws and regulations, including:</p>
+                    <ul>
+                        <li>Information Technology Act, 2000 (India)</li>
+                        <li>Information Technology (Reasonable Security Practices and Procedures and Sensitive Personal Data or Information) Rules, 2011</li>
+                        <li>Payment Card Industry Data Security Standard (PCI DSS)</li>
+                    </ul>
+                </div>
+
+                <div class="help-cta">
+                    <h4 style="font-size:1.1rem;margin-bottom:6px;">Need help?</h4>
+                    <p style="margin-bottom:14px;">Contact our support team at <a href="mailto:support@autoispbilling.com" style="color:var(--brand-500);font-weight:600;">support@autoispbilling.com</a> or call {{ support_phone }}.</p>
+                    <a href="/contact" class="btn btn-primary"><i class="bi bi-envelope"></i> Contact Support</a>
+                </div>
+            </div>
+      </div>
+    </div>
+  </div>
+</section>
+<footer class="e1-footer">
+  <div class="e1-container">
+    <div class="e1-footer-grid">
+      <div class="e1-footer-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+        <p>Telecom Cloud OS for ISPs — billing, RADIUS, GPON, captive-portal, NOC and more — in one cinematic operator dashboard.</p>
+      </div>
+      <div>
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/pricing">Pricing</a></li>
+          <li><a href="/#demo">Request Demo</a></li>
+          <li><a href="/login">Sign In</a></li>
+          <li><a href="/sitemap" data-testid="footer-sitemap-link">Site Map</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Company</h5>
+        <ul>
+          <li><a href="/contact">Contact Us</a></li>
+          <li><a href="/faq">FAQ / Help</a></li>
+          <li><a href="/privacy-policy">Privacy Policy</a></li>
+          <li><a href="/terms-of-service">Terms of Service</a></li>
+          <li><a href="/refund-policy">Refund Policy</a></li>
+          <li><a href="/account-deletion">Delete My Account</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Reach us</h5>
+        <ul>
+          <li><i class="bi bi-envelope" style="color:var(--c-cyan)"></i> support@autoispbilling.com</li>
+          <li><i class="bi bi-whatsapp" style="color:var(--c-green)"></i> <a href="https://wa.me/919183218114">WhatsApp</a></li>
+          <li><i class="bi bi-clock" style="color:var(--c-cyan)"></i> Mon–Sat, 10 AM – 7 PM IST</li>
+        </ul>
+      </div>
+    </div>
+    <div class="e1-footer-bottom">
+      <span>© 2026 Auto ISP Billing. All rights reserved.</span>
+      <span><a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a> · <a href="/refund-policy">Refunds</a> · <a href="/account-deletion">Account Deletion</a></span>
+    </div>
+  </div>
+</footer>
+<script src="/static/js/e1-public.js?v=3" defer></script>
+</body></html>

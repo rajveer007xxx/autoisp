@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Terms of Service · Auto ISP Billing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="The rules and terms that govern your use of Auto ISP Billing.">
+<meta name="theme-color" content="#050810">
+<link rel="icon" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="/static/css/e1-public.css?v=3">
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+</head>
+<body>
+<style>
+/* Pricing tiles */
+.price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;}
+.price-card{position:relative;padding:32px 28px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease;}
+.price-card:hover{transform:translateY(-6px);border-color:var(--border-strong);box-shadow:0 24px 60px rgba(99,102,241,.25);}
+.price-card.popular{border-color:rgba(34,211,238,.5);background:linear-gradient(165deg,rgba(34,211,238,.08),rgba(20,30,48,.85));}
+.price-card.popular::before{content:"MOST POPULAR";position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23;padding:5px 14px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.12em;font-family:'JetBrains Mono',monospace;box-shadow:var(--glow-cyan);}
+.price-ico{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;margin-bottom:18px;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.price-card.popular .price-ico{background:linear-gradient(135deg,var(--c-cyan),var(--c-indigo));box-shadow:var(--glow-cyan);}
+.price-name{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:6px;}
+.price-desc{font-size:13.5px;color:var(--t-fg-mute);margin-bottom:18px;min-height:42px;line-height:1.55;}
+.price-amt{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;}
+.price-amt .num{font-family:'Plus Jakarta Sans',sans-serif;font-size:42px;font-weight:800;background:linear-gradient(135deg,#fff,#94a3b8);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;}
+.price-amt .per{color:var(--t-fg-mute);font-size:14px;}
+.price-gst{font-size:11.5px;color:var(--t-fg-mute);margin-bottom:24px;font-family:'JetBrains Mono',monospace;}
+.price-feats{list-style:none;padding:0;margin:0 0 26px;border-top:1px dashed var(--border-1);padding-top:20px;}
+.price-feats li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--t-fg-soft);padding:6px 0;}
+.price-feats li i{color:var(--c-green);flex-shrink:0;font-size:16px;margin-top:2px;}
+.price-cta{display:block;text-align:center;padding:13px 18px;border-radius:11px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff!important;font-weight:700;font-size:13.5px;text-decoration:none;box-shadow:0 8px 22px rgba(99,102,241,.45),inset 0 1px 0 rgba(255,255,255,.18);transition:transform .15s ease,box-shadow .15s ease;}
+.price-cta:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.price-card.popular .price-cta{background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23!important;box-shadow:var(--glow-cyan);}
+
+/* Contact 2-col */
+.cx-grid{display:grid;grid-template-columns:1.05fr 1.4fr;gap:30px;}
+@media(max-width:991px){.cx-grid{grid-template-columns:1fr;}}
+.cx-card{padding:32px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);}
+.cx-card h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:#fff;font-weight:700;margin:0 0 18px;display:flex;align-items:center;gap:10px;}
+.cx-card h3 .icobox{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.cx-info{display:flex;gap:14px;padding:14px 0;border-bottom:1px dashed var(--border-1);}
+.cx-info:last-child{border-bottom:none;}
+.cx-info .ico{width:42px;height:42px;border-radius:12px;background:rgba(99,102,241,.15);border:1px solid var(--border-1);color:var(--c-cyan);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.cx-info h4{font-size:14px;font-weight:700;color:#fff;margin:0 0 2px;}
+.cx-info p{font-size:13px;color:var(--t-fg-soft);margin:0;line-height:1.5;}
+.cx-info p a{color:var(--c-cyan);}
+.cx-info p.muted{color:var(--t-fg-mute);font-size:12px;}
+.cx-callout{margin-top:18px;padding:16px 18px;border-radius:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(99,102,241,.08));border:1px solid rgba(34,211,238,.25);}
+.cx-callout h4{font-size:13px;color:var(--c-cyan);margin:0 0 8px;text-transform:uppercase;letter-spacing:.08em;font-family:'JetBrains Mono',monospace;}
+.cx-callout ul{margin:0;padding-left:18px;color:var(--t-fg-soft);font-size:13.5px;}
+.cx-quick{margin-top:20px;}
+.cx-quick a{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-radius:12px;border:1px solid var(--border-1);background:rgba(255,255,255,.02);color:var(--t-fg-soft);font-size:14px;margin-bottom:10px;transition:all .15s ease;text-decoration:none;}
+.cx-quick a:hover{border-color:var(--border-strong);background:rgba(99,102,241,.08);color:#fff;transform:translateX(3px);}
+.cx-quick a i.bi-chevron-right{color:var(--c-cyan);}
+.cx-form .form-group{margin-bottom:14px;}
+.cx-form label{display:block;font-size:12.5px;color:var(--t-fg-soft);font-weight:600;margin-bottom:6px;}
+.cx-form .req{color:var(--c-rose);}
+.cx-form .form-control,.cx-form .form-select,.cx-form textarea{width:100%;padding:12px 14px;border-radius:11px;background:rgba(8,12,22,.6);border:1px solid var(--border-1);color:#fff;font-size:14px;font-family:inherit;transition:border-color .15s ease,box-shadow .15s ease;}
+.cx-form .form-control::placeholder,.cx-form textarea::placeholder{color:var(--t-fg-faint);}
+.cx-form .form-control:focus,.cx-form .form-select:focus,.cx-form textarea:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.cx-form .form-select option{background:#0a0f1c;color:#fff;}
+.cx-form button[type=submit]{display:flex;justify-content:center;align-items:center;gap:8px;width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-weight:700;font-size:14px;border:none;cursor:pointer;box-shadow:0 8px 22px rgba(99,102,241,.45);transition:transform .15s ease;}
+.cx-form button[type=submit]:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.cx-form .alert{margin-top:14px;padding:12px 14px;border-radius:11px;font-size:13.5px;display:none;}
+.cx-form .alert.show{display:block;}
+.cx-form .alert-ok{background:rgba(52,211,153,.12);color:#86efac;border:1px solid rgba(52,211,153,.3);}
+.cx-form .alert-err{background:rgba(248,113,113,.12);color:#fda4af;border:1px solid rgba(248,113,113,.3);}
+
+/* FAQ */
+.faq-search{max-width:640px;margin:0 auto 28px;position:relative;}
+.faq-search input{width:100%;padding:16px 50px;border-radius:999px;background:var(--surface-elev);border:1px solid var(--border-2);color:#fff;font-size:15px;backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+.faq-search input::placeholder{color:var(--t-fg-mute);}
+.faq-search input:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.faq-search .bi-search{position:absolute;left:20px;top:50%;transform:translateY(-50%);color:var(--c-cyan);font-size:18px;}
+.faq-search .clr{position:absolute;right:18px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--t-fg-mute);font-size:18px;cursor:pointer;display:none;}
+.faq-search .clr.show{display:block;}
+.faq-cats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:36px;}
+.faq-cat{padding:10px 18px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border-1);color:var(--t-fg-soft);font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all .2s ease;}
+.faq-cat:hover{border-color:var(--border-strong);color:#fff;background:rgba(99,102,241,.10);}
+.faq-cat.active{background:linear-gradient(135deg,#6366f1,#4f46e5);border-color:transparent;color:#fff;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.faq-sec{margin-bottom:36px;}
+.faq-sec h3{display:flex;align-items:center;gap:14px;font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 18px;}
+.faq-sec h3 .ico{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.faq-item{background:var(--surface);border:1px solid var(--border-1);border-radius:14px;margin-bottom:10px;overflow:hidden;backdrop-filter:blur(20px);transition:border-color .2s ease;}
+.faq-item:hover{border-color:var(--border-2);}
+.faq-q{padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer;color:#fff;font-size:15px;font-weight:600;line-height:1.4;}
+.faq-q .chev{color:var(--c-cyan);transition:transform .25s ease;flex-shrink:0;}
+.faq-q.active .chev{transform:rotate(180deg);}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease,padding .25s ease;color:var(--t-fg-soft);font-size:14px;line-height:1.7;}
+.faq-a.show{max-height:1500px;padding:0 22px 18px;}
+.faq-a p{color:var(--t-fg-soft);}
+.faq-a ul{padding-left:22px;margin:8px 0;}
+.faq-a strong{color:#fff;}
+.faq-a a{color:var(--c-cyan);}
+.faq-a code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+.faq-a h5{color:var(--c-cyan)!important;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.04em;margin:16px 0 8px!important;text-transform:uppercase;}
+.faq-noresults{text-align:center;padding:50px 20px;color:var(--t-fg-mute);display:none;}
+.faq-noresults.show{display:block;}
+.faq-noresults i{font-size:48px;color:var(--c-indigo);margin-bottom:14px;}
+.faq-cta{margin-top:50px;text-align:center;padding:50px 30px;border-radius:20px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(34,211,238,.08));border:1px solid var(--border-2);backdrop-filter:blur(20px);}
+.faq-cta h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:24px;color:#fff;margin:0 0 10px;}
+.faq-cta p{color:var(--t-fg-soft);margin:0 0 22px;}
+.faq-cta-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;}
+
+/* Policy / TOC */
+.policy-grid{display:grid;grid-template-columns:280px 1fr;gap:40px;align-items:flex-start;}
+@media(max-width:991px){.policy-grid{grid-template-columns:1fr;}}
+.policy-toc{position:sticky;top:120px;padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.policy-toc h4{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.policy-toc ol{margin:0;padding-left:18px;display:grid;gap:7px;color:var(--t-fg-soft);font-size:13px;}
+.policy-toc ol a{color:var(--t-fg-soft);}
+.policy-toc ol a:hover{color:var(--c-cyan);}
+.policy-body{padding:36px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+@media(max-width:600px){.policy-body{padding:24px 20px;}}
+.policy-body .last-updated{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.30);color:var(--c-cyan);font-size:12px;font-family:'JetBrains Mono',monospace;margin-bottom:24px;}
+.policy-section{margin-bottom:34px;padding-bottom:24px;border-bottom:1px dashed var(--border-1);}
+.policy-section:last-child{border-bottom:none;}
+.policy-section h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 14px;display:flex;align-items:baseline;gap:14px;}
+.policy-section h3 .num{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--c-cyan);background:rgba(34,211,238,.08);padding:4px 10px;border-radius:8px;border:1px solid rgba(34,211,238,.25);}
+.policy-section h4{font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;color:#fff;margin:18px 0 8px;}
+.policy-section p,.policy-section li{color:var(--t-fg-soft);font-size:14.5px;line-height:1.75;}
+.policy-section p{margin:0 0 12px;}
+.policy-section ul{padding-left:22px;margin:8px 0 14px;}
+.policy-section a{color:var(--c-cyan);}
+.policy-section code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:13px;}
+.policy-section strong{color:#fff;}
+
+/* Sitemap */
+.sm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;}
+.sm-col{padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.sm-col h5{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.sm-col ul{list-style:none;margin:0;padding:0;display:grid;gap:8px;}
+.sm-col a{color:var(--t-fg-soft);font-size:14px;display:flex;align-items:center;gap:8px;transition:color .15s ease,transform .15s ease;}
+.sm-col a:hover{color:var(--c-cyan);transform:translateX(3px);}
+.sm-col a i{color:var(--c-indigo);font-size:13px;}
+</style><nav class="e1-nav" data-testid="public-nav">
+  <div class="e1-container">
+    <div class="e1-nav-inner">
+      <a href="/" class="e1-nav-brand" data-testid="nav-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+      </a>
+      <ul class="e1-nav-links">
+        <li><a href="/#features">Features</a></li>
+        <li><a href="/#how">How it works</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+      <div class="e1-nav-cta">
+        <a href="/login" class="btn btn-ghost btn-sm" data-testid="nav-signin">Sign In</a>
+        <a href="/#demo" class="btn btn-primary btn-sm" data-testid="nav-trial">Start Free Trial</a>
+      </div>
+      <button class="e1-nav-burger" aria-label="Open menu" data-testid="nav-burger">
+        <i class="bi bi-list" style="font-size:22px"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+<section class="e1-hero" style="padding:150px 0 60px;">
+  <div class="e1-hero-bg">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="fiber-line" style="top:30%; left:0; width:60%;"></span>
+    <span class="fiber-line f2" style="top:65%; left:0; width:75%; animation-delay:-2s;"></span>
+  </div>
+  <div class="e1-container" style="text-align:center; position:relative; z-index:2;">
+    <span class="kicker"><span class="dot"></span> LEGAL · SERVICE AGREEMENT</span>
+    <h1 class="h1" style="font-size:clamp(36px,5vw,64px); margin:24px 0 16px;">Terms of Service</h1>
+    <p class="lede" style="margin:0 auto;">The rules and terms that govern your use of Auto ISP Billing.</p>
+  </div>
+</section>
+
+<section class="e1-sec" style="padding:30px 0 100px;">
+  <div class="e1-container">
+    <div class="policy-grid">
+      <aside class="policy-toc">
+        <h4>On this page</h4>
+                <ol>
+                    <li><a href="#s1">Acceptance of terms</a></li>
+                    <li><a href="#s2">Service description</a></li>
+                    <li><a href="#s3">Account registration</a></li>
+                    <li><a href="#s4">Subscription &amp; pricing</a></li>
+                    <li><a href="#s5">User responsibilities</a></li>
+                    <li><a href="#s6">Data ownership</a></li>
+                    <li><a href="#s7">Availability &amp; support</a></li>
+                    <li><a href="#s8">Intellectual property</a></li>
+                    <li><a href="#s9">Third-party integrations</a></li>
+                    <li><a href="#s10">Termination</a></li>
+                    <li><a href="#s11">Limitation of liability</a></li>
+                    <li><a href="#s12">Indemnification</a></li>
+                    <li><a href="#s13">Dispute resolution</a></li>
+                    <li><a href="#s14">Modifications</a></li>
+                    <li><a href="#s15">General provisions</a></li>
+                    <li><a href="#s16">Contact</a></li>
+                </ol>
+      </aside>
+      <div class="policy-body">
+        <span class="last-updated"><i class="bi bi-calendar-event"></i> Last updated: November 10, 2025</span>
+
+                <div class="policy-section"><h3 id="s1"><span class="num">01</span> Acceptance of terms</h3>
+                    <p>Welcome to Auto ISP Billing. By accessing or using our ISP billing and management software platform (&ldquo;Service&rdquo;), you agree to be bound by these Terms of Service (&ldquo;Terms&rdquo;). If you do not agree to these Terms, please do not use our Service.</p>
+                    <p>These Terms constitute a legally binding agreement between you (the &ldquo;User,&rdquo; &ldquo;ISP,&rdquo; or &ldquo;Customer&rdquo;) and Auto ISP Billing (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;).</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s2"><span class="num">02</span> Service description</h3>
+                    <p>Auto ISP Billing provides a comprehensive software-as-a-service (SaaS) platform for internet service providers, including:</p>
+                    <ul>
+                        <li>Customer billing and invoicing automation</li>
+                        <li>Customer application form (CAF) processing</li>
+                        <li>Payment gateway integration (Razorpay, PayU, CCAvenue)</li>
+                        <li>SMS and WhatsApp notification services</li>
+                        <li>MikroTik, RADIUS, Cisco, and Ubiquiti network integration</li>
+                        <li>Customer portal and self-service features</li>
+                        <li>Employee management and tracking</li>
+                        <li>Reports, analytics, and business intelligence</li>
+                        <li>Automated renewal and expiry management</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s3"><span class="num">03</span> Account registration and eligibility</h3>
+                    <h4>3.1 Eligibility</h4>
+                    <p>You must be at least 18 years old and have the legal authority to enter into contracts to use our Service. By registering, you represent that you meet these requirements.</p>
+                    <h4>3.2 Account creation</h4>
+                    <p>To use Auto ISP Billing, you must:</p>
+                    <ul>
+                        <li>Provide accurate, current, and complete information during registration</li>
+                        <li>Maintain and promptly update your account information</li>
+                        <li>Maintain the security of your account credentials</li>
+                        <li>Accept responsibility for all activities under your account</li>
+                        <li>Notify us immediately of any unauthorised access</li>
+                    </ul>
+                    <h4>3.3 Account types</h4>
+                    <ul>
+                        <li><strong>Admin account:</strong> Full access to all features for ISP management</li>
+                        <li><strong>Employee account:</strong> Limited access based on assigned permissions</li>
+                        <li><strong>Customer account:</strong> Self-service portal for end customers</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s4"><span class="num">04</span> Subscription plans and pricing</h3>
+                    <h4>4.1 Subscription packages</h4>
+                    <p>We offer various subscription packages based on customer limits:</p>
+                    <ul>
+                        <li>Starter Plan: Up to 100 customers</li>
+                        <li>Growth Plan: Up to 500 customers</li>
+                        <li>Professional Plan: Up to 2000 customers</li>
+                        <li>Enterprise Plan: Up to 5000 customers</li>
+                        <li>Unlimited Plan: No customer limit</li>
+                    </ul>
+                    <h4>4.2 Pricing and payment</h4>
+                    <ul>
+                        <li>Subscription fees are billed monthly or annually in advance</li>
+                        <li>Prices are subject to change with 30 days&rsquo; notice</li>
+                        <li>All fees are non-refundable except as stated in our Refund Policy</li>
+                        <li>Taxes (GST) are additional and calculated based on your location</li>
+                        <li>Payment must be made via approved payment methods</li>
+                    </ul>
+                    <h4>4.3 Free trial</h4>
+                    <p>We may offer a free trial period for new users. Trial accounts have limited features and customer limits. No payment information is required during the trial period.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s5"><span class="num">05</span> User responsibilities and acceptable use</h3>
+                    <h4>5.1 Permitted use</h4>
+                    <p>You may use Auto ISP Billing solely for:</p>
+                    <ul>
+                        <li>Managing your legitimate ISP business operations</li>
+                        <li>Billing and invoicing your customers</li>
+                        <li>Integrating with your network equipment</li>
+                        <li>Generating reports and analytics</li>
+                    </ul>
+                    <h4>5.2 Prohibited activities</h4>
+                    <p>You agree NOT to:</p>
+                    <ul>
+                        <li>Violate any applicable laws or regulations</li>
+                        <li>Infringe on intellectual property rights</li>
+                        <li>Upload malicious code, viruses, or malware</li>
+                        <li>Attempt to gain unauthorised access to our systems</li>
+                        <li>Reverse engineer, decompile, or disassemble the software</li>
+                        <li>Resell or redistribute our Service without authorisation</li>
+                        <li>Use the Service for fraudulent or illegal purposes</li>
+                        <li>Interfere with or disrupt the Service or servers</li>
+                        <li>Collect user data without proper consent</li>
+                        <li>Send spam or unsolicited communications</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s6"><span class="num">06</span> Data ownership and usage</h3>
+                    <h4>6.1 Your data</h4>
+                    <p>You retain all rights to the data you input into Auto ISP Billing, including customer information, billing records, and business data. We do not claim ownership of your data.</p>
+                    <h4>6.2 Our rights</h4>
+                    <p>You grant us a limited licence to:</p>
+                    <ul>
+                        <li>Store and process your data to provide the Service</li>
+                        <li>Use aggregated, anonymised data for analytics and improvements</li>
+                        <li>Back up your data for disaster recovery purposes</li>
+                    </ul>
+                    <h4>6.3 Data export</h4>
+                    <p>You may export your data at any time in standard formats (CSV, Excel, PDF). Upon account termination, you have 30 days to export your data before it is permanently deleted.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s7"><span class="num">07</span> Service availability and support</h3>
+                    <h4>7.1 Uptime guarantee</h4>
+                    <p>We strive to maintain 99.9% uptime, excluding scheduled maintenance. We do not guarantee uninterrupted access and are not liable for downtime caused by factors beyond our control.</p>
+                    <h4>7.2 Maintenance</h4>
+                    <p>We may perform scheduled maintenance with advance notice. Emergency maintenance may occur without notice.</p>
+                    <h4>7.3 Support</h4>
+                    <ul>
+                        <li><strong>Email support:</strong> Available for all plans (response within 24 hours)</li>
+                        <li><strong>Phone support:</strong> Available for Professional and Enterprise plans</li>
+                        <li><strong>WhatsApp support:</strong> Available for urgent issues</li>
+                        <li><strong>Priority support:</strong> Available for Enterprise plans (response within 4 hours)</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s8"><span class="num">08</span> Intellectual property rights</h3>
+                    <h4>8.1 Our property</h4>
+                    <p>Auto ISP Billing, including all software, designs, logos, trademarks, and content, is our exclusive property. You may not copy, modify, or create derivative works without our written permission.</p>
+                    <h4>8.2 Licence grant</h4>
+                    <p>We grant you a limited, non-exclusive, non-transferable licence to use Auto ISP Billing during your subscription period, subject to these Terms.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s9"><span class="num">09</span> Third-party integrations</h3>
+                    <p>Auto ISP Billing integrates with third-party services (payment gateways, SMS providers, network equipment). Your use of these services is subject to their respective terms and conditions. We are not responsible for third-party service failures or data breaches.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s10"><span class="num">10</span> Termination</h3>
+                    <h4>10.1 Termination by you</h4>
+                    <p>You may cancel your subscription at any time through your account settings. Cancellation takes effect at the end of the current billing period. No refunds for partial months.</p>
+                    <h4>10.2 Termination by us</h4>
+                    <p>We may suspend or terminate your account if you:</p>
+                    <ul>
+                        <li>Violate these Terms</li>
+                        <li>Fail to pay subscription fees</li>
+                        <li>Engage in fraudulent or illegal activities</li>
+                        <li>Abuse or misuse the Service</li>
+                    </ul>
+                    <h4>10.3 Effect of termination</h4>
+                    <p>Upon termination:</p>
+                    <ul>
+                        <li>Your access to the Service will be revoked</li>
+                        <li>You have 30 days to export your data</li>
+                        <li>After 30 days, your data will be permanently deleted</li>
+                        <li>Outstanding fees remain due and payable</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s11"><span class="num">11</span> Limitation of liability</h3>
+                    <p>TO THE MAXIMUM EXTENT PERMITTED BY LAW:</p>
+                    <ul>
+                        <li>Auto ISP Billing is provided &ldquo;AS IS&rdquo; without warranties of any kind</li>
+                        <li>We are not liable for indirect, incidental, or consequential damages</li>
+                        <li>Our total liability is limited to the amount you paid in the last 12 months</li>
+                        <li>We are not responsible for data loss due to your actions or third-party failures</li>
+                        <li>We do not guarantee that the Service will meet your specific requirements</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s12"><span class="num">12</span> Indemnification</h3>
+                    <p>You agree to indemnify and hold harmless Auto ISP Billing from any claims, damages, or expenses arising from:</p>
+                    <ul>
+                        <li>Your violation of these Terms</li>
+                        <li>Your misuse of the Service</li>
+                        <li>Your violation of any laws or third-party rights</li>
+                        <li>Your customer data or business practices</li>
+                    </ul>
+                </div>
+
+                <div class="policy-section"><h3 id="s13"><span class="num">13</span> Dispute resolution</h3>
+                    <h4>13.1 Governing law</h4>
+                    <p>These Terms are governed by the laws of India. Any disputes shall be subject to the exclusive jurisdiction of courts in India.</p>
+                    <h4>13.2 Arbitration</h4>
+                    <p>Any disputes shall first be attempted to be resolved through good-faith negotiations. If unresolved, disputes may be submitted to binding arbitration under the Indian Arbitration and Conciliation Act, 1996.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s14"><span class="num">14</span> Modifications to terms</h3>
+                    <p>We reserve the right to modify these Terms at any time. We will notify you of material changes via:</p>
+                    <ul>
+                        <li>Email notification to your registered email</li>
+                        <li>Prominent notice on the platform</li>
+                        <li>In-app notification</li>
+                    </ul>
+                    <p>Continued use of the Service after changes constitutes acceptance of the modified Terms.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s15"><span class="num">15</span> General provisions</h3>
+                    <h4>15.1 Entire agreement</h4>
+                    <p>These Terms, along with our Privacy Policy and Refund Policy, constitute the entire agreement between you and Auto ISP Billing.</p>
+                    <h4>15.2 Severability</h4>
+                    <p>If any provision of these Terms is found invalid, the remaining provisions remain in full effect.</p>
+                    <h4>15.3 Waiver</h4>
+                    <p>Our failure to enforce any right or provision does not constitute a waiver of that right or provision.</p>
+                    <h4>15.4 Assignment</h4>
+                    <p>You may not assign or transfer your rights under these Terms without our written consent. We may assign our rights without restriction.</p>
+                </div>
+
+                <div class="policy-section"><h3 id="s16"><span class="num">16</span> Contact information</h3>
+                    <p>For questions about these Terms of Service, please contact us:</p>
+                    <div class="contact-card">
+                        <strong>Auto ISP Billing</strong>
+                        <p><i class="bi bi-envelope"></i> <a href="mailto:support@autoispbilling.com">support@autoispbilling.com</a></p>
+                        <p><i class="bi bi-telephone"></i> <a href="tel:+918085868114">{{ support_phone }}</a></p>
+                        <p><i class="bi bi-whatsapp"></i> WhatsApp: {{ support_phone }}</p>
+                    </div>
+                </div>
+
+                <div class="acknowledge-card">
+                    <p><strong>By using Auto ISP Billing, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.</strong></p>
+                </div>
+            </div>
+      </div>
+    </div>
+  </div>
+</section>
+<footer class="e1-footer">
+  <div class="e1-container">
+    <div class="e1-footer-grid">
+      <div class="e1-footer-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+        <p>Telecom Cloud OS for ISPs — billing, RADIUS, GPON, captive-portal, NOC and more — in one cinematic operator dashboard.</p>
+      </div>
+      <div>
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/pricing">Pricing</a></li>
+          <li><a href="/#demo">Request Demo</a></li>
+          <li><a href="/login">Sign In</a></li>
+          <li><a href="/sitemap" data-testid="footer-sitemap-link">Site Map</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Company</h5>
+        <ul>
+          <li><a href="/contact">Contact Us</a></li>
+          <li><a href="/faq">FAQ / Help</a></li>
+          <li><a href="/privacy-policy">Privacy Policy</a></li>
+          <li><a href="/terms-of-service">Terms of Service</a></li>
+          <li><a href="/refund-policy">Refund Policy</a></li>
+          <li><a href="/account-deletion">Delete My Account</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Reach us</h5>
+        <ul>
+          <li><i class="bi bi-envelope" style="color:var(--c-cyan)"></i> support@autoispbilling.com</li>
+          <li><i class="bi bi-whatsapp" style="color:var(--c-green)"></i> <a href="https://wa.me/919183218114">WhatsApp</a></li>
+          <li><i class="bi bi-clock" style="color:var(--c-cyan)"></i> Mon–Sat, 10 AM – 7 PM IST</li>
+        </ul>
+      </div>
+    </div>
+    <div class="e1-footer-bottom">
+      <span>© 2026 Auto ISP Billing. All rights reserved.</span>
+      <span><a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a> · <a href="/refund-policy">Refunds</a> · <a href="/account-deletion">Account Deletion</a></span>
+    </div>
+  </div>
+</footer>
+<script src="/static/js/e1-public.js?v=3" defer></script>
+</body></html>

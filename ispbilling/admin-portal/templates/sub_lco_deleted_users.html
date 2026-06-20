@@ -1,0 +1,58 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}Deleted Users — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Deleted Users <small>Restore customers from the bin</small></h1>
+</section>
+
+<section class="content">
+<div class="box">
+  <div class="box-header with-border">
+    <h3 class="box-title">My Deleted Customers</h3>
+  </div>
+  <div class="box-body">
+    <div class="table-responsive">
+      <table class="table table-striped" id="delTable">
+        <thead><tr><th>Customer&nbsp;ID</th><th>Name</th><th>Username</th><th>Phone</th><th>Locality</th><th>Deleted On</th><th>Action</th></tr></thead>
+        <tbody><tr><td colspan="7" class="text-center text-muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function load(){
+  $.get('/api/sub-lco/deleted-users/list', function(res){
+    var $tb = $('#delTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $tb.append('<tr><td colspan="7" class="text-center text-muted">No deleted customers.</td></tr>'); return;
+    }
+    res.items.forEach(function(c){
+      $tb.append('<tr data-id="'+c.customer_id+'">'+
+        '<td><code>'+esc(c.customer_id)+'</code></td>'+
+        '<td>'+esc(c.customer_name)+'</td>'+
+        '<td>'+esc(c.username)+'</td>'+
+        '<td>'+esc(c.customer_phone)+'</td>'+
+        '<td>'+esc(c.locality)+'</td>'+
+        '<td>'+esc((c.deleted_at||'').substring(0,19).replace('T',' '))+'</td>'+
+        '<td><button class="btn btn-xs btn-success act-restore" data-testid="restore-'+c.customer_id+'"><i class="fa fa-undo"></i> Restore</button></td>'+
+        '</tr>');
+    });
+  });
+}
+$(function(){
+  load();
+  $('#delTable').on('click', '.act-restore', function(){
+    if(!confirm('Restore this customer?')) return;
+    var id = $(this).closest('tr').data('id');
+    $.ajax({url:'/api/sub-lco/deleted-users/'+id+'/restore', method:'POST',
+      contentType:'application/json', data:'{}'})
+     .done(function(r){ if(r.success) load(); else alert(r.message||'Failed'); })
+     .fail(function(x){ alert((x.responseJSON&&x.responseJSON.message)||'Failed'); });
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}OLT Alerts · AutoISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  :root{ --olt-card:#161D2E; --olt-line:#1F2940; --olt-fg:#E7ECF5;
+    --olt-mute:#8A93A6; --olt-cyan:#00E5FF; --olt-violet:#7C5CFF; }
+  .ws { color:var(--olt-fg); padding:18px 6px 60px; }
+  .ws h1 { font-size:22px; font-weight:800; letter-spacing:-.4px; margin:0 0 4px; }
+  .ws .sub { color:var(--olt-mute); font-size:13px; margin-bottom:18px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--olt-mute);
+    border:1px solid var(--olt-line); background:var(--olt-card); }
+  .tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    border-color:transparent; font-weight:700; }
+  .row-actions { display:flex; gap:8px; margin-bottom:14px; }
+  .btn { padding:9px 14px; border-radius:10px; border:1px solid var(--olt-line);
+    background:var(--olt-card); color:var(--olt-fg); font-size:12.5px;
+    cursor:pointer; font-weight:600; }
+  .btn:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }
+  .btn.primary { background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    color:#0B0F1A; border-color:transparent; }
+  .filterbar { display:grid; gap:10px;
+    grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+    background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:14px; padding:14px; margin-bottom:14px; }
+  .filterbar label { display:flex; flex-direction:column; gap:4px;
+    font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:var(--olt-mute); }
+  .filterbar select { background:#0B0F1A; border:1px solid var(--olt-line);
+    color:var(--olt-fg); border-radius:10px; padding:9px 10px; font-size:13px; }
+  .panel { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; overflow:hidden; }
+  table.olt { width:100%; border-collapse:collapse; }
+  table.olt th, table.olt td { padding:10px 12px; border-bottom:1px solid
+    var(--olt-line); font-size:13px; text-align:left; }
+  table.olt th { color:var(--olt-mute); font-weight:600; font-size:10.5px;
+    letter-spacing:.8px; text-transform:uppercase; background:#101725; }
+  .pill { display:inline-flex; padding:3px 10px; border-radius:99px;
+    font-size:10.5px; font-weight:700; }
+  .pill.warn { background:rgba(245,158,11,.14); color:#FBBF24; }
+  .pill.critical { background:rgba(239,68,68,.18); color:#F87171; }
+  .pill.info { background:rgba(0,229,255,.12); color:#67E8F9; }
+  .pill.acked { background:rgba(34,197,94,.12); color:#34D399; }
+  .actbtn { padding:5px 10px; border-radius:8px; border:1px solid var(--olt-line);
+    background:transparent; color:var(--olt-fg); font-size:11.5px; cursor:pointer; }
+  .actbtn:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }
+  .empty { text-align:center; padding:60px 10px; color:var(--olt-mute); }
+</style>
+
+<section class="ws" data-testid="olt-alerts-page">
+  <h1>OLT Alerts</h1>
+  <p class="sub">Fiber-cut events, signal-loss alarms and adapter errors —
+    all in one timeline.</p>
+
+  <nav class="tabs">
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/dashboard">Dashboard</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/onus">ONU / ONT Manage</a>
+    <a class="on" href="{{ olt_url_prefix or '/admin/olt' }}/alerts">Alerts</a>
+    {% if scope and scope.role == "admin" %}<a href="/admin/olt/system-config">System Config</a>{% endif %}
+  </nav>
+
+  <div class="filterbar">
+    <label>Level
+      <select id="f_level" data-testid="alert-level">
+        <option value="">All</option><option value="critical">Critical</option>
+        <option value="warn">Warn</option><option value="info">Info</option>
+      </select></label>
+    <label>Acked
+      <select id="f_acked" data-testid="alert-acked">
+        <option value="">All</option><option value="0">Open</option>
+        <option value="1">Acked</option></select></label>
+  </div>
+
+  <div class="row-actions">
+    <button class="btn primary" data-testid="ack-all-btn"
+      onclick="ackAll()">Acknowledge all open</button>
+    <button class="btn" onclick="loadAlerts()">Refresh</button>
+  </div>
+
+  <div class="panel">
+    <table class="olt">
+      <thead><tr><th>Lvl</th><th>Title</th><th>OLT</th><th>When</th>
+        <th>Status</th><th></th></tr></thead>
+      <tbody id="al_tbody" data-testid="alerts-tbody">
+        <tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table>
+    <!-- _S40zy_  Pagination footer -->
+    <div id="al_pagination" data-testid="alerts-pagination"
+         style="display:flex;align-items:center;justify-content:space-between;
+                padding:10px 14px;border-top:1px solid rgba(99,102,241,.12);
+                font-size:12px;color:#8A93A6;flex-wrap:wrap;gap:10px"></div>
+  </div>
+</section>
+
+<script>
+const $$ = (id)=>document.getElementById(id);
+let alPage = 1;
+const AL_PER = 20;
+async function loadAlerts(){
+  const p = new URLSearchParams();
+  if ($$('f_level').value) p.set('level', $$('f_level').value);
+  if ($$('f_acked').value!=='') p.set('acked', $$('f_acked').value);
+  p.set('page', String(alPage));
+  p.set('per', String(AL_PER));
+  const r = await fetch('/api/admin/olt/alerts?'+p.toString());
+  const j = await r.json();
+  const tb = $$('al_tbody'); tb.innerHTML = '';
+  renderAlertsPagination(j);
+  if (!j.items || j.items.length===0){
+    tb.innerHTML = '<tr><td colspan="6" class="empty">No alerts. All clear.</td></tr>';
+    return;
+  }
+  for (const a of j.items){
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'alert-row-'+a.id;
+    tr.innerHTML = `
+      <td><span class="pill ${a.level}">${a.level}</span></td>
+      <td><b>${a.title}</b><br><span style="color:#8A93A6;font-size:11px">${a.message||''}</span></td>
+      <td>${a.olt_name||('#'+(a.olt_id||'-'))}</td>
+      <td style="color:#8A93A6;font-size:11px">${a.created_at}</td>
+      <td>${a.acked
+          ? `<span class="pill acked">acked</span><br><span style="color:#8A93A6;font-size:10px">${a.acked_by||''} ${a.acked_at||''}</span>`
+          : '<span class="pill warn">open</span>'}</td>
+      <td>${a.acked?'':`<button class="actbtn" data-testid="ack-${a.id}" onclick="ackOne(${a.id})">Acknowledge</button>`}</td>`;
+    tb.appendChild(tr);
+  }
+}
+async function ackOne(id){
+  await fetch(`/api/admin/olt/alerts/${id}/ack`, {method:'PATCH'});
+  loadAlerts();
+}
+async function ackAll(){
+  if(!confirm('Acknowledge all open alerts?')) return;
+  await fetch('/api/admin/olt/alerts/ack-all', {method:'POST'});
+  loadAlerts();
+}
+['f_level','f_acked'].forEach(id=>$$(id).addEventListener('change', () => { alPage = 1; loadAlerts(); }));
+
+/* _S40zy_  Render pagination footer */
+function renderAlertsPagination(j){
+  const container = $$('al_pagination');
+  if (!container) return;
+  const total = j.total || 0;
+  const per = j.per || AL_PER;
+  const page = j.page || 1;
+  const totalPages = j.total_pages || 1;
+  if (total === 0) { container.innerHTML = ''; return; }
+  const fromN = (page - 1) * per + 1;
+  const toN = Math.min(page * per, total);
+  /* Page button helper */
+  const pBtn = (label, target, disabled, active) => `
+    <button data-testid="alert-page-${label}"
+      ${disabled ? 'disabled' : ''}
+      onclick="alPage=${target}; loadAlerts();"
+      style="padding:5px 10px;border-radius:6px;border:1px solid rgba(99,102,241,.3);
+             background:${active ? 'rgba(99,102,241,.4)' : 'rgba(30,41,59,.6)'};
+             color:${disabled ? '#475569' : (active ? '#fff' : '#cbd5e1')};
+             cursor:${disabled ? 'not-allowed' : 'pointer'};
+             font-weight:${active ? '700' : '500'};
+             min-width:32px">${label}</button>`;
+  /* Build page numbers — show first, last, neighbours of current; ellipsis between */
+  const nums = [];
+  const want = new Set([1, totalPages, page-1, page, page+1]);
+  for (let i = 1; i <= totalPages; i++) if (want.has(i)) nums.push(i);
+  let html = `<div data-testid="alerts-page-info">
+    Showing <b>${fromN}</b>–<b>${toN}</b> of <b>${total}</b> alerts</div>
+    <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+      ${pBtn('« First', 1, page === 1, false)}
+      ${pBtn('‹ Prev', Math.max(page-1, 1), page === 1, false)}`;
+  let prev = 0;
+  for (const n of nums) {
+    if (n - prev > 1) html += `<span style="color:#475569;padding:0 4px">…</span>`;
+    html += pBtn(String(n), n, false, n === page);
+    prev = n;
+  }
+  html += `${pBtn('Next ›', Math.min(page+1, totalPages), page === totalPages, false)}
+           ${pBtn('Last »', totalPages, page === totalPages, false)}
+    </div>`;
+  container.innerHTML = html;
+}
+loadAlerts();
+/* _S40zy_  auto-refresh keeps current page; user can scroll back to it */
+setInterval(loadAlerts, 30000);
+</script>
+{% endblock %}

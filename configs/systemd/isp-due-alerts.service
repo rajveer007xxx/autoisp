@@ -1,0 +1,10 @@
+[Unit]
+Description=AutoISP Billing — Daily push due-alert dispatcher
+After=network.target isp-mobile-api.service
+Requires=isp-mobile-api.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS -X POST -H 'X-Internal-Key: autoispb-internal-key' 'http://127.0.0.1:8005/api/mobile/v1/internal/dispatch-due-alerts?days_before=3'
+ExecStartPost=/usr/bin/curl -fsS -X POST -H 'X-Internal-Key: autoispb-internal-key' 'http://127.0.0.1:8005/api/mobile/v1/internal/dispatch-due-alerts?days_before=1'
+ExecStartPost=/usr/bin/curl -fsS -X POST -H 'X-Internal-Key: autoispb-internal-key' 'http://127.0.0.1:8005/api/mobile/v1/internal/dispatch-due-alerts?days_before=0'

@@ -1,0 +1,312 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Assign Locality {{ connection_type }} - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .assign-form {
+        background: white;
+        padding: 30px;
+        border: 1px solid #ddd;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .form-section {
+        margin-bottom: 25px;
+    }
+    
+    .form-section label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #333;
+    }
+    
+    .form-section select,
+    .form-section input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        font-size: 14px;
+    }
+    
+    .locality-checkboxes {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 15px;
+        background: #f9f9f9;
+    }
+    
+    .locality-item {
+        padding: 8px;
+        margin-bottom: 5px;
+        background: white;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .locality-item label {
+        font-weight: normal;
+        margin: 0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+    }
+    
+    .locality-item input[type="checkbox"] {
+        width: auto;
+        margin-right: 10px;
+    }
+    
+    .btn-container {
+        margin-top: 25px;
+        text-align: center;
+    }
+    
+    .btn-container .btn {
+        min-width: 150px;
+        margin: 0 10px;
+    }
+    
+    .search-localities {
+        margin-bottom: 15px;
+    }
+    
+    .select-all-container {
+        margin-bottom: 10px;
+        padding: 10px;
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Assign Locality {{ connection_type }}
+        <small>Assign localities to employee for {{ connection_type }} service</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="/admin/customer-distribution">Customer Distribution</a></li>
+        <li class="active">Assign Locality {{ connection_type }}</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="assign-form">
+        <form id="assignForm" onsubmit="submitAssignment(event)">
+            <div class="form-section">
+                <label for="employeeSelect">Select Employee *</label>
+                <select id="employeeSelect" name="employee_id" required>
+                    <option value="">-- Select Employee --</option>
+                </select>
+            </div>
+            
+            <div class="form-section">
+                <label>Select Localities *</label>
+                <div class="search-localities">
+                    <input type="text" id="localitySearch" class="form-control" 
+                           placeholder="Search localities..." onkeyup="filterLocalities()">
+                </div>
+                <div class="select-all-container">
+                    <label>
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                        <strong>Select All Localities</strong>
+                    </label>
+                </div>
+                <div class="locality-checkboxes" id="localityList">
+                    <p style="text-align: center; color: #999;">
+                        <i class="fa fa-spinner fa-spin"></i> Loading localities...
+                    </p>
+                </div>
+            </div>
+            
+            <div class="btn-container">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-save"></i> Assign Localities
+                </button>
+                <a href="/admin/customer-distribution" class="btn btn-default">
+                    <i class="fa fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const connectionType = '{{ connection_type }}';
+let allLocalities = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadEmployees();
+    loadLocalities();
+});
+
+function loadEmployees() {
+    fetch('/api/employees/list', {
+        credentials: 'same-origin'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error || (data.success === false)) {
+                alert('Error loading employees: ' + (data.error || data.message));
+                return;
+            }
+            
+            const select = document.getElementById('employeeSelect');
+            select.innerHTML = '<option value="">-- Select Employee --</option>';
+            
+            const employees = data.employees || [];
+            employees.forEach(emp => {
+                const option = document.createElement('option');
+                // Use numeric id for form submission
+                option.value = emp.id;
+                // Display name with employee code if available
+                const displayText = emp.employee_code 
+                    ? `${emp.employee_name} (${emp.employee_code})`
+                    : emp.employee_name;
+                option.textContent = displayText;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading employees:', error);
+            alert('Failed to load employees. Please refresh the page.');
+        });
+}
+
+function loadLocalities() {
+    // Filter locations by service_type (connectionType is set from template: Broadband or Cable)
+    const url = `/api/locations/list?service_type=${encodeURIComponent(connectionType)}`;
+    
+    fetch(url, {
+        credentials: 'same-origin'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error || (data.success === false)) {
+                alert('Error loading localities: ' + (data.error || data.message));
+                return;
+            }
+            
+            allLocalities = data.locations || [];
+            
+            if (allLocalities.length === 0) {
+                document.getElementById('localityList').innerHTML = 
+                    `<p style="text-align: center; color: #999;">No localities found for ${connectionType} customers. Please add customers with localities first.</p>`;
+            } else {
+                renderLocalities(allLocalities);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading localities:', error);
+            document.getElementById('localityList').innerHTML = 
+                '<p style="text-align: center; color: red;">Failed to load localities. Please refresh the page.</p>';
+        });
+}
+
+function renderLocalities(localities) {
+    const container = document.getElementById('localityList');
+    
+    if (localities.length === 0) {
+        container.innerHTML = `<p style="text-align: center; color: #999;">No localities found for ${connectionType} customers</p>`;
+        return;
+    }
+    
+    container.innerHTML = localities.map(loc => {
+        return `
+            <div class="locality-item">
+                <label>
+                    <input type="checkbox" name="location_ids" value="${loc.id}" class="locality-checkbox">
+                    ${loc.name}${loc.city ? ' - ' + loc.city : ''}
+                </label>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterLocalities() {
+    const searchTerm = document.getElementById('localitySearch').value.toLowerCase();
+    
+    if (!searchTerm) {
+        renderLocalities(allLocalities);
+        return;
+    }
+    
+    const filtered = allLocalities.filter(loc => 
+        loc.name.toLowerCase().includes(searchTerm) ||
+        (loc.city && loc.city.toLowerCase().includes(searchTerm))
+    );
+    
+    renderLocalities(filtered);
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.locality-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+    });
+}
+
+function submitAssignment(event) {
+    event.preventDefault();
+    
+    const employeeIdRaw = document.getElementById('employeeSelect').value;
+    const employeeId = Number(employeeIdRaw);
+    
+    // Validate employee ID
+    if (!Number.isInteger(employeeId) || employeeId <= 0) {
+        alert('Please select an employee');
+        return;
+    }
+    
+    // Collect and validate location IDs
+    const checkedBoxes = document.querySelectorAll('.locality-checkbox:checked');
+    const locationIds = Array.from(checkedBoxes)
+        .map(cb => Number(cb.value))
+        .filter(Number.isInteger);
+    
+    if (locationIds.length === 0) {
+        alert('Please select at least one locality');
+        return;
+    }
+    
+    const data = {
+        employee_id: employeeId,
+        location_ids: locationIds,
+        connection_type: connectionType
+    };
+    
+    console.log('Submitting assignment:', data);
+    
+    fetch('/api/customer-distribution/assign', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Localities assigned successfully!');
+            window.location.href = '/admin/customer-distribution';
+        } else {
+            alert('Error: ' + (result.message || 'Failed to assign localities'));
+        }
+    })
+    .catch(error => {
+        console.error('Error assigning localities:', error);
+        alert('Failed to assign localities. Please try again.');
+    });
+}
+</script>
+{% endblock %}

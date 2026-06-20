@@ -1,0 +1,732 @@
+"""
+compliance.py — Session 29
+DoT/TRAI regulatory compliance routes:
+
+  GET  /admin/compliance                        — dashboard
+  GET  /admin/compliance/audit-logs             — customer status change + login logs
+  GET  /admin/compliance/ip-nat-logs            — RADIUS accounting (user ↔ IP mapping)
+  GET  /admin/compliance/blocklist              — site/URL block manager UI
+  GET  /admin/compliance/qos                    — per-NAS bandwidth QoS report
+
+  POST /api/compliance/blocklist                — add entry + push to NAS
+  DEL  /api/compliance/blocklist/{id}           — remove + push to NAS
+  POST /api/compliance/blocklist/resync         — force full resync to all NAS
+
+  GET  /admin/compliance/export                 — CSV/XLSX download per kind
+  GET  /admin/compliance/regulatory-bundle.zip  — ZIP bundle (DoT-ready)
+
+All data scoped to the admin's company_id via session.
+"""
+from __future__ import annotations
+
+import io
+import os
+import csv
+import json
+import zipfile
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Tuple
+
+from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
+from sqlalchemy.orm import Session
+
+router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# ------------------------------------------------------------------ helpers
+def _parse_date(s: Optional[str]):
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s.strip(), fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _csv_response(filename: str, header: List[str], rows):
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for r in rows:
+        w.writerow(r)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _xlsx_response(filename: str, sheets: List[Tuple[str, List[str], list]]):
+    """Build an .xlsx with one or more sheets. sheets = [(name, headers, rows), ...]"""
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        # openpyxl missing — fall back to CSV wrapped in zip
+        return _csv_response(filename.replace(".xlsx", ".csv"),
+                             sheets[0][1], sheets[0][2])
+    wb = Workbook()
+    ws0 = wb.active
+    first = True
+    for name, hdr, rows in sheets:
+        ws = ws0 if first else wb.create_sheet(title=name[:31])
+        if first:
+            ws.title = name[:31]
+            first = False
+        ws.append(list(hdr))
+        for r in rows:
+            ws.append(list(r))
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return Response(
+        out.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+# ------------------------------------------------------------------ data
+def _fetch_audit_rows(db, company_id: str,
+                      dt_from: Optional[datetime] = None,
+                      dt_to: Optional[datetime] = None,
+                      q: Optional[str] = None,
+                      limit: int = 2000):
+    from radius_network import CustomerStatusLog
+    qry = db.query(CustomerStatusLog).filter(CustomerStatusLog.company_id == company_id)
+    if dt_from:
+        qry = qry.filter(CustomerStatusLog.created_at >= dt_from)
+    if dt_to:
+        qry = qry.filter(CustomerStatusLog.created_at < (dt_to + timedelta(days=1)))
+    if q:
+        from sqlalchemy import or_
+        like = f"%{q}%"
+        qry = qry.filter(or_(CustomerStatusLog.username.like(like),
+                             CustomerStatusLog.customer_id.like(like),
+                             CustomerStatusLog.actor_id.like(like),
+                             CustomerStatusLog.actor_name.like(like),
+                             CustomerStatusLog.reason.like(like)))
+    total = qry.count()
+    rows = qry.order_by(CustomerStatusLog.id.desc()).limit(limit).all()
+    return total, [(r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
+                    r.customer_id or "",
+                    r.username or "",
+                    r.old_status or "",
+                    r.new_status or "",
+                    r.actor_type or "",
+                    r.actor_id or "",
+                    r.actor_name or "",
+                    r.reason or "",
+                    str(r.balance_at_change or "")) for r in rows]
+
+
+_RADACCT_DB = "/var/lib/freeradius/radacct.db"
+
+def _fetch_ipnat_rows(company_id: str, usernames: Optional[set] = None,
+                      dt_from: Optional[datetime] = None,
+                      dt_to: Optional[datetime] = None,
+                      q: Optional[str] = None,
+                      limit: int = 2000,
+                      db=None):
+    """Read RADIUS accounting. S42J — primary fence is the dedicated
+    `company_id` column on radacct (resolved deterministically by
+    radpostauth_tenant). Username filter is kept as a UX scope, not as
+    a security boundary."""
+    try:
+        con = sqlite3.connect(_RADACCT_DB)
+        cur = con.cursor()
+    except Exception:
+        return 0, []
+    # S42J — make sure recent radacct rows have company_id mapped before query.
+    try:
+        if db is not None:
+            from radpostauth_tenant import backfill_radacct_company_id as _rp_bfa
+            _rp_bfa(db, radacct_path=_RADACCT_DB, limit=2000)
+    except Exception:
+        pass
+    where = ["company_id = ?"]
+    args = [str(company_id)]
+    if usernames:
+        plist = ",".join(["?"] * len(usernames))
+        where.append(f"username IN ({plist})")
+        args += list(usernames)
+    if dt_from:
+        where.append("acctstarttime >= ?")
+        args.append(int(dt_from.timestamp()))
+    if dt_to:
+        where.append("acctstarttime < ?")
+        args.append(int((dt_to + timedelta(days=1)).timestamp()))
+    if q:
+        where.append("(username LIKE ? OR framedipaddress LIKE ? OR nasipaddress LIKE ? OR callingstationid LIKE ?)")
+        like = f"%{q}%"
+        args += [like, like, like, like]
+    wsql = " WHERE " + " AND ".join(where)
+    total_sql = f"SELECT COUNT(*) FROM radacct{wsql}"
+    data_sql = (f"SELECT username, framedipaddress, callingstationid, nasipaddress, "
+                f"acctstarttime, acctstoptime, acctsessiontime, "
+                f"acctinputoctets, acctoutputoctets, acctterminatecause "
+                f"FROM radacct{wsql} ORDER BY acctstarttime DESC LIMIT ?")
+    try:
+        cur.execute(total_sql, args)
+        total = int(cur.fetchone()[0])
+        cur.execute(data_sql, args + [limit])
+        def fmt_ts(t):
+            if not t:
+                return ""
+            try:
+                return datetime.fromtimestamp(int(t)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(t)
+        rows = [(r[0], r[1] or "", r[2] or "", r[3] or "",
+                 fmt_ts(r[4]), fmt_ts(r[5]),
+                 str(r[6] or 0),
+                 str(r[7] or 0), str(r[8] or 0),
+                 r[9] or "") for r in cur.fetchall()]
+    finally:
+        con.close()
+    return total, rows
+
+
+# ------------------------------------------------------------------ Blocklist storage
+def _ensure_blocklist_table(db):
+    from sqlalchemy import text
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS dot_blocklist (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id VARCHAR(40) NOT NULL,
+            target     VARCHAR(255) NOT NULL,
+            dot_ref    VARCHAR(120),
+            notes      TEXT,
+            added_by   VARCHAR(120),
+            added_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.commit()
+
+
+def _blocklist_rows(db, company_id):
+    from sqlalchemy import text
+    res = db.execute(text(
+        "SELECT id, target, dot_ref, notes, added_by, added_at "
+        "FROM dot_blocklist WHERE company_id = :c ORDER BY id DESC"),
+        {"c": company_id}).fetchall()
+    return [{"id": r[0], "target": r[1], "dot_ref": r[2], "notes": r[3],
+             "added_by": r[4], "added_at": str(r[5] or "")} for r in res]
+
+
+def _sync_blocklist_to_nas(db, company_id):
+    """Push the current blocklist to every Active NAS as a Mikrotik
+    address-list named `dot-blocklist`."""
+    from database import NasDevice
+    import routeros_provision as rp
+    nas_rows = db.query(NasDevice).filter(
+        NasDevice.company_id == company_id,
+        NasDevice.status == "Active").all()
+    entries = _blocklist_rows(db, company_id)
+    synced = 0
+    for nas in nas_rows:
+        try:
+            with rp.RouterOSClient(nas, dry_run=False) as rc:
+                # Clear existing entries then re-add
+                for row in list(rc._api.path("ip/firewall/address-list")):
+                    if row.get("list") == "dot-blocklist":
+                        try:
+                            rc._api.path("ip/firewall/address-list").remove(row[".id"])
+                        except Exception:
+                            pass
+                for e in entries:
+                    try:
+                        rc._api.path("ip/firewall/address-list").add(
+                            list="dot-blocklist",
+                            address=e["target"],
+                            comment=(e.get("dot_ref") or "DoT block")[:60],
+                        )
+                    except Exception as _ex:
+                        # If domain, Mikrotik will resolve it; IP passes directly.
+                        pass
+            synced += 1
+        except Exception:
+            continue
+    return synced, len(entries)
+
+
+# ------------------------------------------------------------------ Routes
+
+# === S39R5_FIX4 — Lawful Interception Orders (DoT 2026) =====================
+import sqlite3 as _sqlite_li, os as _os_li
+from datetime import datetime as _dt_li, timedelta as _td_li
+from fastapi import Form as _Form_li
+from fastapi.responses import HTMLResponse as _HTML_li, JSONResponse as _JSON_li
+
+_LI_DB = _os_li.getenv('AUTOISPBILLING_DB_PATH',
+                       '/var/lib/autoispbilling/autoispbilling.db')
+
+def _li_conn():
+    c = _sqlite_li.connect(_LI_DB, timeout=10)
+    c.row_factory = _sqlite_li.Row
+    return c
+
+def _li_ensure_table():
+    with _li_conn() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS li_orders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            order_no    TEXT NOT NULL,
+            agency      TEXT NOT NULL,
+            target_username TEXT NOT NULL,
+            ordered_on  TEXT,
+            ends_on     TEXT,
+            destroy_at  TEXT,
+            status      TEXT NOT NULL DEFAULT 'active',
+            notes       TEXT,
+            created_by  TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')))""")
+        c.commit()
+
+_li_ensure_table()
+
+def _wire_li(app, templates, get_db, require_admin):
+    @app.get("/admin/compliance/li-orders", response_class=_HTML_li)
+    async def li_orders_page(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        return templates.TemplateResponse(
+            "compliance_li_orders.html",
+            {"request": request, "active_page": "compliance"})
+
+    @app.get("/api/compliance/li-orders")
+    async def api_li_list(request: Request):
+        gate = require_admin(request)
+        if gate: return _JSON_li({"error": "auth"}, status_code=401)
+        cid = request.session.get("company_id")
+        with _li_conn() as c:
+            rows = c.execute(
+                "SELECT * FROM li_orders WHERE company_id=? "
+                "ORDER BY id DESC", (cid,)).fetchall()
+        # Auto-flag expired
+        today = _dt_li.utcnow().date().isoformat()
+        items = []
+        for r in rows:
+            d = dict(r)
+            if d.get("status") == "active" and d.get("destroy_at") and d["destroy_at"] < today:
+                d["status"] = "destroyed"
+            items.append(d)
+        return {"ok": True, "items": items}
+
+    @app.post("/api/compliance/li-orders")
+    async def api_li_add(request: Request,
+                         order_no: str = _Form_li(...),
+                         agency: str = _Form_li(...),
+                         target_username: str = _Form_li(...),
+                         ordered_on: str = _Form_li(""),
+                         ends_on: str = _Form_li(""),
+                         notes: str = _Form_li("")):
+        gate = require_admin(request)
+        if gate: return _JSON_li({"error": "auth"}, status_code=401)
+        cid = request.session.get("company_id")
+        # Auto-destroy = ends_on + 60 days (DoT 2-month rule)
+        destroy_at = ""
+        if ends_on:
+            try:
+                end = _dt_li.strptime(ends_on, "%Y-%m-%d").date()
+                destroy_at = (end + _td_li(days=60)).isoformat()
+            except Exception:
+                destroy_at = ""
+        with _li_conn() as c:
+            c.execute("""INSERT INTO li_orders
+                (company_id,order_no,agency,target_username,ordered_on,ends_on,
+                 destroy_at,status,notes,created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (cid, order_no.strip(), agency.strip(),
+                 target_username.strip(),
+                 ordered_on or None, ends_on or None, destroy_at or None,
+                 "active", notes or "",
+                 request.session.get("user_id", "")))
+            c.commit()
+        return {"ok": True}
+
+    @app.delete("/api/compliance/li-orders/{oid}")
+    async def api_li_destroy(oid: int, request: Request):
+        gate = require_admin(request)
+        if gate: return _JSON_li({"error": "auth"}, status_code=401)
+        cid = request.session.get("company_id")
+        with _li_conn() as c:
+            c.execute("UPDATE li_orders SET status='destroyed' "
+                      "WHERE id=? AND company_id=?", (oid, cid))
+            c.commit()
+        return {"ok": True}
+
+    @app.get("/api/compliance/dot-stats")
+    async def api_dot_stats(request: Request):
+        gate = require_admin(request)
+        if gate: return _JSON_li({"error": "auth"}, status_code=401)
+        cid = request.session.get("company_id")
+        with _li_conn() as c:
+            stats = {}
+            stats["customers_total"] = c.execute(
+                "SELECT COUNT(*) FROM customers WHERE company_id=?",
+                (cid,)).fetchone()[0]
+            try:
+                stats["customers_kyc"] = c.execute(
+                    "SELECT COUNT(*) FROM customers WHERE company_id=? "
+                    "AND (aadhaar_no IS NOT NULL AND aadhaar_no!='')",
+                    (cid,)).fetchone()[0]
+            except Exception:
+                stats["customers_kyc"] = 0
+            stats["li_active"] = c.execute(
+                "SELECT COUNT(*) FROM li_orders WHERE company_id=? "
+                "AND status='active'", (cid,)).fetchone()[0]
+            stats["li_pending_destroy"] = c.execute(
+                "SELECT COUNT(*) FROM li_orders WHERE company_id=? "
+                "AND status='active' AND destroy_at<=date('now')",
+                (cid,)).fetchone()[0]
+            try:
+                stats["blocklist"] = c.execute(
+                    "SELECT COUNT(*) FROM dot_blocklist WHERE "
+                    "company_id=? AND active=1", (cid,)).fetchone()[0]
+            except Exception:
+                stats["blocklist"] = 0
+        return {"ok": True, "stats": stats}
+# === END S39R5_FIX4 =========================================================
+
+
+def mount(app, templates, get_db, require_admin):
+
+    _wire_li(app, templates, get_db, require_admin)
+    """Mount all compliance endpoints onto the main FastAPI app."""
+
+    @app.get("/admin/compliance", response_class=HTMLResponse)
+    async def compliance_dashboard(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        return templates.TemplateResponse("compliance_dashboard.html",
+                                           {"request": request, **ctx})
+
+    @app.get("/admin/compliance/audit-logs", response_class=HTMLResponse)
+    async def compliance_audit(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        company_id = request.session.get("company_id")
+        qp = request.query_params
+        dt_from = _parse_date(qp.get("from"))
+        dt_to   = _parse_date(qp.get("to"))
+        q = qp.get("q") or None
+        total, rows = _fetch_audit_rows(db, company_id, dt_from, dt_to, q, limit=1000)
+        return templates.TemplateResponse("compliance_list.html", {
+            "request": request, **ctx,
+            "title": "Audit & Access Logs",
+            "subtitle": "Customer status transitions (kick, suspend, activate, expire, etc.)",
+            "kind": "audit",
+            "columns": ["When (UTC)", "Customer ID", "Username", "Old Status",
+                        "New Status", "Actor Type", "Actor ID", "Actor Name",
+                        "Reason", "Balance"],
+            "rows": rows, "total_rows": total,
+            "dt_from": qp.get("from") or "", "dt_to": qp.get("to") or "",
+            "q": q or "", "query_string": str(qp) if qp else "",
+            "extra_filter_label": "Keyword",
+        })
+
+    @app.get("/admin/compliance/ip-nat-logs", response_class=HTMLResponse)
+    async def compliance_ipnat(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        company_id = request.session.get("company_id")
+        from database import Customer
+        uns = {c.username for c in db.query(Customer).filter(
+            Customer.company_id == company_id).all() if c.username}
+        qp = request.query_params
+        dt_from = _parse_date(qp.get("from"))
+        dt_to   = _parse_date(qp.get("to"))
+        q = qp.get("q") or None
+        total, rows = _fetch_ipnat_rows(company_id, uns, dt_from, dt_to, q, limit=1000, db=db)
+        return templates.TemplateResponse("compliance_list.html", {
+            "request": request, **ctx,
+            "title": "IP / NAT Assignment Logs",
+            "subtitle": "Per-session user ↔ IP mapping (DoT 2-year retention)",
+            "kind": "ipnat",
+            "columns": ["Username", "Framed IP", "Calling Station (MAC)",
+                        "NAS IP", "Start", "Stop", "Duration (sec)",
+                        "Input Octets", "Output Octets", "Terminate Cause"],
+            "rows": rows, "total_rows": total,
+            "dt_from": qp.get("from") or "", "dt_to": qp.get("to") or "",
+            "q": q or "", "query_string": str(qp) if qp else "",
+            "extra_filter_label": "User / IP / MAC",
+        })
+
+    @app.get("/admin/compliance/qos", response_class=HTMLResponse)
+    async def compliance_qos(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        company_id = request.session.get("company_id")
+        # Compute 30-day per-NAS totals & peak utilisation alerts.
+        from radius_network import NasDevice
+        from database import Customer
+        uns = {c.username for c in db.query(Customer).filter(
+            Customer.company_id == company_id).all() if c.username}
+        rows_out = []
+        if uns:
+            try:
+                # S42J — fence via company_id column.
+                try:
+                    from radpostauth_tenant import backfill_radacct_company_id as _rp_bfa2
+                    _rp_bfa2(db, radacct_path=_RADACCT_DB, limit=2000)
+                except Exception:
+                    pass
+                con = sqlite3.connect(_RADACCT_DB)
+                cur = con.cursor()
+                cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
+                plist = ",".join(["?"] * len(uns))
+                cur.execute(
+                    f"SELECT nasipaddress, "
+                    f"COALESCE(SUM(acctinputoctets),0), "
+                    f"COALESCE(SUM(acctoutputoctets),0), "
+                    f"COALESCE(COUNT(DISTINCT username),0), "
+                    f"COALESCE(COUNT(*),0) "
+                    f"FROM radacct WHERE company_id = ? "
+                    f"AND username IN ({plist}) "
+                    f"AND acctstarttime >= ? GROUP BY nasipaddress",
+                    [str(company_id)] + list(uns) + [cutoff])
+                for nas_ip, inp, out, uu, sess in cur.fetchall():
+                    gb_in  = (inp or 0) / (1024**3)
+                    gb_out = (out or 0) / (1024**3)
+                    total_gb = gb_in + gb_out
+                    # naive utilisation estimate: bytes over 30d vs. 1 Gbps link
+                    seconds = 30 * 86400
+                    avg_bps = ((inp or 0) + (out or 0)) * 8 / seconds
+                    avg_pct = round(avg_bps / 1e9 * 100, 2)  # vs 1 Gbps
+                    alert = "OK"
+                    if avg_pct >= 90:
+                        alert = "CRITICAL (30d avg ≥ 90%)"
+                    elif avg_pct >= 80:
+                        alert = "WARN (30d avg ≥ 80%)"
+                    rows_out.append((nas_ip or "?", f"{gb_in:,.2f}", f"{gb_out:,.2f}",
+                                     f"{total_gb:,.2f}", str(uu), str(sess),
+                                     f"{avg_pct}%", alert))
+                con.close()
+            except Exception:
+                pass
+        return templates.TemplateResponse("compliance_list.html", {
+            "request": request, **ctx,
+            "title": "QoS / Bandwidth Utilisation (30 days)",
+            "subtitle": "Per-NAS traffic summary — TRAI thresholds 80% warn / 90% critical",
+            "kind": "qos",
+            "columns": ["NAS IP", "Inbound (GB)", "Outbound (GB)", "Total (GB)",
+                        "Unique Users", "Sessions", "Avg vs 1Gbps", "Alert"],
+            "rows": rows_out, "total_rows": len(rows_out),
+            "dt_from": "", "dt_to": "", "q": "",
+            "query_string": "", "extra_filter_label": "Filter",
+        })
+
+    @app.get("/admin/compliance/blocklist", response_class=HTMLResponse)
+    async def compliance_blocklist(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        company_id = request.session.get("company_id")
+        _ensure_blocklist_table(db)
+        rows = _blocklist_rows(db, company_id)
+        return templates.TemplateResponse("compliance_blocklist.html", {
+            "request": request, **ctx, "rows": rows})
+
+    # --- JSON APIs for blocklist management -----------------------------
+    @app.post("/api/compliance/blocklist")
+    async def api_blocklist_add(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        company_id = request.session.get("company_id")
+        _ensure_blocklist_table(db)
+        body = await request.json()
+        target = (body.get("target") or "").strip()
+        if not target:
+            return {"success": False, "message": "target required"}
+        from sqlalchemy import text
+        actor = request.session.get("user_name") or request.session.get("user_id") or "admin"
+        db.execute(text(
+            "INSERT INTO dot_blocklist (company_id, target, dot_ref, notes, added_by) "
+            "VALUES (:c, :t, :r, :n, :a)"),
+            {"c": company_id, "t": target,
+             "r": body.get("dot_ref") or "", "n": body.get("notes") or "",
+             "a": actor})
+        db.commit()
+        synced, total = _sync_blocklist_to_nas(db, company_id)
+        return {"success": True, "synced_nas": synced, "total_entries": total}
+
+    @app.delete("/api/compliance/blocklist/{entry_id}")
+    async def api_blocklist_delete(entry_id: int, request: Request,
+                                     db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        company_id = request.session.get("company_id")
+        _ensure_blocklist_table(db)
+        from sqlalchemy import text
+        db.execute(text("DELETE FROM dot_blocklist WHERE id=:i AND company_id=:c"),
+                   {"i": entry_id, "c": company_id})
+        db.commit()
+        synced, _ = _sync_blocklist_to_nas(db, company_id)
+        return {"success": True, "synced_nas": synced}
+
+    @app.post("/api/compliance/blocklist/resync")
+    async def api_blocklist_resync(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        company_id = request.session.get("company_id")
+        _ensure_blocklist_table(db)
+        synced, cnt = _sync_blocklist_to_nas(db, company_id)
+        return {"success": True, "synced_nas": synced, "count": cnt}
+
+    # --- Export (CSV / XLSX per kind) ------------------------------------
+    @app.get("/admin/compliance/export")
+    async def compliance_export(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        company_id = request.session.get("company_id")
+        qp = request.query_params
+        kind = (qp.get("kind") or "audit").lower()
+        fmt  = (qp.get("format") or "csv").lower()
+        dt_from = _parse_date(qp.get("from"))
+        dt_to   = _parse_date(qp.get("to"))
+        q = qp.get("q") or None
+        stamp = datetime.now(IST).strftime("%Y%m%d_%H%M")
+
+        if kind == "audit":
+            hdr = ["When (UTC)", "Customer ID", "Username", "Old Status",
+                   "New Status", "Actor Type", "Actor ID", "Actor Name",
+                   "Reason", "Balance"]
+            _, rows = _fetch_audit_rows(db, company_id, dt_from, dt_to, q, limit=100000)
+            fname = f"audit_logs_{stamp}.{ 'xlsx' if fmt=='xlsx' else 'csv'}"
+            return (_xlsx_response(fname, [("Audit", hdr, rows)])
+                    if fmt == "xlsx" else _csv_response(fname, hdr, rows))
+
+        if kind == "ipnat":
+            hdr = ["Username", "Framed IP", "Calling Station (MAC)", "NAS IP",
+                   "Start", "Stop", "Duration (sec)", "Input Octets",
+                   "Output Octets", "Terminate Cause"]
+            from database import Customer
+            uns = {c.username for c in db.query(Customer).filter(
+                Customer.company_id == company_id).all() if c.username}
+            _, rows = _fetch_ipnat_rows(company_id, uns, dt_from, dt_to, q, limit=100000, db=db)
+            fname = f"ipnat_logs_{stamp}.{ 'xlsx' if fmt=='xlsx' else 'csv'}"
+            return (_xlsx_response(fname, [("IPNAT", hdr, rows)])
+                    if fmt == "xlsx" else _csv_response(fname, hdr, rows))
+
+        if kind == "blocklist":
+            _ensure_blocklist_table(db)
+            rows_d = _blocklist_rows(db, company_id)
+            hdr = ["ID", "Target", "DoT Ref", "Notes", "Added By", "Added At"]
+            rows = [(r["id"], r["target"], r["dot_ref"] or "",
+                     r["notes"] or "", r["added_by"] or "",
+                     r["added_at"]) for r in rows_d]
+            fname = f"blocklist_{stamp}.{ 'xlsx' if fmt=='xlsx' else 'csv'}"
+            return (_xlsx_response(fname, [("Blocklist", hdr, rows)])
+                    if fmt == "xlsx" else _csv_response(fname, hdr, rows))
+
+        if kind == "qos":
+            # recompute qos export inline
+            from database import Customer
+            uns = {c.username for c in db.query(Customer).filter(
+                Customer.company_id == company_id).all() if c.username}
+            hdr = ["NAS IP", "Inbound (GB)", "Outbound (GB)", "Total (GB)",
+                   "Unique Users", "Sessions", "Avg vs 1Gbps %", "Alert"]
+            rows = []
+            if uns:
+                try:
+                    # S42J — fence via company_id column.
+                    try:
+                        from radpostauth_tenant import backfill_radacct_company_id as _rp_bfa3
+                        _rp_bfa3(db, radacct_path=_RADACCT_DB, limit=2000)
+                    except Exception:
+                        pass
+                    con = sqlite3.connect(_RADACCT_DB)
+                    cur = con.cursor()
+                    cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
+                    plist = ",".join(["?"] * len(uns))
+                    cur.execute(
+                        f"SELECT nasipaddress, "
+                        f"COALESCE(SUM(acctinputoctets),0), COALESCE(SUM(acctoutputoctets),0), "
+                        f"COUNT(DISTINCT username), COUNT(*) FROM radacct "
+                        f"WHERE company_id = ? AND username IN ({plist}) AND acctstarttime>=? GROUP BY nasipaddress",
+                        [str(company_id)] + list(uns) + [cutoff])
+                    for nas_ip, inp, out, uu, sess in cur.fetchall():
+                        gb_in  = (inp or 0) / (1024**3)
+                        gb_out = (out or 0) / (1024**3)
+                        total_gb = gb_in + gb_out
+                        avg_bps = ((inp or 0) + (out or 0)) * 8 / (30*86400)
+                        avg_pct = round(avg_bps / 1e9 * 100, 2)
+                        alert = "CRITICAL" if avg_pct >= 90 else "WARN" if avg_pct >= 80 else "OK"
+                        rows.append((nas_ip, f"{gb_in:.2f}", f"{gb_out:.2f}",
+                                     f"{total_gb:.2f}", uu, sess, avg_pct, alert))
+                    con.close()
+                except Exception:
+                    pass
+            fname = f"qos_report_{stamp}.{ 'xlsx' if fmt=='xlsx' else 'csv'}"
+            return (_xlsx_response(fname, [("QoS", hdr, rows)])
+                    if fmt == "xlsx" else _csv_response(fname, hdr, rows))
+
+        raise HTTPException(400, f"unknown kind {kind}")
+
+    # --- ZIP bundle -------------------------------------------------------
+    @app.get("/admin/compliance/regulatory-bundle.zip")
+    async def compliance_bundle(request: Request, db: Session = Depends(get_db)):
+        auth = require_admin(request)
+        if auth: return auth
+        company_id = request.session.get("company_id")
+        qp = request.query_params
+        dt_from = _parse_date(qp.get("from"))
+        dt_to   = _parse_date(qp.get("to"))
+        stamp = datetime.now(IST).strftime("%Y%m%d_%H%M")
+
+        from database import Customer
+        uns = {c.username for c in db.query(Customer).filter(
+            Customer.company_id == company_id).all() if c.username}
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            # Audit
+            hdr_a = ["When (UTC)", "Customer ID", "Username", "Old Status",
+                     "New Status", "Actor Type", "Actor ID", "Actor Name",
+                     "Reason", "Balance"]
+            _, rows_a = _fetch_audit_rows(db, company_id, dt_from, dt_to, None, 100000)
+            s = io.StringIO(); w = csv.writer(s); w.writerow(hdr_a); [w.writerow(r) for r in rows_a]
+            z.writestr("audit_logs.csv", s.getvalue())
+            # IP/NAT
+            hdr_i = ["Username", "Framed IP", "MAC", "NAS IP", "Start", "Stop",
+                     "Duration (s)", "In Octets", "Out Octets", "Cause"]
+            _, rows_i = _fetch_ipnat_rows(company_id, uns, dt_from, dt_to, None, 500000, db=db)
+            s = io.StringIO(); w = csv.writer(s); w.writerow(hdr_i); [w.writerow(r) for r in rows_i]
+            z.writestr("ip_nat_logs.csv", s.getvalue())
+            # Blocklist
+            _ensure_blocklist_table(db)
+            rows_b = _blocklist_rows(db, company_id)
+            s = io.StringIO(); w = csv.writer(s)
+            w.writerow(["ID", "Target", "DoT Ref", "Notes", "Added By", "Added At"])
+            for r in rows_b:
+                w.writerow([r["id"], r["target"], r["dot_ref"] or "",
+                            r["notes"] or "", r["added_by"] or "", r["added_at"]])
+            z.writestr("dot_blocklist.csv", s.getvalue())
+            # README
+            z.writestr("README.txt", (
+                f"Auto ISP Billing — DoT/TRAI Compliance Bundle\n"
+                f"Company: {company_id}\n"
+                f"Generated: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}\n"
+                f"Range: {qp.get('from') or '(all)'} to {qp.get('to') or '(now)'}\n"
+                "\nContents:\n"
+                "  audit_logs.csv     Customer status change + admin action log\n"
+                "  ip_nat_logs.csv    RADIUS accounting — user ↔ IP mapping\n"
+                "  dot_blocklist.csv  Currently active DoT-ordered site blocks\n"
+            ))
+        buf.seek(0)
+        return StreamingResponse(iter([buf.getvalue()]),
+            media_type="application/zip",
+            headers={"Content-Disposition":
+                     f'attachment; filename="compliance_bundle_{company_id}_{stamp}.zip"'})

@@ -1,0 +1,76 @@
+{% extends "base_admin.html" %}
+{% block title %}2-Year Retention - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.cmp-tbl th{background:#f1f5f9;padding:8px;text-align:left;color:#475569;font-size:12px;text-transform:uppercase}
+.cmp-tbl td{padding:8px;border-bottom:1px solid #e5e7eb}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:9px 18px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.cmp-pill.ok{background:#dcfce7;color:#15803d}
+.cmp-pill.bad{background:#fee2e2;color:#b91c1c}
+</style>
+
+<section class="content-header">
+  <h1>2-Year Retention Policy<small>DoT/TRAI 730-day retention attestation log</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card">
+    <p style="margin:0 0 10px;color:#475569;font-size:14px">
+      <b>Policy:</b> Compliance records (connection-level activity and visited URLs) are retained for
+      <b>{{ retention_days }}</b> days. Older records are exported to a secure archive and removed
+      from active storage.
+    </p>
+    <p style="margin:0 0 16px;color:#475569;font-size:14px">
+      Session/accounting records are kept in place as required by the regulator. This page records
+      an attestation count of how many such records are older than the retention cutoff.
+    </p>
+    <button class="cmp-btn" onclick="runNow()" data-testid="retention-run">Run retention now</button>
+    <a class="cmp-btn gray" href="/admin/compliance" data-testid="retention-back" style="text-decoration:none;margin-left:8px">← Back</a>
+    <span id="msg" style="margin-left:12px;color:#475569;font-size:13px"></span>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 14px"><i class="bi bi-clock-history" style="color:#6366f1"></i> Run history</h4>
+    {# __RETENTION_TENANT_SAFE__ Global system retention log hidden — privacy fix #}
+    <div style="padding:18px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:10px;color:#cbd5e1;font-size:13.5px;line-height:1.55">
+      <i class="bi bi-info-circle" style="color:#60A5FA;margin-right:6px"></i>
+      <strong style="color:#F1F5F9">System-wide retention is managed by your SuperAdmin.</strong>
+      <br>
+      Per-company retention attestations will appear here once company-scoped retention is enabled (currently in development).
+      Click <em>Run retention now</em> above to trigger an attestation for your records.
+    </div>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-calendar-event"></i> Automated schedule</h4>
+    <p style="font-size:13px;color:#475569">
+      Retention runs automatically every day at 03:30 IST. Use the button above only if you need to
+      trigger an export immediately for a special audit.
+    </p>
+  </div>
+</section>
+
+<script>
+async function runNow(){
+  document.getElementById('msg').textContent = 'Running…';
+  const r = await fetch('/api/compliance/retention/run', {
+    method:'POST', credentials:'include'
+  });
+  const d = await r.json();
+  if (d.success) {
+    const lines = (d.result.summary || []).map(s =>
+      s.kept ? `${s.table}: ${s.older_count} rows older than cutoff (kept)`
+             : `${s.table}: archived ${s.archived}, deleted ${s.deleted}`
+    ).join(' · ');
+    document.getElementById('msg').textContent = '✓ Done · ' + lines;
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    document.getElementById('msg').textContent = '✗ Failed: ' + (d.message||'unknown');
+  }
+}
+</script>
+{% endblock %}

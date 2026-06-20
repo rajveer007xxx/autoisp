@@ -1,0 +1,22 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}{{ page_label }} — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>{{ page_label }} <small>{{ page_subtitle or '' }}</small></h1>
+</section>
+
+<section class="content">
+  <div class="box box-solid">
+    <div class="box-body" style="padding:60px 24px;text-align:center">
+      <div style="font-size:56px;color:#cbd5e1;margin-bottom:16px"><i class="bi bi-tools"></i></div>
+      <h3 style="margin:0 0 8px;color:#334155">Coming Soon</h3>
+      <p style="color:#64748b;margin:0 0 20px;max-width:520px;margin-left:auto;margin-right:auto">
+        The <b>{{ page_label }}</b> section is being tailored for the Sub-LCO experience and will
+        appear here shortly. Until then, you can continue using the sections already live in the sidebar
+        — User Management, Locations, Commissions, and Profile.
+      </p>
+      <a href="/sub-lco/dashboard" class="btn btn-primary"><i class="fa fa-arrow-left"></i> Back to Dashboard</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

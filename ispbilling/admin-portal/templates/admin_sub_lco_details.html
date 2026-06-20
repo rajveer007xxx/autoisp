@@ -1,0 +1,313 @@
+{% extends "base_admin.html" %}
+{% block title %}Sub-LCO · {{ sub_lco.code }} — Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+  .slco-hero{
+    background: linear-gradient(135deg,#1e3a8a 0%,#312e81 100%);
+    color:#fff; padding:24px 28px; border-radius:10px;
+    box-shadow: 0 10px 30px -12px rgba(30,58,138,.55);
+    margin-bottom:18px;
+  }
+  .slco-hero h1{ margin:0; font-size:22px; font-weight:700; letter-spacing:0.2px;}
+  .slco-hero .meta{ font-size:13px; opacity:.92; margin-top:6px;}
+  .slco-hero .meta b{ color:#fde68a; }
+  .slco-hero .back{
+    display:inline-block; color:#cbd5e1; text-decoration:none;
+    font-size:12px; padding:4px 10px; border:1px solid rgba(255,255,255,0.25);
+    border-radius:20px; margin-bottom:10px;
+  }
+  .slco-hero .back:hover{ background:rgba(255,255,255,0.12);}
+  .stat-grid{display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:10px; margin-bottom:14px;}
+  .stat-grid .s{ background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .stat-grid .s .lbl{ font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.6px;}
+  .stat-grid .s .val{ font-size:20px; font-weight:700; color:#0f172a; margin-top:4px;}
+  .stat-grid .s .sub{ font-size:11px; color:#94a3b8; margin-top:2px;}
+  .stat-grid .s.green{ border-left:4px solid #10b981; }
+  .stat-grid .s.amber{ border-left:4px solid #f59e0b; }
+  .stat-grid .s.rose{ border-left:4px solid #ef4444; }
+  .stat-grid .s.cyan{ border-left:4px solid #06b6d4; }
+  .stat-grid .s.indigo{ border-left:4px solid #6366f1; }
+  .stat-grid .s.slate{ border-left:4px solid #64748b; }
+  @media (max-width: 991px){ .stat-grid{grid-template-columns: repeat(3, minmax(0,1fr));} }
+  @media (max-width: 575px){ .stat-grid{grid-template-columns: repeat(2, minmax(0,1fr));} }
+
+  .slco-tabs > li > a{ color:#475569; font-weight:600; font-size:13px;}
+  .slco-tabs > li.active > a{ color:#1e40af; border-bottom:3px solid #1e40af!important;}
+  .month-table th{ background:#0f172a; color:#fff; font-size:12px;}
+  .month-table td{ font-size:13px;}
+
+  .row-actions .btn{ margin-right:3px; }
+  .label-paid{ background:#10b981; color:#fff;}
+  .label-pending{ background:#f59e0b; color:#fff;}
+  .label-overdue{ background:#ef4444; color:#fff;}
+  .pill{ font-size:11px; padding:2px 9px; border-radius:20px; background:#eef2ff; color:#4338ca;}
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content">
+  <div class="slco-hero">
+    <a href="/admin/sub-lcos" class="back" data-testid="back-to-list-btn"><i class="fa fa-arrow-left"></i> Back to Sub-LCOs</a>
+    <h1>{{ sub_lco.name }} <small style="color:#cbd5e1;font-weight:400;font-size:14px">— Sub-LCO Profile</small></h1>
+    <div class="meta">
+      <span class="pill" style="background:rgba(255,255,255,.15);color:#fff"><b>{{ sub_lco.code }}</b></span>
+      &nbsp;Username: <b>{{ sub_lco.username }}</b>
+      {% if sub_lco.email %} &nbsp;·&nbsp; <i class="fa fa-envelope"></i> {{ sub_lco.email }}{% endif %}
+      {% if sub_lco.mobile %} &nbsp;·&nbsp; <i class="fa fa-phone"></i> {{ sub_lco.mobile }}{% endif %}
+      &nbsp;·&nbsp; Rate: <b>{{ '%.2f' % sub_lco.commission_percent }}%</b>
+      &nbsp;·&nbsp; Status: <b>{{ sub_lco.status }}</b>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="s indigo"><div class="lbl">Total Users</div><div class="val" id="stTotal" data-testid="stat-total-users">—</div><div class="sub">Onboarded by this Sub-LCO</div></div>
+    <div class="s green"><div class="lbl">Active Users</div><div class="val" id="stActive" data-testid="stat-active-users">—</div><div class="sub">Plan not expired</div></div>
+    <div class="s slate"><div class="lbl">Deleted</div><div class="val" id="stDeleted" data-testid="stat-deleted-users">—</div><div class="sub">Soft-removed</div></div>
+    <div class="s cyan"><div class="lbl">Total Revenue</div><div class="val" id="stRev" data-testid="stat-total-revenue">—</div><div class="sub">All-time collection</div></div>
+    <div class="s amber"><div class="lbl">Total Commission</div><div class="val" id="stComm" data-testid="stat-total-commission">—</div><div class="sub">Lifetime earned</div></div>
+    <div class="s rose"><div class="lbl">Pending Commission</div><div class="val" id="stPend" data-testid="stat-pending-commission">—</div><div class="sub">To be settled</div></div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border" style="padding-bottom:0">
+      <ul class="nav nav-tabs slco-tabs" role="tablist">
+        <li role="presentation" class="active"><a href="#tab-overview" role="tab" data-toggle="tab" data-testid="tab-overview"><i class="fa fa-line-chart"></i> Overview</a></li>
+        <li role="presentation"><a href="#tab-invoices" role="tab" data-toggle="tab" data-testid="tab-invoices"><i class="fa fa-file-text-o"></i> Invoices</a></li>
+        <li role="presentation"><a href="#tab-payments" role="tab" data-toggle="tab" data-testid="tab-payments"><i class="fa fa-credit-card"></i> Payments</a></li>
+        <li role="presentation"><a href="#tab-commissions" role="tab" data-toggle="tab" data-testid="tab-commissions"><i class="fa fa-money"></i> Commissions</a></li>
+      </ul>
+    </div>
+    <div class="box-body">
+      <div class="tab-content">
+        <!-- Overview / Monthly breakdown -->
+        <div role="tabpanel" class="tab-pane active" id="tab-overview">
+          <h4 style="margin-top:0;color:#1e40af">Monthly Performance (last 12 months)</h4>
+          <div class="table-responsive">
+            <table class="table table-bordered table-striped month-table">
+              <thead><tr><th>Month</th><th>New Users</th><th>Payments</th><th>Revenue</th><th>Commission Earned</th></tr></thead>
+              <tbody id="monthlyBody"><tr><td colspan="5" class="text-center text-muted">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Invoices -->
+        <div role="tabpanel" class="tab-pane" id="tab-invoices">
+          <div class="table-responsive">
+            <table class="table table-bordered table-striped" id="invTable">
+              <thead><tr><th>Invoice #</th><th>Customer</th><th>Plan</th><th>Period</th><th>Issued</th><th>Due</th><th>Total</th><th>Status</th></tr></thead>
+              <tbody><tr><td colspan="8" class="text-center text-muted">Click tab to load…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Payments added by Sub-LCO/Employees -->
+        <div role="tabpanel" class="tab-pane" id="tab-payments">
+          <div class="table-responsive">
+            <table class="table table-bordered table-striped" id="payTable">
+              <thead><tr><th>Date</th><th>Customer</th><th>Mode</th><th>Txn No</th><th>Amount</th><th>Discount</th><th>Added By</th><th>Remarks</th></tr></thead>
+              <tbody><tr><td colspan="8" class="text-center text-muted">Click tab to load…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Commissions -->
+        <div role="tabpanel" class="tab-pane" id="tab-commissions">
+          <div style="margin-bottom:8px">
+            <a class="btn btn-sm btn-primary" id="btnOpenPayout" data-testid="open-payout-modal-btn"><i class="fa fa-money"></i> Manage Payouts</a>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-striped" id="commTable">
+              <thead><tr><th>Date</th><th>Customer</th><th>Base</th><th>%</th><th>Commission</th><th>Status</th><th>Settled On</th><th>Note</th><th style="white-space:nowrap;min-width:170px">Actions</th></tr></thead>
+              <tbody><tr><td colspan="9" class="text-center text-muted">Click tab to load…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SLCO_ID = {{ sub_lco.id }};
+const SLCO_CODE = {{ sub_lco.code|tojson }};
+
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmt(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtIST(s){
+  if(!s) return '';
+  var iso = String(s).replace(' ','T');
+  if(!/(?:Z|[+\-]\d{2}:?\d{2})$/.test(iso)) iso += 'Z';
+  var d = new Date(iso); if(isNaN(d.getTime())) return String(s).substring(0,16).replace('T',' ');
+  var p = function(n){return n<10?'0'+n:''+n;};
+  var u = new Date(d.getTime() + (5*60+30)*60*1000);
+  // 12-hour AM/PM (IST), no 'IST' suffix per user request.
+  var h24 = u.getUTCHours();
+  var ap = h24 >= 12 ? 'PM' : 'AM';
+  var h12 = h24 % 12; if(h12 === 0) h12 = 12;
+  return p(u.getUTCDate())+'-'+p(u.getUTCMonth()+1)+'-'+u.getUTCFullYear()+' '+p(h12)+':'+p(u.getUTCMinutes())+' '+ap;
+}
+function fmtMonth(s){
+  if(!s) return '';
+  var parts = s.split('-'); if(parts.length<2) return s;
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var idx = parseInt(parts[1],10)-1;
+  return (months[idx]||parts[1]) + ' ' + parts[0];
+}
+
+// ---- Overview ----
+function loadOverview(){
+  $.get('/api/admin/sub-lcos/'+SLCO_ID+'/overview', function(res){
+    if(!res.success) return;
+    var s = res.stats;
+    $('#stTotal').text(s.total_users);
+    $('#stActive').text(s.active_users);
+    $('#stDeleted').text(s.deleted_users);
+    $('#stRev').html('&#8377; '+fmt(s.total_revenue));
+    $('#stComm').html('&#8377; '+fmt(s.total_commission));
+    $('#stPend').html('&#8377; '+fmt(s.pending_commission));
+
+    var $b = $('#monthlyBody').empty();
+    if(!res.monthly.length){
+      $b.append('<tr><td colspan="5" class="text-center text-muted">No activity yet.</td></tr>'); return;
+    }
+    res.monthly.forEach(function(m){
+      $b.append('<tr>'+
+        '<td><b>'+fmtMonth(m.month)+'</b></td>'+
+        '<td>'+m.new_users+'</td>'+
+        '<td>'+m.payments+'</td>'+
+        '<td>&#8377; '+fmt(m.revenue)+'</td>'+
+        '<td><b>&#8377; '+fmt(m.commission)+'</b></td>'+
+      '</tr>');
+    });
+  });
+}
+
+// ---- Invoices ----
+var invLoaded=false;
+function loadInvoices(){
+  if(invLoaded) return; invLoaded=true;
+  $.get('/api/admin/sub-lcos/'+SLCO_ID+'/invoices', function(res){
+    var $b = $('#invTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $b.append('<tr><td colspan="8" class="text-center text-muted">No invoices yet.</td></tr>'); return;
+    }
+    res.items.forEach(function(i){
+      var st = (i.status||'').toLowerCase();
+      var cls = st==='paid' ? 'label-paid' : (st==='overdue' ? 'label-overdue' : 'label-pending');
+      $b.append('<tr>'+
+        '<td><code>'+esc(i.invoice_no)+'</code></td>'+
+        '<td><code>'+esc(i.customer_id)+'</code> '+esc(i.customer_name)+'</td>'+
+        '<td>'+esc(i.plan_name)+'</td>'+
+        '<td>'+esc(i.start_date||'')+' &rarr; '+esc(i.end_date||'')+'</td>'+
+        '<td>'+esc(i.issue_date||'')+'</td>'+
+        '<td>'+esc(i.due_date||'')+'</td>'+
+        '<td>&#8377; '+fmt(i.total_amount)+'</td>'+
+        '<td><span class="label '+cls+'">'+esc(i.status)+'</span></td>'+
+      '</tr>');
+    });
+  });
+}
+
+// ---- Payments ----
+var payLoaded=false;
+function loadPayments(){
+  if(payLoaded) return; payLoaded=true;
+  $.get('/api/admin/sub-lcos/'+SLCO_ID+'/customer-payments', function(res){
+    var $b = $('#payTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $b.append('<tr><td colspan="8" class="text-center text-muted">No payments yet.</td></tr>'); return;
+    }
+    res.items.forEach(function(p){
+      $b.append('<tr>'+
+        '<td>'+esc(fmtIST(p.paid_at||p.created_at))+'</td>'+
+        '<td><code>'+esc(p.customer_id)+'</code> '+esc(p.customer_name)+'</td>'+
+        '<td>'+esc(p.payment_mode)+'</td>'+
+        '<td>'+esc(p.transaction_no)+'</td>'+
+        '<td>&#8377; '+fmt(p.amount)+'</td>'+
+        '<td>&#8377; '+fmt(p.discount)+'</td>'+
+        '<td>'+esc(p.added_by)+'</td>'+
+        '<td>'+esc(p.remarks)+'</td>'+
+      '</tr>');
+    });
+  });
+}
+
+// ---- Commissions ----
+var commLoaded=false;
+function loadCommissions(){
+  if(commLoaded) return; commLoaded=true;
+  $.get('/api/admin/sub-lcos/'+SLCO_ID+'/commissions?status=all', function(res){
+    var $b = $('#commTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $b.append('<tr><td colspan="9" class="text-center text-muted">No commissions yet.</td></tr>'); return;
+    }
+    res.items.forEach(function(c){
+      var statusCls = (c.payout_status==='Settled') ? 'label-paid' : 'label-pending';
+      var receipt = c.payout_id
+        ? '<a class="btn btn-xs btn-default" href="/api/admin/sub-lcos/'+SLCO_ID+'/payouts/'+c.payout_id+'/receipt" target="_blank" title="Download receipt" data-testid="comm-receipt-'+c.id+'"><i class="fa fa-download"></i></a> '
+        : '<button class="btn btn-xs btn-default" disabled title="Not yet settled"><i class="fa fa-download"></i></button> ';
+      $b.append('<tr>'+
+        '<td>'+esc(fmtIST(c.created_at))+'</td>'+
+        '<td><code>'+esc(c.customer_id)+'</code> '+esc(c.customer_name)+'</td>'+
+        '<td>&#8377; '+fmt(c.base_amount)+'</td>'+
+        '<td>'+c.commission_percent.toFixed(2)+'%</td>'+
+        '<td><b>&#8377; '+fmt(c.commission_amount)+'</b></td>'+
+        '<td><span class="label '+statusCls+'">'+esc(c.payout_status||'Pending')+'</span></td>'+
+        '<td>'+esc(fmtIST(c.settled_at))+'</td>'+
+        '<td>'+esc(c.note||'')+'</td>'+
+        '<td class="row-actions" style="white-space:nowrap">'+
+          receipt +
+          '<button class="btn btn-xs btn-info act-email" data-id="'+c.id+'" title="Email to Sub-LCO" data-testid="comm-email-'+c.id+'"><i class="fa fa-envelope"></i></button> '+
+          '<button class="btn btn-xs btn-success act-wa" data-id="'+c.id+'" title="WhatsApp to Sub-LCO" data-testid="comm-whatsapp-'+c.id+'"><i class="fa fa-whatsapp"></i></button>'+
+        '</td>'+
+      '</tr>');
+    });
+  });
+}
+
+$(function(){
+  loadOverview();
+  $('a[data-toggle="tab"]').on('shown.bs.tab', function(e){
+    var t = $(e.target).attr('href');
+    if(t==='#tab-invoices') loadInvoices();
+    else if(t==='#tab-payments') loadPayments();
+    else if(t==='#tab-commissions') loadCommissions();
+  });
+
+  // Receipt-email/whatsapp actions
+  $(document).on('click', '#commTable .act-email', function(){
+    var id = $(this).data('id'); var $btn = $(this);
+    if(!confirm('Send commission #'+id+' details by Email to Sub-LCO?')) return;
+    $btn.prop('disabled', true).find('i').addClass('fa-spin fa-spinner').removeClass('fa-envelope');
+    $.ajax({
+      url: '/api/admin/sub-lcos/'+SLCO_ID+'/commissions/'+id+'/email',
+      method: 'POST', contentType: 'application/json',
+      success: function(r){ alert(r.message || (r.success ? 'Sent' : 'Failed')); },
+      error: function(x){ alert((x.responseJSON && x.responseJSON.message) || 'Email failed'); },
+      complete: function(){ $btn.prop('disabled', false).find('i').removeClass('fa-spin fa-spinner').addClass('fa-envelope'); }
+    });
+  });
+  $(document).on('click', '#commTable .act-wa', function(){
+    var id = $(this).data('id'); var $btn = $(this);
+    if(!confirm('Send commission #'+id+' details via WhatsApp to Sub-LCO?')) return;
+    $btn.prop('disabled', true).find('i').addClass('fa-spin fa-spinner').removeClass('fa-whatsapp');
+    $.ajax({
+      url: '/api/admin/sub-lcos/'+SLCO_ID+'/commissions/'+id+'/whatsapp',
+      method: 'POST', contentType: 'application/json',
+      success: function(r){ alert(r.message || (r.success ? 'Sent' : 'Failed')); },
+      error: function(x){ alert((x.responseJSON && x.responseJSON.message) || 'WhatsApp failed'); },
+      complete: function(){ $btn.prop('disabled', false).find('i').removeClass('fa-spin fa-spinner').addClass('fa-whatsapp'); }
+    });
+  });
+
+  // Open standard payout modal from Sub-LCOs list page (deep-link)
+  $('#btnOpenPayout').on('click', function(){
+    window.location.href = '/admin/sub-lcos?openPayout=' + SLCO_ID;
+  });
+});
+</script>
+{% endblock %}

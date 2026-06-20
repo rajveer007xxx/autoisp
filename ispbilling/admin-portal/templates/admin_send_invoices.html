@@ -1,0 +1,327 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Sent Invoice List - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Sent Invoice List
+        <small>Every invoice generated for your company</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Invoices</h3>
+        </div>
+        <div class="box-body">
+            <form id="invFilterForm" class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:&nbsp;</label>
+                    <select id="invFilterStatus" class="form-control">
+                        <option value="">All</option>
+                        <option value="generated">Generated</option>
+                        <option value="sent">Sent</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Start Date:&nbsp;</label>
+                    <input type="date" id="invFilterStart" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>End Date:&nbsp;</label>
+                    <input type="date" id="invFilterEnd" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Type:&nbsp;</label>
+                    <select id="invFilterType" class="form-control" data-testid="inv-filter-type">
+                        <option value="">All</option>
+                        <option value="customer_type|Prepaid">Prepaid</option>
+                        <option value="customer_type|Postpaid">Postpaid</option>
+                        <option value="gst_invoice|yes">GST Invoice</option>
+                        <option value="gst_invoice|no">Non-GST Invoice</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Customer Name / Invoice No:&nbsp;</label>
+                    <input type="text" id="invFilterName" class="form-control" placeholder="Search by name or invoice number" data-testid="sent-inv-search">
+                </div>
+                <button type="button" id="invApply" class="btn btn-primary">Apply Filter</button>
+                <button type="button" id="invClear" class="btn btn-default">Clear</button>
+                <button type="button" id="invDownloadZip" class="btn btn-success pull-right" data-testid="inv-download-zip" style="margin-left:8px;"><i class="fa fa-file-archive-o"></i> Download All (ZIP)</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Sent Invoices</h3>
+            <div class="box-tools">
+                <span id="invCount" class="label label-primary">0</span>
+            </div>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table id="invTable" class="table no-dt table-bordered table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Invoice No</th>
+                            <th>Customer ID</th>
+                            <th>Customer Name</th>
+                            <th>Email</th>
+                            <th>Plan</th>
+                            <th>Amount Due</th>
+                            <th>Issue Date</th>
+                            <th>Status</th>
+                            <th style="width:130px;" data-testid="th-wa-status">WhatsApp</th>
+                            <th style="width:140px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invTbody">
+                        <tr><td colspan="10" class="text-center">Loading invoices...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+$(document).ready(function() {
+    function _invDTDestroy(){
+        try {
+            if ($.fn.DataTable.isDataTable('#invTable')) {
+                $('#invTable').DataTable().destroy();
+            }
+        } catch(_) {}
+    }
+    function _invDTInit(){
+        try {
+            // Destroy any previous DT first
+            if ($.fn.DataTable.isDataTable('#invTable')) {
+                $('#invTable').DataTable().destroy();
+            }
+            var $tb = $('#invTable tbody');
+            var $children = $tb.children('tr');
+            var hasPh = $children.filter(function(){
+                return $(this).children('td[colspan]').length > 0;
+            }).length === $children.length && $children.length > 0;
+            if (hasPh) {
+                // Empty-state: do not init DT on a colspan-only tbody (DT throws).
+                // Remove the placeholder, keep an empty tbody, init with empty data.
+                $tb.empty();
+            }
+            $('#invTable').DataTable({
+                pageLength: 20,
+                lengthMenu: [[10, 20, 50, 100, -1], [10, 20, 50, 100, 'All']],
+                pagingType: 'simple_numbers',
+                order: [],
+                language: { emptyTable: 'No invoices found' }
+            });
+        } catch(e) {
+            console.warn('[invDT init]', e);
+        }
+    }
+    
+function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+    function load() {
+        _invDTDestroy();
+        var params = new URLSearchParams();
+        var st = $('#invFilterStatus').val();
+        var sd = $('#invFilterStart').val();
+        var ed = $('#invFilterEnd').val();
+        var nm = $('#invFilterName').val();
+        if (st) params.append('status', st);
+        if (sd) params.append('start_date', sd);
+        if (ed) params.append('end_date', ed);
+        if (nm) params.append('q', nm);
+        // S33 customer type / GST filter
+        var ft = $('#invFilterType').val();
+        if (ft) {
+            var parts = ft.split('|');
+            params.append(parts[0], parts[1]);
+        }
+
+        $('#invTbody').html('<tr><td colspan="10" class="text-center">Loading invoices...</td></tr>');
+        $.ajax({
+            url: '/api/invoices/sent-list?' + params.toString(),
+            method: 'GET',
+            success: function(resp) {
+                if (!resp || !resp.success) {
+                    $('#invTbody').html('<tr><td colspan="10" class="text-center text-danger">' + esc((resp && resp.message) || 'Failed to load invoices') + '</td></tr>');
+                    $('#invCount').text('0');
+                    return;
+                }
+                var list = resp.invoices || [];
+                $('#invCount').text(list.length);
+                if (list.length === 0) {
+                    $('#invTbody').html('<tr><td colspan="10" class="text-center">No invoices found</td></tr>');
+                    _invDTInit();
+                    return;
+                }
+                var html = '';
+                list.forEach(function(inv) {
+                    var badge = 'label-default';
+                    var st2 = (inv.status || '').toLowerCase();
+                    if (st2 === 'paid') badge = 'label-success';
+                    else if (st2 === 'sent') badge = 'label-info';
+                    else if (st2 === 'generated') badge = 'label-primary';
+                    html += '<tr>' +
+                        '<td><strong>' + esc(inv.invoice_no) + '</strong></td>' +
+                        '<td>' + esc(inv.customer_id) + '</td>' +
+                        '<td>' + esc(inv.customer_name) + '</td>' +
+                        '<td>' + esc(inv.customer_email) + '</td>' +
+                        '<td>' + esc(inv.plan_name) + '</td>' +
+                        '<td>&#8377; ' + Number(inv.amount || 0).toFixed(2) + '</td>' +
+                        '<td>' + esc(inv.issue_date) + '</td>' +
+                        '<td><span class="label ' + badge + '">' + esc(inv.status) + '</span></td>' +
+                        '<td data-wa-cell="' + inv.id + '" data-testid="wa-cell-' + inv.id + '">' +
+                            '<span style="color:#94a3b8;font-size:11px">—</span>' +
+                        '</td>' +
+                        '<td>' +
+                            '<a href="' + esc(inv.download_url) + '" target="_blank" class="btn btn-xs btn-primary" title="Download PDF"><i class="fa fa-download"></i></a> ' +
+                            '<button type="button" class="btn btn-xs btn-info send-inv-btn" data-url="' + esc(inv.email_url) + '" title="Resend Email"><i class="fa fa-envelope"></i></button>' +
+                            /* __S43S_INV_WA__ Send via WhatsApp button */
+                            ' <button type="button" class="btn btn-xs send-inv-wa-btn" data-url="' + esc(inv.whatsapp_url) + '" data-phone="' + esc(inv.customer_phone || '') + '" data-inv-no="' + esc(inv.invoice_no) + '" data-testid="inv-wa-' + inv.id + '" title="Send invoice via WhatsApp" style="background:#25D366;color:#fff;border-color:#25D366;"><i class="fa fa-whatsapp"></i></button>' +
+                            {% if user_type in ["admin", "superadmin"] %}
+                            ' <button type="button" class="btn btn-xs btn-danger inv-delete-btn" data-inv-id="' + inv.id + '" data-inv-no="' + esc(inv.invoice_no) + '" data-amount="' + (inv.amount || 0) + '" data-testid="inv-delete-' + inv.id + '" title="Delete invoice (wipes PDF from all portals)"><i class="fa fa-trash"></i></button>' +
+                            {% endif %}
+                        '</td>' +
+                    '</tr>';
+                });
+                $('#invTbody').html(html);
+                // __WA_BADGE_COL__  populate ✓/✓✓/👁/✗ badges
+                try {
+                    var ids = list.map(function(x){return x.id;}).filter(Boolean);
+                    if (ids.length) {
+                        $.getJSON('/api/admin/whatsapp/log-statuses?invoice_ids='+ids.join(','),
+                            function(r){
+                                var inv = (r && r.invoices) || {};
+                                Object.keys(inv).forEach(function(k){
+                                    var s = inv[k] || {};
+                                    var ic, lbl, color;
+                                    if (s.read_at) { ic='✓✓'; lbl='Read'; color='#1d4ed8'; }
+                                    else if (s.delivered_at) { ic='✓✓'; lbl='Delivered'; color='#0891b2'; }
+                                    else if (s.failed_at || s.status==='failed') { ic='✗'; lbl='Failed'; color='#dc2626'; }
+                                    else if (s.sent_at || s.status==='sent') { ic='✓'; lbl='Sent'; color='#475569'; }
+                                    else { return; }
+                                    var cell = $('[data-wa-cell="'+k+'"]');
+                                    cell.html('<span title="'+lbl+'" data-testid="wa-badge-'+k+'" style="color:'+color+';font-weight:700;font-size:13px">'+ic+'</span> <small style="color:#64748b">'+lbl+'</small>');
+                                });
+                            });
+                    }
+                } catch (e) { /* ignore */ }
+                _invDTInit();
+            },
+            error: function(x) {
+                $('#invTbody').html('<tr><td colspan="10" class="text-center text-danger">Error loading invoices (' + x.status + ')</td></tr>');
+                $('#invCount').text('0');
+            }
+        });
+    }
+
+    $('#invApply').on('click', load);
+    $('#invFilterType').on('change', load);
+    $('#invDownloadZip').on('click', function(){
+        var params = new URLSearchParams();
+        if ($('#invFilterStatus').val()) params.append('status', $('#invFilterStatus').val());
+        if ($('#invFilterStart').val())  params.append('start_date', $('#invFilterStart').val());
+        if ($('#invFilterEnd').val())    params.append('end_date',   $('#invFilterEnd').val());
+        if ($('#invFilterName').val())   params.append('q', $('#invFilterName').val());
+        var ft = $('#invFilterType').val();
+        if (ft) { var parts = ft.split('|'); params.append(parts[0], parts[1]); }
+        window.location.href = '/api/invoices/download-zip?' + params.toString();
+    });
+    $('#invClear').on('click', function() {
+        $('#invFilterStatus').val('');
+        $('#invFilterStart').val('');
+        $('#invFilterEnd').val('');
+        $('#invFilterName').val('');
+        $('#invFilterType').val('');
+        load();
+    });
+    $('#invFilterName').on('keydown', function(e) {
+        if (e.which === 13) { e.preventDefault(); load(); }
+    });
+    $(document).on('click', '.send-inv-btn', function() {
+        var url = $(this).data('url');
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+        $.post(url).done(function(r) {
+            alert(r && r.success ? 'Invoice email sent.' : ('Failed: ' + ((r && r.message) || 'unknown error')));
+        }).fail(function(x) {
+            alert('Failed to send invoice email (' + x.status + ')');
+        }).always(function() {
+            $btn.prop('disabled', false).html('<i class="fa fa-envelope"></i>');
+        });
+    });
+
+    load();
+});
+
+    // __S43J_DELETE_INV__
+    $(document).on('click', '.inv-delete-btn', function() {
+        var $btn  = $(this);
+        var invId = $btn.data('inv-id');
+        var invNo = $btn.data('inv-no');
+        var amt   = $btn.data('amount');
+        if (!confirm(
+            '⚠️  WARNING — PERMANENT DELETION\n\n' +
+            'You are about to permanently delete invoice ' + invNo + '  (₹' + amt + ').\n\n' +
+            'This will:\n' +
+            ' • REMOVE the invoice record from the database\n' +
+            ' • WIPE the PDF from all portals & the mobile app\n' +
+            ' • All sub-LCOs, employees and customers will lose access to it\n\n' +
+            'This action CANNOT be undone. Continue?')) return;
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+        $.ajax({
+            url: '/api/admin/invoices/' + invId + '/delete',
+            method: 'POST',
+            success: function(r) {
+                if (r && r.success) {
+                    alert(r.message || 'Invoice deleted.');
+                    if (typeof load === 'function') load();
+                } else {
+                    alert('Failed: ' + ((r && r.message) || 'unknown error'));
+                    $btn.prop('disabled', false).html('<i class="fa fa-trash"></i>');
+                }
+            },
+            error: function(x) {
+                alert('Failed: ' + (x.responseJSON && x.responseJSON.message || x.statusText || 'HTTP ' + x.status));
+                $btn.prop('disabled', false).html('<i class="fa fa-trash"></i>');
+            }
+        });
+    });
+
+    // __S43S_INV_WA__
+    $(document).on('click', '.send-inv-wa-btn', function() {
+        var url = $(this).data('url');
+        var phone = $(this).data('phone') || '';
+        var invNo = $(this).data('inv-no');
+        if (!phone) {
+            if (!confirm('No phone on file for ' + invNo + '. Open template-only WhatsApp page anyway?')) return;
+        }
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+        if (window.showProcessing) showProcessing('Sending invoice on WhatsApp…', 'Invoice: ' + invNo);
+        $.post(url).done(function(r){
+            if (window.hideProcessing) hideProcessing();
+            if (r && r.success) {
+                alert('Invoice ' + invNo + ' sent on WhatsApp.');
+            } else if (r && r.fallback_wa_url) {
+                window.open(r.fallback_wa_url, '_blank');
+            } else {
+                alert('Failed: ' + ((r && r.message) || 'unknown error'));
+            }
+            $btn.prop('disabled', false).html('<i class="fa fa-whatsapp"></i>');
+        }).fail(function(x){
+            if (window.hideProcessing) hideProcessing();
+            alert('Failed: ' + (x.responseJSON && x.responseJSON.message || x.statusText || 'HTTP ' + x.status));
+            $btn.prop('disabled', false).html('<i class="fa fa-whatsapp"></i>');
+        });
+    });
+</script>
+{% endblock %}

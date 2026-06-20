@@ -1,0 +1,21 @@
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database files
+autoispbilling.db
+autoispbilling-backup-*.db
+
+# Environment files
+.env
+.env.local
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Backup directories
+backups/

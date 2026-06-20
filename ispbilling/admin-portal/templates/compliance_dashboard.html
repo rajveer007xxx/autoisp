@@ -1,0 +1,371 @@
+{% extends "base_admin.html" %}
+{% block title %}Compliance Center - Auto ISP Billing{% endblock %}
+{% block content %}
+<section class="content-header">
+    <h1>
+        <i class="bi bi-shield-check"></i> Compliance Center
+        <small>DoT / TRAI — regulatory logs, site blocklists, data retention</small>
+    </h1>
+</section>
+<section class="content">
+    <div class="row">
+      <div class="col-md-6">
+        <div class="box box-primary">
+          <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-journal-text"></i> Audit & Access Logs</h3>
+          </div>
+          <div class="box-body">
+            <p>Customer status changes, admin actions, kick/reactivate events. Retained &ge; 2 years.</p>
+            <a href="/admin/compliance/audit-logs" class="btn btn-primary btn-sm">
+              <i class="bi bi-eye-fill"></i> View Audit Logs
+            </a>
+            <a href="/admin/compliance/export?kind=audit&format=csv" class="btn btn-success btn-sm">
+              <i class="bi bi-download"></i> Download CSV
+            </a>
+            <a href="/admin/compliance/export?kind=audit&format=xlsx" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel"></i> Excel
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="box box-info">
+          <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-hdd-network"></i> IP / NAT Assignment Logs</h3>
+          </div>
+          <div class="box-body">
+            <p>Per-session user &harr; IP mapping (DoT 2-year mandatory retention).
+               Pulled live from the Radius accounting store.</p>
+            <a href="/admin/compliance/ip-nat-logs" class="btn btn-primary btn-sm">
+              <i class="bi bi-eye-fill"></i> View Logs
+            </a>
+            <a href="/admin/compliance/export?kind=ipnat&format=csv" class="btn btn-success btn-sm">
+              <i class="bi bi-download"></i> CSV
+            </a>
+            <a href="/admin/compliance/export?kind=ipnat&format=xlsx" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel"></i> Excel
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="box box-warning">
+          <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-slash-circle"></i> DoT Site / URL Blocklist</h3>
+          </div>
+          <div class="box-body">
+            <p>Maintain DoT-ordered site/URL blocks. Entries auto-sync to every Active NAS
+               as a Mikrotik address-list named <code>dot-blocklist</code>.</p>
+            <a href="/admin/compliance/blocklist" class="btn btn-warning btn-sm">
+              <i class="bi bi-list-check"></i> Manage Blocklist
+            </a>
+            <a href="/admin/compliance/export?kind=blocklist&format=csv" class="btn btn-success btn-sm">
+              <i class="bi bi-download"></i> CSV
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="box box-success">
+          <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-speedometer2"></i> QoS / Bandwidth Utilisation</h3>
+          </div>
+          <div class="box-body">
+            <p>Per-NAS traffic summary. Alerts when a link crosses 80% utilisation and
+               flags if 30-day average exceeds 90% (TRAI QoS standard).</p>
+            <a href="/admin/compliance/qos" class="btn btn-success btn-sm">
+              <i class="bi bi-graph-up-arrow"></i> View QoS Report
+            </a>
+            <a href="/admin/compliance/export?kind=qos&format=csv" class="btn btn-success btn-sm">
+              <i class="bi bi-download"></i> CSV
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-12">
+        <div class="box box-danger">
+          <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-archive"></i> Regulatory Data Bundle</h3>
+          </div>
+          <div class="box-body">
+            <p>
+              One-click ZIP containing all compliance logs (audit, IP/NAT, blocklist snapshot,
+              QoS summary, customer status history) for the selected period. Use this when
+              responding to a DoT / LEA query.
+            </p>
+            <form method="get" action="/admin/compliance/regulatory-bundle.zip" class="form-inline">
+              <div class="form-group">
+                <label>From:</label>
+                <input type="date" name="from" class="form-control input-sm" required>
+              </div>
+              <div class="form-group" style="margin-left:8px;">
+                <label>To:</label>
+                <input type="date" name="to" class="form-control input-sm" required>
+              </div>
+              <button type="submit" class="btn btn-danger btn-sm" style="margin-left:8px;">
+                <i class="bi bi-file-earmark-zip"></i> Download Bundle (.zip)
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <!-- _S39R5_FIX4 — DoT / TRAI 2026 Compliance Matrix -->
+    <div class="box box-primary" id="dot-2026">
+      <div class="box-header with-border">
+        <h3 class="box-title"><i class="bi bi-shield-check"></i>
+          DoT / TRAI 2026 Compliance Matrix
+          <small style="margin-left:10px;color:#64748b;">comprehensive requirement tracker</small>
+        </h3>
+      </div>
+      <div class="box-body">
+
+        <!-- Quick stats -->
+        <div class="row" id="dot-stats" style="margin-bottom:16px;">
+          <div class="col-sm-3"><div class="info-box bg-aqua">
+            <span class="info-box-icon"><i class="bi bi-person-vcard"></i></span>
+            <div class="info-box-content">
+              <span class="info-box-text">KYC-verified subscribers</span>
+              <span class="info-box-number" id="kyc-num">…</span>
+            </div></div></div>
+          <div class="col-sm-3"><div class="info-box bg-yellow">
+            <span class="info-box-icon"><i class="bi bi-shield-lock"></i></span>
+            <div class="info-box-content">
+              <span class="info-box-text">Active LI orders</span>
+              <span class="info-box-number" id="li-num">…</span>
+            </div></div></div>
+          <div class="col-sm-3"><div class="info-box bg-red">
+            <span class="info-box-icon"><i class="bi bi-exclamation-triangle"></i></span>
+            <div class="info-box-content">
+              <span class="info-box-text">Pending destruction (2-mo rule)</span>
+              <span class="info-box-number" id="li-pend">…</span>
+            </div></div></div>
+          <div class="col-sm-3"><div class="info-box bg-orange">
+            <span class="info-box-icon"><i class="bi bi-slash-circle"></i></span>
+            <div class="info-box-content">
+              <span class="info-box-text">Blocked URLs / IPs</span>
+              <span class="info-box-number" id="bl-num">…</span>
+            </div></div></div>
+        </div>
+
+        
+        <div class="cmp-card" style="background:#fff;border-radius:12px;padding:14px 18px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05);display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+          <b style="font-size:14px;color:#0b1120">Issue ingest token:</b>
+          <select id="tknKind" class="form-control" style="width:auto;display:inline-block">
+            <option value="ipdr">IPDR (5-tuple)</option>
+            <option value="url">URL logs</option>
+          </select>
+          <input id="tknLabel" class="form-control" style="width:240px;display:inline-block" placeholder="Label (e.g. mt-router-1)">
+          <button class="btn btn-primary btn-sm" onclick="issueTok()" data-testid="issue-token-btn">Generate</button>
+          <button class="btn btn-default btn-sm" onclick="listTok()" data-testid="list-token-btn">My tokens</button>
+          <span id="tknOut" style="color:#475569;font-size:13px;margin-left:auto"></span>
+        </div>
+        <script>
+        async function issueTok(){
+          const kind=document.getElementById('tknKind').value;
+          const lbl=document.getElementById('tknLabel').value.trim();
+          const r=await fetch('/api/compliance/ingest-tokens/issue',{
+            method:'POST',credentials:'include',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({kind,label:lbl})});
+          const d=await r.json();
+          if(d.success){
+            document.getElementById('tknOut').innerHTML='<b>Token (save now!):</b> <code style="background:#fff7ed;padding:3px 6px;border-radius:4px">'+d.token+'</code>';
+          } else alert(d.message||'Failed');
+        }
+        async function listTok(){
+          const r=await fetch('/api/compliance/ingest-tokens/list',{credentials:'include'});
+          const d=await r.json();
+          if(!d.items||!d.items.length){document.getElementById('tknOut').textContent='No tokens issued yet.';return;}
+          document.getElementById('tknOut').innerHTML='<b>'+d.items.length+'</b> token(s): '+d.items.map(x=>(x.kind+' · '+(x.label||'unlabeled')+(x.revoked?' [REVOKED]':''))).join(' | ');
+        }
+        </script>
+
+        
+        <!-- Phase-27.2 NAS push status -->
+        <div class="cmp-card" style="background:#fff;border-radius:12px;padding:14px 18px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)">
+          <h4 style="margin:0 0 10px;display:flex;align-items:center;gap:8px"><i class="bi bi-broadcast"></i> Live NAS push status
+            <button class="btn btn-default btn-xs" onclick="loadNasPushStatus()" data-testid="nas-push-refresh" style="margin-left:auto"><i class="fa fa-refresh"></i> Refresh</button>
+          </h4>
+          <div id="nasPushBox" style="font-size:13px;color:#475569"><i class="fa fa-spinner fa-spin"></i> Loading…</div>
+        </div>
+        <script>
+        function _statusBadge(s){
+          var map = {
+            active:        ['#dcfce7','#15803d','● Active'],
+            stale:         ['#fef3c7','#92400e','● Stale'],
+            stopped:       ['#fee2e2','#991b1b','● Stopped'],
+            not_deployed:  ['#f1f5f9','#64748b','◌ Not deployed'],
+            deployed_no_data: ['#dbeafe','#1e40af','● Deployed (waiting)'],
+          };
+          var v = map[s] || ['#f1f5f9','#64748b',s||'?'];
+          return '<span style="background:'+v[0]+';color:'+v[1]+';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">'+v[2]+'</span>';
+        }
+        async function loadNasPushStatus(){
+          var box = document.getElementById('nasPushBox');
+          box.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Loading…';
+          try {
+            var r = await fetch('/api/compliance/nas-push-status', {credentials:'include'});
+            var d = await r.json();
+            if (!d.success || !d.items || !d.items.length) {
+              box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:14px">No NAS devices configured yet. Add one under <a href="/admin/nas-devices">NAS Devices</a> to enable IPDR / URL logs forwarding.</div>';
+              return;
+            }
+            var html = '<table class="table table-condensed" style="margin:0"><thead><tr>'
+              + '<th>NAS</th><th>IP</th><th>IPDR</th><th>Last IPDR</th><th>24h IPDR</th>'
+              + '<th>URL</th><th>Last URL</th><th>24h URL</th>'
+              + '</tr></thead><tbody>';
+            d.items.forEach(function(it){
+              html += '<tr>'
+                + '<td><b>'+(it.name||'-')+'</b></td>'
+                + '<td><code>'+(it.ip||'-')+'</code></td>'
+                + '<td>'+_statusBadge(it.ipdr_status)+'</td>'
+                + '<td>'+(it.ipdr_last||'<span class="text-muted">never</span>')+'</td>'
+                + '<td>'+it.ipdr_count_24h+'</td>'
+                + '<td>'+_statusBadge(it.url_status)+'</td>'
+                + '<td>'+(it.url_last||'<span class="text-muted">never</span>')+'</td>'
+                + '<td>'+it.url_count_24h+'</td>'
+                + '</tr>';
+            });
+            html += '</tbody></table>'
+              + '<small class="text-muted">Active = data within 30 min · Stale = within 4 h · Stopped = none in last 4 h. Generate setup script from <a href="/admin/nas-devices">NAS Devices</a>.</small>';
+            box.innerHTML = html;
+          } catch(e){
+            box.innerHTML = '<div style="color:#b91c1c">Failed to load: '+e+'</div>';
+          }
+        }
+        loadNasPushStatus();
+        </script>
+
+        <table class="table table-bordered">
+          <thead style="background:#f8fafc;"><tr>
+            <th style="width:32%">Requirement (DoT/TRAI 2026)</th>
+            <th style="width:14%">Status</th>
+            <th>Implementation</th>
+            <th style="width:18%">Action</th>
+          </tr></thead>
+          <tbody>
+            <tr><td><strong>Dynamic / static IP allocation logs</strong><br><small class="text-muted">which user got which public/private IP & when</small></td>
+              <td><span class="label label-success">Auto-captured</span></td>
+              <td>Each subscriber's session is recorded with assigned IP and start/stop timestamps. NAT 1:1 mapping is also tracked in-app.</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/compliance/ip-nat-logs">View</a></td>
+            </tr>
+            <tr><td><strong>Internet Protocol Detail Records (IPDR)</strong><br><small class="text-muted">incoming/outgoing connection records (5-tuple)</small></td>
+              <td><span class="label label-success">Live ingest</span></td>
+              <td>Connection-level activity records (5-tuple) are securely received from your network devices and stored under your tenant for forensic disclosure.</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/compliance/ipdr" data-testid="ipdr-link">View IPDR</a></td>
+            </tr>
+            <tr><td><strong>Activity logs — visited URLs, sessions, protocols</strong><br><small class="text-muted">HTTP/FTP/mail timestamps</small></td>
+              <td><span class="label label-success">Live ingest</span></td>
+              <td>Visited hosts/URLs and protocol timestamps are received from your network proxy and retained for audit, scoped to your tenant.</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/compliance/url-logs" data-testid="urls-link">View URL logs</a></td>
+            </tr>
+            <tr><td><strong>Nuisance / threatening message tracking</strong></td>
+              <td><span class="label label-default">N/A</span></td>
+              <td>Telecom-circle requirement — does not apply to fiber-only ISP. Forwarded via DoT blocklist when reported.</td>
+              <td><a class="btn btn-xs btn-warning" href="/admin/compliance/blocklist">Blocklist</a></td>
+            </tr>
+            <tr><td><strong>Subscriber location (geographical)</strong></td>
+              <td><span class="label label-success">Captured</span></td>
+              <td>Address + lat/lng on every customer record (audited at activation).</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/users">Subscribers</a></td>
+            </tr>
+            <tr><td><strong>Tower connectivity / cell-id</strong></td>
+              <td><span class="label label-default">N/A</span></td>
+              <td>Wireline ISP — no cellular tower data. ONU/NAS port + locality recorded instead.</td>
+              <td>—</td>
+            </tr>
+            <tr><td><strong>1-year activity log retention</strong></td>
+              <td><span class="label label-success">2-year automated</span></td>
+              <td>Records older than 730 days are automatically moved to a secured archive every night. Session/accounting records are kept in place as required.</td>
+              <td><a class="btn btn-xs btn-success" href="/admin/compliance/retention" data-testid="retention-link">View &amp; Run</a></td>
+            </tr>
+            <tr><td><strong>Disclosure on lawful request</strong></td>
+              <td><span class="label label-success">CSV/XLSX/ZIP</span></td>
+              <td>Export endpoints: <code>/admin/compliance/export?kind=…&amp;format=…</code>; full bundle ZIP per date-range.</td>
+              <td><a class="btn btn-xs btn-success" href="/admin/compliance/export?kind=audit&amp;format=xlsx">Export</a></td>
+            </tr>
+            <tr><td><strong>CMS interception readiness (real-time)</strong></td>
+              <td><span class="label label-success">Configurable</span></td>
+              <td>Per-tenant CMS endpoint + key + mirror NAS. Built-in test button validates the endpoint. RouterOS config snippet generated from saved values.</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/compliance/cms-mirror" data-testid="cms-link">Configure</a></td>
+            </tr>
+            <tr><td><strong>Identity-verified login (no anonymous)</strong></td>
+              <td><span class="label label-success">Enforced</span></td>
+              <td>All customers require KYC documents (Aadhaar / PAN / address proof) at activation. No connection without admin approval.</td>
+              <td><a class="btn btn-xs btn-primary" href="/admin/users">KYC view</a></td>
+            </tr>
+            <tr><td><strong>Lawful Interception orders (record &amp; auto-destroy after 2 mo)</strong></td>
+              <td><span class="label label-success">Tracked</span></td>
+              <td>Each order recorded with auto-destroy date = end-of-order + 60 days. Daily sweep auto-flags expired orders.</td>
+              <td><a class="btn btn-xs btn-danger" href="/admin/compliance/li-orders">Manage</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="text-muted" style="font-size:12px;margin-top:10px;">
+          References: DoT Unified License Annexure-II §39, TRAI Regulation 2026, ICLG India 2026.
+        </p>
+      </div>
+    </div>
+
+    <script>
+    (async()=>{ try{
+      const r=await fetch('/api/compliance/dot-stats',{credentials:'same-origin'});
+      const j=await r.json(); if(!j.ok)return;
+      const s=j.stats||{};
+      const pct = s.customers_total ? Math.round(100*(s.customers_kyc||0)/s.customers_total) : 0;
+      document.getElementById('kyc-num').textContent = (s.customers_kyc||0)+' / '+(s.customers_total||0)+' ('+pct+'%)';
+      document.getElementById('li-num').textContent  = s.li_active||0;
+      document.getElementById('li-pend').textContent = s.li_pending_destroy||0;
+      document.getElementById('bl-num').textContent  = s.blocklist||0;
+    }catch(e){}})();
+    </script>
+
+    <div class="box">
+      <div class="box-header with-border">
+        <h3 class="box-title"><i class="bi bi-info-circle"></i> Compliance Status</h3>
+      </div>
+      <div class="box-body">
+        <table class="table table-bordered" style="max-width:780px;">
+          <tr><th>Requirement</th><th>Status</th><th>Notes</th></tr>
+          <tr>
+            <td>2-year IP/NAT log retention</td>
+            <td><span class="label label-success">Enabled</span></td>
+            <td>Session/accounting + in-app status logs</td>
+          </tr>
+          <tr>
+            <td>Lawful Interception log export</td>
+            <td><span class="label label-success">Available</span></td>
+            <td>CSV / XLSX / ZIP bundle — one-click</td>
+          </tr>
+          <tr>
+            <td>Instant site blocking (Mikrotik)</td>
+            <td><span class="label label-success">Active</span></td>
+            <td>Syncs to NAS address-list <code>dot-blocklist</code></td>
+          </tr>
+          <tr>
+            <td>TRAI QoS reporting (80% / 90%)</td>
+            <td><span class="label label-success">Dashboard</span></td>
+            <td>Monthly rolling average per NAS</td>
+          </tr>
+          <tr>
+            <td>Net Neutrality (no traffic discrimination)</td>
+            <td><span class="label label-success">Compliant</span></td>
+            <td>Rate-limiting is per-plan only, not per-application</td>
+          </tr>
+          <tr>
+            <td>Indian data localisation</td>
+            <td><span class="label label-success">Compliant</span></td>
+            <td>DB + logs stored on-premise / VPS within India</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+</section>
+{% endblock %}

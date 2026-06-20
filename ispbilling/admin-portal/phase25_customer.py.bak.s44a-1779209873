@@ -1,0 +1,349 @@
+"""
+Phase 2.5 (Feb 2026) — Customer self-service additions:
+- Merge change-package + upgrade-plan into one /customer/change-plan
+- Customer WiFi config (2.4 GHz, 5 GHz, band-split) — pushes to ONU via TR-069
+"""
+from fastapi import Request, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+
+
+def _is_customer(request):
+    return (request.session.get("user_type") or "").lower() == "customer"
+
+
+def register(app, templates, get_db):
+    # ──────────── /customer/change-plan (merged) ────────────
+    @app.get("/customer/change-plan", response_class=HTMLResponse)
+    async def customer_change_plan_page(request: Request, db: Session = Depends(get_db)):
+        if not _is_customer(request):
+            return RedirectResponse("/login", 302)
+        # _S40zκ_ Use _customer_ctx so base_user.html receives logo/name/online.
+        from main import _customer_ctx
+        ctx = _customer_ctx(request, db, "change_plan")
+        return templates.TemplateResponse("customer_change_plan.html", ctx)
+
+    # Old route → redirect
+    @app.get("/customer/change-package")
+    async def customer_change_package_redir(request: Request):
+        return RedirectResponse("/customer/change-plan", 302)
+
+    @app.get("/api/customer/all-plans")
+    async def api_customer_all_plans(request: Request, db: Session = Depends(get_db)):
+        if not _is_customer(request):
+            return {"success": False, "message": "Unauthorized"}
+        company_id = request.session.get("company_id")
+        cust_id = request.session.get("user_id")
+        from database import Customer, Plan
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id,
+                                          Customer.company_id == company_id).first()
+        if not cust:
+            return {"success": False, "message": "Customer not found"}
+        cur_plan = db.query(Plan).filter(Plan.id == cust.plan_id,
+                                          Plan.company_id == company_id).first()
+        plans = db.query(Plan).filter(Plan.company_id == company_id)\
+                              .order_by(Plan.after_tax_amount).all()
+        cur_amt = float(cur_plan.after_tax_amount or 0) if cur_plan else 0
+        items = []
+        for p in plans:
+            amt = float(p.after_tax_amount or 0)
+            kind = "current" if (cur_plan and p.id == cur_plan.id) else \
+                   ("upgrade" if amt > cur_amt else "downgrade")
+            items.append({
+                "id": p.id, "name": p.plan_name,
+                "speed": "",  # s40r: never expose plan speeds to customers
+                "validity": p.validity, "validity_unit": p.validity_unit or "days",
+                "amount": amt, "description": p.description or "",
+                "kind": kind,
+            })
+        return {"success": True,
+                "current": {"id": cur_plan.id if cur_plan else None,
+                             "name": cur_plan.plan_name if cur_plan else "-",
+                             "amount": cur_amt},
+                "plans": items}
+
+    # Reuse upgrade APIs (already present in phase23) for paid upgrades.
+    # New endpoint: request a downgrade / same-price change → admin ticket.
+    @app.post("/api/customer/plan-change-request")
+    async def api_customer_plan_change_request(request: Request, db: Session = Depends(get_db)):
+        if not _is_customer(request):
+            return {"success": False, "message": "Unauthorized"}
+        company_id = request.session.get("company_id")
+        cust_id = request.session.get("user_id")
+        try: data = await request.json()
+        except Exception: data = dict(await request.form())
+        target = int(data.get("target_plan_id") or 0)
+        if not target:
+            return {"success": False, "message": "target_plan_id required"}
+        from database import Customer, Plan, Complaint
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id,
+                                          Customer.company_id == company_id).first()
+        plan = db.query(Plan).filter(Plan.id == target,
+                                      Plan.company_id == company_id).first()
+        if not cust or not plan:
+            return {"success": False, "message": "Invalid"}
+        import time as _t
+        ticket_no = f"PCR{int(_t.time())}"
+        from datetime import datetime as _dt41p, timezone as _tz41p
+        _now41p = _dt41p.now(_tz41p.utc)
+        c = Complaint(
+            company_id=company_id, customer_id=cust.customer_id,
+            ticket_no=ticket_no,
+            complaint_type="Plan Change Request",
+            subject=f"Plan change request: {plan.plan_name}",
+            description=f"Customer requested change to plan: {plan.plan_name} (ID {plan.id})",
+            status="Pending", kind="Complaint",
+            source="customer", target_role="admin",
+            priority="Medium", created_at=_now41p, updated_at=_now41p,
+        )
+        db.add(c); db.commit()
+        return {"success": True, "ticket": ticket_no,
+                "message": "Request received. Our team will reach out shortly."}
+
+    # ──────────── /customer/wifi-settings ────────────
+    @app.get("/customer/wifi-settings", response_class=HTMLResponse)
+    async def customer_wifi_page(request: Request, db: Session = Depends(get_db)):
+        if not _is_customer(request):
+            return RedirectResponse("/login", 302)
+        from main import _customer_ctx
+        ctx = _customer_ctx(request, db, "wifi_settings")
+        ctx["readonly"] = False
+        return templates.TemplateResponse("customer_wifi_settings.html", ctx)
+
+    # ───────── Forgot WiFi Password — WhatsApp recovery ─────────
+    @app.post("/api/wifi-recover/request")
+    async def api_wifi_recover_request(request: Request, db: Session = Depends(get_db)):
+        """Anonymous endpoint. Customer enters phone → if matched, send WA OTP-link."""
+        try: data = await request.json()
+        except Exception: data = dict(await request.form())
+        phone = "".join(ch for ch in (data.get("phone") or "") if ch.isdigit())
+        if len(phone) < 10:
+            return {"success": False, "message": "Enter a valid phone number"}
+        # Always return generic success to avoid phone-enumeration. Send WA only if matched.
+        from sqlalchemy import text as _t
+        rows = db.execute(_t("""SELECT customer_id, company_id, customer_name,
+                                       customer_phone
+                                  FROM customers
+                                 WHERE customer_phone LIKE :p
+                                    OR customer_phone LIKE :pp
+                                 LIMIT 5"""),
+                           {"p": "%" + phone[-10:], "pp": "%" + phone}).fetchall()
+        sent = 0
+        import secrets, time
+        for r in rows:
+            cust_id, comp_id, cust_name, cust_phone = r[0], r[1], r[2] or "", r[3] or ""
+            # Issue token (15 min) + persist into wifi_recover_tokens
+            db.execute(_t("""CREATE TABLE IF NOT EXISTS wifi_recover_tokens(
+                token TEXT PRIMARY KEY, customer_id TEXT, company_id TEXT,
+                issued_at INTEGER, expires_at INTEGER, used_at INTEGER, ip TEXT)"""))
+            tok = secrets.token_urlsafe(24)
+            now = int(time.time())
+            db.execute(_t("""INSERT INTO wifi_recover_tokens
+                (token, customer_id, company_id, issued_at, expires_at, ip)
+                VALUES (:t,:c,:co,:i,:e,:ip)"""),
+                {"t": tok, "c": cust_id, "co": comp_id, "i": now,
+                 "e": now + 15 * 60, "ip": (request.client.host if request.client else "")})
+            db.commit()
+            link = f"https://www.autoispbilling.com/customer/wifi-recover/{tok}"
+            # WhatsApp send (best-effort)
+            try:
+                # __MSG91_WIFI_RECOVER__
+                from msg91_whatsapp import send_wifi_recovery_link, normalise_phone
+                wa_to = normalise_phone(cust_phone or phone)
+                if wa_to:
+                    # company address lookup
+                    addr = ""; cname = "AUTO ISP BILLING"
+                    try:
+                        from sqlalchemy import text as _t2
+                        crow = db.execute(_t2(
+                            "SELECT company_name, company_address FROM companies "
+                            "WHERE company_id=:c LIMIT 1"), {"c": comp_id}).fetchone()
+                        if crow:
+                            cname = crow[0] or cname
+                            addr = crow[1] or ""
+                    except Exception: pass
+                    res = send_wifi_recovery_link(
+                        phone=wa_to,
+                        customer_name=(cust_name or "Customer"),
+                        recovery_url=link,
+                        company_name=cname,
+                        company_address=addr,
+                        company_id=comp_id,
+                    )
+                    if res.get("success"): sent += 1
+            except Exception as e:
+                print(f"[wifi-recover] WA send failed: {e}")
+        return {"success": True,
+                "message": "If your number is registered with us, a WhatsApp link has been sent. Check your WhatsApp.",
+                "sent": sent}
+
+    @app.get("/customer/wifi-recover/{token}", response_class=HTMLResponse)
+    async def customer_wifi_recover_page(token: str, request: Request, db: Session = Depends(get_db)):
+        """Token-gated read-only WiFi view. No login required."""
+        from sqlalchemy import text as _t
+        import time
+        row = db.execute(_t("""SELECT customer_id, company_id, expires_at, used_at
+                                 FROM wifi_recover_tokens WHERE token=:t"""),
+                          {"t": token}).fetchone()
+        if not row:
+            return HTMLResponse("<h2 style='font-family:sans-serif;text-align:center;padding:50px;'>"
+                                "Invalid or expired link.</h2>", 410)
+        cust_id, comp_id, expires_at, used_at = row[0], row[1], row[2], row[3]
+        if int(time.time()) > int(expires_at):
+            return HTMLResponse("<h2 style='font-family:sans-serif;text-align:center;padding:50px;'>"
+                                "This recovery link has expired (15-minute limit).</h2>", 410)
+        # Mark token as used (one-time view stamps remain valid for 15 min for repeat scans)
+        if not used_at:
+            db.execute(_t("UPDATE wifi_recover_tokens SET used_at=:n WHERE token=:t"),
+                       {"n": int(time.time()), "t": token}); db.commit()
+        # Set a transient session var so /api/customer/me/wifi can read.
+        request.session["_wifi_recover"] = {"customer_id": cust_id, "company_id": comp_id,
+                                             "token": token, "expires_at": int(expires_at)}
+        from main import _customer_ctx
+        # Build context manually since user is not authenticated as customer
+        from database import Customer, Company
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id,
+                                          Customer.company_id == comp_id).first()
+        company = db.query(Company).filter(Company.company_id == comp_id).first()
+        company_logo = (getattr(company, "logo_path", None) or
+                        getattr(company, "company_logo", None) or "")
+        if company_logo and not company_logo.startswith("/"):
+            company_logo = "/" + company_logo
+        ctx = {
+            "request": request, "active_page": "wifi_settings",
+            "readonly": True, "recover_mode": True,
+            "customer": cust,
+            "customer_name": (cust.customer_name if cust else "Customer"),
+            "is_online": False,
+            "company": company,
+            "company_id": comp_id,
+            "company_name": (company.company_name if company else "ISP"),
+            "company_logo": company_logo or None,
+            "company_phone": getattr(company, "company_phone", "") if company else "",
+            "company_email": getattr(company, "company_email", "") if company else "",
+            "company_theme_color": getattr(company, "theme_color", None) or "#0ea5e9",
+            "company_theme_accent": getattr(company, "theme_accent", None) or "#7c3aed",
+        }
+        return templates.TemplateResponse("customer_wifi_settings.html", ctx)
+
+    @app.get("/api/customer/me/wifi")
+    async def api_customer_wifi_get(request: Request, db: Session = Depends(get_db)):
+        """Return the current WiFi config of the customer's first ONU."""
+        rec = request.session.get("_wifi_recover") or {}
+        import time
+        if rec and int(rec.get("expires_at") or 0) > int(time.time()):
+            company_id = rec["company_id"]; cust_id = rec["customer_id"]
+        elif _is_customer(request):
+            company_id = request.session.get("company_id")
+            cust_id = request.session.get("user_id")
+        else:
+            return {"success": False, "message": "Unauthorized"}
+        try:
+            from olt_routes import engine as _olt_eng
+            with _olt_eng.begin() as c:
+                row = c.exec_driver_sql(
+                    """SELECT id, serial,
+                              wifi_ssid, wifi_password,
+                              wifi_band_split, wifi_ssid_5g, wifi_password_5g,
+                              wifi_radio_24_enabled, wifi_radio_5_enabled
+                         FROM onus
+                        WHERE company_id=? AND customer_id=?
+                        ORDER BY id LIMIT 1""", (company_id, cust_id)).fetchone()
+        except Exception as e:
+            return {"success": False, "message": f"Could not load ONU: {e}"}
+        if not row:
+            return {"success": False, "no_onu": True,
+                    "message": "No ONU is currently linked to your account. Please contact your ISP."}
+        return {"success": True,
+                "onu_id": row[0], "serial": row[1] or "",
+                "ssid_24": row[2] or "", "password_24": row[3] or "",
+                "band_split": bool(row[4]),
+                "ssid_5": row[5] or "", "password_5": row[6] or "",
+                "radio_24_enabled": bool(row[7]) if row[7] is not None else True,
+                "radio_5_enabled":  bool(row[8]) if row[8] is not None else True}
+
+    @app.post("/api/customer/me/wifi")
+    async def api_customer_wifi_set(request: Request, db: Session = Depends(get_db)):
+        if not _is_customer(request):
+            return {"success": False, "message": "Unauthorized"}
+        company_id = request.session.get("company_id")
+        cust_id = request.session.get("user_id")
+        try: data = await request.json()
+        except Exception: data = dict(await request.form())
+
+        # Validate
+        ssid_24  = (data.get("ssid_24") or "").strip()
+        pw_24    = (data.get("password_24") or "").strip()
+        ssid_5   = (data.get("ssid_5") or "").strip()
+        pw_5     = (data.get("password_5") or "").strip()
+        band_split = 1 if data.get("band_split") else 0
+
+        if ssid_24 and len(ssid_24) > 32:
+            return {"success": False, "message": "2.4G SSID max 32 chars"}
+        if pw_24 and (len(pw_24) < 8 or len(pw_24) > 63):
+            return {"success": False, "message": "2.4G password must be 8-63 chars"}
+        if band_split:
+            if ssid_5 and len(ssid_5) > 32:
+                return {"success": False, "message": "5G SSID max 32 chars"}
+            if pw_5 and (len(pw_5) < 8 or len(pw_5) > 63):
+                return {"success": False, "message": "5G password must be 8-63 chars"}
+
+        try:
+            from olt_routes import engine as _olt_eng, _genieacs_auto_push
+        except Exception as e:
+            return {"success": False, "message": f"OLT module not loaded: {e}"}
+
+        # Find ONU
+        with _olt_eng.begin() as c:
+            row = c.exec_driver_sql(
+                "SELECT id, olt_id FROM onus WHERE company_id=? AND customer_id=? "
+                "ORDER BY id LIMIT 1", (company_id, cust_id)).fetchone()
+            if not row:
+                return {"success": False, "message": "No ONU linked to your account"}
+            onu_id, _olt = row[0], row[1]
+            # Only update fields the customer sent (keep COALESCE-style)
+            sets = ["wifi_band_split=?"]
+            args = [band_split]
+            if ssid_24: sets.append("wifi_ssid=?"); args.append(ssid_24)
+            if pw_24:   sets.append("wifi_password=?"); args.append(pw_24)
+            if band_split:
+                if ssid_5: sets.append("wifi_ssid_5g=?"); args.append(ssid_5)
+                if pw_5:   sets.append("wifi_password_5g=?"); args.append(pw_5)
+            else:
+                # Clear 5G overrides when band_split disabled (single SSID)
+                sets.append("wifi_ssid_5g=NULL")
+                sets.append("wifi_password_5g=NULL")
+            args.extend([onu_id, company_id])
+            c.exec_driver_sql(
+                f"UPDATE onus SET {', '.join(sets)} WHERE id=? AND company_id=?",
+                tuple(args))
+
+        # Push via TR-069
+        push = _genieacs_auto_push(company_id, onu_id,
+                                   reason=f"customer-self-service-wifi:{cust_id}")
+        # Also write to portal complaint log (audit trail)
+        try:
+            from datetime import datetime as _dt41w, timezone as _tz41w
+            _now41w = _dt41w.now(_tz41w.utc).strftime('%Y-%m-%d %H:%M:%S')
+            db.execute(text("""INSERT INTO complaints
+                (company_id, customer_id, ticket_no, complaint_type, subject,
+                 description, status, kind, source, target_role,
+                 created_at, updated_at, priority)
+                VALUES (:c, :cu, :t, 'WiFi Settings Update',
+                        'Customer changed WiFi settings',
+                        :d, 'Resolved', 'Audit', 'customer', 'admin',
+                        :ca, :ca, 'Low')"""),
+                {"c": company_id, "cu": cust_id,
+                 "t": f"WIFI{int(__import__('time').time())}",
+                 "ca": _now41w,
+                 "d": (f"2.4G SSID={ssid_24 or '(unchanged)'} | "
+                       f"5G band_split={'on' if band_split else 'off'} | "
+                       f"5G SSID={ssid_5 or '(unchanged)'} | "
+                       f"TR-069 push={push.get('ok', False)}")})
+            db.commit()
+        except Exception:
+            db.rollback()
+        return {"success": True, "tr069": push, "onu_id": onu_id}
+
+    print("[phase25_customer] registered: /customer/change-plan, /customer/wifi-settings")

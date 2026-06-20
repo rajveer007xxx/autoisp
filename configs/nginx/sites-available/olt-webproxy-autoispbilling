@@ -1,0 +1,126 @@
+# /etc/nginx/sites-available/olt-webproxy-autoispbilling
+# ----------------------------------------------------------------------------
+# s56AN — Reverse proxy for OLT Web UIs through the WireGuard cloud tunnel.
+#
+# Hostname pattern: olt-<OLT_ID>.olt.autoispbilling.com
+# Matches:          olt-49.olt.autoispbilling.com → forwards to OLT 49's LAN IP
+#
+# Security: every request goes through auth_request → /api/internal/olt-access-check
+# which validates the admin's session cookie AND verifies they own this OLT.
+#
+# This file is INDEPENDENT of all other nginx vhosts (ispbilling, acs, pay).
+# It only fires for hostnames matching the regex below — zero impact on
+# existing services.
+# ----------------------------------------------------------------------------
+
+# HTTP — for Let's Encrypt webroot + permanent redirect to HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ~^olt-(?<olt_id>[0-9]+)\.olt\.autoispbilling\.com$ olt\.autoispbilling\.com;
+
+    # Allow ACME challenges over HTTP.
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — actual reverse proxy.
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ~^olt-(?<olt_id>[0-9]+)\.olt\.autoispbilling\.com$;
+
+    # === Wildcard TLS — issued by certbot for *.olt.autoispbilling.com ===
+    ssl_certificate     /etc/letsencrypt/live/olt.autoispbilling.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/olt.autoispbilling.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:ssl_olt:10m;
+    ssl_session_timeout 1d;
+    ssl_prefer_server_ciphers on;
+
+    # === Generous limits — OLT UIs can be chunky old PHP/CGI ===
+    client_max_body_size 50m;
+    proxy_read_timeout   120s;
+    proxy_send_timeout   120s;
+    proxy_connect_timeout 10s;
+    proxy_buffering      off;
+
+    # === Internal auth_request — checks admin session BEFORE proxying ===
+    # The named location is sub-requested; only nginx itself can hit it.
+    location = /__olt_authz {
+        internal;
+        proxy_pass http://127.0.0.1:8001/api/internal/olt-access-check;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-OLT-Id      $olt_id;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host          autoispbilling.com;
+        proxy_set_header Cookie        $http_cookie;
+    }
+
+    # === Friendly redirect when admin is not logged in ===
+    error_page 401 = @login_redirect;
+    location @login_redirect {
+        # Send them to the admin login. After login they can re-open the OLT.
+        return 302 https://autoispbilling.com/admin/login?next=/admin/olt;
+    }
+    error_page 403 = @access_denied;
+    location @access_denied {
+        default_type text/html;
+        return 403 "<html><body style='font-family:sans-serif;padding:40px;background:#0f172a;color:#e2e8f0'><h2>Access denied</h2><p>You do not have permission to access this OLT, or it does not belong to your account.</p><p><a href='https://autoispbilling.com/admin/olt/system-config' style='color:#06b6d4'>Back to OLT list</a></p></body></html>";
+    }
+
+    location / {
+        # Run the auth subrequest first. nginx will refuse to enter location
+        # body unless this returns 200.
+        auth_request /__olt_authz;
+
+        # The auth_request response gives us the upstream scheme + host + port.
+        auth_request_set $olt_scheme $upstream_http_x_olt_upstream_scheme;
+        auth_request_set $olt_host   $upstream_http_x_olt_upstream_host;
+        auth_request_set $olt_port   $upstream_http_x_olt_upstream_port;
+
+        # Proxy to the OLT through the WireGuard tunnel (kernel route handles
+        # the wg0 hop via sync_via_nas_olt_routes).
+        proxy_pass $olt_scheme://$olt_host:$olt_port;
+        proxy_ssl_verify off;   # OLTs typically use self-signed certs
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header   Host        $olt_host;
+        proxy_set_header   X-Forwarded-For   $remote_addr;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_set_header   Upgrade     $http_upgrade;
+        proxy_set_header   Connection  "upgrade";
+
+        # Some OLTs set restrictive frame-deny headers. Override so we can
+        # embed in our SaaS iframe.
+        proxy_hide_header  X-Frame-Options;
+        proxy_hide_header  Content-Security-Policy;
+        add_header         X-Frame-Options "ALLOWALL" always;
+
+        # If the OLT redirects somewhere weird (e.g. its raw LAN IP), rewrite
+        # the Location header to stay inside our proxy subdomain.
+        proxy_redirect     ~^https?://[^/]+(/.*)$ $1;
+
+        # Some OLT UIs (VSOL, BDCOM, Netlink-EPON etc.) use frame-busting
+        # JavaScript like `window.top.location.href = "login.html"` to
+        # force a redirect on the TOP window. When embedded in our iframe,
+        # the browser sandbox blocks top-navigation and the UI gets stuck.
+        # Rewrite to `window.location.href` so the redirect happens INSIDE
+        # the iframe, which is what we want.
+        sub_filter 'window.top.location.href'   'window.location.href';
+        sub_filter 'window.top.location.replace' 'window.location.replace';
+        sub_filter 'window.top.location'        'window.location';
+        sub_filter 'parent.location.href'       'window.location.href';
+        sub_filter 'parent.location.replace'    'window.location.replace';
+        sub_filter 'top.location.href'          'window.location.href';
+        sub_filter_once    off;
+        sub_filter_types   text/html text/javascript application/javascript;
+    }
+}

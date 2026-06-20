@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FAQ / Help Center · Auto ISP Billing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Find quick answers about Auto ISP Billing — billing, integrations, support and more.">
+<meta name="theme-color" content="#050810">
+<link rel="icon" href="/static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="/static/css/e1-public.css?v=3">
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+</head>
+<body>
+<style>
+/* Pricing tiles */
+.price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;}
+.price-card{position:relative;padding:32px 28px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease;}
+.price-card:hover{transform:translateY(-6px);border-color:var(--border-strong);box-shadow:0 24px 60px rgba(99,102,241,.25);}
+.price-card.popular{border-color:rgba(34,211,238,.5);background:linear-gradient(165deg,rgba(34,211,238,.08),rgba(20,30,48,.85));}
+.price-card.popular::before{content:"MOST POPULAR";position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23;padding:5px 14px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.12em;font-family:'JetBrains Mono',monospace;box-shadow:var(--glow-cyan);}
+.price-ico{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;margin-bottom:18px;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.price-card.popular .price-ico{background:linear-gradient(135deg,var(--c-cyan),var(--c-indigo));box-shadow:var(--glow-cyan);}
+.price-name{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:6px;}
+.price-desc{font-size:13.5px;color:var(--t-fg-mute);margin-bottom:18px;min-height:42px;line-height:1.55;}
+.price-amt{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;}
+.price-amt .num{font-family:'Plus Jakarta Sans',sans-serif;font-size:42px;font-weight:800;background:linear-gradient(135deg,#fff,#94a3b8);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;}
+.price-amt .per{color:var(--t-fg-mute);font-size:14px;}
+.price-gst{font-size:11.5px;color:var(--t-fg-mute);margin-bottom:24px;font-family:'JetBrains Mono',monospace;}
+.price-feats{list-style:none;padding:0;margin:0 0 26px;border-top:1px dashed var(--border-1);padding-top:20px;}
+.price-feats li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--t-fg-soft);padding:6px 0;}
+.price-feats li i{color:var(--c-green);flex-shrink:0;font-size:16px;margin-top:2px;}
+.price-cta{display:block;text-align:center;padding:13px 18px;border-radius:11px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff!important;font-weight:700;font-size:13.5px;text-decoration:none;box-shadow:0 8px 22px rgba(99,102,241,.45),inset 0 1px 0 rgba(255,255,255,.18);transition:transform .15s ease,box-shadow .15s ease;}
+.price-cta:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.price-card.popular .price-cta{background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#0a1f23!important;box-shadow:var(--glow-cyan);}
+
+/* Contact 2-col */
+.cx-grid{display:grid;grid-template-columns:1.05fr 1.4fr;gap:30px;}
+@media(max-width:991px){.cx-grid{grid-template-columns:1fr;}}
+.cx-card{padding:32px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-2);}
+.cx-card h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:#fff;font-weight:700;margin:0 0 18px;display:flex;align-items:center;gap:10px;}
+.cx-card h3 .icobox{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.cx-info{display:flex;gap:14px;padding:14px 0;border-bottom:1px dashed var(--border-1);}
+.cx-info:last-child{border-bottom:none;}
+.cx-info .ico{width:42px;height:42px;border-radius:12px;background:rgba(99,102,241,.15);border:1px solid var(--border-1);color:var(--c-cyan);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.cx-info h4{font-size:14px;font-weight:700;color:#fff;margin:0 0 2px;}
+.cx-info p{font-size:13px;color:var(--t-fg-soft);margin:0;line-height:1.5;}
+.cx-info p a{color:var(--c-cyan);}
+.cx-info p.muted{color:var(--t-fg-mute);font-size:12px;}
+.cx-callout{margin-top:18px;padding:16px 18px;border-radius:14px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(99,102,241,.08));border:1px solid rgba(34,211,238,.25);}
+.cx-callout h4{font-size:13px;color:var(--c-cyan);margin:0 0 8px;text-transform:uppercase;letter-spacing:.08em;font-family:'JetBrains Mono',monospace;}
+.cx-callout ul{margin:0;padding-left:18px;color:var(--t-fg-soft);font-size:13.5px;}
+.cx-quick{margin-top:20px;}
+.cx-quick a{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-radius:12px;border:1px solid var(--border-1);background:rgba(255,255,255,.02);color:var(--t-fg-soft);font-size:14px;margin-bottom:10px;transition:all .15s ease;text-decoration:none;}
+.cx-quick a:hover{border-color:var(--border-strong);background:rgba(99,102,241,.08);color:#fff;transform:translateX(3px);}
+.cx-quick a i.bi-chevron-right{color:var(--c-cyan);}
+.cx-form .form-group{margin-bottom:14px;}
+.cx-form label{display:block;font-size:12.5px;color:var(--t-fg-soft);font-weight:600;margin-bottom:6px;}
+.cx-form .req{color:var(--c-rose);}
+.cx-form .form-control,.cx-form .form-select,.cx-form textarea{width:100%;padding:12px 14px;border-radius:11px;background:rgba(8,12,22,.6);border:1px solid var(--border-1);color:#fff;font-size:14px;font-family:inherit;transition:border-color .15s ease,box-shadow .15s ease;}
+.cx-form .form-control::placeholder,.cx-form textarea::placeholder{color:var(--t-fg-faint);}
+.cx-form .form-control:focus,.cx-form .form-select:focus,.cx-form textarea:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.cx-form .form-select option{background:#0a0f1c;color:#fff;}
+.cx-form button[type=submit]{display:flex;justify-content:center;align-items:center;gap:8px;width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-weight:700;font-size:14px;border:none;cursor:pointer;box-shadow:0 8px 22px rgba(99,102,241,.45);transition:transform .15s ease;}
+.cx-form button[type=submit]:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(99,102,241,.55);}
+.cx-form .alert{margin-top:14px;padding:12px 14px;border-radius:11px;font-size:13.5px;display:none;}
+.cx-form .alert.show{display:block;}
+.cx-form .alert-ok{background:rgba(52,211,153,.12);color:#86efac;border:1px solid rgba(52,211,153,.3);}
+.cx-form .alert-err{background:rgba(248,113,113,.12);color:#fda4af;border:1px solid rgba(248,113,113,.3);}
+
+/* FAQ */
+.faq-search{max-width:640px;margin:0 auto 28px;position:relative;}
+.faq-search input{width:100%;padding:16px 50px;border-radius:999px;background:var(--surface-elev);border:1px solid var(--border-2);color:#fff;font-size:15px;backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+.faq-search input::placeholder{color:var(--t-fg-mute);}
+.faq-search input:focus{outline:none;border-color:var(--c-cyan);box-shadow:0 0 0 4px rgba(34,211,238,.18);}
+.faq-search .bi-search{position:absolute;left:20px;top:50%;transform:translateY(-50%);color:var(--c-cyan);font-size:18px;}
+.faq-search .clr{position:absolute;right:18px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--t-fg-mute);font-size:18px;cursor:pointer;display:none;}
+.faq-search .clr.show{display:block;}
+.faq-cats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:36px;}
+.faq-cat{padding:10px 18px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border-1);color:var(--t-fg-soft);font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all .2s ease;}
+.faq-cat:hover{border-color:var(--border-strong);color:#fff;background:rgba(99,102,241,.10);}
+.faq-cat.active{background:linear-gradient(135deg,#6366f1,#4f46e5);border-color:transparent;color:#fff;box-shadow:0 8px 22px rgba(99,102,241,.45);}
+.faq-sec{margin-bottom:36px;}
+.faq-sec h3{display:flex;align-items:center;gap:14px;font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 18px;}
+.faq-sec h3 .ico{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--c-indigo),var(--c-violet));display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;box-shadow:0 6px 18px rgba(99,102,241,.4);}
+.faq-item{background:var(--surface);border:1px solid var(--border-1);border-radius:14px;margin-bottom:10px;overflow:hidden;backdrop-filter:blur(20px);transition:border-color .2s ease;}
+.faq-item:hover{border-color:var(--border-2);}
+.faq-q{padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer;color:#fff;font-size:15px;font-weight:600;line-height:1.4;}
+.faq-q .chev{color:var(--c-cyan);transition:transform .25s ease;flex-shrink:0;}
+.faq-q.active .chev{transform:rotate(180deg);}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease,padding .25s ease;color:var(--t-fg-soft);font-size:14px;line-height:1.7;}
+.faq-a.show{max-height:1500px;padding:0 22px 18px;}
+.faq-a p{color:var(--t-fg-soft);}
+.faq-a ul{padding-left:22px;margin:8px 0;}
+.faq-a strong{color:#fff;}
+.faq-a a{color:var(--c-cyan);}
+.faq-a code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+.faq-a h5{color:var(--c-cyan)!important;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.04em;margin:16px 0 8px!important;text-transform:uppercase;}
+.faq-noresults{text-align:center;padding:50px 20px;color:var(--t-fg-mute);display:none;}
+.faq-noresults.show{display:block;}
+.faq-noresults i{font-size:48px;color:var(--c-indigo);margin-bottom:14px;}
+.faq-cta{margin-top:50px;text-align:center;padding:50px 30px;border-radius:20px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(34,211,238,.08));border:1px solid var(--border-2);backdrop-filter:blur(20px);}
+.faq-cta h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:24px;color:#fff;margin:0 0 10px;}
+.faq-cta p{color:var(--t-fg-soft);margin:0 0 22px;}
+.faq-cta-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;}
+
+/* Policy / TOC */
+.policy-grid{display:grid;grid-template-columns:280px 1fr;gap:40px;align-items:flex-start;}
+@media(max-width:991px){.policy-grid{grid-template-columns:1fr;}}
+.policy-toc{position:sticky;top:120px;padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.policy-toc h4{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.policy-toc ol{margin:0;padding-left:18px;display:grid;gap:7px;color:var(--t-fg-soft);font-size:13px;}
+.policy-toc ol a{color:var(--t-fg-soft);}
+.policy-toc ol a:hover{color:var(--c-cyan);}
+.policy-body{padding:36px;border-radius:20px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);box-shadow:var(--shadow-2);}
+@media(max-width:600px){.policy-body{padding:24px 20px;}}
+.policy-body .last-updated{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.30);color:var(--c-cyan);font-size:12px;font-family:'JetBrains Mono',monospace;margin-bottom:24px;}
+.policy-section{margin-bottom:34px;padding-bottom:24px;border-bottom:1px dashed var(--border-1);}
+.policy-section:last-child{border-bottom:none;}
+.policy-section h3{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;color:#fff;margin:0 0 14px;display:flex;align-items:baseline;gap:14px;}
+.policy-section h3 .num{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--c-cyan);background:rgba(34,211,238,.08);padding:4px 10px;border-radius:8px;border:1px solid rgba(34,211,238,.25);}
+.policy-section h4{font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;color:#fff;margin:18px 0 8px;}
+.policy-section p,.policy-section li{color:var(--t-fg-soft);font-size:14.5px;line-height:1.75;}
+.policy-section p{margin:0 0 12px;}
+.policy-section ul{padding-left:22px;margin:8px 0 14px;}
+.policy-section a{color:var(--c-cyan);}
+.policy-section code{background:rgba(99,102,241,.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:13px;}
+.policy-section strong{color:#fff;}
+
+/* Sitemap */
+.sm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;}
+.sm-col{padding:24px;border-radius:16px;background:var(--surface);border:1px solid var(--border-1);backdrop-filter:blur(20px);}
+.sm-col h5{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--c-cyan);text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px;}
+.sm-col ul{list-style:none;margin:0;padding:0;display:grid;gap:8px;}
+.sm-col a{color:var(--t-fg-soft);font-size:14px;display:flex;align-items:center;gap:8px;transition:color .15s ease,transform .15s ease;}
+.sm-col a:hover{color:var(--c-cyan);transform:translateX(3px);}
+.sm-col a i{color:var(--c-indigo);font-size:13px;}
+</style><nav class="e1-nav" data-testid="public-nav">
+  <div class="e1-container">
+    <div class="e1-nav-inner">
+      <a href="/" class="e1-nav-brand" data-testid="nav-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+      </a>
+      <ul class="e1-nav-links">
+        <li><a href="/#features">Features</a></li>
+        <li><a href="/#how">How it works</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+      <div class="e1-nav-cta">
+        <a href="/login" class="btn btn-ghost btn-sm" data-testid="nav-signin">Sign In</a>
+        <a href="/#demo" class="btn btn-primary btn-sm" data-testid="nav-trial">Start Free Trial</a>
+      </div>
+      <button class="e1-nav-burger" aria-label="Open menu" data-testid="nav-burger">
+        <i class="bi bi-list" style="font-size:22px"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+<section class="e1-hero" style="padding:150px 0 60px;">
+  <div class="e1-hero-bg">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="fiber-line" style="top:30%; left:0; width:60%;"></span>
+    <span class="fiber-line f2" style="top:65%; left:0; width:75%; animation-delay:-2s;"></span>
+  </div>
+  <div class="e1-container" style="text-align:center; position:relative; z-index:2;">
+    <span class="kicker"><span class="dot"></span> HELP CENTER · ANSWERS</span>
+    <h1 class="h1" style="font-size:clamp(36px,5vw,64px); margin:24px 0 16px;">Frequently Asked <span class="text-gradient-cyan">Questions.</span></h1>
+    <p class="lede" style="margin:0 auto;">Find quick answers about Auto ISP Billing — search below or browse by category.</p>
+  </div>
+</section>
+
+<section class="e1-sec" style="padding:10px 0 100px;">
+  <div class="e1-container">
+    <div class="faq-search">
+      <i class="bi bi-search"></i>
+      <input type="text" id="faqSearch" placeholder="Search for answers..." data-testid="faq-search">
+      <button class="clr" id="clearSearch" aria-label="Clear"><i class="bi bi-x-circle-fill"></i></button>
+    </div>
+    <div class="faq-cats">
+      <button class="faq-cat active" data-category="all"><i class="bi bi-grid"></i> All</button>
+      <button class="faq-cat" data-category="getting-started"><i class="bi bi-rocket-takeoff"></i> Getting Started</button>
+      <button class="faq-cat" data-category="billing"><i class="bi bi-credit-card"></i> Billing &amp; Payments</button>
+      <button class="faq-cat" data-category="features"><i class="bi bi-stars"></i> Features</button>
+      <button class="faq-cat" data-category="integration"><i class="bi bi-plug"></i> Integration</button>
+      <button class="faq-cat" data-category="support"><i class="bi bi-life-preserver"></i> Support</button>
+<button class="faq-cat" data-category="vlan"><i class="bi bi-tags"></i> Per-User VLAN</button>
+    </div>
+
+    
+<div class="faq-sec" data-category="getting-started">
+  <h3><span class="ico"><i class="bi bi-rocket-takeoff"></i></span> Getting Started</h3>
+  
+            <div class="faq-item"><div class="faq-q">What is Auto ISP Billing?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Auto ISP Billing is a comprehensive software-as-a-service (SaaS) platform designed specifically for Internet Service Providers (ISPs). It automates billing, customer management, payment collection, invoice generation, and integrates with network equipment like MikroTik, RADIUS, Cisco, and Ubiquiti. The platform helps ISPs streamline operations, reduce manual work, and improve customer satisfaction.</p></div></div>
+            <div class="faq-item"><div class="faq-q">How do I get started?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Getting started is easy! Simply request a demo from our homepage, and we&rsquo;ll set up a 14-day free trial account for you. No credit card required. During the trial, you&rsquo;ll have access to all features with a limit of 10 test customers. Our support team will guide you through the setup process and help you import your existing customer data.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Do I need technical knowledge to use Auto ISP Billing?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>No! Auto ISP Billing is designed to be user-friendly and intuitive. While some technical knowledge helps with network integrations (MikroTik, RADIUS), the core billing and customer management features are easy to use. We provide comprehensive documentation, video tutorials, and dedicated support to help you every step of the way.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Can I import my existing customer data?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! We support bulk import of customer data via Excel/CSV files. You can import customer details, plans, payment history, and more. Our support team can assist you with data migration to ensure a smooth transition from your current system.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Is there a free trial available?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! We offer a 14-day free trial with full access to all features. The trial is limited to 10 test customers and doesn&rsquo;t require any payment information. You can explore all features, test integrations, and see if Auto ISP Billing is the right fit for your business before committing to a paid plan.</p></div></div>
+        </div>
+
+        <!-- Billing -->
+        <div class="faq-section" data-category="billing">
+            <h3><span class="sec-ico"><i class="bi bi-credit-card"></i></span> Billing &amp; Payments</h3>
+            <div class="faq-item"><div class="faq-q">What subscription plans are available?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>We offer flexible subscription plans based on your customer count:</p><ul><li><strong>Starter:</strong> Up to 100 customers</li><li><strong>Growth:</strong> Up to 500 customers</li><li><strong>Professional:</strong> Up to 2,000 customers</li><li><strong>Enterprise:</strong> Up to 5,000 customers</li><li><strong>Unlimited:</strong> No customer limit</li></ul><p>All plans include full features. You can upgrade or downgrade anytime based on your needs.</p></div></div>
+            <div class="faq-item"><div class="faq-q">What payment methods do you accept?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>We accept all major payment methods including Credit/Debit Cards, Net Banking, UPI, and Digital Wallets through our integrated payment gateways (Razorpay, PayU, CCAvenue). All payments are processed securely with 256-bit SSL encryption.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Is GST included in the pricing?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>No, GST is additional and calculated based on your location. The applicable GST rate will be shown during checkout before payment. We provide GST-compliant invoices for all transactions.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Can I cancel my subscription anytime?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes, you can cancel your subscription anytime through your account settings. Cancellation takes effect at the end of your current billing period. You&rsquo;ll retain access until the paid period expires. We offer a 30-day money-back guarantee for first-time subscribers.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Do you offer refunds?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! We offer a 30-day money-back guarantee for first-time subscribers. If you&rsquo;re not satisfied within the first 30 days, you can request a full refund. Please see our <a href="/refund-policy">Refund Policy</a> for complete details.</p></div></div>
+        </div>
+
+        <!-- Features -->
+        <div class="faq-section" data-category="features">
+            <h3><span class="sec-ico"><i class="bi bi-stars"></i></span> Features &amp; Functionality</h3>
+            <div class="faq-item"><div class="faq-q">What features does Auto ISP Billing include?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Auto ISP Billing includes comprehensive features:</p><ul><li>Customer Management &amp; CAF Processing</li><li>Automated Billing &amp; Invoice Generation</li><li>Payment Gateway Integration (Razorpay, PayU, CCAvenue)</li><li>SMS &amp; WhatsApp Notifications</li><li>MikroTik, RADIUS, Cisco, Ubiquiti Integration</li><li>Customer Self-Service Portal</li><li>Employee Management &amp; GPS Tracking</li><li>Automated Renewal &amp; Expiry Management</li><li>Reports &amp; Analytics Dashboard</li><li>Transaction History &amp; Revenue Tracking</li><li>Support Ticket System</li><li>Plan &amp; Locality Management</li></ul></div></div>
+            <div class="faq-item"><div class="faq-q">Can customers pay online through the platform?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! Auto ISP Billing integrates with major payment gateways (Razorpay, PayU, CCAvenue) to enable online payments. Customers can pay via credit/debit cards, UPI, net banking, and wallets. Payment links can be sent via SMS, WhatsApp, or email. Payments are automatically recorded and invoices are generated instantly.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Does it support SMS and WhatsApp notifications?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! Auto ISP Billing supports automated SMS and WhatsApp notifications for:</p><ul><li>Payment reminders and due-date alerts</li><li>Payment confirmation receipts</li><li>Service expiry notifications</li><li>New connection activation</li><li>Invoice delivery</li><li>Custom promotional campaigns</li></ul><p>You can customise message templates and schedule automated campaigns.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Can I generate and send invoices automatically?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Absolutely! Auto ISP Billing automatically generates professional GST-compliant invoices for all transactions. Invoices can be sent via email, SMS, or WhatsApp. You can customise invoice templates with your company logo, bank details, and terms. Invoices are available in PDF format for download and printing.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Does it support employee management?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! The platform includes comprehensive employee management features:</p><ul><li>Create employee accounts with role-based permissions</li><li>GPS-based location tracking for field employees</li><li>Assign customers to specific employees</li><li>Track employee performance and collections</li><li>Monitor employee login activity</li><li>Restrict access to sensitive features</li></ul></div></div>
+        </div>
+
+        <!-- Integration -->
+        <div class="faq-section" data-category="integration">
+            <h3><span class="sec-ico"><i class="bi bi-plug"></i></span> Network Integration</h3>
+            <div class="faq-item" data-testid="faq-add-olt"><div class="faq-q">How to Add different type of OLT in Portal / Dashboard?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a">
+              <p>Auto ISP Billing supports a growing list of OLT vendors &mdash;
+                <strong>Optilink, VSOL, ZTE, Nokia, Fiberhome, Huawei, Syrotech and Netlink</strong>.
+                Adding any one of them follows the same workflow. The platform reads live
+                metrics over <strong>SNMP v2c / v3</strong> and dispatches remote actions
+                (Wi-Fi / WAN / Reboot / Reset) over <strong>TR-069 (ACS)</strong> or the
+                vendor&rsquo;s native CLI.</p>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 1 &mdash; Prepare the OLT</h5>
+              <ul>
+                <li>Note the OLT&rsquo;s management IP address and the SNMP community string
+                    (default <code>public</code>; we strongly recommend creating a
+                    read-only community such as <code>autoisp_ro</code>).</li>
+                <li>If you plan to use TR-069 (auto-config / remote Wi-Fi &amp; WAN push),
+                    we provision a private ACS endpoint on your account once ACS is
+                    enabled. Your portal’s <em>OLT Manager &rarr; System Config</em>
+                    page shows the exact ACS URL and shared password to configure on each
+                    ONU. (TR-069 is rolling out gradually — SNMP polling works without
+                    it.)</li>
+                <li>Open SNMP and optionally telnet/SSH ports on your firewall toward the
+                    Auto ISP Billing collector IP shown on the
+                    <em>OLT Manager &rarr; System Config</em> page.</li>
+              </ul>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 2 &mdash; Open the OLT Manager</h5>
+              <ul>
+                <li>Sign in to your Admin Portal.</li>
+                <li>From the left sidebar pick <strong>OLT Manager &rarr; Dashboard</strong>.</li>
+                <li>Click the blue <strong>+ Add OLT</strong> button at the top right.</li>
+              </ul>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 3 &mdash; Fill in the OLT details</h5>
+              <ul>
+                <li><strong>Name</strong> &mdash; a friendly name (e.g. <em>Tower-A · Optilink</em>).</li>
+                <li><strong>Vendor</strong> &mdash; pick from the dropdown:
+                    <em>Optilink, VSOL, ZTE, Nokia, Fiberhome, Huawei, Syrotech, Netlink</em>.
+                    The collector picks the right MIB / CLI parser automatically.</li>
+                <li><strong>Model</strong> (optional) &mdash; e.g. <em>OS9116</em>, <em>V1600D-MINI</em>,
+                    <em>C320</em>. Helps the platform pre-select PON-port count.</li>
+                <li><strong>Management IP</strong> &mdash; reachable IPv4 of the OLT.</li>
+                <li><strong>SNMP Community / Username</strong> &mdash; v2c community
+                    <em>or</em> v3 user. v3 also asks for auth + priv passphrases.</li>
+                <li><strong>Telnet / SSH credentials</strong> (optional) &mdash; required only
+                    for vendor-specific commands (Optilink/VSOL/Syrotech/Netlink CLI).</li>
+                <li><strong>TR-069 password</strong> (optional) &mdash; only if you intend to
+                    push Wi-Fi / WAN configs to ONUs through ACS.</li>
+                <li><strong>Notes</strong> &mdash; free-form (location, switch port, etc.).</li>
+              </ul>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 4 &mdash; Test the connection</h5>
+              <ul>
+                <li>Click <strong>Test Connection</strong>. The portal performs a one-shot
+                    SNMP walk on <code>sysName.0</code> and <code>uptime</code>.</li>
+                <li>A green tick confirms reachability. A red cross shows the exact error
+                    (timeout, wrong community, blocked port, etc.).</li>
+              </ul>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 5 &mdash; Save &amp; let it discover</h5>
+              <ul>
+                <li>Hit <strong>Save</strong>. The OLT is now seeded into the platform.</li>
+                <li>Within ~60 seconds the background poller logs in, walks every PON port,
+                    discovers all online ONUs, reads RX/TX power and renders them on the
+                    <strong>OLT Manager &rarr; ONU/ONT Manage</strong> page.</li>
+                <li>Click each ONU to map it to a customer (autocomplete by name / Account #),
+                    push Wi-Fi credentials, change WAN mode / VLAN, or reboot.</li>
+              </ul>
+
+              <h5 style="margin:14px 0 8px;font-size:14px">Step 6 &mdash; Tune alerts (optional)</h5>
+              <ul>
+                <li>Open <strong>OLT Manager &rarr; System Config</strong>.</li>
+                <li>Set RX-power thresholds (warn / critical), the fiber-cut detection
+                    sensitivity, and which roles (Admin / Sub-LCO / Employee) receive
+                    WhatsApp / Email alerts.</li>
+              </ul>
+
+              <p style="margin-top:14px;color:#64748b;font-size:13px">
+                <i class="bi bi-info-circle"></i> Need help with a vendor not listed above?
+                <a href="/contact" style="color:var(--brand-500);font-weight:600">Contact our integration team</a>
+                &mdash; we add new vendors based on real-world demand.</p>
+            </div></div>
+            <div class="faq-item"><div class="faq-q">Does it integrate with MikroTik routers?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! Auto ISP Billing seamlessly integrates with MikroTik routers via API. You can:</p><ul><li>Automatically create/delete PPPoE users</li><li>Enable/disable customer connections based on payment status</li><li>Apply speed limits and bandwidth restrictions</li><li>Monitor real-time connection status</li><li>Sync customer data with MikroTik user database</li></ul><p>Our support team can help you set up the integration.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Is RADIUS server integration supported?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! Auto ISP Billing supports RADIUS server integration for authentication and accounting. You can manage RADIUS users, track bandwidth usage, enforce data limits, and automatically disconnect users based on payment status. The platform works with FreeRADIUS and other standard RADIUS implementations.</p></div></div>
+            <div class="faq-item"><div class="faq-q">What other network equipment is supported?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Auto ISP Billing supports integration with:</p><ul><li><strong>MikroTik:</strong> Full API integration</li><li><strong>RADIUS:</strong> Authentication and accounting</li><li><strong>Cisco:</strong> Basic integration via SNMP</li><li><strong>Ubiquiti:</strong> UniFi controller integration</li><li><strong>pfSense:</strong> Captive portal integration</li></ul><p>Contact our support team for specific integration requirements.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Can I use my own payment gateway?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Auto ISP Billing comes with pre-integrated payment gateways (Razorpay, PayU, CCAvenue). You can configure your own merchant accounts with these gateways. If you need integration with a different payment gateway, please contact our support team to discuss custom integration options.</p></div></div>
+        </div>
+
+        <!-- Support -->
+        <div class="faq-section" data-category="support">
+            <h3><span class="sec-ico"><i class="bi bi-life-preserver"></i></span> Support &amp; Assistance</h3>
+            <div class="faq-item"><div class="faq-q">What kind of support do you provide?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>We provide comprehensive support through multiple channels:</p><ul><li><strong>Email Support:</strong> Available for all plans (24-hour response)</li><li><strong>Phone Support:</strong> Available for Professional and Enterprise plans</li><li><strong>WhatsApp Support:</strong> Quick response for urgent issues</li><li><strong>Documentation:</strong> Comprehensive guides and tutorials</li><li><strong>Video Tutorials:</strong> Step-by-step video guides</li><li><strong>Priority Support:</strong> 4-hour response for Enterprise plans</li></ul></div></div>
+            <div class="faq-item"><div class="faq-q">What are your support hours?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Our support team is available Monday to Saturday, 10:00 AM to 7:00 PM IST. Email and WhatsApp support requests received outside business hours will be responded to on the next business day. Emergency support for critical issues is available via WhatsApp 24/7 for Enterprise plan customers.</p></div></div>
+            <div class="faq-item"><div class="faq-q">Do you provide training for my team?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! We provide comprehensive onboarding training for all new customers:</p><ul><li>Initial setup and configuration walkthrough</li><li>Video tutorials for all major features</li><li>Documentation and user guides</li><li>One-on-one training sessions (Enterprise plans)</li><li>Ongoing support for questions and issues</li></ul></div></div>
+            <div class="faq-item"><div class="faq-q">Is my data secure and backed up?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Absolutely! We take data security very seriously:</p><ul><li><strong>Encryption:</strong> 256-bit SSL/TLS for all data transmission</li><li><strong>Secure Storage:</strong> Encrypted database storage</li><li><strong>Daily Backups:</strong> Automated daily backups with 30-day retention</li><li><strong>Disaster Recovery:</strong> Multiple backup locations for redundancy</li><li><strong>Access Control:</strong> Role-based access with multi-factor authentication</li><li><strong>Compliance:</strong> PCI DSS compliant for payment data</li></ul></div></div>
+            <div class="faq-item"><div class="faq-q">Can I export my data if I decide to leave?<i class="bi bi-chevron-down chev"></i></div><div class="faq-a"><p>Yes! You own your data and can export it anytime in standard formats (CSV, Excel, PDF). Upon account cancellation, you have 30 days to export all your data before it&rsquo;s permanently deleted. We provide easy-to-use export tools for customer data, billing records, transaction history, and reports.</p></div></div>
+</div>
+
+    
+<div class="faq-sec" data-category="vlan">
+  <h3><span class="ico"><i class="bi bi-tags"></i></span> Per-User VLAN Authentication (BSNL-style)</h3>
+
+  <div class="faq-item">
+    <div class="faq-q">What is per-user VLAN auth and why use it? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>It's the same authentication model that <strong>BSNL FTTH and Jio AirFiber</strong> use. Each customer's ONU port tags every outgoing frame with a dedicated <strong>CVID</strong> (customer VLAN id). The MikroTik BNG only accepts that user's PPPoE login if the incoming VLAN tag matches the VLAN we assigned to them.</p>
+      <p><strong>Even if someone leaks the PPPoE password</strong>, they cannot dial from a different ONU because their frames would carry a different VLAN tag and the BNG will reject the session.</p>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">How do I prepare the MikroTik trunk port? (manual prep, do this ONCE) <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>You only need to prep one physical port — the port that receives Q-tagged frames from your OLT (usually <code>ether2</code> or a dedicated uplink).</p>
+
+      <h5>STEP 1 — Pick the right port</h5>
+      <p>Identify the MikroTik port that's plugged into your OLT uplink. This will become the "VLAN trunk".</p>
+
+      <h5>STEP 2 — Make sure tags survive on this port</h5>
+      <p>The trunk port must NOT be part of any bridge that strips VLAN tags. Either:</p>
+      <ul>
+        <li><strong>Keep it un-bridged</strong> (simplest). The PPPoE server binds directly to <code>ether2</code> + the auto-created <code>vlan-N</code> sub-interfaces.</li>
+        <li><strong>OR</strong> put it in a bridge with <code>vlan-filtering=yes</code> set on the bridge.</li>
+      </ul>
+      <p><strong>Winbox / Terminal example (un-bridged path — recommended):</strong></p>
+      <p><code>/interface ethernet set ether2 disabled=no comment="OLT-trunk"</code></p>
+      <p>Then make sure <code>ether2</code> does <strong>not</strong> appear under <code>/interface bridge port</code>. If it does, remove it:</p>
+      <p><code>/interface bridge port remove [find interface=ether2]</code></p>
+
+      <h5>STEP 3 — That's it. Hit "VLAN (1-click)" in the SuperAdmin NAS console</h5>
+      <p>From SuperAdmin → Admin Management → NAS Console, click <strong>VLAN (1-click)</strong> on the NAS row. Pick your range (e.g. <code>100-999</code>), the trunk interface, the PPPoE service-name, and click <strong>Push to router</strong>. The platform will:</p>
+      <ul>
+        <li>Seed VLAN pool rows in the database</li>
+        <li>Create one <code>vlan-N</code> sub-interface per VID on your trunk port</li>
+        <li>Switch the PPPoE Server to <code>use-radius=yes</code></li>
+        <li>Enable <code>/ppp aaa use-radius=yes</code></li>
+        <li>Enable <code>/radius incoming accept=yes</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">How does this work on the OLT side? Do I need to do anything there? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>Yes. The OLT is what stamps the CVID on each user's traffic — the MikroTik just verifies it. You must:</p>
+      <ul>
+        <li>Configure each ONU's UNI port with the assigned CVID (the VLAN you allocated to the user inside the platform).</li>
+        <li>Trunk all CVIDs upstream to the MikroTik (1:1 transparent VLAN translation — same VID end-to-end). This is the BSNL pattern.</li>
+        <li>Make sure your OLT's PON uplink is in trunk mode tagged for the VLAN range you seeded.</li>
+      </ul>
+      <p>Specifics depend on your OLT vendor (BDCOM, V-SOL, Huawei, ZTE, Vsol, etc.). Search your OLT docs for "<strong>per-ONU VLAN translation</strong>" or "<strong>CVID per UNI</strong>".</p>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">How do I assign a VLAN to a customer? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>Open <strong>Add User</strong> (or the Edit User popup on an existing customer). Tick the <strong>VLAN Enable</strong> checkbox and pick a VLAN ID from the dropdown (auto-populated with FREE VLANs from your pool).</p>
+      <p>The platform's background worker (<code>vlan-radius-sync</code>) then writes <code>Tunnel-Type</code>, <code>Tunnel-Medium-Type</code> and <code>Tunnel-Private-Group-Id</code> into FreeRADIUS within 30 seconds. The user's next PPPoE dial-in will be enforced against that VLAN.</p>
+      <p><strong>Existing customers without the VLAN toggle are NOT affected</strong> — they keep dialing in over PPPoE exactly as before.</p>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">How do I view, edit, release, or remove existing VLANs? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>From SuperAdmin → NAS Console, click <strong>Manage VLANs</strong> on the NAS row. You get a table with every VLAN in the pool plus action buttons per row:</p>
+      <ul>
+        <li><strong>Release</strong> — frees the VLAN from its current customer (customer keeps PPPoE but loses VLAN enforcement)</li>
+        <li><strong>Mark Free / Reserve</strong> — change pool state</li>
+        <li><strong>Push to router</strong> — re-create the <code>vlan-N</code> interface on MikroTik if it was deleted</li>
+        <li><strong>Remove from router</strong> — delete only the <code>vlan-N</code> interface from MikroTik (pool row stays)</li>
+        <li><strong>Retire</strong> — hide from future dropdowns but keep for history</li>
+        <li><strong>🗑️ (red)</strong> — hard-delete from the pool permanently</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">What if I want to ADD more VLANs to an existing pool? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>Click <strong>VLAN (1-click)</strong> again with a non-overlapping range (e.g. 1000-1500). The platform skips any VID that already exists in the pool and only adds the new ones. The MikroTik interfaces are also idempotent — duplicates are silently skipped.</p>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">How do I verify a VLAN binding is actually catching a wrong login? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p>On the MikroTik, open <strong>Log</strong> and watch when the user dials in. With <code>use-radius=yes</code> active, a mismatched VLAN will produce an entry like:</p>
+      <p><code>pppoe,error,info: &lt;username&gt; logged out, RADIUS attr Tunnel-Private-Group-Id mismatch</code></p>
+      <p>If you see "authenticated" then the user's incoming Q-tag matched the VLAN we expected.</p>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">Does this work with my existing PPPoE, Hotspot or Static-IP customers? <i class="bi bi-chevron-down chev"></i></div>
+    <div class="faq-a">
+      <p><strong>Yes — completely additive.</strong> All existing customers stay on the legacy path until you explicitly enable the VLAN toggle on each one. Hotspot and Static-IP users are skipped by the sync worker (only PPPoE users participate in VLAN auth — that's BSNL's design too).</p>
+    </div>
+  </div>
+</div>
+
+    <div class="faq-noresults" id="noResults">
+      <i class="bi bi-search"></i>
+      <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:#fff;margin:0 0 6px;">No matches found</h3>
+      <p>Try a different keyword or browse by category.</p>
+    </div>
+
+    <div class="faq-cta">
+      <h3>Still have questions?</h3>
+      <p>Our support team is here to help.</p>
+      <div class="faq-cta-row">
+        <a href="/contact" class="btn btn-primary"><i class="bi bi-envelope"></i> Contact Support</a>
+        <a href="tel:+918085868114" class="btn btn-ghost"><i class="bi bi-telephone-fill"></i> Call {{ support_phone }}</a>
+        <a href="https://wa.me/919183218114" class="btn btn-ghost"><i class="bi bi-whatsapp"></i> WhatsApp Us</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script>
+$(function(){
+  $('.faq-q').on('click', function(){
+    var $a = $(this).next('.faq-a');
+    $(this).toggleClass('active');
+    $a.toggleClass('show');
+  });
+  $('.faq-cat').on('click', function(){
+    $('.faq-cat').removeClass('active');
+    $(this).addClass('active');
+    var cat = $(this).data('category');
+    if (cat === 'all') $('.faq-sec').show();
+    else { $('.faq-sec').hide(); $('.faq-sec[data-category="' + cat + '"]').show(); }
+    $('#faqSearch').val(''); $('#clearSearch').removeClass('show'); $('#noResults').removeClass('show');
+    $('.faq-item').show();
+  });
+  function runSearch(){
+    var q = $('#faqSearch').val().toLowerCase().trim();
+    $('#clearSearch').toggleClass('show', q.length > 0);
+    if (!q){
+      $('.faq-sec').each(function(){
+        var activeCat = $('.faq-cat.active').data('category');
+        if (activeCat === 'all' || $(this).data('category') === activeCat) $(this).show(); else $(this).hide();
+      });
+      $('.faq-item').show();
+      $('#noResults').removeClass('show');
+      return;
+    }
+    var anyVisible = false;
+    $('.faq-item').each(function(){
+      var text = $(this).text().toLowerCase();
+      if (text.indexOf(q) > -1){ $(this).show(); anyVisible = true; } else $(this).hide();
+    });
+    $('.faq-sec').each(function(){
+      $(this).toggle($(this).find('.faq-item:visible').length > 0);
+    });
+    $('#noResults').toggleClass('show', !anyVisible);
+  }
+  $('#faqSearch').on('input', runSearch);
+  $('#clearSearch').on('click', function(){ $('#faqSearch').val(''); runSearch(); });
+});
+</script>
+<footer class="e1-footer">
+  <div class="e1-container">
+    <div class="e1-footer-grid">
+      <div class="e1-footer-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+        <p>Telecom Cloud OS for ISPs — billing, RADIUS, GPON, captive-portal, NOC and more — in one cinematic operator dashboard.</p>
+      </div>
+      <div>
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/pricing">Pricing</a></li>
+          <li><a href="/#demo">Request Demo</a></li>
+          <li><a href="/login">Sign In</a></li>
+          <li><a href="/sitemap" data-testid="footer-sitemap-link">Site Map</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Company</h5>
+        <ul>
+          <li><a href="/contact">Contact Us</a></li>
+          <li><a href="/faq">FAQ / Help</a></li>
+          <li><a href="/privacy-policy">Privacy Policy</a></li>
+          <li><a href="/terms-of-service">Terms of Service</a></li>
+          <li><a href="/refund-policy">Refund Policy</a></li>
+          <li><a href="/account-deletion">Delete My Account</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Reach us</h5>
+        <ul>
+          <li><i class="bi bi-envelope" style="color:var(--c-cyan)"></i> support@autoispbilling.com</li>
+          <li><i class="bi bi-whatsapp" style="color:var(--c-green)"></i> <a href="https://wa.me/919183218114">WhatsApp</a></li>
+          <li><i class="bi bi-clock" style="color:var(--c-cyan)"></i> Mon–Sat, 10 AM – 7 PM IST</li>
+        </ul>
+      </div>
+    </div>
+    <div class="e1-footer-bottom">
+      <span>© 2026 Auto ISP Billing. All rights reserved.</span>
+      <span><a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a> · <a href="/refund-policy">Refunds</a> · <a href="/account-deletion">Account Deletion</a></span>
+    </div>
+  </div>
+</footer>
+<script src="/static/js/e1-public.js?v=3" defer></script>
+</body></html>

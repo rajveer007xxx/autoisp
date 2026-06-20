@@ -1,0 +1,260 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Complaints List - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Complaints List
+        <small>View and respond to admin complaints</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Complaints</h3>
+        </div>
+        <div class="box-body">
+            <form id="filterForm" class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:</label>
+                    <select id="filterStatus" class="form-control">
+                        <option value="">All</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Priority:</label>
+                    <select id="filterPriority" class="form-control">
+                        <option value="">All</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">Critical</option>
+                    </select>
+                </div>
+                <button type="button" id="applyFilter" class="btn btn-primary">Apply Filter</button>
+                <button type="button" id="clearFilter" class="btn btn-default">Clear</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Complaints</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table id="complaintsTable" class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Ticket No</th>
+                            <th>Company</th>
+                            <th>Customer</th>
+                            <th>Type</th>
+                            <th>Priority</th>
+                            <th>Subject</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="complaintsTableBody">
+                        <tr>
+                            <td colspan="9" class="text-center">Loading complaints...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="modal fade" id="viewComplaintModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Complaint Details</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Ticket No:</strong> <span id="modalTicketNo"></span></p>
+                        <p><strong>Company:</strong> <span id="modalCompanyName"></span></p>
+                        <p><strong>Customer:</strong> <span id="modalCustomerName"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Type:</strong> <span id="modalType"></span></p>
+                        <p><strong>Priority:</strong> <span id="modalPriority"></span></p>
+                        <p><strong>Status:</strong> <span id="modalStatus"></span></p>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-md-12">
+                        <p><strong>Subject:</strong> <span id="modalSubject"></span></p>
+                        <p><strong>Description:</strong></p>
+                        <p id="modalDescription" style="white-space: pre-wrap;"></p>
+                    </div>
+                </div>
+                <hr>
+                <h4>Conversation History</h4>
+                <div id="conversationHistory" style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;"></div>
+                <hr>
+                <h4>Reply to Complaint</h4>
+                <div class="form-group">
+                    <label>Your Response:</label>
+                    <textarea id="replyMessage" class="form-control" rows="4" placeholder="Type your response here..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Update Status:</label>
+                    <select id="replyStatus" class="form-control">
+                        <option value="">Keep Current Status</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="sendReplyBtn">Send Reply</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// jQuery guard - ensure jQuery is loaded
+if (!window.jQuery) {
+    console.error('jQuery is not loaded! Superadmin Complaints page will not work.');
+    alert('Error: Page dependencies not loaded. Please refresh the page.');
+} else {
+    console.log('Superadmin Complaints page: jQuery loaded successfully');
+    
+    $(document).ready(function() {
+        console.log('Superadmin Complaints page: DOM ready, initializing...');
+        
+        var currentComplaintId = null;
+        
+        function loadComplaints() {
+            console.log('Loading complaints...');
+            var status = $('#filterStatus').val();
+            var priority = $('#filterPriority').val();
+            var params = new URLSearchParams();
+            if (status) params.append('status', status);
+            if (priority) params.append('priority', priority);
+            
+            $.ajax({
+                url: '/api/superadmin/complaints?' + params.toString(),
+                method: 'GET',
+                success: function(response) {
+                    console.log('Complaints response:', response);
+                    if (response.success) {
+                        var tbody = $('#complaintsTableBody');
+                        tbody.empty();
+                        if (response.complaints.length === 0) {
+                            tbody.append('<tr><td colspan="9" class="text-center">No complaints found</td></tr>');
+                            return;
+                        }
+                        response.complaints.forEach(function(complaint) {
+                            var statusBadge = complaint.status === 'Open' ? '<span class="label label-danger">Open</span>' :
+                                            complaint.status === 'In Progress' ? '<span class="label label-warning">In Progress</span>' :
+                                            complaint.status === 'Resolved' ? '<span class="label label-success">Resolved</span>' :
+                                            '<span class="label label-default">Closed</span>';
+                            var priorityBadge = complaint.priority === 'Low' ? '<span class="label label-info">Low</span>' :
+                                              complaint.priority === 'Medium' ? '<span class="label label-primary">Medium</span>' :
+                                              complaint.priority === 'High' ? '<span class="label label-warning">High</span>' :
+                                              '<span class="label label-danger">Critical</span>';
+                            var row = '<tr><td>' + complaint.ticket_no + '</td><td>' + complaint.company_name + '</td><td>' + complaint.customer_name + '</td><td>' + complaint.complaint_type + '</td><td>' + priorityBadge + '</td><td>' + (complaint.subject || complaint.description.substring(0, 30) + '...') + '</td><td>' + statusBadge + '</td><td>' + new Date(complaint.created_at).toLocaleString('en-GB') + '</td><td><button class="btn btn-sm btn-primary view-complaint-btn" data-id="' + complaint.id + '">View & Reply</button></td></tr>';
+                            tbody.append(row);
+                        });
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading complaints:', status, error, xhr.responseJSON);
+                    var errorMsg = 'Error loading complaints';
+                    if (xhr.status === 401) {
+                        errorMsg = 'Unauthorized - please log in again';
+                    } else if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
+                    $('#complaintsTableBody').html('<tr><td colspan="9" class="text-center text-danger">' + errorMsg + '</td></tr>');
+                }
+            });
+        }
+        
+        $(document).on('click', '.view-complaint-btn', function() {
+            currentComplaintId = $(this).data('id');
+            $.ajax({
+                url: '/api/superadmin/complaints/' + currentComplaintId,
+                method: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        var c = response.complaint;
+                        $('#modalTicketNo').text(c.ticket_no);
+                        $('#modalCompanyName').text(c.company_name);
+                        $('#modalCustomerName').text(c.customer_name);
+                        $('#modalType').text(c.complaint_type);
+                        $('#modalPriority').text(c.priority);
+                        $('#modalStatus').text(c.status);
+                        $('#modalSubject').text(c.subject || 'N/A');
+                        $('#modalDescription').text(c.description);
+                        var conversationHtml = response.responses.length === 0 ? '<p class="text-muted">No responses yet</p>' : '';
+                        response.responses.forEach(function(r) {
+                            var roleClass = r.responder_role === 'superadmin' ? 'bg-info' : 'bg-warning';
+                            conversationHtml += '<div class="well well-sm ' + roleClass + '"><p><strong>' + r.responder_role.toUpperCase() + '</strong> - ' + new Date(r.created_at).toLocaleString('en-GB') + '</p><p style="white-space: pre-wrap;">' + r.message + '</p></div>';
+                        });
+                        $('#conversationHistory').html(conversationHtml);
+                        $('#replyMessage').val('');
+                        $('#replyStatus').val('');
+                        $('#viewComplaintModal').modal('show');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading complaint details:', status, error, xhr.responseJSON);
+                    alert('Error loading complaint details');
+                }
+            });
+        });
+        
+        $('#sendReplyBtn').click(function() {
+            var message = $('#replyMessage').val().trim();
+            var status = $('#replyStatus').val();
+            if (!message) { alert('Please enter a response message'); return; }
+            $.ajax({
+                url: '/api/superadmin/complaints/' + currentComplaintId + '/reply',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ message: message, status: status || undefined }),
+                success: function(response) {
+                    if (response.success) {
+                        alert('Reply sent successfully');
+                        $('#viewComplaintModal').modal('hide');
+                        loadComplaints();
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error sending reply:', status, error, xhr.responseJSON);
+                    alert('Error sending reply');
+                }
+            });
+        });
+        
+        $('#applyFilter').click(loadComplaints);
+        $('#clearFilter').click(function() { $('#filterStatus').val(''); $('#filterPriority').val(''); loadComplaints(); });
+        
+        console.log('Event handlers attached, loading complaints...');
+        loadComplaints();
+    });
+}
+</script>
+{% endblock %}

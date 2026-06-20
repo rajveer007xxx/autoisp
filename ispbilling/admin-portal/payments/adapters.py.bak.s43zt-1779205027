@@ -1,0 +1,265 @@
+"""S43ZR — Gateway adapters (PayU implemented, others stubbed).
+
+Each adapter implements 4 ops:
+    create_order(amount_inr, customer, notes)   -> dict for frontend init
+    verify_callback(form)                       -> dict {ok, payment_id, amount}
+    verify_webhook(raw, sig, secret)            -> dict {ok, event_id, …}
+    refund(payment_id, amount_inr, reason)      -> dict {ok, refund_id, msg}
+
+Adapters return plain dicts (no FastAPI deps) for unit-testability.
+"""
+from __future__ import annotations
+import hashlib, hmac, json, time, uuid
+
+
+# ─── Razorpay ─────────────────────────────────────────────────────────────
+
+class RazorpayAdapter:
+    name = "razorpay"
+
+    def __init__(self, creds: dict):
+        self.key_id = creds.get("key_id") or ""
+        self.key_secret = creds.get("key_secret") or ""
+        self.webhook_secret = creds.get("webhook_secret") or ""
+
+    def _client(self):
+        import razorpay
+        return razorpay.Client(auth=(self.key_id, self.key_secret))
+
+    def test(self) -> dict:
+        try:
+            self._client().payment.all({"count": 1})
+            return {"ok": True, "message": "Razorpay credentials are valid."}
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Authentication" in msg or "BAD_REQUEST_ERROR" in msg:
+                msg = "Razorpay rejected the keys (check Key ID + Secret)."
+            return {"ok": False, "message": msg[:240]}
+
+    def create_order(self, amount_inr: float, customer_id: str, company_id: str,
+                     notes: dict | None = None) -> dict:
+        amount_paise = int(round(float(amount_inr) * 100))
+        n = dict(notes or {})
+        n.setdefault("customer_id", customer_id)
+        n.setdefault("company_id", company_id)
+        order = self._client().order.create({
+            "amount": amount_paise, "currency": "INR",
+            "receipt": f"rcpt_{customer_id}_{int(time.time())}",
+            "payment_capture": 1, "notes": n,
+        })
+        return {"ok": True, "order_id": order["id"], "key_id": self.key_id,
+                "amount": amount_paise, "currency": "INR"}
+
+    def verify_webhook(self, raw: bytes, sig: str) -> dict:
+        try:
+            self._client().utility.verify_webhook_signature(
+                raw.decode(), sig, self.webhook_secret)
+            body = json.loads(raw.decode() or "{}")
+            pay = ((body.get("payload") or {}).get("payment") or {}).get("entity") or {}
+            return {"ok": True, "event_id": body.get("event_id") or body.get("id"),
+                    "event_type": body.get("event"),
+                    "payment_id": pay.get("id"),
+                    "order_id": pay.get("order_id"),
+                    "amount": (pay.get("amount") or 0) / 100.0,
+                    "status": pay.get("status"),
+                    "notes": pay.get("notes") or {}}
+        except Exception as e:
+            return {"ok": False, "message": f"signature invalid: {e}"}
+
+    def refund(self, payment_id: str, amount_inr: float | None = None,
+               reason: str = "") -> dict:
+        try:
+            body = {"speed": "normal"}
+            if amount_inr:
+                body["amount"] = int(round(float(amount_inr) * 100))
+            if reason:
+                body.setdefault("notes", {})["reason"] = reason[:200]
+            r = self._client().payment.refund(payment_id, body)
+            return {"ok": True, "refund_id": r.get("id"),
+                    "amount": (r.get("amount") or 0) / 100.0,
+                    "status": r.get("status")}
+        except Exception as e:
+            return {"ok": False, "message": str(e)[:240]}
+
+
+# ─── PayU ─────────────────────────────────────────────────────────────────
+# REST docs: https://devguide.payu.in/restapi/post-trans-api/.
+# Hash formula for v3:
+#   sha512("{key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}|||||"
+#          "|||||{salt}")
+class PayUAdapter:
+    name = "payu"
+
+    BASE_LIVE = "https://secure.payu.in"
+    BASE_TEST = "https://test.payu.in"
+
+    def __init__(self, creds: dict):
+        self.merchant_id = creds.get("merchant_id") or ""
+        self.key = creds.get("key_id") or ""        # PayU Merchant Key
+        self.salt = creds.get("key_secret") or ""   # PayU Merchant Salt
+        self.webhook_secret = creds.get("webhook_secret") or self.salt
+        # If key starts with "test_" treat as test mode
+        self.base = self.BASE_TEST if self.key.lower().startswith("test") else self.BASE_LIVE
+
+    def test(self) -> dict:
+        """No public 'ping' API; best we can do is check that creds are present."""
+        if not (self.key and self.salt):
+            return {"ok": False, "message": "Merchant Key + Salt required."}
+        return {"ok": True, "message": "PayU credentials stored. (Live test will happen on first payment.)"}
+
+    def create_order(self, amount_inr: float, customer_id: str, company_id: str,
+                     notes: dict | None = None) -> dict:
+        """PayU doesn't have a pre-create-order API like Razorpay; instead
+        the frontend POSTs a signed form to /_payment. We compute the hash
+        + txnid and return everything the frontend needs to render an
+        auto-submitting form."""
+        txnid = f"tx_{customer_id}_{uuid.uuid4().hex[:10]}"
+        amt = f"{float(amount_inr):.2f}"
+        productinfo = (notes or {}).get("productinfo") or "ISP Bill"
+        firstname = (notes or {}).get("firstname") or "Customer"
+        email = (notes or {}).get("email") or "noreply@autoispbilling.com"
+        udf1 = customer_id
+        udf2 = company_id
+        # PayU hash sequence (key|txnid|amount|productinfo|firstname|email|udf1|udf2|udf3|udf4|udf5||||||salt)
+        raw = f"{self.key}|{txnid}|{amt}|{productinfo}|{firstname}|{email}|{udf1}|{udf2}|||||||||{self.salt}"
+        hsh = hashlib.sha512(raw.encode("utf-8")).hexdigest()
+        return {
+            "ok": True,
+            "order_id": txnid,
+            "amount": amt,
+            "currency": "INR",
+            "post_url": f"{self.base}/_payment",
+            "fields": {
+                "key": self.key, "txnid": txnid, "amount": amt,
+                "productinfo": productinfo, "firstname": firstname, "email": email,
+                "udf1": udf1, "udf2": udf2,
+                "surl": "",  # filled by caller
+                "furl": "",
+                "hash": hsh,
+            },
+        }
+
+    def verify_callback(self, form: dict) -> dict:
+        """Verify the form-post return-hash after PayU sends user back to surl/furl.
+        Reverse-hash: sha512(salt|status|||||||||||{email}|{firstname}|{productinfo}|{amount}|{txnid}|{key})
+        """
+        try:
+            need = ["status", "key", "txnid", "amount", "productinfo",
+                    "firstname", "email", "hash"]
+            for k in need:
+                if k not in form:
+                    return {"ok": False, "message": f"missing {k}"}
+            udf1 = form.get("udf1", ""); udf2 = form.get("udf2", "")
+            raw = (f"{self.salt}|{form['status']}|||||||||{udf2}|{udf1}|"
+                   f"{form['email']}|{form['firstname']}|{form['productinfo']}|"
+                   f"{form['amount']}|{form['txnid']}|{form['key']}")
+            expected = hashlib.sha512(raw.encode("utf-8")).hexdigest()
+            if expected != form["hash"]:
+                return {"ok": False, "message": "hash mismatch"}
+            ok = (form["status"] or "").lower() == "success"
+            return {"ok": ok,
+                    "payment_id": form.get("mihpayid") or form.get("payuMoneyId"),
+                    "order_id": form["txnid"],
+                    "amount": float(form["amount"] or 0),
+                    "status": form["status"],
+                    "notes": {"customer_id": udf1, "company_id": udf2}}
+        except Exception as e:
+            return {"ok": False, "message": str(e)[:240]}
+
+    def verify_webhook(self, raw: bytes, sig: str) -> dict:
+        """PayU's webhook signature (when enabled in dashboard) is an HMAC-SHA256
+        of the body using the webhook secret."""
+        try:
+            expected = hmac.new(self.webhook_secret.encode("utf-8"),
+                                raw, hashlib.sha256).hexdigest()
+            if sig and not hmac.compare_digest(expected, sig):
+                return {"ok": False, "message": "signature mismatch"}
+            body = json.loads(raw.decode() or "{}")
+            pay = body.get("data") or body
+            return {"ok": True, "event_id": body.get("event_id") or pay.get("mihpayid"),
+                    "event_type": body.get("event") or "payment.captured",
+                    "payment_id": pay.get("mihpayid"),
+                    "order_id": pay.get("txnid"),
+                    "amount": float(pay.get("amount") or 0),
+                    "status": pay.get("status"),
+                    "notes": {"customer_id": pay.get("udf1") or "",
+                              "company_id": pay.get("udf2") or ""}}
+        except Exception as e:
+            return {"ok": False, "message": str(e)[:240]}
+
+    def refund(self, payment_id: str, amount_inr: float | None = None,
+               reason: str = "") -> dict:
+        """PayU refund API (cancel_refund_transaction). Requires POSTing
+        form-encoded data to /merchant/postservice.php?form=2."""
+        import requests
+        try:
+            command = "cancel_refund_transaction"
+            token_id = f"rfnd_{int(time.time())}"
+            amt = f"{float(amount_inr or 0):.2f}"
+            var1 = payment_id; var2 = token_id; var3 = amt
+            hash_str = f"{self.key}|{command}|{var1}|{self.salt}"
+            h = hashlib.sha512(hash_str.encode()).hexdigest()
+            data = {"key": self.key, "command": command, "var1": var1,
+                    "var2": var2, "var3": var3, "hash": h}
+            r = requests.post(f"{self.base}/merchant/postservice.php?form=2",
+                              data=data, timeout=30)
+            jr = r.json()
+            return {"ok": bool(jr.get("status") == 1),
+                    "refund_id": token_id, "amount": float(amt),
+                    "raw": jr}
+        except Exception as e:
+            return {"ok": False, "message": str(e)[:240]}
+
+
+# ─── Stubbed adapters (creds save & UI works; live flow disabled) ────────
+
+class _StubAdapter:
+    name = "stub"
+    label = "Gateway"
+
+    def __init__(self, creds: dict):
+        self.creds = creds
+
+    def test(self) -> dict:
+        if not (self.creds.get("key_id") or self.creds.get("key_secret")):
+            return {"ok": False, "message": f"Save credentials first."}
+        return {"ok": True,
+                "message": f"{self.label} credentials saved. Live integration will be enabled in the next release."}
+
+    def create_order(self, *a, **k):
+        return {"ok": False,
+                "message": f"{self.label} live integration is being scheduled. Please use Razorpay or PayU meanwhile."}
+
+    def verify_callback(self, *a, **k):
+        return {"ok": False, "message": f"{self.label} adapter not live yet."}
+
+    def verify_webhook(self, *a, **k):
+        return {"ok": False, "message": f"{self.label} webhook handler not live yet."}
+
+    def refund(self, *a, **k):
+        return {"ok": False, "message": f"{self.label} refund handler not live yet."}
+
+
+class CashfreeAdapter(_StubAdapter): name = "cashfree"; label = "Cashfree"
+class PhonePeAdapter(_StubAdapter): name = "phonepe"; label = "PhonePe"
+class CCAvenueAdapter(_StubAdapter): name = "ccavenue"; label = "CCAvenue"
+class StripeAdapter(_StubAdapter): name = "stripe"; label = "Stripe"
+
+
+# Registry → name -> class
+ADAPTERS = {
+    "razorpay": RazorpayAdapter,
+    "payu":     PayUAdapter,
+    "cashfree": CashfreeAdapter,
+    "phonepe":  PhonePeAdapter,
+    "ccavenue": CCAvenueAdapter,
+    "stripe":   StripeAdapter,
+}
+
+
+def make(name: str, creds: dict):
+    """Construct adapter by name. Returns None when name unknown."""
+    cls = ADAPTERS.get((name or "").lower())
+    if not cls:
+        return None
+    return cls(creds or {})

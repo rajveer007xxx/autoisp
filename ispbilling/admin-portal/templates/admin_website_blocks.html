@@ -1,0 +1,432 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Website Blocks - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .blk-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; margin-bottom:12px; }
+    .blk-status-pill { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .blk-status-pill.Active { background:#d1fae5; color:#065f46; }
+    .blk-status-pill.Error  { background:#fee2e2; color:#991b1b; }
+    .blk-tag { display:inline-block; padding:3px 9px; background:#fef2f2;
+               color:#991b1b; border-radius:10px; font-size:11px; margin:2px;
+               font-family:monospace; }
+    .blk-info { background:#eff6ff; color:#1e3a8a; padding:10px 14px; border-radius:6px;
+                border-left:4px solid #3b82f6; margin:10px 0; }
+    .blk-warn { background:#fff7ed; color:#9a3412; padding:10px 14px; border-radius:6px;
+                border-left:4px solid #f97316; margin:10px 0; }
+    .blk-empty { padding:60px 20px; text-align:center; color:#94a3b8; }
+    .blk-cust-list { max-height:280px; overflow-y:auto; border:1px solid #e5e7eb;
+                     border-radius:6px; padding:6px; background:#f8fafc; }
+    .blk-cust-row { display:flex; align-items:center; gap:8px; padding:6px 8px;
+                    border-radius:4px; cursor:pointer; }
+    .blk-cust-row:hover { background:#e2e8f0; }
+    .blk-cust-row.selected { background:#dbeafe; }
+    .blk-cust-row .meta { font-size:11px; color:#64748b; }
+    .blk-cust-row .ip-pill { padding:1px 7px; border-radius:8px; font-size:10px;
+                              background:#dcfce7; color:#166534; font-family:monospace; }
+    .blk-cust-row .ip-pill.live { background:#fef3c7; color:#92400e; }
+    .blk-cust-row .ip-pill.offline { background:#fee2e2; color:#991b1b; }
+    .blk-target-grid { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+    .blk-target-grid th, .blk-target-grid td { border:1px solid #e5e7eb; padding:5px 9px; }
+    .blk-target-grid th { background:#f8fafc; text-align:left; font-weight:600; font-size:12px; }
+    .blk-search { margin-bottom:8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        <i class="bi bi-slash-circle"></i> Website Blocks
+        <small style="color:#64748b; font-size:14px; margin-left:10px;">
+            Per-customer URL blocklist pushed to your Mikrotik
+        </small>
+        <button type="button" class="btn btn-primary pull-right"
+                onclick="blkWiz.open()" data-testid="blk-add-btn">
+            <i class="fa fa-plus"></i> Add Website Block
+        </button>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="blk-info">
+        <strong>How it works:</strong> Pick a NAS, list the domains/URLs to
+        block, tick the customers to apply it to, hit save. We push two
+        address-lists (<code>block-dst-{id}</code> for FQDNs that auto-resolve,
+        <code>block-src-{id}</code> for the customer IP snapshot) plus a
+        single <code>/ip/firewall/filter forward drop</code> rule connecting
+        them. Tag <code>block/autoispbilling-{id}</code> for clean rollback.
+    </div>
+
+    {% if website_blocks %}
+        {% for c in website_blocks %}
+        <div class="blk-card" data-testid="blk-{{ c.id }}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div style="flex:1;">
+                    <h4 style="margin:0 0 6px;">
+                        <i class="bi bi-slash-circle"></i>
+                        {{ c.name or ('Block #' ~ c.id) }}
+                        <span class="blk-status-pill {{ c.status }}">{{ c.status }}</span>
+                    </h4>
+                    <div style="color:#64748b; font-size:13px;">
+                        <span class="blk-tag">NAS: {{ c.nas_name or ('#' ~ c.nas_id) }}</span>
+                        <span class="blk-tag">{{ c.domain_list|length }} domain(s)</span>
+                        <span class="blk-tag">{{ c.targets|length }} customer(s)</span>
+                    </div>
+
+                    <details style="margin-top:8px;">
+                        <summary style="cursor:pointer; font-size:13px; color:#64748b;">
+                            <i class="bi bi-chevron-right"></i> View domains &amp; affected customers
+                        </summary>
+                        <div style="margin-top:8px;">
+                            <strong>Domains:</strong>
+                            {% for d in c.domain_list %}<span class="blk-tag">{{ d }}</span>{% endfor %}
+                        </div>
+                        {% if c.targets %}
+                        <table class="blk-target-grid" style="margin-top:8px;">
+                            <thead>
+                                <tr>
+                                    <th>#</th><th>Customer</th><th>Username</th>
+                                    <th>Snapshot IP</th><th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for t in c.targets %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ t.customer_name or '—' }}</td>
+                                    <td><code>{{ t.customer_username or '—' }}</code></td>
+                                    <td><code>{{ t.snapshot_ip or '(none)' }}</code></td>
+                                    <td><span class="blk-status-pill {{ t.status }}">{{ t.status }}</span></td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endif %}
+                    </details>
+
+                    {% if c.pushed_summary %}
+                    <div style="color:#94a3b8; font-size:11px; margin-top:6px;">
+                        <strong>Pushed:</strong> {{ c.pushed_summary }}
+                    </div>
+                    {% endif %}
+                    <div style="color:#94a3b8; font-size:11px; margin-top:4px;">
+                        Last applied: {{ c.last_applied or '—' }}
+                        {% if c.last_error %} · <span style="color:#dc2626;">Error: {{ c.last_error }}</span>{% endif %}
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn-info" onclick="blkRefresh({{ c.id }})"
+                            data-testid="blk-refresh-{{ c.id }}"
+                            title="Re-snapshot live IPs and re-push to router">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh IPs
+                    </button>
+                    <button class="btn btn-warning" onclick="blkDisable({{ c.id }})"
+                            data-testid="blk-disable-{{ c.id }}">
+                        <i class="bi bi-arrow-counterclockwise"></i> Rollback
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="blk-empty">
+            <i class="bi bi-slash-circle" style="font-size:48px;"></i>
+            <p style="margin-top:12px; font-size:15px;">No website blocks configured yet.</p>
+            <button class="btn btn-primary" onclick="blkWiz.open()" data-testid="blk-empty-add-btn">
+                <i class="fa fa-plus"></i> Configure your first block
+            </button>
+        </div>
+    {% endif %}
+</section>
+
+<!-- ============================================================ -->
+<!-- Add Block modal                                               -->
+<!-- ============================================================ -->
+<div class="modal fade" id="blkModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0f172a; color:#fff;">
+                <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:0.9;">&times;</button>
+                <h4 class="modal-title"><i class="bi bi-slash-circle"></i> Add Website Block</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label>NAS Device <span style="color:#dc2626;">*</span></label>
+                        <select class="form-control" id="blk-nas" data-testid="blk-nas"
+                                onchange="blkWiz.loadCustomers()">
+                            <option value="">-- choose NAS --</option>
+                            {% for n in nas_devices %}
+                            <option value="{{ n.id }}">{{ n.name }} ({{ n.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label>Friendly name</label>
+                        <input type="text" class="form-control" id="blk-name"
+                               placeholder="e.g. Block social media for kids' accounts"
+                               data-testid="blk-name">
+                    </div>
+                </div>
+
+                <hr>
+                <h5 style="margin-bottom:8px;">
+                    <i class="bi bi-globe"></i> Domains to block
+                </h5>
+                <textarea class="form-control" id="blk-domains" rows="4"
+                          placeholder="One per line — e.g.:&#10;facebook.com&#10;www.youtube.com&#10;tiktok.com"
+                          data-testid="blk-domains"></textarea>
+                <small style="color:#64748b;">
+                    Mikrotik resolves FQDN entries automatically. Subdomains
+                    (e.g. <code>m.facebook.com</code>) need separate lines.
+                </small>
+
+                <hr>
+                <h5 style="margin-bottom:8px;">
+                    <i class="bi bi-people-fill"></i> Customers to block
+                    <small style="color:#64748b; font-weight:normal;">
+                        (<span id="blk-sel-count">0</span> selected)
+                    </small>
+                </h5>
+                <input type="text" class="form-control blk-search" id="blk-search"
+                       placeholder="Search by name / username / customer ID…"
+                       oninput="blkWiz.filterCustomers()" data-testid="blk-search">
+                <div style="display:flex; gap:6px; margin-bottom:6px;">
+                    <button class="btn btn-default btn-sm" onclick="blkWiz.selectAllVisible()" data-testid="blk-sel-all">
+                        <i class="bi bi-check2-square"></i> Select all visible
+                    </button>
+                    <button class="btn btn-default btn-sm" onclick="blkWiz.clearSelection()" data-testid="blk-sel-clear">
+                        <i class="bi bi-x-square"></i> Clear
+                    </button>
+                </div>
+                <div class="blk-cust-list" id="blk-cust-list">
+                    <div style="color:#94a3b8; padding:14px;">Pick a NAS first to load customers…</div>
+                </div>
+
+                <div class="blk-warn" style="margin-top:14px;">
+                    <strong>IP snapshot:</strong> We use each customer's
+                    <em>static IP</em> if assigned, otherwise their currently
+                    online PPPoE/Hotspot IP. If a customer is offline AND has
+                    no static IP, they're skipped (you'll see a warning). Use
+                    "Refresh IPs" later to re-sync if a customer's IP changes.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="blkWiz.apply()"
+                        data-testid="blk-save-btn">
+                    <i class="bi bi-check-circle"></i> Save &amp; Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.blkWiz = (function () {
+    let allCustomers = [];
+    let selected = new Set();
+
+    function open() {
+        document.getElementById("blk-nas").value = "";
+        document.getElementById("blk-name").value = "";
+        document.getElementById("blk-domains").value = "";
+        document.getElementById("blk-search").value = "";
+        document.getElementById("blk-cust-list").innerHTML =
+            '<div style="color:#94a3b8; padding:14px;">Pick a NAS first to load customers…</div>';
+        allCustomers = [];
+        selected.clear();
+        updateCount();
+        $("#blkModal").modal("show");
+    }
+
+    async function loadCustomers() {
+        const nasId = document.getElementById("blk-nas").value;
+        const list = document.getElementById("blk-cust-list");
+        if (!nasId) {
+            list.innerHTML = '<div style="color:#94a3b8; padding:14px;">Pick a NAS first to load customers…</div>';
+            return;
+        }
+        list.innerHTML = '<div style="padding:14px;">Loading customers + live IPs…</div>';
+        try {
+            const r = await fetch(`/api/website-blocks/customers?nas_id=${nasId}`);
+            const d = await r.json();
+            if (!d.ok) {
+                list.innerHTML = `<div class="blk-warn">Failed: ${d.error || "unknown"}</div>`;
+                return;
+            }
+            allCustomers = d.customers || [];
+            renderCustomers(allCustomers);
+        } catch (e) {
+            list.innerHTML = `<div class="blk-warn">Network error: ${e}</div>`;
+        }
+    }
+
+    function renderCustomers(rows) {
+        const list = document.getElementById("blk-cust-list");
+        if (!rows.length) {
+            list.innerHTML = '<div style="color:#94a3b8; padding:14px;">No customers match that filter.</div>';
+            return;
+        }
+        list.innerHTML = rows.map(c => {
+            const isSel = selected.has(c.pk);
+            const ipCls = c.ip ? (c.ip_source === "live" ? "live" : "") : "offline";
+            const ipText = c.ip || "offline";
+            return `
+                <div class="blk-cust-row ${isSel ? 'selected' : ''}"
+                     data-pk="${c.pk}" onclick="blkWiz.toggle(${c.pk})"
+                     data-testid="blk-cust-${c.pk}">
+                    <input type="checkbox" ${isSel ? 'checked' : ''}
+                           onclick="event.stopPropagation(); blkWiz.toggle(${c.pk})">
+                    <div style="flex:1;">
+                        <div><strong>${escapeHtml(c.customer_name || c.customer_id)}</strong>
+                             <span class="meta">· ${escapeHtml(c.customer_id || "")} · @${escapeHtml(c.username || "—")}</span>
+                        </div>
+                        <div class="meta">
+                            Status: ${escapeHtml(c.status || "—")}
+                            ${c.sub_lco_id ? ` · sub_lco=${c.sub_lco_id}` : ""}
+                        </div>
+                    </div>
+                    <span class="ip-pill ${ipCls}" title="${escapeHtml(c.ip_source || "")}">${escapeHtml(ipText)}</span>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, m => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+        }[m]));
+    }
+
+    function toggle(pk) {
+        if (selected.has(pk)) selected.delete(pk);
+        else selected.add(pk);
+        const row = document.querySelector(`.blk-cust-row[data-pk="${pk}"]`);
+        if (row) {
+            row.classList.toggle("selected", selected.has(pk));
+            const cb = row.querySelector("input[type=checkbox]");
+            if (cb) cb.checked = selected.has(pk);
+        }
+        updateCount();
+    }
+
+    function selectAllVisible() {
+        document.querySelectorAll(".blk-cust-row").forEach(r => {
+            const pk = parseInt(r.dataset.pk);
+            if (pk) selected.add(pk);
+        });
+        renderFiltered();
+        updateCount();
+    }
+
+    function clearSelection() {
+        selected.clear();
+        renderFiltered();
+        updateCount();
+    }
+
+    function filterCustomers() { renderFiltered(); }
+
+    function renderFiltered() {
+        const q = (document.getElementById("blk-search").value || "").toLowerCase().trim();
+        const filtered = !q ? allCustomers : allCustomers.filter(c => {
+            return (c.customer_name || "").toLowerCase().includes(q) ||
+                   (c.customer_id || "").toLowerCase().includes(q) ||
+                   (c.username || "").toLowerCase().includes(q);
+        });
+        renderCustomers(filtered);
+    }
+
+    function updateCount() {
+        document.getElementById("blk-sel-count").textContent = selected.size;
+    }
+
+    async function apply() {
+        const nasId = document.getElementById("blk-nas").value;
+        if (!nasId) { alert("Pick a NAS"); return; }
+        const domains = document.getElementById("blk-domains").value
+            .split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+        if (!domains.length) { alert("Enter at least one domain"); return; }
+        if (!selected.size) { alert("Select at least one customer"); return; }
+
+        const payload = {
+            nas_id: nasId,
+            name: document.getElementById("blk-name").value.trim(),
+            domains: domains,
+            customer_pks: Array.from(selected),
+        };
+        try {
+            const r = await fetch("/api/website-blocks/save", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                let msg = "Failed: " + (d.error || "unknown");
+                if (d.offline && d.offline.length) {
+                    msg += "\n\nOffline (skipped):\n" + d.offline.join(", ");
+                }
+                alert(msg);
+                return;
+            }
+            let msg = `Block applied!\n\n${d.dst_count} domain(s), ${d.src_count} customer IP(s).\n\nPushed:\n${(d.pushed||[]).join("\n")}`;
+            if (d.offline_skipped && d.offline_skipped.length) {
+                msg += `\n\nSkipped (offline + no static IP):\n${d.offline_skipped.join(", ")}`;
+            }
+            alert(msg);
+            $("#blkModal").modal("hide");
+            location.reload();
+        } catch (e) {
+            alert("Network error: " + e);
+        }
+    }
+
+    return {
+        open, loadCustomers, toggle, selectAllVisible, clearSelection,
+        filterCustomers, apply,
+    };
+})();
+
+async function blkRefresh(id) {
+    if (!confirm("Re-snapshot live IPs and re-push the block to the router?")) return;
+    try {
+        const r = await fetch(`/api/website-blocks/${id}/refresh-ips`, {method: "POST"});
+        const d = await r.json();
+        if (d.ok) {
+            let msg = `Refreshed. ${d.refreshed || 0} IP(s) re-snapshot.`;
+            if (d.offline_skipped && d.offline_skipped.length) {
+                msg += `\nSkipped (offline): ${d.offline_skipped.join(", ")}`;
+            }
+            alert(msg);
+            location.reload();
+        } else {
+            alert("Failed: " + (d.error || "unknown"));
+        }
+    } catch (e) {
+        alert("Network error: " + e);
+    }
+}
+
+async function blkDisable(id) {
+    if (!confirm("Roll back this website block?\n\nWe'll remove the address-lists and the firewall drop rule from the router.")) return;
+    try {
+        const r = await fetch(`/api/website-blocks/${id}/disable`, {method: "POST"});
+        const d = await r.json();
+        if (d.ok) {
+            alert(`Rolled back. ${d.purged || 0} rule(s) purged from router.${d.router_error ? "\n\nRouter error: " + d.router_error : ""}`);
+            location.reload();
+        } else {
+            alert("Failed: " + (d.error || "unknown"));
+        }
+    } catch (e) {
+        alert("Network error: " + e);
+    }
+}
+</script>
+{% endblock %}

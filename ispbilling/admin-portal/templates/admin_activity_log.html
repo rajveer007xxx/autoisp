@@ -1,0 +1,140 @@
+{% extends "base_admin.html" %}
+{% block title %}Activity Log{% endblock %}
+{% block content %}
+{# S39R5K_ACTIVITY_PAGER_FIX #}
+<div id="s36b8-pager" style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+    <span id="s36b8-info" style="color:#64748b; font-size:12px;">—</span>
+    <div>
+        <button class="btn btn-sm btn-default" id="s36b8-prev" onclick="s36b8Page(-1)">&laquo; Prev</button>
+        <span style="margin:0 8px; font-size:12px;" id="s36b8-pageinfo">1 / 1</span>
+        <button class="btn btn-sm btn-default" id="s36b8-next" onclick="s36b8Page(+1)">Next &raquo;</button>
+    </div>
+</div>
+<script>
+window._s36b8Page = 1;
+function s36b8Page(d){
+    window._s36b8Page = Math.max(1, (window._s36b8Page||1) + d);
+    s36b8Load();
+}
+(function(){
+    var ps = document.getElementById('s36b8-pagesize');
+    if (ps) ps.addEventListener('change', function(){ window._s36b8Page = 1; s36b8Load(); });
+    var ft = document.getElementById('s36b8-filter');
+    if (ft) ft.addEventListener('change', function(){ window._s36b8Page = 1; s36b8Load(); });
+})();
+</script>
+<section class="content-header">
+    <h1>Activity Log <small>Who did what, when</small></h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+        <li class="active">Activity Log</li>
+    </ol>
+</section>
+<section class="content">
+    <div class="box box-primary" style="border-top-color:#0ea5e9;">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-activity"></i> Recent Admin Activity</h3>
+            <div class="box-tools pull-right">
+                <!-- _S39ACT_PAGINATION_UI -->
+                <select id="s36b8-filter" class="form-control input-sm" style="display:inline-block;width:160px;" data-testid="activity-filter">
+                    <option value="">All targets</option>
+                    <option value="customer">Customers</option>
+                    <option value="voucher">Vouchers</option>
+                    <option value="voucher_batch">Voucher Batches</option>
+                    <option value="captive_portal">Captive Portal</option>
+                    <option value="nas">NAS</option>
+                    <option value="plan">Plans</option>
+                    <option value="setting">Settings</option>
+                </select>
+                <select id="s36b8-pagesize" class="form-control input-sm" style="display:inline-block;width:110px;margin-left:6px;" data-testid="activity-pagesize">
+                    <option value="15" selected>15 / page</option>
+                    <option value="25">25 / page</option>
+                    <option value="50">50 / page</option>
+                    <option value="100">100 / page</option>
+                </select>
+                <button class="btn btn-sm btn-default" onclick="s36b8Load()" data-testid="activity-refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+            </div>
+        </div>
+        <div class="box-body">
+            <table class="table table-hover" data-testid="activity-table">
+                <thead>
+                    <tr style="background:#f1f5f9;">
+                        <th style="width:160px;">When</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Summary</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody id="s36b8-tbody">
+                    <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<style>
+.aal-action-create { background:#10b981; color:#fff; padding:2px 8px; border-radius:3px; font-size:11px; }
+.aal-action-update { background:#6366f1; color:#fff; padding:2px 8px; border-radius:3px; font-size:11px; }
+.aal-action-delete { background:#ef4444; color:#fff; padding:2px 8px; border-radius:3px; font-size:11px; }
+.aal-action-invoke { background:#0ea5e9; color:#fff; padding:2px 8px; border-radius:3px; font-size:11px; }
+.aal-actor { font-family:monospace; color:#7c3aed; }
+</style>
+
+<script>
+function s36b8Fmt(s){ if(!s) return '—'; try { return new Date(s.replace(' ','T')+'Z').toLocaleString(); } catch(e){ return s; }}
+function s36b8Escape(s){ return (s||'').replace(/</g,'&lt;'); }
+function s36b8Load(){
+    var f = document.getElementById('s36b8-filter').value;
+    var ps = parseInt(document.getElementById('s36b8-pagesize').value || 15);
+    var pg = window._s36b8Page || 1;
+    var url = '/api/activity-log/list?limit=' + ps + '&page=' + pg + (f ? '&target_type=' + encodeURIComponent(f) : '');
+    fetch(url, {credentials:'same-origin'})  /* _S39R5E_ACTLOG_JS_FIX */
+        .then(r => r.json()).then(j => {
+            var tb = document.getElementById('s36b8-tbody');
+            tb.innerHTML = '';
+            if (!j.ok || !j.rows || !j.rows.length) {
+                tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No activity recorded yet.</td></tr>';
+                return;
+            }
+            j.rows.forEach(function(r){
+                var ac = r.action.toLowerCase();
+                tb.insertAdjacentHTML('beforeend',
+                    '<tr>'+
+                      '<td><small>'+s36b8Fmt(r.at)+'</small></td>'+
+                      '<td><span class="aal-actor">'+s36b8Escape(r.actor_name||r.actor_id||'—')+'</span><br><small class="text-muted">'+s36b8Escape(r.actor_type||'')+'</small></td>'+
+                      '<td><span class="aal-action-'+ac+'">'+s36b8Escape(r.action.toUpperCase())+'</span></td>'+
+                      '<td><strong>'+s36b8Escape(r.target_type)+'</strong>'+(r.target_id?'<br><small class="text-muted">'+s36b8Escape(r.target_id)+'</small>':'')+'</td>'+
+                      '<td>'+s36b8Escape(r.summary||'—')+'</td>'+
+                      '<td><code style="font-size:11px;">'+s36b8Escape(r.ip||'—')+'</code></td>'+
+                    '</tr>');
+            });
+        });
+}
+document.getElementById('s36b8-filter').addEventListener('change', s36b8Load);
+document.addEventListener('DOMContentLoaded', s36b8Load);
+</script>
+
+<script>
+/* __S38W_UNIFIED_COMPLAINTS__ */
+(function(){
+  function init(){
+    if (!window.jQuery || !jQuery.fn.dataTable) { return setTimeout(init, 250); }
+    if (jQuery.fn.dataTable.isDataTable("#activity-table")) return;
+    jQuery("#activity-table").DataTable({
+      pageLength: 15,
+      lengthChange: true,
+      lengthMenu: [[15, 20, 30, 50, 100, -1], [15, 20, 30, 50, 100, "All"]],
+      order: [[0, "desc"]],
+      language: { lengthMenu: "Show _MENU_ records per page",
+                  info: "Showing _START_–_END_ of _TOTAL_",
+                  paginate: { previous: "Prev", next: "Next" } }
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
+</script>
+{% endblock %}

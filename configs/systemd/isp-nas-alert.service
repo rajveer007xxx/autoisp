@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing - NAS hardware vitals watcher (Telegram alerts)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/ispbilling.env
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/nas_alert_watcher.py
+StandardOutput=append:/var/log/autoispbilling/nas-alert.log
+StandardError=append:/var/log/autoispbilling/nas-alert.log
+User=root

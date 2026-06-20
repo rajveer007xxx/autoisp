@@ -1,0 +1,178 @@
+"""
+Phase 1 tasks — background jobs.
+
+THESE ARE DARK-LAUNCHED. The auto-renew script does NOT enqueue them
+unless USE_QUEUE_AUTORENEW=1 is set in /etc/ispbilling.env. So this
+file is safe to deploy without any live behavior change.
+"""
+import os
+import sys as _sys; _sys.path.insert(0, '/opt/ispbilling/admin-portal'); from db_compat import get_raw_conn as _compat_conn  # __s56Z2_compat__
+import sys
+import logging
+
+# Path setup so we can import services.billing etc.
+sys.path.insert(0, "/opt/ispbilling/admin-portal")
+sys.path.insert(1, "/opt/ispbilling")
+
+# Initialise broker FIRST.
+from task_queue.broker import broker  # noqa: F401
+
+import dramatiq
+from dramatiq import group  # noqa: F401
+
+log = logging.getLogger("isp.tasks")
+log.setLevel(logging.INFO)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Task 1: send a queued email (drains the pending_emails table)
+# ─────────────────────────────────────────────────────────────────────
+@dramatiq.actor(queue_name="isp.email",
+                max_retries=3,
+                min_backoff=10_000,        # 10s
+                max_backoff=300_000,       # 5 min
+                time_limit=60_000)         # 60s per attempt
+def send_pending_email(pending_id: int) -> None:
+    """Process one row from `pending_emails`.
+
+    Pulls the row, claims it via UPDATE status='sending', then sends via
+    the SMTP creds in `superadmins` row id=1.  On success, marks 'sent'.
+    On failure, increments attempts; Dramatiq's own retry policy handles
+    the back-off until max_attempts is hit.
+    """
+    import sqlite3
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.application import MIMEApplication
+    from datetime import datetime
+
+    DB = "/var/lib/autoispbilling/autoispbilling.db"
+
+    with _compat_conn(timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        row = conn.execute(
+            "SELECT to_email, cc_email, bcc_email, subject, body_text, "
+            "body_html, attachment_path, attempts FROM pending_emails "
+            "WHERE id=? AND status IN ('pending','sending')",
+            (pending_id,),
+        ).fetchone()
+        if not row:
+            log.info("send_pending_email id=%s: row missing or already sent",
+                     pending_id)
+            return
+        to_email, cc, bcc, subject, body_text, body_html, attach, attempts = row
+        smtp_row = conn.execute(
+            "SELECT smtp_server, smtp_port, smtp_username, smtp_password, "
+            "contact_email FROM superadmins WHERE id=1"
+        ).fetchone()
+        # Mark sending
+        conn.execute(
+            "UPDATE pending_emails SET status='sending', attempts=attempts+1, "
+            "locked_by=?, locked_until=datetime('now','+5 minutes') WHERE id=?",
+            (f"dramatiq-{os.getpid()}", pending_id),
+        )
+        conn.commit()
+
+    if not smtp_row or not smtp_row[3]:
+        raise RuntimeError("SMTP creds incomplete on superadmins row id=1")
+
+    host, port, user, pwd, reply_to = smtp_row
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"AutoISP <{user}>"
+    msg["To"] = to_email
+    if cc:  msg["Cc"]  = cc
+    if bcc: msg["Bcc"] = bcc
+    msg["Reply-To"] = reply_to or user
+    msg["Subject"] = subject
+    if body_text:
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    if body_html:
+        msg.attach(MIMEText(body_html, "html", "utf-8"))
+    if attach and os.path.exists(attach):
+        with open(attach, "rb") as f:
+            part = MIMEApplication(f.read())
+        part.add_header("Content-Disposition", "attachment",
+                        filename=os.path.basename(attach))
+        msg.attach(part)
+
+    try:
+        if int(port) == 465:
+            with smtplib.SMTP_SSL(host, int(port), timeout=30) as s:
+                s.login(user, pwd)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(host, int(port), timeout=30) as s:
+                s.starttls()
+                s.login(user, pwd)
+                s.send_message(msg)
+    except Exception as e:
+        with _compat_conn(timeout=30) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute(
+                "UPDATE pending_emails SET status=CASE WHEN attempts>=max_attempts "
+                "THEN 'failed' ELSE 'pending' END, last_error=? WHERE id=?",
+                (str(e)[:500], pending_id),
+            )
+            conn.commit()
+        raise  # let Dramatiq retry
+
+    with _compat_conn(timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute(
+            "UPDATE pending_emails SET status='sent', sent_at=datetime('now'), "
+            "last_error=NULL, locked_by=NULL, locked_until=NULL WHERE id=?",
+            (pending_id,),
+        )
+        conn.commit()
+    log.info("send_pending_email id=%s: sent to %s", pending_id, to_email)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Task 2: renew a single customer  (DARK — never called yet)
+# ─────────────────────────────────────────────────────────────────────
+@dramatiq.actor(queue_name="isp.renew",
+                max_retries=2,
+                min_backoff=30_000,
+                time_limit=180_000)
+def renew_one_customer(customer_pk: int) -> None:
+    """Phase 1 placeholder — calls the existing renewal helper for ONE
+    customer. NOT wired into auto_renew_expired.py until the operator
+    sets USE_QUEUE_AUTORENEW=1.  Left as a stub so workers can boot
+    cleanly today without the import chain forcing SQLAlchemy + a DB
+    session in every dramatiq process at idle.
+    """
+    log.info("renew_one_customer(customer_pk=%s) — dark-launched stub",
+             customer_pk)
+    # When operator enables the queue, replace this body with:
+    #   from services.billing import renew_customer_core
+    #   from database import SessionLocal, Customer
+    #   db = SessionLocal()
+    #   try:
+    #       cust = db.query(Customer).filter(Customer.id == customer_pk).first()
+    #       if not cust: return
+    #       renew_customer_core(cust, db)
+    #   finally:
+    #       db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Task 3: drain pending_emails queue (fan-out scanner)
+# Triggered every minute by a separate systemd timer.
+# ─────────────────────────────────────────────────────────────────────
+@dramatiq.actor(queue_name="isp.email_drain",
+                max_retries=0,
+                time_limit=30_000)
+def drain_pending_emails(batch_size: int = 50) -> None:
+    import sqlite3
+    DB = "/var/lib/autoispbilling/autoispbilling.db"
+    with _compat_conn(timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        rows = conn.execute(
+            "SELECT id FROM pending_emails WHERE status='pending' "
+            "ORDER BY priority ASC, created_at ASC LIMIT ?",
+            (batch_size,),
+        ).fetchall()
+    for (pid,) in rows:
+        send_pending_email.send(pid)
+    log.info("drain_pending_emails: enqueued %d send jobs", len(rows))

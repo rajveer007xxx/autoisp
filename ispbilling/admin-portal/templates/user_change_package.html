@@ -1,0 +1,34 @@
+{% extends "base_user.html" %}
+{% block title %}Change Plan — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title"><div><h1>Change Your Plan</h1><p>Pick a plan and we'll process the request.</p></div></div>
+<div class="card-row">
+{% for p in plans|default([]) %}
+<div class="card" style="position:relative;{% if p.id == current_plan_id %}border-color:var(--brand-primary);box-shadow:0 0 0 3px rgba(14,165,233,0.15);{% endif %}">
+  {% if p.id == current_plan_id %}<span style="position:absolute;top:14px;right:14px;background:linear-gradient(135deg,var(--brand-primary),var(--brand-accent));padding:3px 9px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Current</span>{% endif %}
+  <h3 style="margin-bottom:6px;color:var(--text-hi);text-transform:none;font-size:18px;letter-spacing:0;">{{ p.plan_name }}</h3>
+  <div style="font-size:32px;font-weight:800;background:linear-gradient(135deg,var(--brand-primary),var(--brand-accent));-webkit-background-clip:text;background-clip:text;color:transparent;">₹ {{ '{:,.0f}'.format(p.after_tax_amount or 0) }}<span style="font-size:14px;font-weight:500;color:var(--text-mid);">/{{ p.validity or 30 }}d</span></div>
+  <ul style="list-style:none;font-size:13px;color:var(--text-mid);margin-top:16px;">
+    <li style="padding:6px 0;"><i class="bi bi-clock"></i> {{ p.validity|default('30') }} days validity</li>
+    {% if p.service %}<li style="padding:6px 0;"><i class="bi bi-broadcast"></i> {{ p.service }}</li>{% endif %}
+    {% if p.description %}<li style="padding:6px 0;color:var(--text-lo);"><i class="bi bi-info-circle"></i> {{ p.description }}</li>{% endif %}
+  </ul>
+  {% if p.id != current_plan_id %}
+  <button class="btn primary" style="margin-top:14px;width:100%;" onclick="reqChange({{ p.id }}, '{{ p.plan_name|replace("'", "\\'") }}')"><i class="bi bi-arrow-up-right"></i> Request this plan</button>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><p style="color:var(--text-lo);padding:30px;text-align:center;">No plans available right now. Contact support.</p></div>
+{% endfor %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function reqChange(planId, name){
+  if(!confirm('Request to change to "' + name + '"? Your service team will follow up.')) return;
+  const r=await fetch('/api/customer/me/change-package',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan_id:planId})});
+  const d=await r.json();
+  alert(d.message||(d.success?'Request sent. Our team will reach out shortly.':'Could not submit.'));
+}
+</script>
+{% endblock %}

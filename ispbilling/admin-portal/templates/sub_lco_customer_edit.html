@@ -1,0 +1,202 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}Edit Customer — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Edit Customer <small><code>{{ customer.customer_id }}</code> · {{ customer.customer_name }}</small></h1>
+</section>
+
+<section class="content">
+<div class="slco-card">
+  <ul class="nav nav-tabs" role="tablist" style="margin-bottom:14px">
+    <li class="active"><a data-toggle="tab" href="#tab-basic">Basic</a></li>
+    <li><a data-toggle="tab" href="#tab-addr">Address</a></li>
+    <li><a data-toggle="tab" href="#tab-service">Service</a></li>
+    <li><a data-toggle="tab" href="#tab-billing">Billing</a></li>
+    <li><a data-toggle="tab" href="#tab-network">Network</a></li>
+    <li><a data-toggle="tab" href="#tab-auth">Auth</a></li>
+    <li><a data-toggle="tab" href="#tab-notify">Notifications</a></li>
+  </ul>
+
+  <form id="editForm" data-testid="slco-edit-customer-form">
+    <div class="tab-content">
+      <!-- Basic -->
+      <div class="tab-pane active" id="tab-basic">
+        <div class="row">
+          <div class="col-sm-6 form-group"><label>Name *</label><input class="form-control" name="customer_name" required></div>
+          <div class="col-sm-6 form-group"><label>Nickname</label><input class="form-control" name="nickname"></div>
+          <div class="col-sm-6 form-group"><label>Mobile *</label><input class="form-control" name="customer_phone" required></div>
+          <div class="col-sm-6 form-group"><label>Alt. Mobile</label><input class="form-control" name="alt_mobile"></div>
+          <div class="col-sm-6 form-group"><label>Email</label><input class="form-control" name="customer_email" type="email"></div>
+          <div class="col-sm-6 form-group"><label>Customer Type</label>
+            <select class="form-control" name="customer_type"><option>Postpaid</option><option>Prepaid</option></select></div>
+          <div class="col-sm-6 form-group"><label>Status</label>
+            <select class="form-control" name="status">
+              <option>Active</option><option>Deactive</option><option>Suspended</option><option>Expired</option>
+            </select></div>
+          <div class="col-sm-6 form-group"><label>Username (PPPoE)</label><input class="form-control" name="username"></div>
+          <div class="col-sm-6 form-group"><label>New Password (leave blank to keep)</label><input class="form-control" name="password" type="text" minlength="6"></div>
+        </div>
+      </div>
+      <!-- Address -->
+      <div class="tab-pane" id="tab-addr">
+        <div class="row">
+          <div class="col-sm-12 form-group"><label>Address</label><input class="form-control" name="address"></div>
+          <div class="col-sm-6 form-group">
+            <label>Locality</label>
+            <select class="form-control" name="locality">
+              <option value="">--</option>
+              {% for l in locations %}<option value="{{ l.name }}">{{ l.name }} {% if l.city %}({{ l.city }}){% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-3 form-group"><label>City</label><input class="form-control" name="city"></div>
+          <div class="col-sm-3 form-group"><label>Pincode</label><input class="form-control" name="pincode"></div>
+          <div class="col-sm-6 form-group"><label>State</label><input class="form-control" name="state"></div>
+          <hr><h4 style="color:#475569">Billing Address (if different)</h4>
+          <div class="col-sm-12 form-group"><label>Billing Address</label><input class="form-control" name="billing_address"></div>
+          <div class="col-sm-4 form-group"><label>Billing Locality</label><input class="form-control" name="billing_locality"></div>
+          <div class="col-sm-4 form-group"><label>Billing City</label><input class="form-control" name="billing_city"></div>
+          <div class="col-sm-4 form-group"><label>Billing State</label><input class="form-control" name="billing_state"></div>
+          <div class="col-sm-4 form-group"><label>Billing Pincode</label><input class="form-control" name="billing_pincode"></div>
+        </div>
+      </div>
+      <!-- Service -->
+      <div class="tab-pane" id="tab-service">
+        <div class="row">
+          <div class="col-sm-6 form-group"><label>Service Type</label>
+            <select class="form-control" name="service_type"><option>Broadband</option><option>Cable TV</option></select></div>
+          <div class="col-sm-6 form-group"><label>Plan</label>
+            <select class="form-control" name="plan_id">
+              <option value="">--</option>
+              {% for p in plans %}<option value="{{ p.id }}">{{ p.plan_name }} — ₹{{ '%.0f' % p.price }} / {{ p.speed }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-4 form-group"><label>Monthly Amount</label><input class="form-control" name="monthly_amount"></div>
+          <div class="col-sm-4 form-group"><label>Period (months)</label><input class="form-control" name="period" type="number" min="1"></div>
+          <div class="col-sm-4 form-group"><label>Auto-Renew</label>
+            <select class="form-control" name="auto_renew"><option>Yes</option><option>No</option></select></div>
+        <div class="col-sm-6 form-group"><label>DNS Content-Filter Profile</label>
+            <select class="form-control" name="dns_profile_id" id="dns_profile_id_edit" data-testid="slco-edit-dns-profile">
+              <option value="">— Use plan default —</option>
+              {% for d in (dns_profiles or []) %}<option value="{{ d.id }}" {% if customer.dns_profile_id == d.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+            </select>
+            <small class="text-muted">Override the plan-level DNS profile.</small></div>
+          <div class="col-sm-4 form-group"><label>Start Date</label><input class="form-control" name="start_date" type="date"></div>
+          <div class="col-sm-4 form-group"><label>End Date</label><input class="form-control" name="end_date" type="date"></div>
+          <div class="col-sm-4 form-group"><label>Installation Date</label><input class="form-control" name="installation_date" type="date"></div>
+          <div class="col-sm-6 form-group"><label>CAF No.</label><input class="form-control" name="caf_no"></div>
+          <div class="col-sm-6 form-group"><label>Custom Rate Limit (override)</label><input class="form-control" name="custom_rate_limit" placeholder="e.g. 50M/50M"></div>
+        </div>
+      </div>
+      <!-- Billing -->
+      <div class="tab-pane" id="tab-billing">
+        <div class="row">
+          <div class="col-sm-4 form-group"><label>Bill Amount</label><input class="form-control" name="bill_amount"></div>
+          <div class="col-sm-4 form-group"><label>Total Bill</label><input class="form-control" name="total_bill_amount"></div>
+          <div class="col-sm-4 form-group"><label>Payment Mode</label>
+            <select class="form-control" name="payment_mode">
+              <option value="">--</option><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+            </select></div>
+          <div class="col-sm-4 form-group"><label>CGST</label><input class="form-control" name="cgst_tax"></div>
+          <div class="col-sm-4 form-group"><label>SGST</label><input class="form-control" name="sgst_tax"></div>
+          <div class="col-sm-4 form-group"><label>IGST</label><input class="form-control" name="igst_tax"></div>
+          <div class="col-sm-4 form-group"><label>Security Deposit</label><input class="form-control" name="security_deposit"></div>
+          <div class="col-sm-4 form-group"><label>Installation Charges</label><input class="form-control" name="installation_charges"></div>
+          <div class="col-sm-4 form-group"><label>Router Charges</label><input class="form-control" name="router_charges"></div>
+          <div class="col-sm-4 form-group"><label>GST Invoice Needed</label>
+            <select class="form-control" name="gst_invoice_needed"><option>NO</option><option>YES</option></select></div>
+          <div class="col-sm-4 form-group"><label>Customer GST No.</label><input class="form-control" name="customer_gst_no"></div>
+          <div class="col-sm-4 form-group"><label>ID Proof Type</label>
+            <select class="form-control" name="id_proof">
+              <option value="">--</option><option>Aadhaar</option><option>PAN</option><option>Voter ID</option><option>Driving License</option><option>Passport</option>
+            </select></div>
+          <div class="col-sm-8 form-group"><label>ID Proof No.</label><input class="form-control" name="id_proof_no"></div>
+        </div>
+      </div>
+      <!-- Network -->
+      <div class="tab-pane" id="tab-network">
+        <div class="row">
+          <div class="col-sm-4 form-group"><label>MAC Address</label><input class="form-control" name="mac_address"></div>
+          <div class="col-sm-4 form-group"><label>IP Address</label><input class="form-control" name="ip_address"></div>
+          <div class="col-sm-4 form-group"><label>Vendor</label><input class="form-control" name="vendor"></div>
+          <div class="col-sm-4 form-group"><label>Modem No.</label><input class="form-control" name="modem_no"></div>
+          <div class="col-sm-4 form-group"><label>Zone</label><input class="form-control" name="zone"></div>
+          <div class="col-sm-4 form-group"><label>Node</label><input class="form-control" name="node"></div>
+          <div class="col-sm-4 form-group"><label>Distance from Node</label><input class="form-control" name="distance_from_node"></div>
+          <div class="col-sm-4 form-group"><label>Fix IP Address?</label>
+            <select class="form-control" name="fix_ip_address"><option>No</option><option>Yes</option></select></div>
+          <div class="col-sm-4 form-group"><label>Bind MAC?</label>
+            <select class="form-control" name="bind_mac_address"><option>No</option><option>Yes</option></select></div>
+        </div>
+      </div>
+      <!-- Auth -->
+      <div class="tab-pane" id="tab-auth">
+        <div class="row">
+          <div class="col-sm-4 form-group"><label>Auth Type</label>
+            <select class="form-control" name="auth_type">
+              <option>pppoe</option><option>static</option><option>hotspot</option>
+            </select></div>
+          <div class="col-sm-4 form-group"><label>Static IP</label><input class="form-control" name="static_ip_address"></div>
+          <div class="col-sm-4 form-group"><label>Static Netmask</label><input class="form-control" name="static_netmask"></div>
+          <div class="col-sm-4 form-group"><label>Hotspot Session Timeout (s)</label><input class="form-control" name="hotspot_session_timeout" type="number" min="0"></div>
+          <div class="col-sm-4 form-group"><label>Hotspot Idle Timeout (s)</label><input class="form-control" name="hotspot_idle_timeout" type="number" min="0"></div>
+          <div class="col-sm-4 form-group"><label>Allowed Devices</label><input class="form-control" name="allow_devices" type="number" min="1"></div>
+        </div>
+      </div>
+      <!-- Notifications -->
+      <div class="tab-pane" id="tab-notify">
+        <div class="row">
+          <div class="col-sm-4 form-group"><label>Do not send SMS</label>
+            <select class="form-control" name="do_not_send_sms"><option>No</option><option>Yes</option></select></div>
+          <div class="col-sm-4 form-group"><label>Do not send WhatsApp</label>
+            <select class="form-control" name="do_not_send_whatsapp"><option>No</option><option>Yes</option></select></div>
+          <div class="col-sm-4 form-group"><label>Do not send Email</label>
+            <select class="form-control" name="do_not_send_email"><option>No</option><option>Yes</option></select></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:right;margin-top:14px;border-top:1px solid #e5e7eb;padding-top:14px">
+      <a href="/sub-lco/customers" class="btn btn-default">Cancel</a>
+      <button type="submit" class="btn btn-brand" data-testid="slco-save-edit-btn"><i class="fa fa-save"></i> Save Changes</button>
+    </div>
+  </form>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+const CUST = {{ customer | tojson }};
+const CID  = {{ customer.customer_id | tojson }};
+
+function setField(name, val) {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (!el) return;
+  if (val === null || val === undefined) val = '';
+  el.value = val;
+}
+function fillForm() {
+  Object.keys(CUST).forEach(k => setField(k, CUST[k]));
+}
+$(function(){
+  fillForm();
+  $('#editForm').on('submit', function(e){
+    e.preventDefault();
+    const data = {};
+    new FormData(this).forEach((v, k) => { data[k] = v; });
+    // Drop empty password so we don't overwrite
+    if (!data.password) delete data.password;
+    $.ajax({
+      url: '/api/sub-lco/customers/' + CID + '/update',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify(data),
+    }).done(function(r){
+      if (r.success) { alert(r.message || 'Saved.'); window.location = '/sub-lco/customers'; }
+      else alert(r.message || 'Failed');
+    }).fail(function(x){
+      alert((x.responseJSON && x.responseJSON.message) || 'Failed');
+    });
+  });
+});
+</script>
+{% endblock %}

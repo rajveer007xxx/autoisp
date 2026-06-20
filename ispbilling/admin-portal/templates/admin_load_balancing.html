@@ -1,0 +1,503 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Load Balancing - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .lb-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:18px; margin-bottom:14px; }
+    .lb-strategy-badge { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .lb-strategy-badge.pcc_balanced  { background:#dbeafe; color:#1e40af; }
+    .lb-strategy-badge.pcc_weighted  { background:#fef3c7; color:#92400e; }
+    .lb-strategy-badge.failover      { background:#fee2e2; color:#991b1b; }
+    .lb-status-pill { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .lb-status-pill.Active { background:#d1fae5; color:#065f46; }
+    .lb-status-pill.Error  { background:#fee2e2; color:#991b1b; }
+    .lb-empty { padding:60px 20px; text-align:center; color:#94a3b8; }
+    .lb-step { display:none; }
+    .lb-step.active { display:block; }
+    .lb-step h4 { margin-top:0; color:#0f172a; }
+    .lb-iface-tag { display:inline-block; padding:4px 10px; background:#e0f2fe; color:#0369a1;
+                    border-radius:12px; font-size:11px; margin:2px; font-family:monospace; }
+    .lb-warn { background:#fff7ed; color:#9a3412; padding:10px 14px; border-radius:6px;
+               border-left:4px solid #f97316; margin:10px 0; }
+    .lb-info { background:#eff6ff; color:#1e3a8a; padding:10px 14px; border-radius:6px;
+               border-left:4px solid #3b82f6; margin:10px 0; }
+    .lb-ok   { background:#ecfdf5; color:#065f46; padding:10px 14px; border-radius:6px;
+               border-left:4px solid #10b981; margin:10px 0; }
+    .lb-table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
+    .lb-table th, .lb-table td { border:1px solid #e5e7eb; padding:6px 10px; text-align:left; }
+    .lb-table th { background:#f1f5f9; font-weight:600; }
+    .lb-strategy-card { border:2px solid #e5e7eb; border-radius:8px; padding:14px;
+                         cursor:pointer; transition:border-color 0.15s ease; }
+    .lb-strategy-card:hover { border-color:#94a3b8; }
+    .lb-strategy-card.selected { border-color:#3b82f6; background:#eff6ff; }
+    .lb-strategy-card h5 { margin:0 0 6px; font-size:14px; font-weight:600; color:#0f172a; }
+    .lb-strategy-card p  { margin:0; font-size:12px; color:#64748b; line-height:1.4; }
+    .lb-weight-row { display:none; margin-top:14px; padding:12px; background:#fefce8;
+                     border-radius:6px; border:1px dashed #eab308; }
+    .lb-weight-row.show { display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        <i class="bi bi-arrow-left-right"></i> Load Balancing
+        <small style="color:#64748b; font-size:14px; margin-left:10px;">
+            Dual-WAN distribution &amp; failover for your Mikrotik routers
+        </small>
+        <button type="button" class="btn btn-primary pull-right"
+                onclick="lbWiz.open()" data-testid="lb-add-btn">
+            <i class="fa fa-plus"></i> Add Load Balancing
+        </button>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="lb-info">
+        <strong>How it works:</strong> Pick a NAS, define your WAN2 (extra
+        internet line), select the LAN interface that aggregates subscribers,
+        choose a balancing strategy, and we'll push the firewall&nbsp;NAT,
+        mangle (PCC classifier) &amp; route rules tagged
+        <code>lb/autoispbilling</code>. Disable any time to wipe them cleanly.
+    </div>
+
+    {% if lb_configs %}
+        {% for c in lb_configs %}
+        <div class="lb-card" data-testid="lb-config-{{ c.id }}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h4 style="margin:0 0 6px;">
+                        <i class="bi bi-router"></i>
+                        {{ c.nas_name or ('NAS #' ~ c.nas_id) }}
+                        <span class="lb-status-pill {{ c.status }}">{{ c.status }}</span>
+                        <span class="lb-strategy-badge {{ c.strategy }}">
+                            {% if c.strategy == 'pcc_balanced' %}PCC 50/50
+                            {% elif c.strategy == 'pcc_weighted' %}PCC {{ c.weight1 }}/{{ c.weight2 }}
+                            {% else %}Failover{% endif %}
+                        </span>
+                    </h4>
+                    <div style="color:#64748b; font-size:13px;">
+                        <span class="lb-iface-tag">WAN1: {{ c.wan1_iface }}</span>
+                        <i class="bi bi-arrow-right"></i>
+                        <span class="lb-iface-tag">WAN2: {{ c.wan2_iface }} ({{ c.wan2_ip }})</span>
+                        <i class="bi bi-arrow-right"></i>
+                        <span class="lb-iface-tag">LAN: {{ c.lan_iface }}</span>
+                    </div>
+                    <div style="color:#94a3b8; font-size:11px; margin-top:6px;">
+                        Last applied: {{ c.last_applied or '—' }}
+                        {% if c.last_backup %} · Backup: <code>{{ c.last_backup }}</code>{% endif %}
+                        {% if c.last_error %} · <span style="color:#dc2626;">Error: {{ c.last_error }}</span>{% endif %}
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn-default" onclick="lbWiz.editFrom({{ c.id }})"
+                            data-testid="lb-edit-{{ c.id }}">
+                        <i class="bi bi-pencil"></i> Re-apply
+                    </button>
+                    <button class="btn btn-warning" onclick="lbDisable({{ c.id }})"
+                            data-testid="lb-disable-{{ c.id }}">
+                        <i class="bi bi-power"></i> Disable
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="lb-empty">
+            <i class="bi bi-arrow-left-right" style="font-size:48px;"></i>
+            <p style="margin-top:12px; font-size:15px;">No load balancing configured yet.</p>
+            <button class="btn btn-primary" onclick="lbWiz.open()" data-testid="lb-empty-add-btn">
+                <i class="fa fa-plus"></i> Configure your first dual-WAN
+            </button>
+        </div>
+    {% endif %}
+</section>
+
+<!-- ============================================================ -->
+<!-- Wizard modal                                                  -->
+<!-- ============================================================ -->
+<div class="modal fade" id="lbWizardModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0f172a; color:#fff;">
+                <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:0.9;">&times;</button>
+                <h4 class="modal-title">
+                    <i class="bi bi-arrow-left-right"></i>
+                    Configure Load Balancing &mdash;
+                    <span id="lb-step-label">Step 1 / 4</span>
+                </h4>
+            </div>
+            <div class="modal-body" style="min-height:380px;">
+
+                <!-- Step 1 — Pick NAS -->
+                <div class="lb-step active" id="lb-step-1">
+                    <h4>1. Select the Mikrotik NAS</h4>
+                    <p style="color:#64748b;">Each NAS gets its own dual-WAN
+                    config. We connect live to detect interfaces &amp; existing WAN1.</p>
+                    <select class="form-control" id="lb-nas-select" data-testid="lb-nas-select">
+                        <option value="">-- Choose a NAS --</option>
+                        {% for n in nas_devices %}
+                        <option value="{{ n.id }}">{{ n.name }} ({{ n.ip_address }})</option>
+                        {% endfor %}
+                    </select>
+                    {% if not nas_devices %}
+                    <div class="lb-warn" style="margin-top:14px;">
+                        No active NAS found. Please add one in
+                        <a href="/admin/nas-devices">Network &rarr; NAS Devices</a> first.
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Step 2 — Pre-flight discovery -->
+                <div class="lb-step" id="lb-step-2">
+                    <h4>2. Pick interfaces</h4>
+                    <div id="lb-preflight-loading" style="text-align:center; padding:40px; color:#64748b;">
+                        <i class="bi bi-arrow-clockwise" style="font-size:32px; animation:spin 1s linear infinite;"></i>
+                        <div>Connecting to router&hellip;</div>
+                    </div>
+                    <div id="lb-preflight-body" style="display:none;">
+                        <div class="lb-info">
+                            <strong>Detected WAN1:</strong> <span id="lb-wan1-summary">—</span>
+                        </div>
+                        <div class="row" style="margin-top:14px;">
+                            <div class="col-md-4">
+                                <label>WAN2 interface</label>
+                                <select class="form-control" id="lb-wan2-iface" data-testid="lb-wan2-iface" onchange="lbWiz.previewWan2()"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label>LAN (output) interface</label>
+                                <select class="form-control" id="lb-lan-iface" data-testid="lb-lan-iface"></select>
+                                <small style="color:#64748b;">Subscribers (PPPoE / Hotspot / Static-IP) live here.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>WAN1 interface (auto)</label>
+                                <input type="text" class="form-control" id="lb-wan1-iface" readonly>
+                            </div>
+                        </div>
+                        <div id="lb-iface-conflicts" style="margin-top:14px;"></div>
+                    </div>
+                </div>
+
+                <!-- Step 3 — WAN2 IP details + DNS -->
+                <div class="lb-step" id="lb-step-3">
+                    <h4>3. WAN2 IP &amp; gateway</h4>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label>WAN2 IP / CIDR <span style="color:#dc2626;">*</span></label>
+                            <input type="text" class="form-control" id="lb-wan2-ip"
+                                   placeholder="e.g. 203.0.113.10/30" data-testid="lb-wan2-ip">
+                        </div>
+                        <div class="col-md-6">
+                            <label>WAN2 Gateway <span style="color:#dc2626;">*</span></label>
+                            <input type="text" class="form-control" id="lb-wan2-gw"
+                                   placeholder="e.g. 203.0.113.9" data-testid="lb-wan2-gw">
+                        </div>
+                    </div>
+                    <div class="row" style="margin-top:14px;">
+                        <div class="col-md-6">
+                            <label>WAN1 Gateway (auto)</label>
+                            <input type="text" class="form-control" id="lb-wan1-gw" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label>DNS servers (comma-separated)</label>
+                            <input type="text" class="form-control" id="lb-dns"
+                                   placeholder="8.8.8.8,1.1.1.1" data-testid="lb-dns">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4 — Strategy + apply -->
+                <div class="lb-step" id="lb-step-4">
+                    <h4>4. Choose distribution strategy</h4>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="lb-strategy-card selected" data-strategy="pcc_balanced"
+                                 onclick="lbWiz.pickStrategy(this)" data-testid="lb-strat-balanced">
+                                <h5><i class="bi bi-bar-chart-fill"></i> PCC 50/50</h5>
+                                <p>Equal split. Sticky per connection so streams don't break.
+                                Most common ISP dual-WAN setup.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="lb-strategy-card" data-strategy="pcc_weighted"
+                                 onclick="lbWiz.pickStrategy(this)" data-testid="lb-strat-weighted">
+                                <h5><i class="bi bi-sliders"></i> PCC Weighted</h5>
+                                <p>Custom % per WAN — useful when one link is faster
+                                or has different cost.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="lb-strategy-card" data-strategy="failover"
+                                 onclick="lbWiz.pickStrategy(this)" data-testid="lb-strat-failover">
+                                <h5><i class="bi bi-shield-fill"></i> Failover</h5>
+                                <p>WAN1 carries 100%. WAN2 takes over only when
+                                WAN1's gateway stops responding to ping.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lb-weight-row" id="lb-weights">
+                        <label>WAN1 weight: <strong><span id="lb-w1-label">70</span>%</strong></label>
+                        <input type="range" id="lb-w1-slider" min="10" max="90" value="70"
+                               style="width:100%;" oninput="lbWiz.syncWeights()">
+                        <small style="color:#64748b;">
+                            WAN2 will get <strong><span id="lb-w2-label">30</span>%</strong> of new connections.
+                        </small>
+                    </div>
+
+                    <div class="lb-warn" style="margin-top:18px;">
+                        <strong>Heads up:</strong> Saving will (1) take a Mikrotik backup,
+                        (2) re-bind any PPPoE/Hotspot/DHCP/IP-address that lived on
+                        <code id="lb-pre-wan2">WAN2 iface</code> over to
+                        <code id="lb-pre-lan">LAN iface</code>, and
+                        (3) push ~10–20 firewall/mangle/route rules tagged
+                        <code>lb/autoispbilling</code>. You can hit Disable later to revert cleanly.
+                    </div>
+                    <label style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+                        <input type="checkbox" id="lb-ack-backup" data-testid="lb-ack-backup"
+                               style="transform:scale(1.3);">
+                        <span>I confirm I have an external backup of this Mikrotik (we'll also auto-snapshot, but two is safer).</span>
+                    </label>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" id="lb-back-btn"
+                        onclick="lbWiz.back()" disabled>
+                    <i class="bi bi-chevron-left"></i> Back
+                </button>
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="lb-next-btn"
+                        onclick="lbWiz.next()" data-testid="lb-next-btn">
+                    Next <i class="bi bi-chevron-right"></i>
+                </button>
+                <button type="button" class="btn btn-success" id="lb-apply-btn"
+                        onclick="lbWiz.apply()" style="display:none;" data-testid="lb-apply-btn">
+                    <i class="bi bi-check-circle"></i> Apply Load Balancing
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>@keyframes spin { from { transform:rotate(0deg);} to {transform:rotate(360deg);} }</style>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* === Load Balancing wizard ============================================ */
+window.lbWiz = (function () {
+    let step = 1, nas_id = 0, preflight = null;
+    let strategy = "pcc_balanced", w1 = 70, w2 = 30;
+
+    function show(n) {
+        step = n;
+        document.querySelectorAll(".lb-step").forEach(el => el.classList.remove("active"));
+        const node = document.getElementById("lb-step-" + n);
+        if (node) node.classList.add("active");
+        document.getElementById("lb-step-label").textContent = "Step " + n + " / 4";
+        document.getElementById("lb-back-btn").disabled = (n === 1);
+        document.getElementById("lb-next-btn").style.display = (n < 4) ? "inline-block" : "none";
+        document.getElementById("lb-apply-btn").style.display = (n === 4) ? "inline-block" : "none";
+    }
+
+    function open() {
+        step = 1; preflight = null; nas_id = 0;
+        document.getElementById("lb-nas-select").value = "";
+        document.getElementById("lb-ack-backup").checked = false;
+        show(1);
+        $("#lbWizardModal").modal("show");
+    }
+
+    async function next() {
+        if (step === 1) {
+            const v = parseInt(document.getElementById("lb-nas-select").value || 0);
+            if (!v) { alert("Please choose a NAS first"); return; }
+            nas_id = v;
+            await runPreflight();
+            show(2);
+        } else if (step === 2) {
+            const w2i = document.getElementById("lb-wan2-iface").value;
+            const lan = document.getElementById("lb-lan-iface").value;
+            const w1i = document.getElementById("lb-wan1-iface").value;
+            if (!w2i || !lan) { alert("Pick WAN2 + LAN interfaces"); return; }
+            if (w2i === lan) { alert("WAN2 and LAN cannot be the same"); return; }
+            if (w2i === w1i) { alert("WAN2 cannot be WAN1"); return; }
+            document.getElementById("lb-pre-wan2").textContent = w2i;
+            document.getElementById("lb-pre-lan").textContent = lan;
+            show(3);
+        } else if (step === 3) {
+            const ip = document.getElementById("lb-wan2-ip").value.trim();
+            const gw = document.getElementById("lb-wan2-gw").value.trim();
+            if (!ip || !gw) { alert("WAN2 IP and Gateway are required"); return; }
+            show(4);
+        }
+    }
+    function back() { if (step > 1) show(step - 1); }
+
+    async function runPreflight() {
+        document.getElementById("lb-preflight-loading").style.display = "block";
+        document.getElementById("lb-preflight-body").style.display = "none";
+        try {
+            const r = await fetch(`/api/load-balancing/preflight?nas_id=${nas_id}`);
+            const d = await r.json();
+            preflight = d;
+            if (!d.ok) {
+                document.getElementById("lb-preflight-loading").innerHTML =
+                    `<div class="lb-warn"><strong>Preflight failed:</strong> ${d.error || "unknown"}.<br>
+                    Check the NAS API connection and try again.</div>`;
+                return;
+            }
+            const w2sel = document.getElementById("lb-wan2-iface");
+            const lansel = document.getElementById("lb-lan-iface");
+            w2sel.innerHTML = '<option value="">-- pick --</option>';
+            lansel.innerHTML = '<option value="">-- pick --</option>';
+            (d.interfaces || []).forEach(i => {
+                const opt = `<option value="${i.name}">${i.name} (${i.type || "—"})${i.running ? "" : " · DOWN"}</option>`;
+                w2sel.insertAdjacentHTML("beforeend", opt);
+                lansel.insertAdjacentHTML("beforeend", opt);
+            });
+            document.getElementById("lb-wan1-iface").value = (d.wan1 && d.wan1.interface) || "";
+            document.getElementById("lb-wan1-gw").value    = (d.wan1 && d.wan1.gateway)   || "";
+            document.getElementById("lb-wan1-summary").innerHTML =
+                d.wan1 && d.wan1.interface
+                    ? `<code>${d.wan1.interface}</code> &nbsp; IP: <code>${d.wan1.address || "—"}</code> &nbsp; GW: <code>${d.wan1.gateway || "—"}</code>`
+                    : "<em>not detected — please add WAN1 first via Mikrotik /ip/route default</em>";
+            document.getElementById("lb-preflight-loading").style.display = "none";
+            document.getElementById("lb-preflight-body").style.display = "block";
+        } catch (e) {
+            document.getElementById("lb-preflight-loading").innerHTML =
+                `<div class="lb-warn"><strong>Network error:</strong> ${e}</div>`;
+        }
+    }
+
+    async function previewWan2() {
+        const iface = document.getElementById("lb-wan2-iface").value;
+        if (!iface) {
+            document.getElementById("lb-iface-conflicts").innerHTML = "";
+            return;
+        }
+        try {
+            const r = await fetch(`/api/load-balancing/preflight?nas_id=${nas_id}&wan2_iface=${encodeURIComponent(iface)}`);
+            const d = await r.json();
+            if (!d.ok) return;
+            const u = d.iface_users || {};
+            const dbp = d.db_pools_on_iface || [];
+            let html = "";
+            const totalConflicts = (u.pppoe_servers || []).length + (u.hotspot || []).length
+                                 + (u.dhcp_servers || []).length + (u.ip_addresses || []).length
+                                 + dbp.length;
+            if (totalConflicts === 0) {
+                html = `<div class="lb-ok"><i class="bi bi-check-circle"></i>
+                        <strong>${iface}</strong> is free — nothing to migrate.</div>`;
+            } else {
+                html = `<div class="lb-warn"><strong>Auto-migration preview:</strong>
+                        ${totalConflicts} item(s) currently on <code>${iface}</code> will be re-bound to
+                        <code>${document.getElementById("lb-lan-iface").value || "(LAN iface)"}</code> when you save.<br>`;
+                if ((u.pppoe_servers || []).length)
+                    html += `&nbsp;&middot; PPPoE servers: ${u.pppoe_servers.map(x => x["service-name"]).join(", ")}<br>`;
+                if ((u.hotspot || []).length)
+                    html += `&nbsp;&middot; Hotspot: ${u.hotspot.map(x => x.name).join(", ")}<br>`;
+                if ((u.dhcp_servers || []).length)
+                    html += `&nbsp;&middot; DHCP servers: ${u.dhcp_servers.map(x => x.name).join(", ")}<br>`;
+                if ((u.ip_addresses || []).length)
+                    html += `&nbsp;&middot; IP addresses: ${u.ip_addresses.map(x => x.address).join(", ")}<br>`;
+                if (dbp.length)
+                    html += `&nbsp;&middot; DB pools: ${dbp.map(p => p.name + " (" + p.role + ")").join(", ")}<br>`;
+                html += `</div>`;
+            }
+            document.getElementById("lb-iface-conflicts").innerHTML = html;
+        } catch (e) { /* swallow */ }
+    }
+
+    function pickStrategy(el) {
+        document.querySelectorAll(".lb-strategy-card").forEach(c => c.classList.remove("selected"));
+        el.classList.add("selected");
+        strategy = el.getAttribute("data-strategy");
+        document.getElementById("lb-weights").classList.toggle("show", strategy === "pcc_weighted");
+    }
+
+    function syncWeights() {
+        w1 = parseInt(document.getElementById("lb-w1-slider").value || 70);
+        w2 = 100 - w1;
+        document.getElementById("lb-w1-label").textContent = w1;
+        document.getElementById("lb-w2-label").textContent = w2;
+    }
+
+    async function apply() {
+        if (!document.getElementById("lb-ack-backup").checked) {
+            alert("Please tick the backup acknowledgment checkbox first.");
+            return;
+        }
+        const payload = {
+            nas_id: nas_id,
+            wan1_iface: document.getElementById("lb-wan1-iface").value,
+            wan1_gw:    document.getElementById("lb-wan1-gw").value,
+            wan2_iface: document.getElementById("lb-wan2-iface").value,
+            wan2_ip:    document.getElementById("lb-wan2-ip").value.trim(),
+            wan2_gw:    document.getElementById("lb-wan2-gw").value.trim(),
+            lan_iface:  document.getElementById("lb-lan-iface").value,
+            strategy:   strategy,
+            weight1:    w1,
+            weight2:    w2,
+            dns:        document.getElementById("lb-dns").value.trim(),
+            ack_backup: true,
+        };
+        const btn = document.getElementById("lb-apply-btn");
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Applying…';
+        try {
+            const r = await fetch("/api/load-balancing/save", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                alert("Apply failed at " + (d.stage || "unknown") + ": " + (d.error || "unknown"));
+                btn.disabled = false; btn.innerHTML = orig;
+                return;
+            }
+            const summary = `Load balancing applied successfully.
+
+Backup: ${d.backup || "(skipped)"}
+Migrated services: PPPoE=${d.migrate?.pppoe_servers || 0}, Hotspot=${d.migrate?.hotspot || 0}, DHCP=${d.migrate?.dhcp_servers || 0}, IP-Addrs=${d.migrate?.ip_addresses || 0}
+DB pools updated: ${d.pool_updated || 0}
+Old LB rules purged: ${d.purged || 0}`;
+            alert(summary);
+            $("#lbWizardModal").modal("hide");
+            location.reload();
+        } catch (e) {
+            alert("Network error: " + e);
+            btn.disabled = false; btn.innerHTML = orig;
+        }
+    }
+
+    function editFrom(id) {
+        // Re-apply uses same wizard fresh (admins can re-configure)
+        open();
+    }
+
+    return { open, next, back, apply, pickStrategy, syncWeights, previewWan2, editFrom };
+})();
+
+async function lbDisable(id) {
+    if (!confirm("Disable load balancing on this NAS?\n\nWe'll remove every Mikrotik rule tagged 'lb/autoispbilling'. Subscriber traffic will revert to single-WAN routing.")) return;
+    try {
+        const r = await fetch(`/api/load-balancing/${id}/disable`, {method: "POST"});
+        const d = await r.json();
+        if (d.ok) {
+            alert(`Disabled. ${d.purged || 0} rule(s) purged from router.${d.router_error ? "\n\nRouter error: " + d.router_error : ""}`);
+            location.reload();
+        } else {
+            alert("Failed: " + (d.error || "unknown"));
+        }
+    } catch (e) {
+        alert("Network error: " + e);
+    }
+}
+</script>
+{% endblock %}

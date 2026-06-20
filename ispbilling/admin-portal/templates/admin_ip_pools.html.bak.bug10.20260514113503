@@ -1,0 +1,439 @@
+{% extends "base_admin.html" %}
+
+{% block title %}IP Pools - Auto ISP Billing
+<script>
+async function syncPoolsFromMikrotik() {
+    var btn = document.getElementById('syncPoolsBtn');
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Syncing...';
+    try {
+        var r = await fetch('/api/ip-pools/sync', {method: 'POST',
+            headers: {'Content-Type': 'application/json'}});
+        var j = await r.json();
+        if (j.success) {
+            alert('Synced from Mikrotik:\n' +
+                  '  + Created: ' + j.created + '\n' +
+                  '  ~ Updated: ' + j.updated + '\n' +
+                  '  - Archived (not on router): ' + j.archived);
+            location.reload();
+        } else {
+            alert('Sync failed: ' + ((j.errors||[]).join(', ') || 'unknown'));
+        }
+    } catch (e) {
+        alert('Sync error: ' + e);
+    } finally {
+        btn.disabled = false; btn.innerHTML = orig;
+    }
+}
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header { padding: 15px; background: #fff; border-bottom: 1px solid #d2d6de; }
+    .content-header h1 { margin: 0; font-size: 24px; font-weight: 500; }
+    .btn-primary-add { background: #17a2b8; color: #fff; border: none; padding: 8px 18px; border-radius: 3px; float: right; margin-top: -5px; }
+    .btn-primary-add:hover { background: #138496; color: #fff; }
+    .data-table th, .data-table td { vertical-align: middle !important; text-align: center !important; font-size: 13px; }
+    .badge-active { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-inactive { background: #6c757d; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .btn-action { padding: 3px 8px; font-size: 12px; margin: 0 2px; }
+    .modal-header { background: #3c8dbc; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-header .close { color: #fff; opacity: 1; }
+    .form-group label { font-weight: 600; color: #555; font-size: 12px; margin-bottom: 3px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        IP Pools
+        <button type="button" class="btn btn-primary-add" data-toggle="modal" data-target="#poolModal" onclick="openAddPool()">
+            <i class="fa fa-plus"></i> Add IP Pool
+        </button>
+<!-- S30 bulk export toolbar -->
+<div id="s30ExportTools_ip_pools" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+<script src="/static/js/bulk_export.js"></script>
+<script>
+(function(){
+  var tryMount = function(){
+    if (window.BulkExport && window.jQuery) {
+      BulkExport.mount('#s30ExportTools_ip_pools', '/api/admin/ip-pools/export-full', 'ip_pools');
+    } else { setTimeout(tryMount, 80); }
+  };
+  tryMount();
+})();
+</script>
+
+    </h1>
+</section>
+
+<section class="content">
+
+<!-- Phase 1 #14: IP Pool Utilization Chart -->
+<div class="box" style="background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);">
+  <h3 style="margin:0 0 14px;font-size:16px;font-weight:600;color:#0b1120;"><i class="bi bi-bar-chart-fill" style="color:#6366f1;"></i> Pool Utilization</h3>
+  <div id="poolUtil" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+</div>
+<script>
+(async function(){
+  try{
+    const r=await fetch('/api/admin/ip-pools/utilization',{credentials:'include'});
+    const d=await r.json();
+    if(!d.success){return;}
+    const div=document.getElementById('poolUtil');
+    if(!d.pools.length){div.innerHTML='<div style="color:#94a3b8;text-align:center;grid-column:1/-1;padding:20px;">No pools configured</div>';return;}
+    div.innerHTML=d.pools.map(p=>{
+      const pct=p.capacity?Math.min(100,Math.round((p.used/p.capacity)*100)):0;
+      const color=pct>85?'#ef4444':pct>60?'#f59e0b':'#10b981';
+      return '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+          '<b style="font-size:14px;">'+(p.name||p.id)+'</b>'+
+          '<span style="font-size:11px;color:#64748b;">'+(p.type||'-')+'</span>'+
+        '</div>'+
+        '<div style="font-size:12px;color:#64748b;margin-bottom:6px;">'+p.start+' &rarr; '+p.end+'</div>'+
+        '<div style="background:#f1f5f9;border-radius:6px;height:12px;overflow:hidden;">'+
+          '<div style="width:'+pct+'%;background:'+color+';height:100%;transition:width .4s;"></div>'+
+        '</div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;">'+
+          '<span><b>'+p.used+'</b> / '+p.capacity+' used</span>'+
+          '<span style="color:'+color+';font-weight:600;">'+pct+'%</span>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }catch(e){console.error('pool util',e);}
+})();
+</script>
+
+    <div class="box">
+        <div class="box-body data-table">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Name</th><th>Role</th><th>Network</th><th>Gateway</th><th>Start IP</th><th>End IP</th><th>DNS</th><th>Next Pool</th><th>Status</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for p in ip_pools %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ p.name }}</td>
+                        <td>
+                          {% if p.role == 'Parking' %}<span class="badge" style="background:#f59e0b;color:#fff;">Parking</span>
+                          {% elif p.role == 'Hotspot' %}<span class="badge" style="background:#06b6d4;color:#fff;">Hotspot</span>
+                          {% elif p.role == 'Static-IP' %}<span class="badge" style="background:#10b981;color:#fff;">Static IP</span>
+                          {% else %}<span class="badge" style="background:#3b82f6;color:#fff;">PPPoE</span>{% endif %}
+                        </td>
+                        <td><code>{{ p.network }}</code></td>
+                        <td>{{ p.gateway }}</td>
+                        <td>{{ p.start_ip }}</td>
+                        <td>{{ p.end_ip }}</td>
+                        <td style="font-size:11px;"><code>{{ p.dns_servers or '—' }}</code></td>
+                        <!-- s26.12: next-pool-overflow -->
+                        <td style="font-size:11px;">
+                          {% if p.next_pool_id %}
+                            {% for np in ip_pools %}{% if np.id == p.next_pool_id %}<span class="badge" style="background:#10b981;color:#fff;" title="Mikrotik spills here when {{ p.name }} is exhausted">↳ {{ np.name }}</span>{% endif %}{% endfor %}
+                          {% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% if p.status == 'Active' %}<span class="badge-active">Active</span>
+                            {% else %}<span class="badge-inactive">Inactive</span>{% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-warning btn-action" onclick='editPool({{ p.id }}, {{ {"name": p.name, "network": p.network, "gateway": p.gateway, "start_ip": p.start_ip, "end_ip": p.end_ip, "status": p.status, "role": p.role, "dns_servers": p.dns_servers, "comment": p.comment, "next_pool_id": p.next_pool_id} | tojson }})'><i class="fa fa-edit"></i></button>
+                            <button class="btn btn-danger btn-action" onclick="deletePool({{ p.id }})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- s37-public-ips-section -->
+<!-- ======================= PUBLIC IPs ======================= -->
+<section class="content-header" style="margin-top:6px;">
+    <h1 style="font-size:20px;">
+        Public IPs
+        <small style="font-size:12px;color:#64748b;">— static/public IPs for pinning to PPPoE / Static customers</small>
+        <button type="button" class="btn btn-primary-add" onclick="openAddPip()" data-testid="pip-add-btn">
+            <i class="fa fa-plus"></i> Add Public IP(s)
+        </button>
+        <div id="s30ExportTools_public_ips" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+        <script>
+        (function(){
+          var tryMount = function(){
+            if (window.BulkExport && window.jQuery) {
+              BulkExport.mount('#s30ExportTools_public_ips', '/api/admin/public-ips/export-full', 'public_ips');
+            } else { setTimeout(tryMount, 80); }
+          };
+          tryMount();
+        })();
+        </script>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-body data-table">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>#</th><th>IP Address</th><th>Pool</th><th>Label</th>
+                        <th>Status</th><th>Assigned To</th><th>Notes</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if public_ips %}
+                {% for p in public_ips %}
+                    <tr data-testid="pip-row-{{ p.id }}">
+                        <td>{{ loop.index }}</td>
+                        <td><code>{{ p.ip_address }}</code></td>
+                        <td><span class="badge" style="background:#64748b;color:#fff;">{{ p.pool_name or 'Default' }}</span></td>
+                        <td>{{ p.label or '—' }}</td>
+                        <td>
+                            {% if p.status == 'Assigned' %}
+                                <span class="badge" style="background:#28a745;color:#fff;padding:3px 8px;border-radius:10px;font-size:11px;">Assigned</span>
+                            {% else %}
+                                <span class="badge" style="background:#6c757d;color:#fff;padding:3px 8px;border-radius:10px;font-size:11px;">Free</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if p.assigned_to %}<code>{{ p.assigned_to }}</code>{% else %}—{% endif %}</td>
+                        <td style="font-size:11px;">{{ p.notes or '—' }}</td>
+                        <td style="white-space:nowrap;">
+                            {% if p.status == 'Assigned' %}
+                                <button class="btn btn-warning btn-action" onclick="unassignPip({{ p.id }})" data-testid="pip-release-{{ p.id }}">
+                                    <i class="fa fa-unlink"></i> Release
+                                </button>
+                            {% endif %}
+                            <button class="btn btn-danger btn-action" onclick="deletePip({{ p.id }})" data-testid="pip-delete-{{ p.id }}">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                {% else %}
+                    <tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:18px;">
+                        No public IPs yet. Click <b>Add Public IP(s)</b> to add a single IP, CIDR block (e.g. <code>203.0.113.0/29</code>), or range.
+                    </td></tr>
+                {% endif %}
+                </tbody>
+            </table>
+            <p style="font-size:11px;color:#64748b;margin:6px 0 0;">
+                <i class="fa fa-info-circle"></i>
+                To assign a public IP to a PPPoE subscriber, open the subscriber's
+                <b>Connection</b> tab, click the edit pencil, set <b>Fix IP Address → Yes</b>,
+                choose the pool, pick the IP, and Save. RADIUS will pin
+                <code>Framed-IP-Address</code> on the next PPPoE reconnect.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- Add Public IP modal -->
+<div class="modal fade" id="pipModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Add Public IP(s)</h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>IP Address / CIDR / Range *</label>
+                    <input type="text" class="form-control" id="pip_ip"
+                           placeholder="e.g. 203.0.113.15  |  203.0.113.0/29  |  203.0.113.10-203.0.113.20"
+                           data-testid="pip-ip-input">
+                    <p class="text-muted" style="font-size:11px;margin-top:4px;">
+                        Accepts a single IP, CIDR block (all usable hosts added), or dash-range (up to 1024 addresses).
+                        Duplicates are skipped automatically.
+                    </p>
+                </div>
+                <div class="form-group">
+                    <label>Pool Name</label>
+                    <input type="text" class="form-control" id="pip_pool" value="Default"
+                           placeholder="Default" data-testid="pip-pool-input">
+                    <p class="text-muted" style="font-size:11px;margin-top:4px;">
+                        IPs can be grouped by pool name (e.g. <code>HQ-Uplink</code>, <code>Reseller-A</code>).
+                        The subscriber Connection tab will list all pools in the dropdown.
+                    </p>
+                </div>
+                <div class="form-group"><label>Label</label>
+                    <input type="text" class="form-control" id="pip_label"
+                           placeholder="optional (e.g. HQ uplink)"></div>
+                <div class="form-group"><label>Notes</label>
+                    <input type="text" class="form-control" id="pip_notes"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="savePip()" data-testid="pip-save-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="poolModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title" id="poolModalTitle">Add IP Pool</h4>
+            </div>
+            <div class="modal-body">
+                <form id="poolForm">
+                    <input type="hidden" id="pool_id">
+                    <div class="row">
+                        <div class="col-sm-8"><div class="form-group"><label>Name *</label><input type="text" class="form-control" id="pool_name" required placeholder="e.g. pppoe, home-pool, parking-pool" data-testid="pool-name-input"></div></div>
+                        <div class="col-sm-4"><div class="form-group"><label>Role *</label>
+                            <select class="form-control" id="pool_role" data-testid="pool-role-select">
+                                <option value="PPPoE">PPPoE (customer)</option>
+                                <option value="Static-IP">Static IP</option>
+                                <option value="Hotspot">Hotspot</option>
+                                <option value="Parking">Parking (defaulters)</option>
+                            </select>
+                            <small class="help-block" style="margin-top:2px;font-size:11px;color:#64748b;">
+                                Parking pools are used for suspended customers — RADIUS assigns them <code>Framed-Pool=&lt;this&gt;</code>.
+                            </small>
+                        </div></div>
+                    </div>
+                    <div class="form-group"><label>Network (CIDR) *</label><input type="text" class="form-control" id="pool_network" required placeholder="e.g. 192.168.10.0/24" data-testid="pool-network-input"></div>
+                    <div class="form-group"><label>Gateway</label><input type="text" class="form-control" id="pool_gateway" placeholder="e.g. 192.168.10.1"></div>
+                    <div class="row">
+                        <div class="col-sm-6"><div class="form-group"><label>Start IP</label><input type="text" class="form-control" id="pool_start_ip"></div></div>
+                        <div class="col-sm-6"><div class="form-group"><label>End IP</label><input type="text" class="form-control" id="pool_end_ip"></div></div>
+                    </div>
+                    <div class="form-group"><label>DNS servers (comma separated)</label><input type="text" class="form-control" id="pool_dns" placeholder="8.8.8.8,1.1.1.1" value="8.8.8.8,1.1.1.1"><small class="help-block">Pushed as <code>dns-server</code> in the PPPoE profile.</small></div>
+                    <div class="form-group"><label>Comment</label><input type="text" class="form-control" id="pool_comment" placeholder="optional"></div>
+                    <!-- s26.12: next-pool-overflow -->
+                    <div class="form-group"><label>Next Pool (overflow)
+                        <small class="text-muted" style="font-weight:normal;font-size:11px;">— when this pool runs out of IPs, Mikrotik silently spills into the selected pool</small>
+                    </label>
+                        <select class="form-control" id="pool_next_pool" data-testid="pool-next-pool-select">
+                            <option value="">— None (no overflow) —</option>
+                            {% for np in ip_pools %}
+                            <option value="{{ np.id }}">{{ np.name }} ({{ np.network or (np.start_ip ~ '-' ~ np.end_ip) }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Status</label>
+                        <select class="form-control" id="pool_status">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="savePool()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openAddPool() {
+    document.getElementById('poolModalTitle').innerText = 'Add IP Pool';
+    document.getElementById('poolForm').reset();
+    document.getElementById('pool_id').value = '';
+    // s26.12: next-pool-overflow — re-enable all options for Add
+    var npSel = document.getElementById('pool_next_pool');
+    if (npSel) for (var i = 0; i < npSel.options.length; i++) npSel.options[i].disabled = false;
+}
+function editPool(id, row) {
+    document.getElementById('poolModalTitle').innerText = 'Edit IP Pool';
+    document.getElementById('pool_id').value = id;
+    document.getElementById('pool_name').value = row.name || '';
+    document.getElementById('pool_network').value = row.network || '';
+    document.getElementById('pool_gateway').value = row.gateway || '';
+    document.getElementById('pool_start_ip').value = row.start_ip || '';
+    document.getElementById('pool_end_ip').value = row.end_ip || '';
+    document.getElementById('pool_status').value = row.status || 'Active';
+    document.getElementById('pool_role').value = row.role || 'PPPoE';
+    document.getElementById('pool_dns').value = row.dns_servers || '8.8.8.8,1.1.1.1';
+    document.getElementById('pool_comment').value = row.comment || '';
+    // s26.12: next-pool-overflow
+    var npSel = document.getElementById('pool_next_pool');
+    if (npSel) {
+        // remove self from options so a pool can't be its own next pool
+        for (var i = 0; i < npSel.options.length; i++) {
+            npSel.options[i].disabled = (npSel.options[i].value && parseInt(npSel.options[i].value, 10) === id);
+        }
+        npSel.value = (row.next_pool_id != null) ? String(row.next_pool_id) : '';
+    }
+    $('#poolModal').modal('show');
+}
+function savePool() {
+    const id = document.getElementById('pool_id').value;
+    const payload = {
+        name: document.getElementById('pool_name').value,
+        network: document.getElementById('pool_network').value,
+        gateway: document.getElementById('pool_gateway').value,
+        start_ip: document.getElementById('pool_start_ip').value,
+        end_ip: document.getElementById('pool_end_ip').value,
+        status: document.getElementById('pool_status').value,
+        role: document.getElementById('pool_role').value,
+        dns_servers: document.getElementById('pool_dns').value,
+        comment: document.getElementById('pool_comment').value,
+        // s26.12: next-pool-overflow
+        next_pool_id: (document.getElementById('pool_next_pool') && document.getElementById('pool_next_pool').value)
+                      ? parseInt(document.getElementById('pool_next_pool').value, 10) : null
+    };
+    if (!payload.name || !payload.network) { alert('Name and Network are required'); return; }
+    const url = id ? `/api/ip-pools/${id}/update` : '/api/ip-pools/create';
+    fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) { $('#poolModal').modal('hide'); location.reload(); }
+            else alert(d.message || 'Error');
+        });
+}
+function deletePool(id) {
+    if (!confirm('Delete this IP pool?')) return;
+    fetch(`/api/ip-pools/${id}/delete`, { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+/* __S38N_DELETEPOOL_CLOSE__: closing brace added - all Pip handlers are now global */
+
+// s37: Public IPs management (merged into IP Pools page) -------------
+function openAddPip() {
+    $('#pip_ip, #pip_label, #pip_notes').val('');
+    $('#pip_pool').val('Default');
+    $('#pipModal').modal('show');
+}
+function savePip() {
+    var payload = {
+        ip_address: $('#pip_ip').val(),
+        pool_name:  $('#pip_pool').val() || 'Default',
+        label:      $('#pip_label').val(),
+        notes:      $('#pip_notes').val()
+    };
+    if (!payload.ip_address) { alert('IP / CIDR / Range required'); return; }
+    fetch('/api/public-ips/create', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            var msg = 'Added ' + (d.count || 0) + ' IP(s).';
+            if (d.skipped_duplicates) msg += '  Skipped ' + d.skipped_duplicates + ' duplicate(s).';
+            alert(msg);
+            $('#pipModal').modal('hide');
+            location.reload();
+        } else { alert(d.message || 'Error'); }
+    });
+}
+function deletePip(id) {
+    if (!confirm('Delete this public IP entry?')) return;
+    fetch('/api/public-ips/' + id + '/delete', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+function unassignPip(id) {
+    if (!confirm('Release this IP (mark as Free)?')) return;
+    fetch('/api/public-ips/' + id + '/unassign', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+</script>
+{% endblock %}

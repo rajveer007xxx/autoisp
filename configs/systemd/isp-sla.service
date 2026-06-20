@@ -1,0 +1,10 @@
+[Unit]
+Description=ISP Ticket SLA escalation checker
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ispbilling/cron/sla_cron.py
+WorkingDirectory=/opt/ispbilling/admin-portal
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/ispbilling.env

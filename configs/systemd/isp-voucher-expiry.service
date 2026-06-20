@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing — expire unused vouchers whose expires_at has passed
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling/admin-portal
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling/admin-portal
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/admin-portal/voucher_expiry_cron.py
+StandardOutput=append:/var/log/autoispbilling/voucher-expiry.log
+StandardError=append:/var/log/autoispbilling/voucher-expiry.log
+User=root

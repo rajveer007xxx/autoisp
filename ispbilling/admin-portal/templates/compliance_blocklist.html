@@ -1,0 +1,133 @@
+{% extends "base_admin.html" %}
+{% block title %}DoT Site Blocklist - Compliance - Auto ISP Billing{% endblock %}
+{% block content %}
+<section class="content-header">
+    <h1>
+        <i class="bi bi-slash-circle"></i> DoT Site / URL Blocklist
+        <small>Compliance — auto-syncs to every Active NAS as Mikrotik address-list <code>dot-blocklist</code></small>
+    </h1>
+</section>
+<section class="content">
+  <div class="row">
+    <div class="col-md-6">
+      <div class="box box-warning">
+        <div class="box-header with-border">
+          <h3 class="box-title">Add New Blocked Entry</h3>
+        </div>
+        <div class="box-body">
+          <form id="addBlockForm">
+            <div class="form-group">
+              <label>Domain / URL / IP</label>
+              <input type="text" class="form-control" id="block_target" placeholder="e.g. examplebanned.com or 203.0.113.45" required>
+              <small class="text-muted">Enter a domain (auto-resolved), a URL, or an IP/CIDR block.</small>
+            </div>
+            <div class="form-group">
+              <label>DoT Order Reference</label>
+              <input type="text" class="form-control" id="block_ref" placeholder="e.g. DoT-MEI-2025-XXXX">
+            </div>
+            <div class="form-group">
+              <label>Notes</label>
+              <textarea class="form-control" id="block_notes" rows="2" placeholder="Optional — reason / jurisdiction"></textarea>
+            </div>
+            <button type="submit" class="btn btn-warning"><i class="bi bi-plus-lg"></i> Add & Sync to NAS</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="box box-success">
+        <div class="box-header with-border">
+          <h3 class="box-title">Sync Status</h3>
+        </div>
+        <div class="box-body">
+          <p id="syncStatus" style="margin:0;">Last sync: <strong id="lastSyncTime">—</strong></p>
+          <button class="btn btn-default btn-sm" id="resyncBtn" style="margin-top:6px;">
+            <i class="bi bi-arrow-repeat"></i> Force Resync to all NAS
+          </button>
+          <a href="/admin/compliance/export?kind=blocklist&format=csv" class="btn btn-success btn-sm" style="margin-top:6px;">
+            <i class="bi bi-download"></i> Download CSV
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title">Currently Blocked ({{ rows|length }})</h3>
+    </div>
+    <div class="box-body">
+      <table class="table table-bordered table-striped" id="blocklistTable">
+        <thead>
+          <tr>
+            <th>Target</th>
+            <th>DoT Ref</th>
+            <th>Notes</th>
+            <th>Added By</th>
+            <th>Added At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr data-id="{{ r.id }}">
+            <td><code>{{ r.target }}</code></td>
+            <td>{{ r.dot_ref or '—' }}</td>
+            <td>{{ r.notes or '—' }}</td>
+            <td>{{ r.added_by or '—' }}</td>
+            <td>{{ r.added_at or '' }}</td>
+            <td>
+              <button class="btn btn-danger btn-xs delete-block-btn" data-id="{{ r.id }}">
+                <i class="bi bi-x-lg"></i> Remove
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted">No entries yet. Add your first DoT-ordered block above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+$('#addBlockForm').on('submit', function(e){
+  e.preventDefault();
+  var body = {
+    target: $('#block_target').val().trim(),
+    dot_ref: $('#block_ref').val().trim(),
+    notes: $('#block_notes').val().trim()
+  };
+  if (!body.target) return;
+  $.ajax({
+    url: '/api/compliance/blocklist',
+    method: 'POST', contentType: 'application/json',
+    data: JSON.stringify(body),
+    success: function(d){
+      if (d.success) { alert('Added & synced to ' + (d.synced_nas || 0) + ' NAS'); location.reload(); }
+      else alert('Failed: ' + (d.message || 'unknown'));
+    },
+    error: function(x){ alert('Request failed: ' + x.status); }
+  });
+});
+$(document).on('click', '.delete-block-btn', function(){
+  if (!confirm('Remove this entry from the blocklist AND from all NAS?')) return;
+  var id = $(this).data('id');
+  $.ajax({
+    url: '/api/compliance/blocklist/' + id, method: 'DELETE',
+    success: function(d){
+      if (d.success) { alert('Removed'); location.reload(); }
+      else alert('Failed: ' + (d.message || 'unknown'));
+    }
+  });
+});
+$('#resyncBtn').on('click', function(){
+  var $b = $(this);
+  $b.prop('disabled', true).html('<i class="bi bi-arrow-repeat"></i> Syncing…');
+  $.post('/api/compliance/blocklist/resync').done(function(d){
+    alert('Synced to ' + (d.synced_nas || 0) + ' NAS. Total entries: ' + (d.count || 0));
+  }).always(function(){ location.reload(); });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends base_template|default("base_admin.html") %}
+{% block title %}Lead Pipeline - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.kb-board{display:grid;grid-template-columns:repeat(5,minmax(220px,1fr));gap:14px;overflow-x:auto;}
+.kb-col{background:#f1f5f9;border-radius:14px;padding:12px;min-height:560px;}
+.kb-col-head{font-weight:700;font-size:13px;text-transform:uppercase;color:#475569;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.kb-card{background:#fff;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid #6366f1;box-shadow:0 1px 4px rgba(0,0,0,.04);cursor:grab;}
+.kb-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);}
+.kb-card[data-stage="new"]{border-left-color:#6366f1;}
+.kb-card[data-stage="contacted"]{border-left-color:#3b82f6;}
+.kb-card[data-stage="visit"]{border-left-color:#f59e0b;}
+.kb-card[data-stage="approved"]{border-left-color:#10b981;}
+.kb-card[data-stage="rejected"]{border-left-color:#ef4444;}
+.kb-name{font-weight:700;font-size:14px;color:#0b1120;}
+.kb-meta{font-size:11px;color:#64748b;margin-top:4px;}
+.kb-actions{margin-top:8px;display:flex;gap:4px;}
+.kb-btn{padding:3px 8px;font-size:10px;border-radius:6px;border:none;cursor:pointer;background:#e2e8f0;color:#475569;font-weight:600;}
+.kb-btn.green{background:#10b981;color:#fff;}
+.kb-btn.red{background:#ef4444;color:#fff;}
+.kb-count{background:#cbd5e1;color:#475569;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+.add-card{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;}
+.modal-backdrop{position:fixed;inset:0;background:rgba(11,17,32,.5);z-index:9999;display:none;align-items:center;justify-content:center;}
+.modal-box{background:#fff;border-radius:14px;padding:22px;width:520px;max-width:92vw;}
+.lead-input{width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;margin-bottom:8px;}
+@media(max-width:1024px){.kb-board{grid-template-columns:1fr;}}
+</style>
+
+<section class="content-header" style="display:flex;align-items:center;">
+  <h1 style="flex:1;">Lead Pipeline<small>Drag &amp; drop new connection requests through stages</small></h1>
+  <button class="add-card" onclick="showAddLead()" data-testid="lead-add-btn">+ New Lead</button>
+</section>
+
+<section class="content">
+<div class="kb-board" id="kbBoard">
+  <div class="kb-col" data-stage="new"><div class="kb-col-head">New <span class="kb-count" id="cnt-new">0</span></div><div class="kb-list" id="list-new"></div></div>
+  <div class="kb-col" data-stage="contacted"><div class="kb-col-head">Contacted <span class="kb-count" id="cnt-contacted">0</span></div><div class="kb-list" id="list-contacted"></div></div>
+  <div class="kb-col" data-stage="visit"><div class="kb-col-head">Visit Scheduled <span class="kb-count" id="cnt-visit">0</span></div><div class="kb-list" id="list-visit"></div></div>
+  <div class="kb-col" data-stage="approved"><div class="kb-col-head">Approved <span class="kb-count" id="cnt-approved">0</span></div><div class="kb-list" id="list-approved"></div></div>
+  <div class="kb-col" data-stage="rejected"><div class="kb-col-head">Rejected <span class="kb-count" id="cnt-rejected">0</span></div><div class="kb-list" id="list-rejected"></div></div>
+</div>
+</section>
+
+<div class="modal-backdrop" id="addModal">
+  <div class="modal-box">
+    <h3 style="margin:0 0 14px;">Add New Lead</h3>
+    <input id="ldName" class="lead-input" placeholder="Full Name *" data-testid="lead-name" />
+    <input id="ldPhone" class="lead-input" placeholder="Phone *" data-testid="lead-phone" />
+    <input id="ldEmail" class="lead-input" placeholder="Email" data-testid="lead-email" />
+    <input id="ldAddr" class="lead-input" placeholder="Address" data-testid="lead-address" />
+    <input id="ldLoc" class="lead-input" placeholder="Locality" data-testid="lead-locality" />
+    <textarea id="ldNotes" class="lead-input" placeholder="Notes" rows="2" data-testid="lead-notes"></textarea>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="add-card" onclick="createLead()" data-testid="lead-create-btn">Create</button>
+      <button class="kb-btn" onclick="document.getElementById('addModal').style.display='none'">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadLeads(){
+  const r=await fetch('/api/admin/leads',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){return;}
+  const buckets={new:[],contacted:[],visit:[],approved:[],rejected:[]};
+  d.items.forEach(x=>{(buckets[x.stage]||buckets.new).push(x);});
+  Object.keys(buckets).forEach(stage=>{
+    document.getElementById('cnt-'+stage).textContent=buckets[stage].length;
+    document.getElementById('list-'+stage).innerHTML=buckets[stage].map(x=>`
+      <div class="kb-card" draggable="true" data-id="${x.id}" data-stage="${x.stage}"
+           ondragstart="onDragStart(event)" data-testid="lead-card-${x.id}">
+        <div class="kb-name">${x.full_name}</div>
+        <div class="kb-meta">${x.phone}${x.locality?' · '+x.locality:''}</div>
+        ${x.notes?'<div class="kb-meta" style="color:#475569;margin-top:6px;">'+x.notes.substring(0,60)+'</div>':''}
+        <div class="kb-actions">
+          ${stage!=='approved'?'<button class="kb-btn green" onclick="approve('+x.id+')" data-testid="lead-approve-'+x.id+'">Approve</button>':''}
+          ${stage!=='rejected'?'<button class="kb-btn red" onclick="setStage('+x.id+',\\'rejected\\')" data-testid="lead-reject-'+x.id+'">Reject</button>':''}
+        </div>
+      </div>`).join('') || '<div style="color:#94a3b8;text-align:center;padding:20px;font-size:12px;">Empty</div>';
+  });
+}
+let _dragId=null;
+function onDragStart(e){_dragId=parseInt(e.target.dataset.id);}
+document.querySelectorAll('.kb-col').forEach(col=>{
+  col.addEventListener('dragover', e=>{e.preventDefault();});
+  col.addEventListener('drop', async e=>{
+    e.preventDefault();
+    if(!_dragId) return;
+    const stage=col.dataset.stage;
+    await fetch('/api/admin/leads/'+_dragId,{method:'PUT',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({pipeline_stage:stage})});
+    _dragId=null;
+    loadLeads();
+  });
+});
+async function approve(id){
+  if(!confirm('Approve this lead and trigger TR-069 auto-provision?')) return;
+  const r=await fetch('/api/admin/leads/'+id+'/approve',{method:'POST',credentials:'include'});
+  const d=await r.json();
+  if(d.success){
+    if(d.provisioned && !d.provisioned.success) alert('Approved but provisioning warning: '+d.provisioned.error);
+    loadLeads();
+  } else alert(d.message);
+}
+async function setStage(id,stage){
+  await fetch('/api/admin/leads/'+id,{method:'PUT',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({pipeline_stage:stage})});
+  loadLeads();
+}
+function showAddLead(){document.getElementById('addModal').style.display='flex';}
+async function createLead(){
+  const body={
+    full_name:document.getElementById('ldName').value.trim(),
+    phone:document.getElementById('ldPhone').value.trim(),
+    email:document.getElementById('ldEmail').value.trim(),
+    address:document.getElementById('ldAddr').value.trim(),
+    locality:document.getElementById('ldLoc').value.trim(),
+    notes:document.getElementById('ldNotes').value.trim()
+  };
+  if(!body.full_name||!body.phone){alert('Name & phone required');return;}
+  const r=await fetch('/api/admin/leads',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.success){
+    document.getElementById('addModal').style.display='none';
+    ['ldName','ldPhone','ldEmail','ldAddr','ldLoc','ldNotes'].forEach(i=>document.getElementById(i).value='');
+    loadLeads();
+  } else alert(d.message);
+}
+loadLeads();
+setInterval(loadLeads, 30000);
+</script>
+{% endblock %}

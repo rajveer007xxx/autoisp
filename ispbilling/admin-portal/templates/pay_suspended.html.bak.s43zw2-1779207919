@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% if customer.status == 'Active' %}Pay Bill{% else %}Account Suspended · Pay Now{% endif %} · {{ company.company_name if company else "Pay" }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --line:#1f2937; --text:#e2e8f0; --muted:#94a3b8; --accent:#10b981; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; min-height:100vh; margin:0; }
+  .pay-wrap { max-width: 920px; margin: 24px auto; padding: 0 16px; }
+  .pay-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+              padding: 28px; margin-bottom: 18px; box-shadow: 0 4px 22px rgba(0,0,0,.35); }
+  .pay-status { display:inline-block; padding:6px 14px; border-radius:999px;
+                background:#7f1d1d; color:#fecaca; font-weight:600; font-size:12px;
+                letter-spacing:.5px; text-transform:uppercase; }
+  .pay-status.ok { background:#065f46; color:#a7f3d0; }
+  .pay-balance { font-size:44px; font-weight:700; color:#fca5a5; margin:18px 0 6px; letter-spacing:-1px; }
+  .pay-balance.zero { color:#a7f3d0; }
+  .pay-balance .rupee { font-size:30px; vertical-align:top; margin-right:6px; }
+  .pay-label { color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+  .pay-value { color:#f1f5f9; font-size:16px; font-weight:500; font-family:'SF Mono',Menlo,monospace; }
+  .pay-row { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin:18px 0; }
+  @media (max-width:600px) { .pay-row { grid-template-columns:1fr; } }
+  .pay-qr { display:block; max-width:240px; margin:10px auto; border:3px solid #e2e8f0;
+            border-radius:8px; background:#fff; padding:6px; }
+  .pay-btn { display:inline-block; padding:14px 32px; border-radius:8px; font-size:16px;
+             font-weight:600; cursor:pointer;
+             background:linear-gradient(135deg,#059669,#10b981); color:#fff; border:none;
+             transition:transform .08s ease, box-shadow .2s ease;
+             box-shadow:0 4px 14px rgba(16,185,129,.35); }
+  .pay-btn:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(16,185,129,.5); }
+  .pay-btn:disabled { background:#334155; box-shadow:none; cursor:not-allowed; opacity:.7; }
+  .pay-hero { text-align:center; }
+  .pay-cust { font-size:22px; font-weight:600; color:#f1f5f9; margin-top:4px; }
+  .bank-info { background:#0b1220; border-radius:10px; padding:18px; }
+  .bank-info div { margin:6px 0; }
+  .merchant-logo { height:54px; margin-bottom:14px; filter:brightness(1.05);
+                   background:#fff; padding:4px 8px; border-radius:8px; }
+  .merchant-fallback { width:54px; height:54px; margin:0 auto 14px; border-radius:14px;
+                       background:linear-gradient(135deg,#1e40af,#10b981);
+                       display:grid; place-items:center; color:#fff; font-weight:800;
+                       font-size:22px; }
+  .muted { color: var(--muted); font-size:12px; }
+  a { color: var(--accent); }
+  /* gateway picker */
+  .gw-picker { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+               gap:10px; margin:16px 0 22px; }
+  .gw-card { background:#0b1220; border:1.5px solid #1f2937; border-radius:10px;
+             padding:12px 14px; cursor:pointer; transition:all .15s ease;
+             display:flex; align-items:center; gap:10px; }
+  .gw-card:hover { border-color:#10b981; transform:translateY(-1px); }
+  .gw-card.selected { border-color:#10b981; background:#064e3b22; box-shadow:0 0 0 2px #10b98144; }
+  .gw-card input { accent-color:#10b981; }
+  .gw-card .logo { width:36px; height:36px; display:grid; place-items:center;
+                   border-radius:8px; background:#0f172a; font-weight:700; color:#10b981;
+                   font-size:12px; letter-spacing:.5px; }
+  .gw-card .gw-name { font-weight:600; font-size:14px; color:#f1f5f9; }
+  .gw-card .gw-default-pill { background:#10b981; color:#0f172a; font-size:10px;
+                              padding:2px 6px; border-radius:6px; font-weight:700;
+                              text-transform:uppercase; }
+  .pay-disabled-note { padding:14px 16px; background:#1e293b; border:1px dashed #334155;
+                       border-radius:10px; color:#94a3b8; font-size:13px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="pay-wrap">
+
+  <div class="pay-card pay-hero">
+    {# Tenant logo or fallback monogram #}
+    {% if company and company.logo_path %}
+      <img src="{{ company.logo_path if company.logo_path.startswith('/') or company.logo_path.startswith('http') else '/' + company.logo_path }}"
+           class="merchant-logo" alt="{{ company.company_name }}"
+           data-testid="pay-merchant-logo">
+    {% else %}
+      <div class="merchant-fallback" data-testid="pay-merchant-monogram">
+        {{ (company.company_name if company else 'A')[0]|upper }}
+      </div>
+    {% endif %}
+
+    <div class="pay-label">{{ company.company_name if company else "Your Internet Provider" }}</div>
+    {% if customer.status == 'Active' %}
+      <span class="pay-status ok" data-testid="pay-status">{{ status_label }}</span>
+    {% else %}
+      <span class="pay-status" data-testid="pay-status">{{ status_label }}</span>
+    {% endif %}
+    <div class="pay-cust" data-testid="pay-cust-name">{{ customer.customer_name or customer.customer_id }}</div>
+    <div class="muted">
+      Customer ID: <strong>{{ customer.customer_id }}</strong>
+      {% if customer.username %} &middot; PPPoE: <strong>{{ customer.username }}</strong>{% endif %}
+    </div>
+
+    <div class="pay-balance {{ 'zero' if balance <= 0 else '' }}" data-testid="pay-balance">
+      <span class="rupee">&#8377;</span>{{ "%.0f"|format(balance) }}
+    </div>
+    <div class="muted">{{ status_message }}</div>
+
+    <div style="margin-top:22px;" data-testid="pay-online-block">
+      {% if available_gateways and balance > 0 %}
+        {% if available_gateways|length > 1 %}
+        <div class="pay-label" style="text-align:left;">Choose Payment Method</div>
+        <div class="gw-picker" id="gwPicker">
+          {% for gw in available_gateways %}
+          <label class="gw-card {% if gw.name == default_gateway %}selected{% endif %}" data-gw="{{ gw.name }}" data-testid="pay-gw-{{ gw.name }}">
+            <input type="radio" name="gwSel" value="{{ gw.name }}" {% if gw.name == default_gateway %}checked{% endif %}>
+            <div class="logo">{{ gw.label[:2]|upper }}</div>
+            <div style="flex:1;">
+              <div class="gw-name">{{ gw.label }}</div>
+              {% if gw.default %}<span class="gw-default-pill">Default</span>{% endif %}
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <button class="pay-btn" id="payBtn" data-testid="pay-online-btn">
+          <i class="fa fa-bolt"></i> Pay &#8377;{{ "%.0f"|format(balance) }} Now
+        </button>
+      {% elif balance <= 0 %}
+        <div class="pay-disabled-note" data-testid="pay-online-disabled">
+          <i class="fa fa-check-circle" style="color:#10b981;"></i>
+          Your account has no outstanding dues. Thank you!
+        </div>
+      {% else %}
+        <div class="pay-disabled-note" data-testid="pay-online-disabled">
+          <i class="fa fa-info-circle"></i>
+          Online payment is not yet configured by your ISP. Please use UPI, QR, or bank transfer below — your account will be reactivated as soon as your ISP confirms receipt.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="pay-card">
+    <div class="pay-label">Pay via UPI / QR</div>
+    <div class="pay-row">
+      <div>
+        {% if company.bank_qr_code %}
+          <img src="{{ company.bank_qr_code if company.bank_qr_code.startswith('/') or company.bank_qr_code.startswith('http') else '/' + company.bank_qr_code }}" alt="UPI QR" class="pay-qr" data-testid="pay-qr">
+        {% else %}
+          <div class="muted" style="padding:20px; text-align:center; border:1px dashed #334155; border-radius:8px;">
+            QR code not yet uploaded by your ISP.
+          </div>
+        {% endif %}
+      </div>
+      <div class="bank-info" data-testid="pay-bank-info">
+        {% if company.bank_name %}<div><span class="pay-label">Bank:</span> <span class="pay-value">{{ company.bank_name }}</span></div>{% endif %}
+        {% if company.account_number %}<div><span class="pay-label">A/c No:</span> <span class="pay-value">{{ company.account_number }}</span></div>{% endif %}
+        {% if company.branch_ifsc %}<div><span class="pay-label">IFSC:</span> <span class="pay-value">{{ company.branch_ifsc }}</span></div>{% endif %}
+        {% if company.upi_id %}<div><span class="pay-label">UPI ID:</span> <span class="pay-value">{{ company.upi_id }}</span></div>{% endif %}
+        {% if company.branch_location %}<div><span class="pay-label">Branch:</span> <span class="pay-value">{{ company.branch_location }}</span></div>{% endif %}
+        {% if company.account_number and company.branch_ifsc %}
+          <div style="margin-top:8px;padding:8px 10px;background:#0f172a;border:1px dashed #1f2937;border-radius:6px;font-size:11px;color:#94a3b8;">
+            <i class="fa fa-info-circle"></i> Account holder: <strong style="color:#e2e8f0;">{{ company.company_name }}</strong>
+          </div>
+        {% endif %}
+        <div class="muted" style="margin-top:10px;">After payment, share screenshot with your ISP on WhatsApp.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pay-card">
+    <div class="pay-label">Need help?</div>
+    <div>
+      {% if company.company_phone %}
+        <a href="tel:{{ company.company_phone }}" data-testid="pay-contact-phone">
+          <i class="fa fa-phone"></i> {{ company.company_phone }}
+        </a>
+      {% endif %}
+      {% if company.company_email %}
+        &nbsp;|&nbsp;
+        <a href="mailto:{{ company.company_email }}" data-testid="pay-contact-email">
+          <i class="fa fa-envelope"></i> {{ company.company_email }}
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:18px;">
+    <a href="/pay/{{ customer.customer_id }}/history" data-testid="pay-history-link"
+       style="color:#94a3b8;font-size:13px;text-decoration:none;border-bottom:1px dashed #475569;padding-bottom:1px;">
+       <i class="fa fa-history"></i> View payment history
+    </a>
+  </div>
+
+  <div style="text-align:center; color:#475569; font-size:11px; margin-top:30px;">
+    Powered by Auto ISP Billing &middot; Secure Payment Page
+  </div>
+</div>
+
+{# Razorpay SDK only loaded when relevant #}
+{% if 'razorpay' in (available_gateways|map(attribute='name')|list) %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{% endif %}
+
+<script>
+(function(){
+  var CUST = "{{ customer.customer_id }}";
+  var CUST_NAME = "{{ (customer.customer_name or customer.customer_id)|e }}";
+  var CUST_MOBILE = "{{ customer.mobile or customer.customer_phone or '' }}";
+  var CUST_EMAIL = "{{ customer.email or customer.customer_email or '' }}";
+  var COMP_NAME = "{{ (company.company_name if company else 'ISP')|e }}";
+  var COMP_LOGO = "{{ company.logo_path or '' }}";
+  var BAL = {{ balance }};
+  var defaultGw = "{{ default_gateway or '' }}";
+
+  function getSelectedGateway(){
+    var sel = document.querySelector('input[name="gwSel"]:checked');
+    return sel ? sel.value : defaultGw;
+  }
+
+  function setPickerHighlight(){
+    document.querySelectorAll('.gw-card').forEach(function(c){
+      c.classList.toggle('selected', c.dataset.gw === getSelectedGateway());
+    });
+  }
+  document.addEventListener('change', function(e){
+    if (e.target && e.target.name === 'gwSel') setPickerHighlight();
+  });
+
+  function startRazorpay(){
+    fetch('/api/pay/' + CUST + '/razorpay-order', {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    }).then(function(r){return r.json();}).then(function(d){
+      if (!d.success || !d.order_id) {
+        alert(d.message || 'Could not create order. Please try UPI / QR.');
+        return;
+      }
+      var options = {
+        "key": d.key_id, "amount": d.amount, "currency": "INR",
+        "name": COMP_NAME, "description": "Internet dues - " + CUST,
+        "image": COMP_LOGO, "order_id": d.order_id,
+        "prefill": {"name": CUST_NAME, "contact": CUST_MOBILE, "email": CUST_EMAIL},
+        "theme": {"color": "#10b981"},
+        "handler": function(resp){
+          fetch('/api/pay/' + CUST + '/razorpay-verify', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(resp)
+          }).then(function(r){return r.json();}).then(function(v){
+            if (v.success) {
+              var qs = '?gw=razorpay&payment_id=' + encodeURIComponent(resp.razorpay_payment_id || '') +
+                       '&amount=' + BAL;
+              window.location.href = '/pay/success/' + CUST + qs;
+            } else {
+              alert('Payment verification failed: ' + (v.message || 'unknown'));
+            }
+          });
+        }
+      };
+      var rzp = new Razorpay(options);
+      rzp.on('payment.failed', function(resp){
+        var err = resp.error || {};
+        var qs = '?gw=razorpay&code=' + encodeURIComponent(err.code || '') +
+                 '&description=' + encodeURIComponent(err.description || 'Payment failed') +
+                 '&amount=' + BAL;
+        window.location.href = '/pay/failed/' + CUST + qs;
+      });
+      rzp.open();
+    }).catch(function(e){
+      alert('Network error: ' + e);
+    });
+  }
+
+  function startPayU(){
+    fetch('/api/pay/payu/' + CUST + '/create-order', {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    }).then(function(r){return r.json();}).then(function(d){
+      if (!d.success || !d.fields || !d.post_url) {
+        alert(d.message || 'Could not create PayU order.');
+        return;
+      }
+      // Build an invisible auto-submitting form to PayU.
+      var form = document.createElement('form');
+      form.action = d.post_url; form.method = 'POST'; form.style.display = 'none';
+      Object.keys(d.fields).forEach(function(k){
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = k; i.value = d.fields[k];
+        form.appendChild(i);
+      });
+      document.body.appendChild(form);
+      form.submit();
+    }).catch(function(e){
+      alert('Network error: ' + e);
+    });
+  }
+
+  // __S43ZT__ Cashfree / PhonePe / Stripe — backend returns checkout_url; just redirect.
+  function startRedirectGateway(gw){
+    return function(){
+      fetch('/api/pay/' + gw + '/' + CUST + '/create-order', {
+        method: 'POST', headers: {'Content-Type':'application/json'}
+      }).then(function(r){return r.json();}).then(function(d){
+        if (!d.success || !d.checkout_url) {
+          alert(d.message || ('Could not create ' + gw + ' order.')); return;
+        }
+        window.location.href = d.checkout_url;
+      }).catch(function(e){ alert('Network error: ' + e); });
+    };
+  }
+  // __S43ZT__ CCAvenue — backend returns post_url + fields; auto-submit form.
+  function startCCAvenue(){
+    fetch('/api/pay/ccavenue/' + CUST + '/create-order', {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    }).then(function(r){return r.json();}).then(function(d){
+      if (!d.success || !d.post_url) {
+        alert(d.message || 'Could not create CCAvenue order.'); return;
+      }
+      var form = document.createElement('form');
+      form.action = d.post_url; form.method = 'POST'; form.style.display = 'none';
+      Object.keys(d.fields).forEach(function(k){
+        var i = document.createElement('input');
+        i.type='hidden'; i.name=k; i.value=d.fields[k];
+        form.appendChild(i);
+      });
+      document.body.appendChild(form);
+      form.submit();
+    }).catch(function(e){ alert('Network error: ' + e); });
+  }
+  var dispatchers = {
+    razorpay: startRazorpay,
+    payu:     startPayU,
+    cashfree: startRedirectGateway('cashfree'),
+    phonepe:  startRedirectGateway('phonepe'),
+    ccavenue: startCCAvenue,
+    stripe:   startRedirectGateway('stripe'),
+  };
+
+  var btn = document.getElementById('payBtn');
+  if (btn) {
+    btn.addEventListener('click', function(){
+      var gw = getSelectedGateway();
+      if (!gw){ alert('Choose a payment method first.'); return; }
+      var fn = dispatchers[gw];
+      if (!fn) {
+        alert('That payment method is not yet active. Please choose another option or use UPI / QR.');
+        return;
+      }
+      btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Redirecting…';
+      try { fn(); } catch (e) { alert(e); }
+      // Reset after a short delay (Razorpay opens modal in-place; PayU navigates away).
+      setTimeout(function(){
+        btn.disabled = false; btn.innerHTML = '<i class="fa fa-bolt"></i> Pay &#8377;' + BAL + ' Now';
+      }, 2500);
+    });
+  }
+})();
+</script>
+</body>
+</html>

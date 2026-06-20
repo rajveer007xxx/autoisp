@@ -1,0 +1,102 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}Locations — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Locations <small>Coverage areas for your customers</small></h1>
+</section>
+
+<section class="content">
+<div class="box">
+  <div class="box-header with-border">
+    <h3 class="box-title">My Locations</h3>
+    <div class="box-tools pull-right">
+      <button class="btn btn-primary" id="newLocBtn" data-testid="slco-add-location-btn"><i class="fa fa-plus"></i> Add Location</button>
+    </div>
+  </div>
+  <div class="box-body">
+    <table class="table table-striped" id="locTable">
+      <thead><tr><th>Name</th><th>City</th><th>State</th><th>Pincode</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody><tr><td colspan="6" class="text-center text-muted">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal fade" id="locModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><button class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title" id="locModalTitle">Add Location</h4></div>
+    <form id="locForm">
+      <input type="hidden" name="location_id">
+      <div class="modal-body">
+        <div class="form-group"><label>Name *</label><input class="form-control" name="name" required></div>
+        <div class="form-group"><label>City</label><input class="form-control" name="city"></div>
+        <div class="form-group"><label>State</label><input class="form-control" name="state"></div>
+        <div class="form-group"><label>Pincode</label><input class="form-control" name="pincode"></div>
+        <div class="form-group"><label>Status</label>
+          <select class="form-control" name="status"><option>Active</option><option>Inactive</option></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function load(){
+  $.get('/api/sub-lco/locations/list', function(res){
+    var $tb = $('#locTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $tb.append('<tr><td colspan="6" class="text-center text-muted">No locations yet.</td></tr>'); return;
+    }
+    res.items.forEach(function(l){
+      $tb.append('<tr data-id="'+l.id+'" data-json=\''+JSON.stringify(l).replace(/'/g,'&apos;')+'\'>'+
+        '<td>'+esc(l.name)+'</td><td>'+esc(l.city)+'</td>'+
+        '<td>'+esc(l.state)+'</td><td>'+esc(l.pincode)+'</td>'+
+        '<td><span class="label '+((l.status||'Active')==='Active'?'label-success':'label-default')+'">'+esc(l.status)+'</span></td>'+
+        '<td><button class="btn btn-xs btn-primary act-edit"><i class="fa fa-pencil"></i></button> '+
+        '<button class="btn btn-xs btn-danger act-del"><i class="fa fa-trash"></i></button></td></tr>');
+    });
+  });
+}
+function openModal(title, data){
+  $('#locModalTitle').text(title);
+  var f = $('#locForm')[0];
+  f.location_id.value = data.id || '';
+  f.name.value = data.name || ''; f.city.value = data.city || '';
+  f.state.value = data.state || ''; f.pincode.value = data.pincode || '';
+  f.status.value = data.status || 'Active';
+  $('#locModal').modal('show');
+}
+$(function(){
+  load();
+  $('#newLocBtn').on('click', function(){ openModal('Add Location', {}); });
+  $('#locTable').on('click', '.act-edit', function(){
+    var tr = $(this).closest('tr');
+    var data = JSON.parse(tr.attr('data-json').replace(/&apos;/g,"'"));
+    openModal('Edit Location', data);
+  });
+  $('#locTable').on('click', '.act-del', function(){
+    if(!confirm('Delete this location?')) return;
+    var id = $(this).closest('tr').data('id');
+    var fd = new FormData(); fd.append('location_id', id);
+    $.ajax({url:'/api/sub-lco/locations/delete', method:'POST', data: fd,
+      processData:false, contentType:false})
+     .done(function(r){ if(r.success) load(); else alert(r.message); });
+  });
+  $('#locForm').on('submit', function(e){
+    e.preventDefault();
+    var fd = new FormData(this);
+    var url = fd.get('location_id') ? '/api/sub-lco/locations/update' : '/api/sub-lco/locations/create';
+    $.ajax({url:url, method:'POST', data:fd, processData:false, contentType:false})
+     .done(function(r){ if(r.success){ $('#locModal').modal('hide'); load(); }
+                        else alert(r.message||'Failed'); });
+  });
+});
+</script>
+{% endblock %}

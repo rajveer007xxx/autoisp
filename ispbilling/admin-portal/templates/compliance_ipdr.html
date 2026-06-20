@@ -1,0 +1,90 @@
+{% extends "base_admin.html" %}
+{% block title %}IPDR Records - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.cmp-tbl th{background:#f1f5f9;padding:8px;text-align:left;color:#475569;text-transform:uppercase;font-size:11px}
+.cmp-tbl td{padding:8px;border-bottom:1px solid #e5e7eb;font-family:'JetBrains Mono','Menlo',monospace;font-size:12px}
+.cmp-input{padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-btn.green{background:#10b981}
+.cmp-empty{text-align:center;padding:40px;color:#94a3b8}
+</style>
+
+<section class="content-header">
+  <h1>IPDR Records<small>5-tuple connection records (DoT requirement)</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input id="fQ" class="cmp-input" placeholder="Search user_ip / dst_ip / customer_id" data-testid="ipdr-search">
+    <input id="fFrom" type="date" class="cmp-input" data-testid="ipdr-from">
+    <input id="fTo" type="date" class="cmp-input" data-testid="ipdr-to">
+    <button class="cmp-btn" onclick="loadIPDR()" data-testid="ipdr-load">Filter</button>
+    <a class="cmp-btn green" id="exportBtn" href="/admin/compliance/ipdr/export.csv" data-testid="ipdr-export">Export CSV</a> <a class="cmp-btn green" href="/admin/compliance/ipdr/export.xlsx" data-testid="ipdr-export-xlsx" style="background:#10b981">Export XLSX</a>
+    <a class="cmp-btn gray" href="/admin/compliance" data-testid="ipdr-back" style="margin-left:auto;text-decoration:none;display:inline-block">← Back to Compliance</a>
+  </div>
+
+  <div class="cmp-card">
+    <div style="font-size:13px;color:#475569;margin-bottom:10px"><b>Total stored:</b> <span id="totCount">…</span></div>
+    <div id="ipdrList"><div class="cmp-empty">Loading…</div></div>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-info-circle"></i> How records reach this page</h4>
+    <p style="font-size:13px;color:#475569;line-height:1.7;margin:0">
+      Records are pushed automatically by your NAS routers to a secure ingest channel using a per-router token.
+      To set up a router, go to <b>NAS Devices</b> → click <b>IPDR</b> next to that router → copy the generated script and paste it into the router's terminal once. Tokens can be revoked any time.
+    </p>
+  </div>
+</section>
+
+<script>
+async function loadIPDR(){
+  const q = document.getElementById('fQ').value.trim();
+  const f = document.getElementById('fFrom').value;
+  const t = document.getElementById('fTo').value;
+  const u = '/api/compliance/ipdr/list?limit=500'
+          + (q ? '&q='+encodeURIComponent(q) : '')
+          + (f ? '&from='+f : '') + (t ? '&to='+t : '');
+  // Sync export link with same filters
+  document.getElementById('exportBtn').href =
+    '/admin/compliance/ipdr/export.csv'
+    + (f ? '?from='+f : '')
+    + (t ? (f?'&':'?') + 'to='+t : '');
+  const r = await fetch(u, {credentials:'include'});
+  const d = await r.json();
+  document.getElementById('totCount').textContent = d.total ?? 0;
+  if (!d.success) {
+    document.getElementById('ipdrList').innerHTML = '<div class="cmp-empty">Error</div>';
+    return;
+  }
+  if (!d.rows || !d.rows.length) {
+    document.getElementById('ipdrList').innerHTML =
+      '<div class="cmp-empty">No IPDR records yet. Configure your router to push exports.</div>';
+    return;
+  }
+  document.getElementById('ipdrList').innerHTML =
+    `<table class="cmp-tbl"><thead><tr>
+       <th>ID</th><th>Customer</th><th>User IP</th><th>Src</th><th>Dst</th>
+       <th>Proto</th><th>Start</th><th>Stop</th><th>In</th><th>Out</th><th>NAS</th>
+     </tr></thead><tbody>${d.rows.map(x=>`
+       <tr>
+         <td>${x.id}</td>
+         <td>${x.customer_id||'-'}</td>
+         <td>${x.user_ip||'-'}</td>
+         <td>${x.src_ip||'-'}:${x.src_port||'-'}</td>
+         <td>${x.dst_ip||'-'}:${x.dst_port||'-'}</td>
+         <td>${x.protocol||'-'}</td>
+         <td>${x.start_ts||'-'}</td>
+         <td>${x.stop_ts||'-'}</td>
+         <td>${x.bytes_in||0}</td>
+         <td>${x.bytes_out||0}</td>
+         <td>${x.nas_ip||'-'}</td>
+       </tr>`).join('')}</tbody></table>`;
+}
+loadIPDR();
+</script>
+{% endblock %}

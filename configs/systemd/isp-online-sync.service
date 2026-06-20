@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing — Online Users Sync (direct MikroTik, off-the-worker)
+After=network.target isp-admin.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling/scripts
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ispbilling/venv/bin/python3 /opt/ispbilling/scripts/online_users_sync.py
+StandardOutput=journal
+StandardError=journal
+Nice=10
+User=root

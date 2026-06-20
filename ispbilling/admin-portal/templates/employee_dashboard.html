@@ -1,0 +1,310 @@
+{% extends "base_employee.html" %}
+{% block title %}Dashboard — Employee Portal{% endblock %}
+
+{% block extra_css %}
+<style>
+  .welcome-banner{
+    border-radius:12px;
+    background: linear-gradient(135deg,#0f172a 0%,#1e3a8a 60%,#1d4ed8 100%);
+    color:#fff; padding:24px 28px; box-shadow:0 10px 30px rgba(15,23,42,.30);
+    margin: 0 0 20px 0; position:relative; overflow:hidden;
+  }
+  .welcome-banner h2{ margin:0 0 6px; color:#fff; font-weight:800; font-size:22px; }
+  .welcome-banner p{ margin:0; color:rgba(255,255,255,.85); font-size:13px; }
+  .welcome-banner .welcome-actions{ margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; }
+  .welcome-banner .welcome-actions .btn{
+    background: rgba(255,255,255,.18) !important; color:#fff !important;
+    border:1px solid rgba(255,255,255,.35) !important;
+  }
+  .small-box{ position:relative; border-radius:8px; padding:16px 18px; color:#fff; box-shadow:0 4px 14px rgba(0,0,0,.06); margin-bottom:14px; }
+  .small-box h3{ margin:0; font-size:30px; font-weight:800; line-height:1; }
+  .small-box p{ margin:4px 0 0; opacity:.9; font-size:13px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; }
+  .small-box .stat-sub{ margin-top:10px; font-size:11.5px; }
+  .small-box .stat-sub .chip{ display:inline-block; padding:2px 9px; border-radius:20px; background:rgba(255,255,255,.20); margin-right:4px; margin-top:3px; }
+  .small-box .icon-bg{ position:absolute; right:14px; top:14px; opacity:.25; font-size:36px; }
+  .bg-blue{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
+  .bg-green{ background:linear-gradient(135deg,#10b981,#059669); }
+  .bg-purple{ background:linear-gradient(135deg,#8b5cf6,#7c3aed); }
+  .bg-rose{ background:linear-gradient(135deg,#f43f5e,#e11d48); }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content">
+  <div class="welcome-banner">
+    <h2>Welcome back, {{ employee_name|default(user_name) }}</h2>
+    <p>Your daily summary — customers in your localities, today's collections, expirations.</p>
+    <div class="welcome-actions">
+      <a href="/employee/users" class="btn btn-sm"><i class="fa fa-users"></i> User Management</a>
+      <a href="/employee/online-users" class="btn btn-sm"><i class="fa fa-wifi"></i> Online Users</a>
+      <a href="/employee/payment-history" class="btn btn-sm"><i class="fa fa-history"></i> Payment History</a>
+      <a href="/employee/sent-invoices" class="btn btn-sm"><i class="fa fa-file-text-o"></i> Sent Invoices</a>
+    </div>
+  </div>
+
+  <!-- __S43ZJ__ Tile grid — split into two clean 4-col rows -->
+  <div class="row">
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-blue">
+        <i class="fa fa-users icon-bg"></i>
+        <h3 id="eTotal">0</h3><p>My Customers</p>
+        <div class="stat-sub">
+          <span class="chip">Active <b id="eActive">0</b></span>
+          <span class="chip">Deactive <b id="eDeac">0</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-green">
+        <i class="fa fa-rupee icon-bg"></i>
+        <h3>&#8377; <span id="eToday">0.00</span></h3><p>Today's Collection<br><small style='color:#16a34a;font-weight:600;'><i class='bi bi-person-check-fill'></i> You collected</small></p>
+        <div class="stat-sub"><span class="chip">MTD &#8377; <b id="eMtd">0.00</b></span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-rose" data-testid="emp-stat-online-now">
+        <i class="bi bi-wifi icon-bg"></i>
+        <h3 id="eOnline">0</h3><p>Currently Online</p>
+        <div class="stat-sub"><span class="chip">Live sessions</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-yellow" data-testid="emp-stat-dues">
+        <i class="bi bi-cash-stack icon-bg"></i>
+        <h3>&#8377; <span id="eDues">0.00</span></h3><p>Total Dues</p>
+        <div class="stat-sub"><span class="chip">In your scope</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-purple">
+        <i class="fa fa-clock-o icon-bg"></i>
+        <h3 id="eExpToday">0</h3><p>Expiring Today</p>
+        <div class="stat-sub"><span class="chip">Next 7 days <b id="eExp7">0</b></span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-rose">
+        <i class="fa fa-exclamation-triangle icon-bg"></i>
+        <h3 id="eExpired">0</h3><p>Expired Customers</p>
+        <div class="stat-sub"><span class="chip">Past expiry</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-yellow" data-testid="emp-stat-open-complaints">
+        <i class="bi bi-chat-left-text icon-bg"></i>
+        <h3 id="eCompOpen">0</h3><p>Open Complaints</p>
+        <div class="stat-sub"><span class="chip">Your scope</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-rose" data-testid="emp-stat-critical-alerts">
+        <i class="bi bi-exclamation-octagon icon-bg"></i>
+        <h3 id="eAlerts">0</h3><p>Critical ONT / ONU Alerts</p>
+        <div class="stat-sub"><span class="chip">Unacknowledged (company)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="box">
+        <div class="box-header with-border">
+          <h3 class="box-title" style="display:flex;align-items:center;gap:8px;">Recent Customers <small style="color:#64748b;font-weight:400;">(your localities)</small><input type="search" id="empRecCustSearch" data-testid="emp-rec-cust-search" placeholder="Search customers…" style="margin-left:auto;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;font-weight:normal;width:200px;"></h3>
+          <div class="box-tools pull-right"><a href="/employee/users" class="btn btn-xs btn-default">View all</a></div>
+        </div>
+        <div class="box-body">
+          <table class="table table-striped table-condensed" data-dt-skip="1" id="empCustTable">
+            <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Status</th><th>End</th></tr></thead>
+            <tbody><tr><td colspan="5" class="text-center text-muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="box">
+        <div class="box-header with-border">
+          <h3 class="box-title" style="display:flex;align-items:center;gap:8px;">Recent Payments You Collected<input type="search" id="empRecPaySearch" data-testid="emp-rec-pay-search" placeholder="Search payments…" style="margin-left:auto;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;font-weight:normal;width:200px;"></h3>
+          <div class="box-tools pull-right"><a href="/employee/payment-history" class="btn btn-xs btn-default">View all</a></div>
+        </div>
+        <div class="box-body">
+          <table class="table table-striped table-condensed" data-dt-skip="1" id="empPayTable">
+            <thead><tr><th>When</th><th>Customer</th><th>Mode</th><th>Amount</th></tr></thead>
+            <tbody><tr><td colspan="4" class="text-center text-muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function escE(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmtN(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtIST(s){
+  if(!s) return '';
+  var iso = String(s).replace(' ','T');
+  if(!/(?:Z|[+\-]\d{2}:?\d{2})$/.test(iso)) iso += 'Z';
+  var d = new Date(iso); if(isNaN(d.getTime())) return String(s).substring(0,16).replace('T',' ');
+  var p = function(n){return n<10?'0'+n:''+n;};
+  var u = new Date(d.getTime() + (5*60+30)*60*1000);
+  var h24 = u.getUTCHours(), ap = h24>=12 ? 'PM' : 'AM', h12 = h24%12 || 12;
+  return p(u.getUTCDate())+'-'+p(u.getUTCMonth()+1)+'-'+u.getUTCFullYear()+' '+p(h12)+':'+p(u.getUTCMinutes())+' '+ap;
+}
+$(function(){
+  $.get('/api/employee/dashboard/stats', function(r){
+    if(!r.success) return;
+    $('#eTotal').text(r.stats.total_customers);
+    $('#eActive').text(r.stats.active_count);
+    $('#eDeac').text(r.stats.deactive_count);
+    $('#eToday').text(fmtN(r.stats.collected_today));
+    $('#eMtd').text(fmtN(r.stats.collected_mtd));
+    $('#eExpToday').text(r.stats.expiring_today);
+    $('#eExp7').text(r.stats.expiring_7d);
+    $('#eExpired').text(r.stats.expired);
+    // __S43ZG__ NEW tiles
+    if (document.getElementById('eOnline'))  $('#eOnline').text(r.stats.online_now || 0);
+    if (document.getElementById('eDues'))    $('#eDues').text(fmtN(r.stats.total_dues || 0));
+    if (document.getElementById('eAlerts'))  $('#eAlerts').text(r.stats.critical_alerts || 0);
+    if (document.getElementById('eCompOpen'))$('#eCompOpen').text(r.stats.open_complaints || 0);
+    var $c = $('#empCustTable tbody').empty();
+    if(!r.recent_customers.length){ $c.append('<tr><td colspan="5" class="text-center text-muted">No customers yet.</td></tr>'); }
+    r.recent_customers.forEach(function(c){
+      var lbl = (c.status||'').toLowerCase()==='active' ? 'label-success' : 'label-default';
+      $c.append('<tr><td><code>'+escE(c.customer_id)+'</code></td><td>'+escE(c.customer_name)+
+                '</td><td>'+escE(c.customer_phone||'—')+'</td><td><span class="label '+lbl+'">'+escE(c.status||'—')+
+                '</span></td><td>'+escE(c.end_date||'—')+'</td></tr>');
+    });
+    var $p = $('#empPayTable tbody').empty();
+    if(!r.recent_payments.length){ $p.append('<tr><td colspan="4" class="text-center text-muted">No payments yet.</td></tr>'); }
+    r.recent_payments.forEach(function(p){
+      $p.append('<tr><td>'+escE(fmtIST(p.paid_at))+'</td><td>'+escE(p.customer_name)+' <code>'+escE(p.customer_id)+
+                '</code></td><td>'+escE(p.payment_mode)+'</td><td>&#8377; '+fmtN(p.amount)+'</td></tr>');
+    });
+  });
+});
+</script>
+
+<script>
+/* __S43ZG__ populate the new employee tiles */
+(function(){
+  function fmtMoney(n){ try{return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}catch(_){return Number(n||0).toFixed(2);} }
+  function tick(){
+    fetch('/api/employee/dashboard/stats').then(r=>r.json()).then(d=>{
+      if(!d || !d.success) return;
+      var s = d.stats || {};
+      var el;
+      el = document.getElementById('eOnline'); if(el) el.textContent = (s.online_now||0);
+      el = document.getElementById('eDues');   if(el) el.textContent = fmtMoney(s.total_dues||0);
+    }).catch(()=>{});
+  }
+  document.addEventListener('DOMContentLoaded', tick);
+  setInterval(tick, 60000);
+})();
+</script>
+
+<script>
+/* __S43ZH__ Emp dashboard table search — plain CSS row hide */
+(function(){
+  function attach(inputId, tableId){
+    var inp = document.getElementById(inputId);
+    var tbl = document.getElementById(tableId);
+    if(!inp || !tbl) return;
+    function doFilter(){
+      var q = (inp.value || '').toLowerCase().trim();
+      tbl.querySelectorAll('tbody tr').forEach(function(tr){
+        if (!q) { tr.style.setProperty('display','','important'); tr.style.removeProperty('display'); return; }
+        if (tr.textContent.toLowerCase().indexOf(q) === -1) tr.style.setProperty('display','none','important');
+        else { tr.style.setProperty('display','','important'); tr.style.removeProperty('display'); }
+      });
+    }
+    inp.addEventListener('input', doFilter);
+    if (window.MutationObserver) {
+      var obs = new MutationObserver(doFilter);
+      var tbody = tbl.querySelector('tbody');
+      if (tbody) obs.observe(tbody, { childList: true });
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    attach('empRecCustSearch', 'empCustTable');
+    attach('empRecPaySearch',  'empPayTable');
+  });
+})();
+</script>
+{% endblock %}
+
+<!-- __S39D__ Session-timeout (10 min idle, 60s warning) -->
+<div id="s39dTimeoutModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;width:380px;max-width:92vw;padding:22px 24px;box-shadow:0 18px 48px rgba(0,0,0,.25);">
+    <h3 style="margin:0 0 8px 0;font-size:18px;color:#0f172a;">
+      <i class="bi bi-hourglass-split" style="color:#f59e0b;"></i> Session about to expire
+    </h3>
+    <p style="margin:0 0 16px 0;color:#475569;font-size:14px;">
+      You have been inactive. You will be logged out in
+      <strong id="s39dTimeoutSecs" style="color:#dc2626;">60</strong> seconds.
+    </p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="s39dTimeoutLogout" type="button"
+              style="background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 14px;border-radius:6px;cursor:pointer;">Log out now</button>
+      <button id="s39dTimeoutStay" type="button"
+              style="background:#2563eb;border:1px solid #2563eb;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;"
+              data-testid="session-stay-signed-in-btn">Stay signed in</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+    if (window.__s39dTimeoutInstalled) return;
+    window.__s39dTimeoutInstalled = true;
+    var IDLE_MS = 10 * 60 * 1000;       // 10 min total
+    var WARN_MS = 60 * 1000;             // last 60s = warning
+    var lastActivity = Date.now();
+    var warnTimer = null, logoutTimer = null, countdownIv = null;
+    var modal = document.getElementById('s39dTimeoutModal');
+    var secsEl = document.getElementById('s39dTimeoutSecs');
+    function hideModal(){ if (modal) modal.style.display='none'; if(countdownIv){clearInterval(countdownIv);countdownIv=null;} }
+    function showModal(){
+        if (!modal) return;
+        modal.style.display='flex';
+        var secs = Math.floor(WARN_MS/1000);
+        if (secsEl) secsEl.textContent = secs;
+        if (countdownIv) clearInterval(countdownIv);
+        countdownIv = setInterval(function(){
+            secs--;
+            if (secsEl) secsEl.textContent = Math.max(secs, 0);
+            if (secs <= 0) { clearInterval(countdownIv); countdownIv=null; }
+        }, 1000);
+    }
+    function doLogout(){
+        try { hideModal(); } catch(e){}
+        // Hit the logout endpoint, then bounce to /login?reason=timeout.
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+            .catch(function(){})
+            .finally(function(){
+                window.location.replace('/login?reason=timeout');
+            });
+    }
+    function reset(){
+        lastActivity = Date.now();
+        hideModal();
+        if (warnTimer)   clearTimeout(warnTimer);
+        if (logoutTimer) clearTimeout(logoutTimer);
+        warnTimer   = setTimeout(showModal, IDLE_MS - WARN_MS);
+        logoutTimer = setTimeout(doLogout,  IDLE_MS);
+    }
+    ['mousemove','mousedown','keydown','scroll','touchstart','click'].forEach(function(ev){
+        document.addEventListener(ev, function(){ reset(); }, { passive: true });
+    });
+    document.addEventListener('DOMContentLoaded', function(){
+        var stay = document.getElementById('s39dTimeoutStay');
+        var btn  = document.getElementById('s39dTimeoutLogout');
+        if (stay) stay.addEventListener('click', function(){ reset(); /* also poke server */ fetch('/api/auth/heartbeat', {method:'POST', credentials:'same-origin'}).catch(function(){}); });
+        if (btn)  btn.addEventListener('click',  doLogout);
+    });
+    reset();
+})();
+</script>
+<!-- /__S39D__ -->

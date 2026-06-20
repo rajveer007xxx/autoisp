@@ -1,0 +1,8 @@
+[Unit]
+Description=AutoISP — sync detected PPPoE passwords to customers DB
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/admin-portal/auto_sync_passwords.py
+User=root
+WorkingDirectory=/opt/ispbilling/admin-portal

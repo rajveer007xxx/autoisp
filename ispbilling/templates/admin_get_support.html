@@ -1,0 +1,391 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Get Support - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Get Support
+        <small>Submit support request or complaint to superadmin</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li class="active">Get Support</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-8 col-md-offset-2">
+            <div class="box box-info">
+                <div class="box-header with-border">
+                    <h3 class="box-title">My Recent Requests</h3>
+                </div>
+                <div class="box-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped" id="myRequestsTable">
+                            <thead>
+                                <tr>
+                                    <th>Ticket No</th>
+                                    <th>Type</th>
+                                    <th>Subject</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>View Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="myRequestsBody">
+                                <tr>
+                                    <td colspan="6" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="box box-primary">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Submit Request</h3>
+                </div>
+                <form id="supportForm">
+                    <div class="box-body">
+                        <div class="alert alert-info">
+                            <i class="fa fa-info-circle"></i> Use this form to submit support requests or complaints to the superadmin. You will receive a response via this system.
+                        </div>
+
+                        <div class="form-group">
+                            <label>Request Type *</label>
+                            <div>
+                                <label class="radio-inline">
+                                    <input type="radio" name="request_type" value="support" checked> Support Request
+                                </label>
+                                <label class="radio-inline">
+                                    <input type="radio" name="request_type" value="complaint"> Complaint
+                                </label>
+                            </div>
+                            <p class="help-block">Choose "Support Request" for technical help or questions. Choose "Complaint" to report issues or concerns.</p>
+                        </div>
+
+                        <div class="form-group" id="categoryGroup">
+                            <label>Category *</label>
+                            <select class="form-control" id="category" name="category" required>
+                                <option value="">Select Category</option>
+                                <option value="Technical">Technical Issue</option>
+                                <option value="Account">Account Related</option>
+                                <option value="Billing">Billing Issue</option>
+                                <option value="Feature Request">Feature Request</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="complaintTypeGroup" style="display: none;">
+                            <label>Complaint Type *</label>
+                            <select class="form-control" id="complaint_type" name="complaint_type">
+                                <option value="">Select Type</option>
+                                <option value="Technical">Technical</option>
+                                <option value="Billing">Billing</option>
+                                <option value="Service">Service</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Priority *</label>
+                            <select class="form-control" id="priority" name="priority" required>
+                                <option value="Low">Low</option>
+                                <option value="Medium" selected>Medium</option>
+                                <option value="High">High</option>
+                                <option value="Critical">Critical</option>
+                            </select>
+                            <p class="help-block">Select "Critical" only for urgent issues that require immediate attention.</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Subject *</label>
+                            <input type="text" class="form-control" id="subject" name="subject" placeholder="Brief description of your issue" required maxlength="200">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Description *</label>
+                            <textarea class="form-control" id="description" name="description" rows="6" placeholder="Provide detailed information about your request or complaint" required></textarea>
+                            <p class="help-block">Please provide as much detail as possible to help us assist you better.</p>
+                        </div>
+                    </div>
+
+                    <div class="box-footer">
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="fa fa-paper-plane"></i> Submit Request
+                        </button>
+                        <a href="/admin/dashboard" class="btn btn-default">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="modal fade" id="viewStatusModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Support Ticket Status</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Ticket No:</strong> <span id="modalTicketNo"></span></p>
+                        <p><strong>Category:</strong> <span id="modalCategory"></span></p>
+                        <p><strong>Priority:</strong> <span id="modalPriority"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Status:</strong> <span id="modalStatus"></span></p>
+                        <p><strong>Created:</strong> <span id="modalCreated"></span></p>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-md-12">
+                        <p><strong>Subject:</strong> <span id="modalSubject"></span></p>
+                        <p><strong>Description:</strong></p>
+                        <p id="modalDescription" style="white-space: pre-wrap;"></p>
+                    </div>
+                </div>
+                <hr>
+                <h4>Conversation History</h4>
+                <div id="conversationHistory" style="max-height: 400px; overflow-y: auto; margin-bottom: 15px;">
+                    <p class="text-muted">Loading conversation...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// jQuery guard - ensure jQuery is loaded
+if (!window.jQuery) {
+    console.error('jQuery is not loaded! Get Support form will not work.');
+    alert('Error: Page dependencies not loaded. Please refresh the page.');
+} else {
+    console.log('Get Support page: jQuery loaded successfully');
+    
+    $(document).ready(function() {
+        console.log('Get Support page: DOM ready, initializing...');
+        
+        // Toggle category/complaint type based on request type
+        $('input[name="request_type"]').change(function() {
+            var requestType = $(this).val();
+            console.log('Request type changed to:', requestType);
+            if (requestType === 'support') {
+                $('#categoryGroup').show();
+                $('#category').prop('required', true);
+                $('#complaintTypeGroup').hide();
+                $('#complaint_type').prop('required', false);
+            } else {
+                $('#categoryGroup').hide();
+                $('#category').prop('required', false);
+                $('#complaintTypeGroup').show();
+                $('#complaint_type').prop('required', true);
+            }
+        });
+
+        // Load recent requests
+        function loadMyRequests() {
+            console.log('Loading recent requests...');
+            $.ajax({
+                url: '/api/admin/my-requests',
+                method: 'GET',
+                success: function(response) {
+                    console.log('My requests response:', response);
+                    if (response.success) {
+                        var tbody = $('#myRequestsBody');
+                        tbody.empty();
+                        if (response.requests.length === 0) {
+                            tbody.append('<tr><td colspan="6" class="text-center">No requests found</td></tr>');
+                            return;
+                        }
+                        response.requests.forEach(function(req) {
+                            var statusBadge = req.status === 'Open' ? '<span class="label label-danger">Open</span>' :
+                                            req.status === 'In Progress' ? '<span class="label label-warning">In Progress</span>' :
+                                            req.status === 'Resolved' ? '<span class="label label-success">Resolved</span>' :
+                                            '<span class="label label-default">Closed</span>';
+                            
+                            var createdDate = 'N/A';
+                            try {
+                                var isoDate = req.created_at.replace(' ', 'T');
+                                var date = new Date(isoDate);
+                                if (!isNaN(date.getTime())) {
+                                    createdDate = date.toLocaleDateString('en-GB');
+                                }
+                            } catch (e) {
+                                console.error('Error parsing date:', req.created_at, e);
+                            }
+                            
+                            var badgeHtml = req.response_count > 0 ? '<span class="badge bg-blue">' + req.response_count + '</span>' : '';
+                            var viewStatusBtn = '<button class="btn btn-xs btn-info view-status-btn" data-id="' + req.id + '" data-ticket-no="' + req.ticket_no + '" data-type="' + req.type + '">' +
+                                '<i class="fa fa-eye"></i> View ' + badgeHtml +
+                                '</button>';
+                            
+                            var row = '<tr>' +
+                                '<td>' + req.ticket_no + '</td>' +
+                                '<td>' + req.type + '</td>' +
+                                '<td>' + req.subject.substring(0, 40) + (req.subject.length > 40 ? '...' : '') + '</td>' +
+                                '<td>' + statusBadge + '</td>' +
+                                '<td>' + createdDate + '</td>' +
+                                '<td>' + viewStatusBtn + '</td>' +
+                                '</tr>';
+                            tbody.append(row);
+                        });
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading requests:', status, error, xhr.responseJSON);
+                    $('#myRequestsBody').html('<tr><td colspan="6" class="text-center text-danger">Error loading requests</td></tr>');
+                }
+            });
+        }
+        
+        // View status button handler
+        $(document).on('click', '.view-status-btn', function() {
+            var ticketId = $(this).data('id');
+            var ticketNo = $(this).data('ticket-no');
+            var ticketType = $(this).data('type');
+            
+            console.log('Loading status for ticket:', ticketId, ticketNo, ticketType);
+            
+            var apiUrl = ticketType === 'Support' ? '/api/admin/support/' + ticketId + '/thread' : '/api/admin/complaints/' + ticketId + '/thread';
+            
+            $.ajax({
+                url: apiUrl,
+                method: 'GET',
+                success: function(response) {
+                    console.log('Thread response:', response);
+                    if (response.success) {
+                        var ticket = response.ticket;
+                        $('#modalTicketNo').text(ticket.ticket_no);
+                        $('#modalCategory').text(ticket.category);
+                        $('#modalPriority').text(ticket.priority);
+                        $('#modalStatus').text(ticket.status);
+                        $('#modalSubject').text(ticket.subject);
+                        $('#modalDescription').text(ticket.description);
+                        
+                        try {
+                            var isoDate = ticket.created_at.replace(' ', 'T');
+                            var date = new Date(isoDate);
+                            if (!isNaN(date.getTime())) {
+                                $('#modalCreated').text(date.toLocaleString('en-GB'));
+                            } else {
+                                $('#modalCreated').text(ticket.created_at);
+                            }
+                        } catch (e) {
+                            $('#modalCreated').text(ticket.created_at);
+                        }
+                        
+                        var conversationHtml = '';
+                        if (response.responses.length === 0) {
+                            conversationHtml = '<p class="text-muted"><i class="fa fa-info-circle"></i> No responses yet. The superadmin will respond to your request soon.</p>';
+                        } else {
+                            response.responses.forEach(function(r) {
+                                var roleClass = r.responder_role === 'superadmin' ? 'bg-info' : 'bg-warning';
+                                var roleLabel = r.responder_role === 'superadmin' ? 'SUPERADMIN' : 'YOU';
+                                var dateStr = '';
+                                try {
+                                    var isoDate = r.created_at.replace(' ', 'T');
+                                    var date = new Date(isoDate);
+                                    if (!isNaN(date.getTime())) {
+                                        dateStr = date.toLocaleString('en-GB');
+                                    } else {
+                                        dateStr = r.created_at;
+                                    }
+                                } catch (e) {
+                                    dateStr = r.created_at;
+                                }
+                                conversationHtml += '<div class="well well-sm ' + roleClass + '">' +
+                                    '<p><strong>' + roleLabel + '</strong> - ' + dateStr + '</p>' +
+                                    '<p style="white-space: pre-wrap;">' + r.message + '</p>' +
+                                    '</div>';
+                            });
+                        }
+                        $('#conversationHistory').html(conversationHtml);
+                        
+                        $('#viewStatusModal').modal('show');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading thread:', status, error, xhr.responseJSON);
+                    alert('Error loading ticket status. Please try again.');
+                }
+            });
+        });
+
+        // Submit form
+        $('#supportForm').submit(function(e) {
+            e.preventDefault();
+            console.log('Form submit handler triggered');
+            
+            var requestType = $('input[name="request_type"]:checked').val();
+            var category = requestType === 'support' ? $('#category').val() : $('#complaint_type').val();
+            var priority = $('#priority').val();
+            var subject = $('#subject').val().trim();
+            var description = $('#description').val().trim();
+
+            console.log('Form data:', {requestType, category, priority, subject, description});
+
+            if (!subject || !description || !category) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            $('#submitBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting...');
+
+            console.log('Submitting request via AJAX...');
+            $.ajax({
+                url: '/api/admin/support-request',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    request_type: requestType,
+                    category: category,
+                    priority: priority,
+                    subject: subject,
+                    description: description
+                }),
+                success: function(response) {
+                    console.log('Submit response:', response);
+                    if (response.success) {
+                        alert('✓ Request submitted successfully!\n\nTicket No: ' + response.ticket_no + '\n\nYou can track this request in "My Recent Requests" below.');
+                        $('#supportForm')[0].reset();
+                        // Reset to support request type
+                        $('input[name="request_type"][value="support"]').prop('checked', true).trigger('change');
+                        loadMyRequests();
+                    } else {
+                        alert('Error: ' + (response.error || 'Failed to submit request'));
+                    }
+                    $('#submitBtn').prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Request');
+                },
+                error: function(xhr, status, error) {
+                    console.error('Submit error:', status, error, xhr.responseJSON);
+                    var errorMsg = 'Failed to submit request';
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
+                    alert('Error: ' + errorMsg);
+                    $('#submitBtn').prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Request');
+                }
+            });
+        });
+
+        console.log('Form submit handler attached');
+
+        // Load requests on page load
+        loadMyRequests();
+    });
+}
+</script>
+{% endblock %}

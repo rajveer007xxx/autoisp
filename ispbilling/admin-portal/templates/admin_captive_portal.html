@@ -1,0 +1,177 @@
+{% extends "base_admin.html" %}
+{% block title %}Captive Portal Designer{% endblock %}
+
+{% block content %}
+<!-- __S39E__ moved push-to-nas inside content (was buried in title block) -->
+<section class="content" style="padding-top:0;">
+  <div class="box box-warning" style="border-top-color:#f59e0b;">
+    <div class="box-header with-border">
+      <h3 class="box-title"><i class="bi bi-router"></i> Push to MikroTik NAS</h3>
+    </div>
+    <div class="box-body">
+      <p style="color:#64748b;font-size:13px;margin:0 0 10px;">
+        Upload the current captive-portal design to a MikroTik router as
+        <code>hotspot/login.html</code>. The NAS must have SSH enabled.
+      </p>
+      <div class="row">
+        <div class="col-md-6">
+          <select id="s36b9_nas_select" class="form-control" data-testid="cp-nas-select">
+            <option value="">— loading NAS devices —</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <button id="s36b9_push_btn" class="btn btn-warning"
+                  data-testid="cp-push-btn" disabled>
+            <i class="bi bi-cloud-upload"></i> Push Captive Portal to selected NAS
+          </button>
+        </div>
+      </div>
+      <div id="s36b9_push_result" style="margin-top:10px;font-size:13px;"></div>
+    </div>
+  </div>
+</section>
+<script>
+(function(){
+  var sel = document.getElementById('s36b9_nas_select');
+  var btn = document.getElementById('s36b9_push_btn');
+  var out = document.getElementById('s36b9_push_result');
+  fetch('/api/captive-portal/nas-list').then(r=>r.json()).then(function(j){
+    sel.innerHTML = '';
+    if (!j.success || !j.rows || !j.rows.length) {
+      sel.innerHTML = '<option value="">(no active NAS devices)</option>';
+      return;
+    }
+    j.rows.forEach(function(n){
+      var opt = document.createElement('option');
+      opt.value = n.id;
+      opt.textContent = n.name + ' (' + n.ip + (n.use_ssh?'  · SSH':'  · API') + ')';
+      sel.appendChild(opt);
+    });
+    btn.disabled = false;
+  });
+  btn.addEventListener('click', function(){
+    var id = sel.value;
+    if (!id) { out.innerHTML = '<span class="text-danger">Select a NAS first</span>'; return; }
+    btn.disabled = true;
+    out.innerHTML = '<i class="bi bi-hourglass-split"></i> Uploading…';
+    fetch('/api/captive-portal/push-to-nas/' + id, {method: 'POST'})
+      .then(r=>r.json())
+      .then(function(j){
+        btn.disabled = false;
+        if (j.success) {
+          out.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> '+
+            'Uploaded '+(j.size||j.html_bytes||'?')+' bytes to '+j.nas+' ('+j.remote+')</span>';
+        } else {
+          out.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> '+
+            (j.message||'failed')+'</span>';
+        }
+      })
+      .catch(function(e){
+        btn.disabled = false;
+        out.innerHTML = '<span class="text-danger">network error: '+e+'</span>';
+      });
+  });
+})();
+</script>
+
+<section class="content-header">
+    <h1>Captive Portal Designer <small>Brand your hotspot login page</small></h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+        <li class="active">Captive Portal</li>
+    </ol>
+</section>
+<section class="content">
+    <div class="row">
+    <div class="col-md-7">
+        <div class="box box-primary" style="border-top-color:{{portal.primary_color or '#7c3aed'}};">
+            <div class="box-header with-border">
+                <h3 class="box-title"><i class="bi bi-palette"></i> Design & Content</h3>
+            </div>
+            <div class="box-body">
+                <form id="s36b8-cp-form" enctype="multipart/form-data">
+                    <div class="row">
+                        <div class="col-md-8"><div class="form-group"><label>Page Title</label>
+                            <input name="title" class="form-control" value="{{portal.title or 'Free Wi-Fi'}}" data-testid="cp-title"></div></div>
+                        <div class="col-md-4"><div class="form-group"><label>Login Mode</label>
+                            <select name="login_mode" class="form-control" data-testid="cp-mode">
+                                {% set lm = portal.login_mode or 'voucher' %}
+                                <option value="voucher"           {% if lm=='voucher' %}selected{% endif %}>Voucher code</option>
+                                <option value="username_password" {% if lm=='username_password' %}selected{% endif %}>Username / Password</option>
+                                <option value="whatsapp_otp"      {% if lm=='whatsapp_otp' %}selected{% endif %}>WhatsApp OTP</option>
+                            </select></div></div>
+                    </div>
+                    <div class="form-group"><label>Welcome Text</label>
+                        <textarea name="welcome_text" rows="2" class="form-control" data-testid="cp-welcome">{{portal.welcome_text or ''}}</textarea></div>
+                    <div class="form-group"><label>Terms &amp; Conditions</label>
+                        <textarea name="terms_text" rows="4" class="form-control" data-testid="cp-terms">{{portal.terms_text or ''}}</textarea></div>
+                    <div class="form-group"><label>Post-Login Redirect URL
+                        <small class="text-muted" style="font-weight:normal;">— bounce users here after a successful hotspot login (pushed to MikroTik as <code>/ip hotspot user profile http-redirect</code>)</small>
+                    </label>
+                        <input name="post_login_redirect_url" class="form-control" value="{{portal.post_login_redirect_url or ''}}" placeholder="https://your-site.example/welcome" data-testid="cp-redirect-url">
+                    </div>
+                    <div class="form-group"><label>Walled-Garden Hosts
+                        <small class="text-muted" style="font-weight:normal;">— comma/newline separated hostnames or IPs users can reach BEFORE logging in (pushed to MikroTik <code>/ip hotspot walled-garden</code>)</small>
+                    </label>
+                        <textarea name="walled_garden_hosts" class="form-control" rows="3" placeholder="payment-gateway.example.com&#10;facebook.com" data-testid="cp-wg-hosts">{{portal.walled_garden_hosts or ''}}</textarea>
+                    </div>
+                    <div class="form-group"><label>Canonical Hotspot Portal URL
+                        <small class="text-muted" style="font-weight:normal;">— base URL embedded in printed voucher QR codes. If empty we auto-detect from the current request.</small>
+                    </label>
+                        <input name="hotspot_portal_url" class="form-control" value="{{portal.hotspot_portal_url or ''}}" placeholder="https://wifi.yourdomain.com/hotspot/login.html" data-testid="cp-portal-url">
+                    </div>
+                    <div class="form-group"><label>Voucher Redeem Webhook URL
+                        <small class="text-muted" style="font-weight:normal;">— POSTed JSON when a voucher is marked used (useful for CRM / auto-reply integrations)</small>
+                    </label>
+                        <input name="voucher_webhook_url" class="form-control" value="{{portal.voucher_webhook_url or ''}}" placeholder="https://your-crm.example/webhook/voucher" data-testid="cp-webhook-url">
+                    </div>
+                
+                    <div class="form-group"><label>Footer Text</label>
+                        <input name="footer_text" class="form-control" value="{{portal.footer_text or ''}}" data-testid="cp-footer"></div>
+                    <div class="row">
+                        <div class="col-md-6"><div class="form-group"><label>Primary Color</label>
+                            <input type="color" name="primary_color" class="form-control" value="{{portal.primary_color or '#7c3aed'}}" data-testid="cp-primary"></div></div>
+                        <div class="col-md-6"><div class="form-group"><label>Accent Color</label>
+                            <input type="color" name="accent_color" class="form-control" value="{{portal.accent_color or '#06b6d4'}}" data-testid="cp-accent"></div></div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6"><div class="form-group"><label>Logo {% if portal.logo_path %}<small>(current: <a href="{{portal.logo_path}}" target="_blank">view</a>)</small>{% endif %}</label>
+                            <input type="file" name="logo" accept="image/*" data-testid="cp-logo"></div></div>
+                        <div class="col-md-6"><div class="form-group"><label>Background {% if portal.background_path %}<small>(current: <a href="{{portal.background_path}}" target="_blank">view</a>)</small>{% endif %}</label>
+                            <input type="file" name="background" accept="image/*" data-testid="cp-bg"></div></div>
+                    </div>
+                    <div class="form-group"><label>
+                        <input type="checkbox" name="whatsapp_otp_enabled" value="1" {% if portal.whatsapp_otp_enabled %}checked{% endif %} data-testid="cp-whatsapp-enabled"> Enable WhatsApp OTP login (requires WhatsApp API keys in Settings → Integrations)
+                    </label></div>
+                    <button type="submit" class="btn btn-primary" data-testid="cp-save"><i class="bi bi-save"></i> Save &amp; Reload Preview</button>
+                    <a href="/hotspot/login.html?company_id={{active_user.company_id if active_user else ''}}" class="btn btn-default" target="_blank" data-testid="cp-open"><i class="bi bi-box-arrow-up-right"></i> Open Fullscreen</a>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="box box-info">
+            <div class="box-header"><h3 class="box-title"><i class="bi bi-eye"></i> Live Preview</h3></div>
+            <div class="box-body" style="padding:0;">
+                <iframe id="s36b8-cp-preview" src="/hotspot/login.html" style="width:100%;height:560px;border:0;" data-testid="cp-preview"></iframe>
+            </div>
+        </div>
+    </div>
+    </div>
+</section>
+<script>
+document.getElementById('s36b8-cp-form').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var fd = new FormData(ev.target);
+    fetch('/api/captive-portal/save', {method:'POST', body:fd, credentials:'same-origin'})
+        .then(r => r.json()).then(j => {
+            if (j.ok){
+                document.getElementById('s36b8-cp-preview').src = '/hotspot/login.html?t='+Date.now();
+                alert('Saved. Preview reloaded.');
+            } else {
+                alert('Save failed: ' + (j.error||'unknown'));
+            }
+        });
+});
+</script>
+{% endblock %}

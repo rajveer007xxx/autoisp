@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Auto ISP Billing{% endblock %}</title>
+    
+    <!-- Bootstrap 3.3.7 -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <!-- Font Awesome 4.7.0 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- AdminLTE 2.4.18 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/AdminLTE.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/skins/_all-skins.min.css">
+    <!-- Bootstrap Toggle -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/css/bootstrap-toggle.min.css">
+    
+    {% block extra_css %}{% endblock %}
+    
+    <style>
+        /* Global 10% size reduction (90% zoom) */
+        :root {
+            --site-scale: 0.9;
+        }
+        
+        @supports (zoom: 1) {
+            body {
+                zoom: var(--site-scale);
+            }
+        }
+        
+        @supports not (zoom: 1) {
+            /* Firefox fallback: scale font sizes */
+            html {
+                font-size: calc(16px * var(--site-scale));
+            }
+        }
+        
+        @media print {
+            body {
+                zoom: 1 !important;
+            }
+        }
+        
+        /* Custom styles to match PayFast exactly */
+        .main-header .logo {
+            background-color: #fff;
+            color: #333;
+            border-bottom: 0;
+            font-weight: bold;
+        }
+        .main-header .navbar {
+            background-color: #fff;
+            border-bottom: 1px solid #d2d6de;
+        }
+        .main-header .navbar .nav > li > a {
+            color: #333;
+        }
+        .main-sidebar {
+            background-color: #222d32;
+        }
+        .sidebar-menu > li > a {
+            border-left: 3px solid transparent;
+        }
+        .sidebar-menu > li.active > a {
+            border-left-color: #3c8dbc;
+            background-color: #1e282c;
+        }
+        .user-panel {
+            border-bottom: 1px solid #4b545c;
+        }
+        /* Add scroller to sidebar */
+        .sidebar {
+            height: calc(100vh - 50px);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        /* Thin scrollbar styling for all sidebar containers */
+        .main-sidebar, .main-sidebar .sidebar, .sidebar {
+            scrollbar-width: thin;            /* Firefox */
+            scrollbar-color: #3c8dbc #2c3b41; /* thumb track */
+        }
+        .main-sidebar::-webkit-scrollbar,
+        .main-sidebar .sidebar::-webkit-scrollbar,
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        .main-sidebar::-webkit-scrollbar-thumb,
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb,
+        .sidebar::-webkit-scrollbar-thumb {
+            background-color: #3c8dbc;
+            border-radius: 2px;
+        }
+        .main-sidebar::-webkit-scrollbar-thumb:hover,
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb:hover,
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background-color: #5fa6d4;
+        }
+        .main-sidebar::-webkit-scrollbar-track,
+        .main-sidebar .sidebar::-webkit-scrollbar-track,
+        .sidebar::-webkit-scrollbar-track {
+            background: #2c3b41;
+        }
+        /* Prevent scroll anchoring on sidebar */
+        .sidebar {
+            overflow-anchor: none;
+        }
+        .main-sidebar {
+            overflow-anchor: none;
+        }
+        /* Reset sidebar scroll position on mobile */
+        @media (max-width: 767px) {
+            .sidebar {
+                scroll-behavior: auto;
+            }
+            .main-sidebar {
+                overflow-y: auto;
+            }
+        }
+        /* Company logo styling */
+        .main-header .logo img {
+            max-height: 40px;
+            max-width: 180px;
+            object-fit: contain;
+        }
+        .main-header .logo-mini {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff !important;
+            -webkit-text-fill-color: #fff !important;
+        }
+        /* Company info styling */
+        .company-info {
+            pointer-events: none;
+            cursor: default;
+        }
+        .company-info .company-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #fff !important;
+            display: block;
+        }
+        .company-info .company-id {
+            font-size: 12px;
+            color: #fff !important;
+            display: block;
+        }
+        .navbar .user-image {
+            width: 25px;
+            height: 25px;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="hold-transition skin-blue sidebar-mini">
+    <!-- Hidden input for current user ID (used in payment popup) -->
+    <input type="hidden" id="current_user_id" value="{{ user_id }}">
+    <div class="wrapper">
+        
+        <!-- Main Header -->
+        <header class="main-header">
+            <!-- Logo -->
+            <a href="/admin/dashboard" class="logo">
+                <span class="logo-mini"><b>{{ company_name[:1]|upper if company_name and company_name != 'N/A' else 'A' }}</b></span>
+                <span class="logo-lg">
+                    <img src="{{ company_logo if company_logo else '/static/img/logo-default.png' }}" 
+                         alt="{{ company_name }}" 
+                         onerror="this.onerror=null;this.src='/static/img/logo-default.png';">
+                </span>
+            </a>
+            
+            <!-- Header Navbar -->
+            <nav class="navbar navbar-static-top" role="navigation">
+                <!-- Sidebar toggle button-->
+                <a href="#" class="sidebar-toggle" data-toggle="push-menu" role="button">
+                    <span class="sr-only">Toggle navigation</span>
+                </a>
+                
+                <!-- Center: Company Name and Company ID -->
+                <div class="navbar-custom-menu" style="float: left; margin-left: 20px;">
+                    <ul class="nav navbar-nav">
+                        <li>
+                            <div class="company-info" style="padding: 15px 15px; line-height: 1.3;">
+                                <span class="company-name">Company Name: {{ company_name|default('N/A') }}</span>
+                                <span class="company-id">Company ID: {{ company_id|default('N/A') }}</span>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                
+                <!-- Right: Profile and Notifications -->
+                <div class="navbar-custom-menu">
+                    <ul class="nav navbar-nav">
+                        <!-- Notifications -->
+                        <li class="dropdown notifications-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <i class="fa fa-bell-o"></i>
+                                <span class="label label-warning">20</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="header">You have 20 notifications</li>
+                                <li>
+                                    <ul class="menu">
+                                        <li>
+                                            <a href="#">
+                                                <i class="fa fa-users text-aqua"></i> 5 new members joined today
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </li>
+                                <li class="footer"><a href="#">View all</a></li>
+                            </ul>
+                        </li>
+                        
+                        <!-- User Account -->
+                        <li class="dropdown user user-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <img src="{{ profile_image if profile_image else '/static/img/avatar-default.png' }}" 
+                                     class="user-image" 
+                                     alt="User Image"
+                                     onerror="this.onerror=null;this.src='/static/img/avatar-default.png';">
+                                <span class="hidden-xs">{{ admin_name|default(user_name)|default('Admin User') }}</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="user-body">
+                                    <ul class="menu" style="list-style: none; padding: 0; margin: 0;">
+                                        <li style="border-bottom: 1px solid #f4f4f4;">
+                                            <a href="/admin/profile" style="display: block; padding: 10px 15px; color: #333;">
+                                                <i class="fa fa-user"></i> Profile
+                                            </a>
+                                        </li>
+                                        <li>
+                                            <a href="/logout" style="display: block; padding: 10px 15px; color: #333;">
+                                                <i class="fa fa-sign-out"></i> Log Out
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+        
+        <!-- Left side column. contains the sidebar -->
+        <aside class="main-sidebar">
+            <section class="sidebar">
+                <!-- Sidebar Menu -->
+                <ul class="sidebar-menu" data-widget="tree">
+                    <li class="{% if active_page == 'dashboard' %}active{% endif %}">
+                        <a href="/admin/dashboard">
+                            <i class="fa fa-dashboard"></i> <span>Dashboard</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'users' %}active{% endif %}">
+                        <a href="/admin/users">
+                            <i class="fa fa-users"></i> <span>User Management</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'plans' %}active{% endif %}">
+                        <a href="/admin/plans">
+                            <i class="fa fa-list"></i> <span>Plans</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'locations' %}active{% endif %}">
+                        <a href="/admin/locations">
+                            <i class="fa fa-map-marker"></i> <span>Locations</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/employees">
+                            <i class="fa fa-user-circle"></i> <span>Employee Management</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/customer-distribution">
+                            <i class="fa fa-map-marker"></i> <span>Customer Distribution</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/track-employee">
+                            <i class="fa fa-map"></i> <span>Track Employee</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/transactions">
+                            <i class="fa fa-exchange"></i> <span>Payment History</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/addon-bills">
+                            <i class="fa fa-file-text"></i> <span>Send Manual Invoice</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/send-invoices">
+                            <i class="fa fa-send"></i> <span>Sent Invoice List</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/revenue">
+                            <i class="fa fa-line-chart"></i> <span>Revenue List</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/get-support">
+                            <i class="fa fa-question-circle"></i> <span>Get Support</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/complaints">
+                            <i class="fa fa-exclamation-circle"></i> <span>Complaints List</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/support">
+                            <i class="fa fa-life-ring"></i> <span>Support List</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/notifications">
+                            <i class="fa fa-bell"></i> <span>Notifications</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/whatsapp-campaign">
+                            <i class="fa fa-whatsapp"></i> <span>Whatsapp Campaign</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/whatsapp-templates">
+                            <i class="fa fa-file-code-o"></i> <span>Whatsapp Templates</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/reports">
+                            <i class="fa fa-bar-chart"></i> <span>Reports</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/data-management">
+                            <i class="fa fa-database"></i> <span>Data Management</span>
+                        </a>
+                    </li>
+                    
+                    <li class="header">CONNECTIONS</li>
+                    
+                    <li>
+                        <a href="/admin/book-connection">
+                            <i class="fa fa-plus-circle"></i> <span>Book Connection</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/connection-request">
+                            <i class="fa fa-list-alt"></i> <span>Connection Request</span>
+                        </a>
+                    </li>
+                    
+                    <li class="header">FINANCE</li>
+                    
+                    <li>
+                        <a href="/admin/expenses">
+                            <i class="fa fa-calculator"></i> <span>Expense List</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/revenue-expense">
+                            <i class="fa fa-pie-chart"></i> <span>Revenue & Expense</span>
+                        </a>
+                    </li>
+                    
+                    <li class="header">SYSTEM</li>
+                    
+                    <li>
+                        <a href="/admin/deleted-users">
+                            <i class="fa fa-trash"></i> <span>Deleted Users</span>
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/admin/sms-logs">
+                            <i class="fa fa-comment"></i> <span>SMS Logs</span>
+                        </a>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+        
+        <!-- Content Wrapper. Contains page content -->
+        <div class="content-wrapper">
+            {% block content %}{% endblock %}
+        </div>
+        
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="pull-right hidden-xs">
+                <b>Version</b> 1.0.0
+            </div>
+            <strong>Copyright &copy; 2025 <a href="/">Auto ISP Billing</a>.</strong> All rights reserved.
+        </footer>
+    </div>
+    
+    <!-- jQuery 2.2.4 -->
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <!-- Bootstrap 3.3.7 -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- Bootstrap Toggle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/js/bootstrap-toggle.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/js/adminlte.min.js"></script>
+    
+    <script>
+    // Fix mobile sidebar scroll position
+    $(document).ready(function() {
+        // Reset sidebar scroll to top on mobile devices on page load
+        if (window.innerWidth <= 767) {
+            $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+            // Scroll first menu item into view
+            var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+            if (firstItem) {
+                firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+            }
+        }
+        
+        // Hook into AdminLTE's pushMenu expanded event for more reliable reset
+        $(document).on('expanded.pushMenu', function() {
+            if (window.innerWidth <= 767) {
+                setTimeout(function() {
+                    $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+                    // Scroll first menu item into view
+                    var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+                    if (firstItem) {
+                        firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    }
+                }, 50);
+            }
+        });
+        
+        // Fallback: also reset on sidebar toggle click
+        $('.sidebar-toggle').on('click', function() {
+            if (window.innerWidth <= 767) {
+                setTimeout(function() {
+                    $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+                    var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+                    if (firstItem) {
+                        firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    }
+                }, 150);
+            }
+        });
+    });
+    </script>
+    
+    <style>
+    /* Hide DataTables sorting icons globally */
+    table.dataTable thead .sorting,
+    table.dataTable thead .sorting_asc,
+    table.dataTable thead .sorting_desc {
+        background-image: none !important;
+    }
+    table.dataTable thead .sorting:before,
+    table.dataTable thead .sorting:after,
+    table.dataTable thead .sorting_asc:before,
+    table.dataTable thead .sorting_asc:after,
+    table.dataTable thead .sorting_desc:before,
+    table.dataTable thead .sorting_desc:after {
+        display: none !important;
+    }
+    </style>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

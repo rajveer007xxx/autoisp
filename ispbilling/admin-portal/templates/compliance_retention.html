@@ -1,0 +1,112 @@
+{% extends "base_admin.html" %}
+{% block title %}2-Year Retention - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.cmp-tbl th{background:#f1f5f9;padding:8px;text-align:left;color:#475569;font-size:12px;text-transform:uppercase}
+.cmp-tbl td{padding:8px;border-bottom:1px solid #e5e7eb}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:9px 18px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.cmp-pill.ok{background:#dcfce7;color:#15803d}
+.cmp-pill.bad{background:#fee2e2;color:#b91c1c}
+</style>
+
+<section class="content-header">
+  <h1>2-Year Retention Policy<small>DoT/TRAI 730-day retention attestation log</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card">
+    <p style="margin:0 0 10px;color:#475569;font-size:14px">
+      <b>Policy:</b> Compliance records (connection-level activity and visited URLs) are retained for
+      <b>{{ retention_days }}</b> days. Older records are exported to a secure archive and removed
+      from active storage.
+    </p>
+    <p style="margin:0 0 16px;color:#475569;font-size:14px">
+      Session/accounting records are kept in place as required by the regulator. This page records
+      an attestation count of how many such records are older than the retention cutoff.
+    </p>
+    <button class="cmp-btn" onclick="runNow()" data-testid="retention-run">Run retention now</button>
+    <a class="cmp-btn gray" href="/admin/compliance" data-testid="retention-back" style="text-decoration:none;margin-left:8px">← Back</a>
+    <span id="msg" style="margin-left:12px;color:#475569;font-size:13px"></span>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 14px"><i class="bi bi-clock-history" style="color:#6366f1"></i> Run history</h4>
+    {# __S55G_RETENTION_COMPANY__ Per-tenant run log — backend scoped to session company_id #}
+    {% if runs and runs|length %}
+      <div style="overflow-x:auto;border:1px solid rgba(96,165,250,0.18);border-radius:10px;">
+        <table class="table table-condensed" style="margin:0;color:#E2E8F0;font-size:13px;width:100%;background:transparent;">
+          <thead style="background:rgba(99,102,241,0.10);color:#93C5FD;">
+            <tr>
+              <th style="padding:10px 12px;text-align:left;">When</th>
+              <th style="padding:10px 12px;text-align:left;">Target</th>
+              <th style="padding:10px 12px;text-align:right;">Archived</th>
+              <th style="padding:10px 12px;text-align:right;">Deleted</th>
+              <th style="padding:10px 12px;text-align:center;">Status</th>
+              <th style="padding:10px 12px;text-align:left;">Message</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+            <tr style="border-top:1px solid rgba(96,165,250,0.12);">
+              <td style="padding:9px 12px;color:#CBD5E1;white-space:nowrap;">{{ r.ran_at }}</td>
+              <td style="padding:9px 12px;"><code style="background:rgba(99,102,241,0.18);color:#C7D2FE;padding:2px 8px;border-radius:6px;">{{ r.target_table }}</code></td>
+              <td style="padding:9px 12px;text-align:right;color:#FBBF24;">{{ r.rows_archived or 0 }}</td>
+              <td style="padding:9px 12px;text-align:right;color:#F87171;">{{ r.rows_deleted or 0 }}</td>
+              <td style="padding:9px 12px;text-align:center;">
+                {% if r.ok %}
+                  <span style="background:rgba(34,197,94,0.20);color:#86EFAC;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600;">OK</span>
+                {% else %}
+                  <span style="background:rgba(239,68,68,0.20);color:#FCA5A5;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600;">FAIL</span>
+                {% endif %}
+              </td>
+              <td style="padding:9px 12px;color:#94A3B8;">{{ r.message or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p style="margin:8px 2px 0;font-size:11.5px;color:#64748B;">
+        Showing the last {{ runs|length }} retention runs for your tenant only.
+      </p>
+    {% else %}
+      <div style="padding:18px;background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.20);border-radius:10px;color:#CBD5E1;font-size:13.5px;line-height:1.55">
+        <i class="bi bi-info-circle" style="color:#60A5FA;margin-right:6px"></i>
+        No retention runs recorded for your tenant yet.
+        Click <em>Run retention now</em> above to trigger your first attestation — it will appear here and only be visible to admins of your company.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-calendar-event"></i> Automated schedule</h4>
+    <p style="font-size:13px;color:#475569">
+      Retention runs automatically every day at 03:30 IST. Use the button above only if you need to
+      trigger an export immediately for a special audit.
+    </p>
+  </div>
+</section>
+
+<script>
+async function runNow(){
+  document.getElementById('msg').textContent = 'Running…';
+  const r = await fetch('/api/compliance/retention/run', {
+    method:'POST', credentials:'include'
+  });
+  const d = await r.json();
+  if (d.success) {
+    const lines = (d.result.summary || []).map(s =>
+      s.kept ? `${s.table}: ${s.older_count} rows older than cutoff (kept)`
+             : `${s.table}: archived ${s.archived}, deleted ${s.deleted}`
+    ).join(' · ');
+    document.getElementById('msg').textContent = '✓ Done · ' + lines;
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    document.getElementById('msg').textContent = '✗ Failed: ' + (d.message||'unknown');
+  }
+}
+</script>
+{% endblock %}

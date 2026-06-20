@@ -1,0 +1,267 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Data Management - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Data Management <small>Import, export &amp; backup</small></h1>
+</section>
+
+<style>
+  .dm-box { background:#fff; border:1px solid #e5e7eb; border-radius:6px; margin-bottom:20px; }
+  .dm-box > .dm-head { padding:10px 14px; border-bottom:1px solid #eef0f3; font-weight:600; color:#111; }
+  .dm-box > .dm-body { padding:16px; }
+  .dm-chip { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .dm-chip.ok   { background:#dcfce7; color:#166534; }
+  .dm-chip.part { background:#fef3c7; color:#92400e; }
+  .dm-chip.fail { background:#fee2e2; color:#991b1b; }
+  .dm-chip.que  { background:#dbeafe; color:#1e40af; }
+  .dm-row-result { margin-top:12px; padding:10px 12px; border-radius:4px; display:none; font-size:13px; }
+  .dm-row-result.ok  { background:#ecfdf5; border:1px solid #86efac; color:#065f46; display:block; }
+  .dm-row-result.err { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; display:block; }
+</style>
+
+<section class="content">
+  <!-- ============ IMPORT ============ -->
+  <div class="dm-box">
+    <div class="dm-head"><i class="fa fa-upload"></i> &nbsp; Import Data</div>
+    <div class="dm-body">
+      <form id="dmImportForm" class="form-horizontal" onsubmit="return false">
+        <div class="form-group">
+          <label class="col-sm-2 control-label">Data Type</label>
+          <div class="col-sm-10">
+            <select class="form-control" id="dmImportKind" data-testid="dm-import-kind">
+              <option value="customers">Customers / Subscribers</option>
+              <option value="plans">Plans</option>
+              <option value="employees">Employees</option>
+              <option value="locations">Locations</option>
+              <option value="nas">NAS Devices</option>
+              <option value="ip-pools">IP Pools</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="col-sm-2 control-label">Upload File</label>
+          <div class="col-sm-10">
+            <input type="file" id="dmImportFile" class="form-control" accept=".csv,.xlsx,.xls" data-testid="dm-import-file">
+            <small class="text-muted">Supported: CSV, Excel (.xlsx, .xls). Missing fields are allowed &mdash; you can edit each row later.</small>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-2 col-sm-10">
+            <button type="button" class="btn btn-primary" id="dmImportBtn" data-testid="dm-import-btn"><i class="fa fa-upload"></i> Import Data</button>
+            <button type="button" class="btn btn-default" id="dmSampleBtn" data-testid="dm-sample-btn"><i class="fa fa-download"></i> Download Sample Template</button>
+          </div>
+        </div>
+      </form>
+      <div id="dmImportResult" class="dm-row-result"></div>
+    </div>
+  </div>
+
+  <!-- ============ EXPORT ============ -->
+  <div class="dm-box">
+    <div class="dm-head"><i class="fa fa-download"></i> &nbsp; Export Data</div>
+    <div class="dm-body">
+      <form id="dmExportForm" class="form-horizontal" onsubmit="return false">
+        <div class="form-group">
+          <label class="col-sm-2 control-label">Data Type</label>
+          <div class="col-sm-10">
+            <select class="form-control" id="dmExportKind" data-testid="dm-export-kind">
+              <option value="customers">Customers / Subscribers</option>
+              <option value="plans">Plans</option>
+              <option value="employees">Employees</option>
+              <option value="locations">Locations</option>
+              <option value="nas">NAS Devices</option>
+              <option value="ip-pools">IP Pools</option>
+              <option value="online-users">Online Users</option>
+              <option value="access-logs">Access Request Logs</option>
+              <option value="public-ips">Public IPs</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="col-sm-2 control-label">Format</label>
+          <div class="col-sm-10">
+            <select class="form-control" id="dmExportFormat" data-testid="dm-export-format">
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="csv">CSV</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="col-sm-2 control-label">Date Range <small>(optional)</small></label>
+          <div class="col-sm-5"><input type="date" id="dmExportStart" class="form-control" placeholder="Start"></div>
+          <div class="col-sm-5"><input type="date" id="dmExportEnd"   class="form-control" placeholder="End"></div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-2 col-sm-10">
+            <button type="button" class="btn btn-success" id="dmExportBtn" data-testid="dm-export-btn"><i class="fa fa-file-excel-o"></i> Export Data</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ BACKUP ============ -->
+  <div class="dm-box">
+    <div class="dm-head"><i class="fa fa-database"></i> &nbsp; Database Backup</div>
+    <div class="dm-body">
+      <p>Download a complete compressed SQLite snapshot of your database including all customers, transactions, plans and settings.</p>
+      <button type="button" class="btn btn-warning" id="dmBackupBtn" data-testid="dm-backup-btn"><i class="fa fa-download"></i> Create Backup Now</button>
+      <span id="dmBackupStatus" style="margin-left:12px;color:#6b7280;"></span>
+    </div>
+  </div>
+
+  <!-- ============ HISTORY ============ -->
+  <div class="dm-box">
+    <div class="dm-head">
+      <i class="fa fa-history"></i> &nbsp; Recent Activity
+      <button type="button" id="dmHistoryRefresh" class="btn btn-link btn-xs pull-right" data-testid="dm-history-refresh"><i class="fa fa-refresh"></i> Refresh</button>
+    </div>
+    <div class="dm-body">
+      <div class="table-responsive">
+        <table class="table table-bordered table-striped" id="dmHistoryTbl">
+          <thead>
+            <tr>
+              <th>Action</th><th>Kind</th><th>Records</th><th>Status</th>
+              <th>Filename</th><th>Message</th><th>By</th><th>At</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="8" class="text-center text-muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  var IMPORT = '/api/admin/data-mgmt/import';
+  var SAMPLE = '/api/admin/data-mgmt/sample';
+  var EXPORT = '/api/admin/data-mgmt/export';
+  var BACKUP = '/api/admin/data-mgmt/backup';
+  var HIST   = '/api/admin/data-mgmt/history';
+
+  $('#dmSampleBtn').on('click', function(){
+    var kind = $('#dmImportKind').val();
+    window.location.href = SAMPLE + '?kind=' + encodeURIComponent(kind);
+  });
+
+  $('#dmImportBtn').on('click', function(){
+    var kind = $('#dmImportKind').val();
+    var f = document.getElementById('dmImportFile').files[0];
+    var $out = $('#dmImportResult').removeClass('ok err').hide();
+    if (!f){
+      $out.addClass('err').text('Please choose a file first.').show();
+      return;
+    }
+    var fd = new FormData();
+    fd.append('kind', kind);
+    fd.append('file', f);
+    $('#dmImportBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Importing…');
+    fetch(IMPORT, { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function(r){ return r.json().catch(function(){ return {success:false,message:'Bad JSON'}; }); })
+      .then(function(j){
+        if (j && j.success){
+          var warn = '';
+          if (j.unmapped_headers && j.unmapped_headers.length){
+            warn = '<br><small style="color:#92400e;">⚠ ' + j.unmapped_headers.length +
+              ' column(s) in your file were not recognised and were skipped: <em>' +
+              j.unmapped_headers.map(esc).join(', ') +
+              '</em>. Rename them to match the sample template if you want them imported.</small>';
+          }
+          $out.removeClass('err').addClass('ok').html(
+            '<strong><i class="fa fa-check"></i> Import complete.</strong> Imported: ' + (j.imported||0) +
+            ' &middot; Skipped: ' + (j.skipped||0) + ' &middot; Failed: ' + (j.failed||0) +
+            ((j.errors && j.errors.length) ? '<br><small>Warnings: ' + j.errors.join(' | ') + '</small>' : '') +
+            warn
+          ).show();
+        } else {
+          $out.removeClass('ok').addClass('err').html(
+            '<i class="fa fa-exclamation-triangle"></i> ' + (j.message || 'Import failed') +
+            (j.imported ? (' (partial: ' + j.imported + ' rows saved)') : '')
+          ).show();
+        }
+        loadHistory();
+      })
+      .catch(function(e){
+        $out.removeClass('ok').addClass('err').text('Network error: ' + e).show();
+      })
+      .finally(function(){
+        $('#dmImportBtn').prop('disabled', false).html('<i class="fa fa-upload"></i> Import Data');
+      });
+  });
+
+  $('#dmExportBtn').on('click', function(){
+    var k = $('#dmExportKind').val();
+    var f = $('#dmExportFormat').val();
+    var s = $('#dmExportStart').val();
+    var e = $('#dmExportEnd').val();
+    var q = [];
+    q.push('kind=' + encodeURIComponent(k));
+    q.push('format=' + encodeURIComponent(f));
+    if (s) q.push('start=' + encodeURIComponent(s));
+    if (e) q.push('end=' + encodeURIComponent(e));
+    window.location.href = EXPORT + '?' + q.join('&');
+    setTimeout(loadHistory, 1500);
+  });
+
+  $('#dmBackupBtn').on('click', function(){
+    $('#dmBackupStatus').text('Preparing backup — this may take a few seconds…');
+    // Trigger download
+    window.location.href = BACKUP;
+    setTimeout(function(){
+      $('#dmBackupStatus').html('<i class="fa fa-check" style="color:#16a34a"></i> Backup download started.');
+      loadHistory();
+    }, 2500);
+  });
+
+  function chip(status){
+    var s = (status||'').toLowerCase();
+    if (s === 'success') return '<span class="dm-chip ok">Success</span>';
+    if (s === 'partial') return '<span class="dm-chip part">Partial</span>';
+    if (s === 'failed')  return '<span class="dm-chip fail">Failed</span>';
+    if (s === 'queued')  return '<span class="dm-chip que">Queued</span>';
+    return '<span class="dm-chip que">'+(status||'-')+'</span>';
+  }
+
+  function esc(s){ return $('<div/>').text(s==null?'':s).html(); }
+
+  function loadHistory(){
+    fetch(HIST, { credentials:'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var rows = (j && j.rows) || [];
+        var $t = $('#dmHistoryTbl tbody').empty();
+        if (!rows.length){
+          $t.append('<tr><td colspan="8" class="text-center text-muted">No import/export history yet.</td></tr>');
+          return;
+        }
+        rows.forEach(function(r){
+          $t.append(
+            '<tr>'+
+              '<td>'+esc(r.action)+'</td>'+
+              '<td>'+esc(r.kind)+'</td>'+
+              '<td>'+esc(r.records)+'</td>'+
+              '<td>'+chip(r.status)+'</td>'+
+              '<td>'+esc(r.filename)+'</td>'+
+              '<td>'+esc(r.message)+'</td>'+
+              '<td>'+esc(r.by)+'</td>'+
+              '<td>'+esc(r.at)+'</td>'+
+            '</tr>'
+          );
+        });
+        try { if (window.S32ReinitDT) window.S32ReinitDT('#dmHistoryTbl'); } catch(_){ }
+      })
+      .catch(function(){
+        $('#dmHistoryTbl tbody').html('<tr><td colspan="8" class="text-center text-muted">Unable to load history.</td></tr>');
+      });
+  }
+
+  $('#dmHistoryRefresh').on('click', loadHistory);
+  loadHistory();
+})();
+</script>
+{% endblock %}

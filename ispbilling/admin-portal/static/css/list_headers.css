@@ -1,0 +1,63 @@
+/* _S39R5A_TBL_HEADERS — unified list-page table-header style across all portals.
+   Loaded after AdminLTE / Bootstrap so these win.
+   Affects every standard table thead on every list page. */
+
+/* Generic — any <thead><th> across the app */
+table thead th,
+table > thead > tr > th,
+.dataTable thead th,
+table.dataTable > thead > tr > th,
+.table thead th,
+.table > thead > tr > th,
+table.table > thead > tr > th {
+  background: #2c3e50 !important;
+  background-color: #2c3e50 !important;
+  color: #ffffff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.4px !important;
+  border-color: #1f2c39 !important;
+  vertical-align: middle !important;
+  white-space: nowrap;
+}
+
+/* DataTables sort arrows on dark headers should remain visible */
+table.dataTable thead .sorting,
+table.dataTable thead .sorting_asc,
+table.dataTable thead .sorting_desc,
+.dataTable > thead > tr > th.sorting,
+.dataTable > thead > tr > th.sorting_asc,
+.dataTable > thead > tr > th.sorting_desc,
+.table > thead > tr > th.sorting,
+.table > thead > tr > th.sorting_asc,
+.table > thead > tr > th.sorting_desc {
+  background-color: #2c3e50 !important;
+  color: #ffffff !important;
+}
+table.dataTable thead .sorting::after,
+table.dataTable thead .sorting_asc::after,
+table.dataTable thead .sorting_desc::after {
+  color: #ffffff !important;
+  opacity: 0.85 !important;
+}
+
+/* Anchors and inputs inside dark headers */
+table thead th a,
+.table > thead > tr > th a,
+.table thead th a,
+table.dataTable thead th a {
+  color: #ffffff !important;
+}
+table thead th input[type="checkbox"] {
+  accent-color: #ffffff;
+}
+
+/* Sticky / freeze-header overrides inherit the dark colour */
+.table > thead > tr > th.fixed-header,
+.table thead th.sticky-header,
+table thead th.sticky-header,
+table thead th[style*="position: sticky"] {
+  background: #2c3e50 !important;
+  color: #ffffff !important;
+}

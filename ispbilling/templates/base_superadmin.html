@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Superadmin - Auto ISP Billing{% endblock %}</title>
+    
+    <!-- Favicon from superadmin profile image -->
+    <link rel="icon" type="image/png" href="{{ profile_image_url }}" onerror="this.href='/static/images/default-avatar.png';">
+    
+    <!-- Bootstrap 3.3.7 -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <!-- Font Awesome 4.7.0 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- AdminLTE 2.4.18 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/AdminLTE.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/skins/_all-skins.min.css">
+    
+    {% block extra_css %}{% endblock %}
+    
+    <style>
+        /* Global 10% size reduction */
+        :root {
+            --site-scale: 0.9;
+        }
+        
+        @supports (zoom: 1) {
+            body {
+                zoom: var(--site-scale);
+            }
+        }
+        
+        .main-header .logo {
+            background-color: #fff;
+            color: #333;
+            border-bottom: 0;
+            font-weight: bold;
+        }
+        .main-header .navbar {
+            background-color: #fff;
+            border-bottom: 1px solid #d2d6de;
+        }
+        .main-sidebar {
+            background-color: #222d32;
+        }
+        .sidebar-menu > li.active > a {
+            border-left-color: #3c8dbc;
+            background-color: #1e282c;
+        }
+        .sidebar {
+            height: calc(100vh - 50px);
+            overflow-y: auto;
+        }
+        /* Logo styling */
+        .logo-container {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            padding: 0 15px;
+        }
+        .logo-container img {
+            max-height: 40px;
+            width: auto;
+            object-fit: contain;
+        }
+        /* Profile image styling */
+        .user-image, .img-circle {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .user-header .img-circle {
+            width: 90px;
+            height: 90px;
+        }
+    </style>
+</head>
+<body class="hold-transition skin-blue sidebar-mini">
+    <div class="wrapper">
+        <!-- Header -->
+        <header class="main-header">
+            <a href="/superadmin/dashboard" class="logo">
+                <span class="logo-mini"><b>SA</b></span>
+                <span class="logo-lg logo-container">
+                    {% if logo_url %}
+                    <img src="{{ logo_url }}" alt="Logo" onerror="this.onerror=null;this.src='/static/images/logo-default.png';">
+                    {% else %}
+                    <b>Super</b>Admin
+                    {% endif %}
+                </span>
+            </a>
+            
+            <nav class="navbar navbar-static-top">
+                <a href="#" class="sidebar-toggle" data-toggle="push-menu" role="button">
+                    <span class="sr-only">Toggle navigation</span>
+                </a>
+                
+                <div class="navbar-custom-menu">
+                    <ul class="nav navbar-nav">
+                        <li class="dropdown user user-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <img src="{{ profile_image_url }}" class="user-image" alt="User Image" onerror="this.onerror=null;this.src='/static/images/default-avatar.png';">
+                                <span class="hidden-xs">{{ user_name }}</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="user-header">
+                                    <img src="{{ profile_image_url }}" class="img-circle" alt="User Image" onerror="this.onerror=null;this.src='/static/images/default-avatar.png';">
+                                    <p>{{ user_name }}<small>Superadmin</small></p>
+                                </li>
+                                <li class="user-footer">
+                                    <div class="pull-left">
+                                        <a href="/superadmin/profile" class="btn btn-default btn-flat">Profile Settings</a>
+                                    </div>
+                                    <div class="pull-right">
+                                        <a href="/logout" class="btn btn-default btn-flat">Sign out</a>
+                                    </div>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+        
+        <!-- Sidebar -->
+        <aside class="main-sidebar">
+            <section class="sidebar">
+                <ul class="sidebar-menu" data-widget="tree">
+                    <li class="header">MAIN NAVIGATION</li>
+                    
+                    <li class="{% if active_page == 'dashboard' %}active{% endif %}">
+                        <a href="/superadmin/dashboard">
+                            <i class="fa fa-dashboard"></i> <span>Dashboard</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'admin_management' %}active{% endif %}">
+                        <a href="/superadmin/admins">
+                            <i class="fa fa-users"></i> <span>Admin Management</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'packages' %}active{% endif %}">
+                        <a href="/superadmin/packages">
+                            <i class="fa fa-cube"></i> <span>Package</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'transactions' %}active{% endif %}">
+                        <a href="/superadmin/transactions">
+                            <i class="fa fa-exchange"></i> <span>Transaction History</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'complaints' %}active{% endif %}">
+                        <a href="/superadmin/complaints">
+                            <i class="fa fa-exclamation-circle"></i> <span>Complaint List</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'support' %}active{% endif %}">
+                        <a href="/superadmin/support">
+                            <i class="fa fa-life-ring"></i> <span>Support List</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'notifications' %}active{% endif %}">
+                        <a href="/superadmin/notifications">
+                            <i class="fa fa-bell"></i> <span>Notifications</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'whatsapp_campaign' %}active{% endif %}">
+                        <a href="/superadmin/whatsapp-campaign">
+                            <i class="fa fa-whatsapp"></i> <span>WhatsApp Campaign</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'whatsapp_templates' %}active{% endif %}">
+                        <a href="/superadmin/whatsapp-templates">
+                            <i class="fa fa-file-text"></i> <span>WhatsApp Templates</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'reports' %}active{% endif %}">
+                        <a href="/superadmin/reports">
+                            <i class="fa fa-bar-chart"></i> <span>Reports</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'sent_invoices' %}active{% endif %}">
+                        <a href="/superadmin/sent-invoices">
+                            <i class="fa fa-file-pdf-o"></i> <span>Sent Invoice List</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'deleted_admins' %}active{% endif %}">
+                        <a href="/superadmin/deleted-admins">
+                            <i class="fa fa-trash"></i> <span>Deleted Admins</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'sms_logs' %}active{% endif %}">
+                        <a href="/superadmin/sms-logs">
+                            <i class="fa fa-envelope"></i> <span>SMS Logs</span>
+                        </a>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+        
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            {% block content %}{% endblock %}
+        </div>
+        
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="pull-right hidden-xs">
+                <b>Version</b> 1.0.0
+            </div>
+            <strong>Copyright &copy; 2025 <a href="#">Auto ISP Billing</a>.</strong> All rights reserved.
+        </footer>
+    </div>
+    
+    <!-- jQuery 2.2.4 -->
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <!-- Bootstrap 3.3.7 -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/js/adminlte.min.js"></script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

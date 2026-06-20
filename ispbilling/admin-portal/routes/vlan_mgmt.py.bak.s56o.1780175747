@@ -1,0 +1,455 @@
+"""
+vlan_mgmt — Per-user VLAN authentication helpers (S55S).
+
+ADDITIVE: never alters existing PPPoE/Hotspot/Static-IP flow. Gated by
+customers.vlan_enabled.
+
+Endpoints registered:
+  GET   /api/vlan/pool/list             — full pool view for the company
+  GET   /api/vlan/pool/available        — only state='free' rows
+  POST  /api/vlan/pool/seed             — bulk insert VLAN ids into pool
+  POST  /api/vlan/pool/release          — release a VLAN (customer_id or vlan_id)
+  POST  /api/nas-devices/{id}/oneclick-vlan-trunk
+        — One-click MikroTik setup: ensures PPPoE server uses RADIUS,
+          adds VLAN interfaces on the PPPoE-facing port for every
+          allocated VLAN, sets `radius use-radius=yes` and reply
+          attribute Tunnel-Private-Group-Id enforcement.
+"""
+import os, json, datetime
+from typing import Any, Dict, List, Optional
+from fastapi import Request, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from sqlalchemy import text as _sa_text
+from sqlalchemy.orm import Session
+
+
+def _audit(db, *, company_id, nas_id, actor_user, actor_role, action, detail, ok=True):
+    try:
+        db.execute(_sa_text(
+            "INSERT INTO vlan_setup_log (company_id, nas_id, actor_user, actor_role, "
+            "action, detail, ok) VALUES (:c,:n,:au,:ar,:a,:d,:k)"
+        ), {"c": company_id, "n": nas_id, "au": actor_user, "ar": actor_role,
+            "a": action, "d": json.dumps(detail) if not isinstance(detail, str) else detail,
+            "k": 1 if ok else 0})
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def register(app, *, get_db, require_admin=None):
+
+    @app.get("/api/vlan/pool/list")
+    async def vlan_pool_list(request: Request, db: Session = Depends(get_db)):
+        if request.session.get("user_type") not in ("admin", "superadmin", "sub_lco", "employee"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        rows = db.execute(_sa_text(
+            "SELECT id, vlan_id, label, state, customer_id, assigned_at, notes "
+            "FROM vlan_pool WHERE company_id=:c ORDER BY vlan_id"
+        ), {"c": company_id}).fetchall()
+        return {"ok": True, "rows": [
+            {"id": r[0], "vlan_id": r[1], "label": r[2], "state": r[3],
+             "customer_id": r[4], "assigned_at": r[5], "notes": r[6]}
+            for r in rows
+        ]}
+
+    @app.get("/api/vlan/pool/available")
+    async def vlan_pool_available(request: Request, db: Session = Depends(get_db)):
+        """List FREE VLANs (used by the Add/Edit user dropdowns)."""
+        if request.session.get("user_type") not in ("admin", "superadmin", "sub_lco", "employee"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        cust_id = request.query_params.get("customer_id")  # optional — current edit
+        # __s56i_vlan_custid_fix__: vlan_pool.customer_id stores customers.id
+        # (INT PK). The frontend sends the business customer_id (VARCHAR
+        # like '260505CE9D51'). int(cust_id) raises and breaks the call.
+        # Resolve to the int PK via subquery, accepting either form.
+        sql = ("SELECT vlan_id, label FROM vlan_pool "
+               "WHERE company_id=:c AND (state='free'")
+        params = {"c": company_id}
+        if cust_id:
+            try:
+                _pk = int(cust_id)
+                sql += " OR customer_id=:cust"
+                params["cust"] = _pk
+            except (TypeError, ValueError):
+                # business customer_id varchar — look up the PK
+                sql += (" OR customer_id=(SELECT id FROM customers "
+                        "WHERE company_id=:c2 AND customer_id=:cust_str LIMIT 1)")
+                params["c2"] = company_id
+                params["cust_str"] = str(cust_id)
+        sql += ") ORDER BY vlan_id"
+        rows = db.execute(_sa_text(sql), params).fetchall()
+        return {"ok": True, "rows": [{"vlan_id": r[0], "label": r[1]} for r in rows]}
+
+    @app.post("/api/vlan/pool/seed")
+    async def vlan_pool_seed(request: Request, db: Session = Depends(get_db)):
+        """Bulk insert VLAN ids into pool. Body:
+              {"start": 100, "end": 999, "label": "Block-A"}
+           OR {"vlans": [100,101,102], "label": "..."}
+        Skips duplicates silently."""
+        if request.session.get("user_type") not in ("admin", "superadmin"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        body = await request.json()
+        label = (body.get("label") or "").strip() or None
+        vlans = []
+        if "vlans" in body and isinstance(body["vlans"], list):
+            vlans = [int(v) for v in body["vlans"] if str(v).isdigit() and 2 <= int(v) <= 4094]
+        elif body.get("start") and body.get("end"):
+            s, e = int(body["start"]), int(body["end"])
+            if not (2 <= s <= e <= 4094):
+                return {"ok": False, "error": "invalid range (2-4094)"}
+            vlans = list(range(s, e + 1))
+        if not vlans:
+            return {"ok": False, "error": "no vlans provided"}
+        added = 0
+        for v in vlans:
+            try:
+                db.execute(_sa_text(
+                    "INSERT INTO vlan_pool (company_id, vlan_id, label, state) "
+                    "VALUES (:c,:v,:l,'free')"
+                ), {"c": company_id, "v": v, "l": label})
+                added += 1
+            except Exception:
+                db.rollback()  # duplicate — ignore
+        db.commit()
+        _audit(db, company_id=company_id, nas_id=None,
+               actor_user=request.session.get("user_id"),
+               actor_role=request.session.get("user_type"),
+               action="seed", detail={"added": added, "label": label, "count": len(vlans)})
+        return {"ok": True, "added": added, "requested": len(vlans)}
+
+    @app.post("/api/vlan/pool/release")
+    async def vlan_pool_release(request: Request, db: Session = Depends(get_db)):
+        """Release a VLAN back to the pool. Body: {"vlan_id": N} or {"customer_id": "X"}."""
+        if request.session.get("user_type") not in ("admin", "superadmin", "sub_lco"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        body = await request.json()
+        v = body.get("vlan_id"); cid = body.get("customer_id")
+        if v:
+            db.execute(_sa_text(
+                "UPDATE vlan_pool SET state='free', customer_id=NULL, assigned_at=NULL "
+                "WHERE company_id=:c AND vlan_id=:v"
+            ), {"c": company_id, "v": int(v)})
+        if cid:
+            # cid may be numeric id OR string customer_id — try both
+            from database import Customer
+            cust = db.query(Customer).filter(
+                Customer.customer_id == str(cid),
+                Customer.company_id == company_id
+            ).first()
+            if cust:
+                db.execute(_sa_text(
+                    "UPDATE vlan_pool SET state='free', customer_id=NULL, assigned_at=NULL "
+                    "WHERE company_id=:c AND customer_id=:id"
+                ), {"c": company_id, "id": cust.id})
+                cust.vlan_enabled = 0
+                cust.vlan_id = None
+        db.commit()
+        return {"ok": True}
+
+
+    # ───────────────── __s56k_vlan_mgr__ : delete + rename ─────────────
+    @app.post("/api/vlan/pool/delete")
+    async def vlan_pool_delete(request: Request, db: Session = Depends(get_db)):
+        """Hard-delete a vlan_pool row. Refuses if not 'free'."""
+        if request.session.get("user_type") not in ("admin", "superadmin"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        body = await request.json()
+        try:
+            v = int(body.get("vlan_id"))
+        except Exception:
+            return {"ok": False, "error": "vlan_id required"}
+        row = db.execute(_sa_text(
+            "SELECT state FROM vlan_pool WHERE company_id=:c AND vlan_id=:v"
+        ), {"c": company_id, "v": v}).fetchone()
+        if not row:
+            return {"ok": False, "error": "vlan not in pool"}
+        if (row[0] or "").lower() != "free":
+            return {"ok": False, "error": f"vlan is {row[0]} — release it first"}
+        db.execute(_sa_text(
+            "DELETE FROM vlan_pool WHERE company_id=:c AND vlan_id=:v"
+        ), {"c": company_id, "v": v})
+        db.commit()
+        _audit(db, company_id=company_id, nas_id=None,
+               actor_user=request.session.get("user_id"),
+               actor_role=request.session.get("user_type"),
+               action="delete", detail={"vlan_id": v})
+        return {"ok": True}
+
+    @app.post("/api/vlan/pool/update-label")
+    async def vlan_pool_update_label(request: Request, db: Session = Depends(get_db)):
+        """Rename a VLAN. Label only — no NAS push."""
+        if request.session.get("user_type") not in ("admin", "superadmin"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        body = await request.json()
+        try:
+            v = int(body.get("vlan_id"))
+        except Exception:
+            return {"ok": False, "error": "vlan_id required"}
+        label = (body.get("label") or "").strip() or None
+        notes = (body.get("notes") or "").strip() or None
+        r = db.execute(_sa_text(
+            "UPDATE vlan_pool SET label=:l, notes=COALESCE(:n, notes) "
+            "WHERE company_id=:c AND vlan_id=:v"
+        ), {"c": company_id, "v": v, "l": label, "n": notes})
+        db.commit()
+        _audit(db, company_id=company_id, nas_id=None,
+               actor_user=request.session.get("user_id"),
+               actor_role=request.session.get("user_type"),
+               action="update-label", detail={"vlan_id": v, "label": label, "notes": notes})
+        return {"ok": True, "updated": r.rowcount}
+    # ───────────────── /__s56k_vlan_mgr__ ───────────────────────────────
+
+
+    # ───────────────── __s56l_bulk_delete__ ─────────────────────────────
+    @app.post("/api/vlan/pool/bulk-delete")
+    async def vlan_pool_bulk_delete(request: Request, db: Session = Depends(get_db)):
+        """Bulk delete VLANs from pool, and optionally from MikroTik.
+
+        Body:
+            {
+              "vlan_ids": [100, 101, ...],
+              "nas_id":   <int|null>,
+              "remove_from_router": <bool>   # default true if nas_id given
+            }
+
+        Safety:
+          - Skips any row whose state != 'free'.
+          - On the router, only removes /interface/vlan rows whose comment
+            STARTS WITH "auto-isp-billing" — never touches operator-created
+            VLANs.
+        """
+        if request.session.get("user_type") not in ("admin", "superadmin"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        company_id = request.session.get("company_id")
+        body = await request.json()
+
+        vlan_ids = body.get("vlan_ids") or []
+        try:
+            vlan_ids = [int(v) for v in vlan_ids if str(v).isdigit()]
+        except Exception:
+            return {"ok": False, "error": "vlan_ids must be int list"}
+        if not vlan_ids:
+            return {"ok": False, "error": "no vlan_ids supplied"}
+
+        nas_id = body.get("nas_id")
+        remove_from_router = bool(body.get("remove_from_router", bool(nas_id)))
+
+        results = {"requested": len(vlan_ids), "deleted_db": 0,
+                   "removed_from_router": 0, "skipped": [], "errors": []}
+
+        # Pre-filter: only state='free' rows
+        rows = db.execute(_sa_text(
+            "SELECT vlan_id, state FROM vlan_pool "
+            "WHERE company_id=:c AND vlan_id IN (" +
+            ",".join(str(v) for v in vlan_ids) + ")"
+        ), {"c": company_id}).fetchall()
+        state_map = {r[0]: (r[1] or "") for r in rows}
+        for v in vlan_ids:
+            st = state_map.get(v, "")
+            if st.lower() != "free":
+                results["skipped"].append({"vlan_id": v,
+                    "reason": f"state={st or 'not-in-pool'}"})
+
+        deletable = [v for v in vlan_ids if (state_map.get(v, "").lower() == "free")]
+
+        # Router pass first (so we only delete from DB if router op succeeded
+        # or admin opted-out of router cleanup).
+        nas = None
+        if remove_from_router and nas_id and deletable:
+            try:
+                from radius_network import NasDevice
+                from routeros_provision import RouterOSClient
+                nas = db.query(NasDevice).filter(
+                    NasDevice.id == int(nas_id),
+                    NasDevice.company_id == company_id,
+                ).first()
+                if not nas:
+                    results["errors"].append("nas not found or not owned by tenant")
+                else:
+                    with RouterOSClient(nas, dry_run=False) as c:
+                        path = c._api.path("interface/vlan")
+                        existing = list(path)
+                        for v in deletable:
+                            target_name = f"vlan-{v}"
+                            for row in existing:
+                                if row.get("name") != target_name:
+                                    continue
+                                cmt = str(row.get("comment", "") or "")
+                                if not cmt.startswith("auto-isp-billing"):
+                                    results["skipped"].append({"vlan_id": v,
+                                        "reason": "router-vlan comment not auto-isp — left intact"})
+                                    continue
+                                try:
+                                    path.remove(row[".id"])
+                                    results["removed_from_router"] += 1
+                                except Exception as e:
+                                    results["errors"].append(f"router-remove vlan-{v}: {e}")
+            except Exception as e:
+                results["errors"].append(f"router-connect: {e}")
+
+        # DB delete
+        for v in deletable:
+            try:
+                db.execute(_sa_text(
+                    "DELETE FROM vlan_pool WHERE company_id=:c AND vlan_id=:v"
+                ), {"c": company_id, "v": v})
+                results["deleted_db"] += 1
+            except Exception as e:
+                results["errors"].append(f"db-delete vlan-{v}: {e}")
+        db.commit()
+
+        _audit(db, company_id=company_id, nas_id=int(nas_id) if nas_id else None,
+               actor_user=request.session.get("user_id"),
+               actor_role=request.session.get("user_type"),
+               action="bulk-delete", detail=results,
+               ok=(not results["errors"]))
+        return {"ok": not results["errors"], "results": results}
+    # ───────────────── /__s56l_bulk_delete__ ────────────────────────────
+
+    # ──────────────── One-click MikroTik VLAN trunk setup ────────────────
+    @app.post("/api/nas-devices/{nas_id}/oneclick-vlan-trunk")
+    async def oneclick_vlan_trunk(nas_id: int, request: Request,
+                                  db: Session = Depends(get_db)):
+        """One-click setup: turn a MikroTik into a per-user VLAN BNG.
+
+        Body (all optional, sensible defaults):
+            {
+              "trunk_interface": "ether2",      # PPPoE-facing port (trunk)
+              "auto_create_vlan_interfaces": true,   # create vlan-<id> on trunk
+              "vlan_ids": [100,101,...],        # if empty, take ALL assigned from pool
+              "service_name": "isp"
+            }
+
+        What it pushes (idempotent — uses comment match):
+          1. /interface vlan add interface=<trunk> vlan-id=<n> name=vlan-<n>
+             comment=auto-isp-billing-vlan  (for each VLAN)
+          2. /interface pppoe-server server add interface=<trunk> service-name=<svc>
+             use-radius=yes one-session-per-host=yes disabled=no
+          3. /ppp aaa set use-radius=yes
+          4. /radius incoming set accept=yes
+        """
+        if request.session.get("user_type") not in ("admin", "superadmin", "sub_lco", "employee"):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+        company_id = request.session.get("company_id")
+
+        from radius_network import NasDevice
+        from routeros_provision import RouterOSClient
+        nas = db.query(NasDevice).filter(NasDevice.id == nas_id).first()
+        if not nas:
+            return {"ok": False, "error": "nas not found"}
+        if request.session.get("user_type") == "admin" and nas.company_id != company_id:
+            return {"ok": False, "error": "forbidden"}
+
+        trunk = (body.get("trunk_interface") or nas.pppoe_interface or "ether2").strip()
+        service_name = (body.get("service_name") or nas.pppoe_service_name or "isp").strip()
+        auto_vif = bool(body.get("auto_create_vlan_interfaces", True))
+
+        vlan_ids = body.get("vlan_ids") or []
+        if not vlan_ids:
+            # Pull from pool (all states except retired)
+            rows = db.execute(_sa_text(
+                "SELECT vlan_id FROM vlan_pool WHERE company_id=:c AND state!='retired'"
+                " ORDER BY vlan_id"
+            ), {"c": company_id}).fetchall()
+            vlan_ids = [r[0] for r in rows]
+
+        report: Dict[str, Any] = {
+            "trunk_interface": trunk,
+            "service_name": service_name,
+            "vlan_count": len(vlan_ids),
+            "actions": [],
+            "errors": [],
+        }
+
+        try:
+            with RouterOSClient(nas, dry_run=False) as c:
+                # 1. Create VLAN interfaces (if auto_vif)
+                if auto_vif and vlan_ids:
+                    existing = {v.get("vlan-id"): v for v in c._api.path("interface/vlan")
+                                if v.get("interface") == trunk}
+                    for vid in vlan_ids:
+                        try:
+                            if str(vid) in {str(k) for k in existing.keys()}:
+                                report["actions"].append(f"vlan-{vid} already present, skip")
+                                continue
+                            c._api.path("interface/vlan").add(
+                                interface=trunk,
+                                **{"vlan-id": str(vid)},
+                                name=f"vlan-{vid}",
+                                comment="auto-isp-billing-vlan",
+                            )
+                            report["actions"].append(f"vlan-{vid} created on {trunk}")
+                        except Exception as e:
+                            report["errors"].append(f"vlan-{vid}: {e}")
+
+                # 2. PPPoE server on trunk (idempotent)
+                try:
+                    existing_srvs = list(c._api.path("interface/pppoe-server/server"))
+                    found = None
+                    for s in existing_srvs:
+                        if s.get("interface") == trunk and s.get("service-name") == service_name:
+                            found = s; break
+                    if not found:
+                        c._api.path("interface/pppoe-server/server").add(
+                            interface=trunk,
+                            **{"service-name": service_name, "use-radius": "yes",
+                               "one-session-per-host": "yes", "disabled": "no",
+                               "default-profile": "default",
+                               "authentication": "chap,mschap2"},
+                            comment="auto-isp-billing-vlan-bng",
+                        )
+                        report["actions"].append(f"pppoe-server on {trunk} (use-radius=yes)")
+                    else:
+                        # Make sure use-radius=yes
+                        if str(found.get("use-radius", "no")).lower() != "yes":
+                            c._api.path("interface/pppoe-server/server").update(
+                                {"id": found[".id"], "use-radius": "yes"})
+                            report["actions"].append("pppoe-server.use-radius → yes")
+                        else:
+                            report["actions"].append("pppoe-server already configured")
+                except Exception as e:
+                    report["errors"].append(f"pppoe-server: {e}")
+
+                # 3. /ppp aaa set use-radius=yes
+                try:
+                    aaa = list(c._api.path("ppp/aaa"))
+                    if aaa:
+                        rec = aaa[0]
+                        if str(rec.get("use-radius", "no")).lower() != "yes":
+                            c._api.path("ppp/aaa").update({".id": rec[".id"], "use-radius": "yes"})
+                            report["actions"].append("ppp.aaa.use-radius → yes")
+                        else:
+                            report["actions"].append("ppp.aaa already use-radius=yes")
+                except Exception as e:
+                    report["errors"].append(f"ppp-aaa: {e}")
+
+                # 4. /radius incoming set accept=yes
+                try:
+                    rin = list(c._api.path("radius/incoming"))
+                    if rin:
+                        rec = rin[0]
+                        if str(rec.get("accept", "no")).lower() != "yes":
+                            c._api.path("radius/incoming").update({".id": rec[".id"], "accept": "yes"})
+                            report["actions"].append("radius.incoming.accept → yes")
+                        else:
+                            report["actions"].append("radius.incoming already accept=yes")
+                except Exception as e:
+                    report["errors"].append(f"radius-incoming: {e}")
+        except Exception as e:
+            report["errors"].append(f"connection: {e}")
+
+        ok = not report["errors"]
+        _audit(db, company_id=company_id, nas_id=nas_id,
+               actor_user=request.session.get("user_id"),
+               actor_role=request.session.get("user_type"),
+               action="oneclick-trunk", detail=report, ok=ok)
+        return {"ok": ok, "report": report}
+
+    print("[vlan_mgmt] router wired")

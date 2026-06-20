@@ -1,0 +1,1912 @@
+
+<style>/* __s55y_auth_field_hide__ */
+.auth-static-field, .auth-hotspot-field,
+.content .row > .auth-static-field, .content .row > .auth-hotspot-field,
+section .row > .auth-static-field, section .row > .auth-hotspot-field,
+main .row > .auth-static-field,    main .row > .auth-hotspot-field,
+body  .row > .auth-static-field,   body  .row > .auth-hotspot-field {
+  display: none !important;
+}
+.auth-static-field.is-on, .auth-hotspot-field.is-on,
+.content .row > .auth-static-field.is-on, .content .row > .auth-hotspot-field.is-on,
+section .row > .auth-static-field.is-on, section .row > .auth-hotspot-field.is-on,
+main .row > .auth-static-field.is-on,    main .row > .auth-hotspot-field.is-on,
+body  .row > .auth-static-field.is-on,   body  .row > .auth-hotspot-field.is-on {
+  display: block !important;
+}
+</style>
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Add Customer - Auto ISP Billing{% endblock %}{# _S40zg2_ #}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+<style>
+.field-error {
+    border-color: #dc3545 !important;
+    background-color: #fff5f5 !important;
+}
+.error-message {
+    color: #dc3545;
+    font-size: 12px;
+    margin-top: 5px;
+    display: none;
+}
+</style>
+<!-- _v464_INSTALL_LOCK — when opened from the mobile app (?mobile=1)
+     the Installation Date input must NOT be editable or clickable. -->
+<script>
+(function() {
+  try {
+    var qs = new URLSearchParams(window.location.search);
+    if (qs.get("mobile") === "1") {
+      function lockInstall() {
+        var el = document.getElementById("installation_date");
+        if (!el) { setTimeout(lockInstall, 200); return; }
+        try { if (el._flatpickr) el._flatpickr.destroy(); } catch (e) {}
+        el.setAttribute("readonly","readonly");
+        el.setAttribute("disabled","disabled");
+        el.style.pointerEvents = "none";
+        el.style.cursor = "not-allowed";
+        el.style.background = "#e2e8f0";
+        el.title = "Auto-set on mobile";
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", lockInstall);
+      } else { lockInstall(); }
+    }
+  } catch (e) { console.warn("install lock skipped:", e); }
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<!-- _S40g_MOBILE_MODE_ — when ?mobile=1, hide chrome and turn the
+     4 tabs into a step-by-step wizard with Prev/Next buttons.
+     Works on top of the existing Bootstrap tabs without touching the
+     desktop layout. -->
+<style>
+  body.aispb-mobile-mode .main-header,
+  body.aispb-mobile-mode .main-sidebar,
+  body.aispb-mobile-mode .main-footer,
+  body.aispb-mobile-mode .content-header { display: none !important; }
+  body.aispb-mobile-mode .content-wrapper { margin-left: 0 !important; padding-top: 0 !important; }
+  body.aispb-mobile-mode .container-fluid, body.aispb-mobile-mode .content { padding: 8px !important; }
+  /* Stack tabs vertically and turn each into a step pill */
+  body.aispb-mobile-mode .nav-tabs { display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto;
+                                      border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }
+  body.aispb-mobile-mode .nav-tabs > li { flex: 0 0 auto; }
+  body.aispb-mobile-mode .nav-tabs > li > a { padding: 8px 14px; font-size: 13px;
+                                                border-radius: 999px !important; }
+  body.aispb-mobile-mode .box, body.aispb-mobile-mode .box-body { box-shadow:none !important;
+                                                                   border:none !important; }
+  body.aispb-mobile-mode .form-control { font-size: 16px; }
+  body.aispb-mobile-mode .col-md-6, body.aispb-mobile-mode .col-md-4,
+  body.aispb-mobile-mode .col-md-3, body.aispb-mobile-mode .col-md-12 {
+      width: 100% !important; padding-left: 0; padding-right: 0; }
+  /* _S40zπ_v463_ Fix horizontal cropping on small screens. Bootstrap 3 .row
+   * has -15px lateral margins that bleed past viewport when .container-fluid
+   * itself is at padding 8px. Reset the row margins and force every direct
+   * child to box-sizing:border-box so nothing extends past the screen edge. */
+  body.aispb-mobile-mode .container-fluid,
+  body.aispb-mobile-mode .content,
+  body.aispb-mobile-mode .box,
+  body.aispb-mobile-mode .box-body { padding-left: 14px !important;
+                                      padding-right: 14px !important;
+                                      overflow-x: hidden; }
+  body.aispb-mobile-mode .row { margin-left: 0 !important;
+                                 margin-right: 0 !important; }
+  body.aispb-mobile-mode * { box-sizing: border-box; }
+  body.aispb-mobile-mode .form-group { margin-bottom: 14px; }
+  body.aispb-mobile-mode .pull-right { float:none !important; width:100%; }
+  /* Sticky bottom nav for Prev / Next */
+  #aispb-step-nav { position: fixed; left:0; right:0; bottom:0;
+                    display:none; gap:8px; padding:10px;
+                    background:#fff; border-top:1px solid #e2e8f0;
+                    box-shadow: 0 -2px 8px rgba(0,0,0,.06); z-index: 9999; }
+  body.aispb-mobile-mode #aispb-step-nav { display: none !important; }  /* _v4726_ removed extra mobile bottom nav */
+  #aispb-step-nav button { flex: 1; padding: 12px 0; border-radius: 8px;
+                            border: none; font-size: 15px; font-weight: 600;
+                            cursor: pointer; }
+  #aispb-step-nav .btn-prev { background:#e2e8f0; color:#475569; }
+  #aispb-step-nav .btn-prev:disabled { opacity: 0.5; }
+  #aispb-step-nav .btn-next { background:#1d4ed8; color:#fff; }
+  #aispb-step-nav .btn-submit { background:#16a34a; color:#fff; }
+  body.aispb-mobile-mode .content-wrapper { padding-bottom: 24px !important; }  /* _v4726_ no sticky bar */
+  /* Hide the existing in-form submit button — bottom nav handles it */
+  body.aispb-mobile-mode .aispb-desktop-submit { display: inline-block !important; }  /* _v4726_ form's own Save Customer button restored */
+</style>
+<section class="content-header">
+    <h1>
+        Add Customer
+        <small>Add new customer</small>
+        <button type="button" class="btn btn-primary pull-right" id="downloadCafBtn" style="display: none;">
+            <i class="fa fa-download"></i> Download CAF
+        </button>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box box-primary">
+        <div class="box-body">
+            <!-- Tab Navigation -->
+            <ul class="nav nav-tabs" role="tablist" style="margin-bottom: 20px;">
+                <li role="presentation" class="active">
+                    <a href="#general" aria-controls="general" role="tab" data-toggle="tab">
+                        <i class="fa fa-info-circle"></i> General Information
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#address" aria-controls="address" role="tab" data-toggle="tab">
+                        <i class="fa fa-map-marker"></i> Address Detail
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#billing" aria-controls="billing" role="tab" data-toggle="tab">
+                        <i class="fa fa-file-text"></i> Billing Detail
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#payment" aria-controls="payment" role="tab" data-toggle="tab">
+                        <i class="fa fa-credit-card"></i> Payment Detail
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- General Information Tab -->
+                <div role="tabpanel" class="tab-pane active" id="general">
+                    <form id="customerForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer Registration Type *</label>
+                                    <select class="form-control" name="registration_type" id="registration_type">
+                                        <option value="New Customer" selected>New Customer</option>
+                                        <option value="Existing Customer Migration">Existing Customer Migration</option>
+                                    </select>
+                                    <small class="form-text text-muted" style="font-size: 11px; color: #666;">
+                                        Choose Existing Customer Migration if you are shifting this customer from other billing website
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Service Type *</label>
+                                    <select class="form-control" name="service_type" id="service_type">
+                                        <option value="Broadband" selected>Broadband</option>
+                                        <option value="Cable">Cable</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer Type *</label>
+                                    <select class="form-control" name="customer_type" id="customer_type" required>
+                                        <option value="Prepaid" selected>Prepaid</option>
+                                        <option value="Postpaid">Postpaid</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer ID *</label>
+                                    <input type="text" class="form-control" name="customer_id" id="customer_id" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Name *</label>
+                                    <input type="text" class="form-control" name="name" id="name" placeholder="Customer Name" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>User Name *</label>
+                                    <!-- __s56AG_no_prefix__ -->
+                                    <input type="text" class="form-control" name="username" id="username"
+                                           placeholder="PPPoE username (any characters / numbers / words)"
+                                           required minlength="3" autocomplete="off"
+                                           data-testid="cust-username">
+                                    <small class="form-text" id="username-feedback"></small>
+                                    <small class="form-text text-muted">
+                                        Type any unique PPPoE username. Spaces are not allowed but every other
+                                        character (letters, digits, dots, dashes, underscores, @ etc.) is fine.
+                                        We'll check availability against your tenant before saving.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row" id="auth_type_row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Auth Type</label>
+                                    <select class="form-control" name="auth_type" id="auth_type" data-testid="cust-auth-type" onchange="toggleAuthTypeFields()">
+                                        <option value="pppoe" selected>PPPoE (dial-up username/password)</option>
+                                        <option value="static_ip">Static-IP (fixed IP, no PPPoE)</option>
+                                        <option value="hotspot">Hotspot (captive portal login)</option>
+                                    </select>
+                                    <small class="form-text text-muted">Determines what Radius sends back to the NAS.</small>
+                                </div>
+                            </div>
+                            <!-- __s56h_nas_picker__ -->
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>NAS / Mikrotik <small class="text-muted" style="font-weight:400;">(route auth to one NAS only)</small></label>
+                                    <select class="form-control" name="provisioned_nas_id" id="provisioned_nas_id" data-testid="cust-provisioned-nas" required>
+                                        <!-- _S58BD_NO_AUTO_NAS_  No 'Any NAS' option — operators must pick
+                                             a specific router. The first listed (oldest active) NAS is
+                                             pre-selected by the JS loader below. -->
+                                        <option value="" disabled selected>— Select NAS —</option>
+                                    </select>
+                                    <small class="form-text text-muted">Pick which Mikrotik will authenticate this customer.</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-static-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>IP Pool *</label>
+                                    <select class="form-control" id="static_ip_pool" data-testid="cust-static-pool" onchange="loadStaticIpAvailable('add')">
+                                        <option value="">-- select a pool --</option>
+                                    </select>
+                                    <small class="form-text text-muted">Pick the subnet the customer'''s CPE lives on.</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-static-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>Static IP address *</label>
+                                    <select class="form-control" name="static_ip_address" id="static_ip_address" data-testid="cust-static-ip">
+                                        <option value="">-- pick a pool first --</option>
+                                    </select>
+                                    <small class="form-text text-muted"><span id="static_ip_count" class="text-muted">0</span> available (pool excludes already-assigned IPs).</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-static-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>Netmask</label>
+                                    <input type="text" class="form-control" name="static_netmask" id="static_netmask" value="255.255.255.0" data-testid="cust-static-netmask">
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-static-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>MAC address <small class="text-muted">(optional)</small></label>
+                                    <input type="text" class="form-control" name="mac_address" id="mac_address" placeholder="AA:BB:CC:DD:EE:FF" data-testid="cust-mac">
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-hotspot-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>Session Timeout (seconds)</label>
+                                    <input type="number" class="form-control" name="hotspot_session_timeout" id="hotspot_session_timeout" value="0" min="0" data-testid="cust-sess-to">
+                                    <small class="form-text text-muted">0 = no timeout.</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6 auth-hotspot-field" style="display:none !important;">
+                                <div class="form-group">
+                                    <label>Idle Timeout (seconds)</label>
+                                    <input type="number" class="form-control" name="hotspot_idle_timeout" id="hotspot_idle_timeout" value="600" min="0" data-testid="cust-idle-to">
+                                </div>
+                            </div>
+                            <!-- __s55y_vlan_block__ -->
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label style="color:#F1F5F9;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">
+                                          <input type="checkbox" id="vlan_enabled" name="vlan_enabled" value="1" data-testid="cust-vlan-enabled" onchange="toggleVlanFields()" style="width:16px;height:16px;accent-color:#06b6d4;vertical-align:-2px;margin:0;">
+                                          <strong>Assign VLAN ID</strong>
+                                        </span>
+                                        <span id="vlan_pick_wrap" style="display:none;flex:1 1 220px;min-width:200px;">
+                                          <select class="form-control" name="vlan_id" id="vlan_id" data-testid="cust-vlan-id" style="background:rgba(8,12,22,0.6);color:#fff;border-color:rgba(34,211,238,0.40);height:34px;font-size:13px;">
+                                            <option value="">-- pick a free VLAN --</option>
+                                          </select>
+                                        </span>
+                                    </label>
+                                    <small class="form-text" style="color:#94A3B8;font-size:11px;display:none;" id="vlan_pick_hint"></small>
+                                </div>
+                            </div>
+                            <script>
+                            function toggleVlanFields(){
+                              var en  = document.getElementById('vlan_enabled').checked;
+                              var w   = document.getElementById('vlan_pick_wrap');
+                              var hint= document.getElementById('vlan_pick_hint');
+                              w.style.display = en ? 'inline-flex' : 'none';
+                              if (hint) hint.style.display = en ? 'block' : 'none';
+                              if (en) loadAvailableVlans();
+                              else document.getElementById('vlan_id').value = '';
+                            }
+                            function loadAvailableVlans(custId){
+                              var sel = document.getElementById('vlan_id');
+                              var hint = document.getElementById('vlan_pick_hint');
+                              var url = '/api/vlan/pool/available' + (custId ? ('?customer_id=' + encodeURIComponent(custId)) : '');
+                              fetch(url, { credentials: 'same-origin' })
+                                .then(function(r){ return r.json(); })
+                                .then(function(j){
+                                  sel.innerHTML = '<option value="">-- pick a free VLAN --</option>';
+                                  if (j.ok && j.rows && j.rows.length){
+                                    j.rows.forEach(function(row){
+                                      var o = document.createElement('option');
+                                      o.value = row.vlan_id;
+                                      o.textContent = 'VLAN ' + row.vlan_id + (row.label ? ' \u2014 '+row.label : '');
+                                      sel.appendChild(o);
+                                    });
+                                    hint.textContent = j.rows.length + ' VLAN id(s) available.';
+                                  } else {
+                                    hint.innerHTML = '<span style="color:#fbbf24;">No free VLAN IDs available right now. Either (a) free up a VLAN by removing it from another active customer, or (b) ask your SuperAdmin to extend the VLAN pool from <b>Settings &rarr; NAS &rarr; VLAN Pool</b>.</span>';
+                                  }
+                                })
+                                .catch(function(){ hint.textContent = 'Failed to load VLAN pool.'; });
+                            }
+                            </script>
+                            <!-- /__s55s_vlan_block__ -->
+
+                        </div>
+                        <script>
+                        function toggleAuthTypeFields(){
+                            var at = (document.getElementById('auth_type') || {}).value || 'pppoe';
+                            document.querySelectorAll('.auth-static-field').forEach(function(e){
+                              var on = (at === 'static_ip');
+                              e.classList.toggle('is-on', on);
+                              if (on) { e.style.setProperty('display', 'block', 'important'); }
+                              else    { e.style.setProperty('display', 'none',  'important'); }
+                            });
+                            document.querySelectorAll('.auth-hotspot-field').forEach(function(e){
+                              var on = (at === 'hotspot');
+                              e.classList.toggle('is-on', on);
+                              if (on) { e.style.setProperty('display', 'block', 'important'); }
+                              else    { e.style.setProperty('display', 'none',  'important'); }
+                            });
+                            if (at === 'static_ip') { loadStaticIpPools('add'); }
+                        }
+                        document.addEventListener('DOMContentLoaded', toggleAuthTypeFields);
+
+
+                        // __S38T_STATIC_POOL_UX__
+                        // Populate the IP-pool dropdown (only PPPoE/Hotspot sources
+                        // — Public IPs are for "Fix IP" flow, not static CPEs).
+                        window._staticPoolsLoaded = window._staticPoolsLoaded || {};
+                        function loadStaticIpPools(scope){
+                            var poolSel = (scope === 'edit') ? '#edit_static_ip_pool' : '#static_ip_pool';
+                            var $sel = $(poolSel);
+                            if (!$sel.length) return;
+                            // Preserve the currently-picked option when re-toggling.
+                            var pre = $sel.data('preset') || $sel.val() || '';
+                            $.get('/api/fix-ip/pools').then(function(res){
+                                if (!res || !res.ok) return;
+                                $sel.empty().append('<option value="">-- select a pool --</option>');
+                                (res.rows || []).forEach(function(p){
+                                    if (p.source === 'public') return;   // only PPPoE / Hotspot subnets
+                                    var lbl = p.pool_name + '  (' + (p.free||0) + ' free / ' + (p.total||0) + ')';
+                                    $sel.append($('<option>').val(p.pool_name + '|' + p.source).text(lbl));
+                                });
+                                if (pre) { $sel.val(pre); loadStaticIpAvailable(scope); }
+                            });
+                        }
+
+                        function loadStaticIpAvailable(scope){
+                            var poolSel = (scope === 'edit') ? '#edit_static_ip_pool' : '#static_ip_pool';
+                            var ipSel   = (scope === 'edit') ? '#edit_static_ip_address' : '#static_ip_address';
+                            var countEl = (scope === 'edit') ? '#edit_static_ip_count' : '#static_ip_count';
+                            var val = $(poolSel).val() || '';
+                            var $ip = $(ipSel);
+                            if (!val) {
+                                $ip.empty().append('<option value="">-- pick a pool first --</option>');
+                                $(countEl).text('0');
+                                return;
+                            }
+                            var parts = val.split('|');
+                            var poolName = parts[0], source = parts[1] || 'pppoe';
+                            // Preserve preset (edit form passes the customer'''s existing IP
+                            // via data-preset so it stays selected even if marked Assigned).
+                            var preset = $ip.data('preset') || '';
+                            $ip.empty().append('<option value="">-- loading... --</option>');
+                            $.get('/api/fix-ip/available', {pool: poolName, source: source, include_current: preset}).then(function(res){
+                                $ip.empty().append('<option value="">-- select an IP --</option>');
+                                var rows = (res && res.ok) ? (res.rows || []) : [];
+                                rows.forEach(function(r){
+                                    var tag = (r.status && r.status !== 'Free') ? (' [' + r.status + ']') : '';
+                                    $ip.append($('<option>').val(r.ip).text(r.ip + tag));
+                                });
+                                $(countEl).text(rows.length);
+                                if (preset) $ip.val(preset);
+                            });
+                        }
+                        </script>
+
+
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Password *</label>
+                                    <input type="password" class="form-control" name="password" id="password" placeholder="Password" required minlength="6">
+                                    <small class="form-text text-muted" id="password-helper">Minimum 6 characters required</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Confirm Password *</label>
+                                    <input type="password" class="form-control" name="confirm_password" id="confirm_password" placeholder="Confirm Password" required minlength="6">
+                                    <small class="form-text text-muted" id="confirm-password-helper">Minimum 6 characters required</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Email *</label>
+                                    <input type="email" class="form-control" name="email" id="email" placeholder="Customer Email" required pattern="[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Mobile *</label>
+                                    <input type="tel" class="form-control" name="mobile" id="mobile" placeholder="Mobile Number (10 digits)" required pattern="[0-9]{10}" maxlength="10">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Alternate Mobile</label>
+                                    <input type="tel" class="form-control" name="alt_mobile" placeholder="Alternate Mobile">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>GST Invoice Needed *</label>
+                                    <select class="form-control" name="gst_invoice_needed" id="gst_invoice_needed">
+                                        <option value="NO" selected>NO</option>
+                                        <option value="YES">YES</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer GST No.</label>
+                                    <input type="text" class="form-control" name="customer_gst_no" placeholder="Customer GST No.">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>ID Proof *</label>
+                                    <select class="form-control" name="id_proof" id="id_proof" required>
+                                        <option value="">Select ID Proof</option>
+                                        <option>Voter ID</option>
+                                        <option>Passport</option>
+                                        <option>Driving license</option>
+                                        <option>Service ID card</option>
+                                        <option>Aadhar card</option>
+                                        <option>Passbook of Govt bank</option>
+                                        <option>Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>ID Proof No *</label>
+                                    <input type="text" class="form-control" name="id_proof_no" id="id_proof_no" placeholder="ID Proof No" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Installation/Creation Date</label>
+                                    <input type="text" class="form-control" name="installation_date" id="installation_date" placeholder="DD-MM-YYYY" readonly style="background:#f1f5f9;cursor:not-allowed;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Optional document uploads (photograph, address proof, identity proof) -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin: 6px 0 14px;">
+                                    <strong style="color: #334155;">Documents <small class="text-muted" style="font-weight: normal;">(optional &mdash; JPG / PNG / WebP / PDF, max 5&nbsp;MB each)</small></strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Customer Photograph</label>
+                                    <input type="file" class="form-control" name="photograph" id="photograph" accept=".jpg,.jpeg,.png,.webp,image/*">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Address Proof</label>
+                                    <input type="file" class="form-control" name="address_proof" id="address_proof" accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Identity Proof</label>
+                                    <input type="file" class="form-control" name="id_proof_doc" id="id_proof_doc" accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-primary pull-right" id="nextToAddress">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                                <a href="{{ path_prefix|default("/admin") }}/users" class="btn btn-default">Back</a>
+                            </div>
+                        </div>
+                </div>
+
+                <!-- Address Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="address">
+                        <!-- _S39R5L_GEO — Lat/Lng capture (optional) at the very top of address -->
+                        <div class="row" data-testid="geo-capture-row" style="margin-bottom:8px;">
+                            <div class="col-md-12">
+                                <div class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;">
+                                    <label style="font-weight:600;display:block;margin-bottom:6px;">
+                                        <i class="fa fa-map-marker" style="color:#0284c7;"></i>
+                                        Installation Location <small style="color:#64748b;font-weight:400;">(optional · helps field engineers)</small>
+                                    </label>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                        <input type="text" class="form-control" name="latitude" id="latitude" placeholder="Latitude (e.g. 23.8456)" style="flex:1;min-width:140px;" data-testid="add-latitude" inputmode="decimal" />
+                                        <input type="text" class="form-control" name="longitude" id="longitude" placeholder="Longitude (e.g. 79.6132)" style="flex:1;min-width:140px;" data-testid="add-longitude" inputmode="decimal" />
+                                        <button type="button" class="btn btn-info" onclick="captureGeo('add')" data-testid="add-capture-geo" style="white-space:nowrap;">
+                                            <i class="fa fa-crosshairs"></i> Capture
+                                        </button>
+                                        <a href="#" id="add-geo-map-link" target="_blank" rel="noopener" style="display:none;font-size:13px;" data-testid="add-geo-map-link">
+                                            <i class="fa fa-external-link"></i> View on map
+                                        </a>
+                                    </div>
+                                    <small id="add-geo-status" style="color:#64748b;display:block;margin-top:4px;"></small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group">
+                                    <label>Address *</label>
+                                    <textarea class="form-control" name="address" id="address" rows="3" placeholder="Enter Full Address" required></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Locality *</label>
+                                    <select class="form-control" name="locality" id="locality" required>
+                                        <option value="">Loading locations...</option>
+                                    </select>
+                                    <small class="text-muted" id="locality-error" style="display: none; color: #dc3545;">
+                                        No locations found. <a href="/admin/locations">Add a location first</a>
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>State *</label>
+                                    <select class="form-control" name="state" id="state" required>
+                                        <option value="">Select State</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>District/City *</label>
+                                    <input type="text" class="form-control" name="city" id="city" placeholder="District/City" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>PIN Code *</label>
+                                    <input type="text" class="form-control" name="pincode" id="pincode" placeholder="PIN Code (6 digits)" required pattern="[0-9]{6}" maxlength="6">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Optional billing address (different from installation address) -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group" style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px;">
+                                    <label style="margin-bottom: 0; font-weight: 600;">
+                                        <input type="checkbox" id="billing_address_different" name="billing_address_different" style="margin-right: 8px; vertical-align: middle;">
+                                        Billing address is different from installation address
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="billingAddressFields" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <div class="form-group">
+                                        <label>Billing Address *</label>
+                                        <textarea class="form-control" name="billing_address" id="billing_address" rows="3" placeholder="Enter Billing Address"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Billing Locality *</label>
+                                        <input type="text" class="form-control" name="billing_locality" id="billing_locality" placeholder="Billing Locality">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Billing State *</label>
+                                        <select class="form-control" name="billing_state" id="billing_state">
+                                            <option value="">Select State</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Billing District/City *</label>
+                                        <input type="text" class="form-control" name="billing_city" id="billing_city" placeholder="Billing District/City">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Billing PIN Code *</label>
+                                        <input type="text" class="form-control" name="billing_pincode" id="billing_pincode" placeholder="Billing PIN Code (6 digits)" pattern="[0-9]{6}" maxlength="6">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('general')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="button" class="btn btn-primary pull-right" id="nextToBilling">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                </div>
+
+                <!-- Billing Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="billing">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Plan *</label>
+                                    <select class="form-control" name="plan" id="plan" required>
+                                        <option value="">Select Plan</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Monthly Amount *</label>
+                                    <input type="text" class="form-control" name="monthly_amount" id="monthly_amount" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Auto Renew *</label>
+                                    <select class="form-control" name="auto_renew">
+                                        <option value="Yes" selected>Yes</option>
+                                        <option value="No">No</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>DNS Content-Filter Profile</label>
+                                    <select class="form-control" name="dns_profile_id" id="dns_profile_id" data-testid="add-cust-dns-profile">
+                                        <option value="">— Use plan default —</option>
+                                    </select>
+                                    <small class="text-muted">Override the plan-level DNS profile for this customer. Leave blank to inherit from plan.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>CAF NO *</label>
+                                    <input type="text" class="form-control" name="caf_no" id="caf_no" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>MAC Address</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" name="mac_address" id="add_mac_address_billing" placeholder="MAC Address">
+                                        <span class="input-group-btn">
+                                            <button type="button" class="btn btn-info" id="add_capture_mac_btn" data-testid="add-capture-mac" disabled title="Save the customer first, then click Edit > Billing > Capture MAC">
+                                                <i class="fa fa-magic"></i> Capture MAC
+                                            </button>
+                                        </span>
+                                    </div>
+                                    <small class="form-text text-muted">Save the customer first, then open Edit → Billing → Capture MAC to read the live MAC from the router.</small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>IP Address</label>
+                                    <input type="text" class="form-control" name="ip_address" placeholder="IP Address">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Vendor</label>
+                                    <input type="text" class="form-control" name="vendor" placeholder="Vendor">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Modem No</label>
+                                    <input type="text" class="form-control" name="modem_no" placeholder="Modem No">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Start Date *</label>
+                                    <input type="text" class="form-control" name="start_date" id="start_date" placeholder="DD-MM-YYYY" required>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>Period (Months) *</label>
+                                    <select class="form-control" name="period" id="period" required>
+                                        <option value="">Select Period</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label>End Date *</label>
+                                    <input type="text" class="form-control" name="end_date" id="end_date" readonly placeholder="DD-MM-YYYY" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('address')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="button" class="btn btn-primary pull-right" id="nextToPayment">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                </div>
+
+                <!-- Payment Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="payment">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Bill Amount</label>
+                                    <input type="text" class="form-control" name="bill_amount" id="bill_amount" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>CGST Tax</label>
+                                    <input type="text" class="form-control" name="cgst_tax" id="cgst_tax" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>SGST Tax</label>
+                                    <input type="text" class="form-control" name="sgst_tax" id="sgst_tax" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>IGST Tax</label>
+                                    <input type="text" class="form-control" name="igst_tax" id="igst_tax" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Total Plan Amount</label>
+                                    <input type="text" class="form-control" name="total_bill_amount" id="total_bill_amount" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>STB/Modem/Router Deposit</label>
+                                    <input type="number" class="form-control" name="router_charges" id="router_charges" placeholder="STB/Modem/Router Deposit">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Installation Charges</label>
+                                    <input type="number" class="form-control" name="installation_charges" id="installation_charges" placeholder="Installation Charges">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Discount</label>
+                                    <input type="number" class="form-control" name="discount_credit" id="discount_credit" placeholder="Discount Amount" step="0.01" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Hidden field for security_deposit (always 0) -->
+                        <input type="hidden" name="security_deposit" id="security_deposit" value="0">
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Total Due Balance</label>
+                                    <input type="number" class="form-control" id="total_due_balance" placeholder="Auto-calculated" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Received Amount</label>
+                                    <input type="text" class="form-control" name="received_amount" id="received_amount" placeholder="Enter received amount" inputmode="decimal">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Payment Mode *</label>
+                                    <select class="form-control" name="payment_mode" id="payment_mode">
+                                        <option value="">Select Payment Mode</option>
+                                        <option value="Cash">Cash</option>
+                                        <option value="Paytm">Paytm</option>
+                                        <option value="Google Pay">Google Pay</option>
+                                        <option value="Phone Pay">Phone Pay</option>
+                                        <option value="Cheque">Cheque</option>
+                                        <option value="Netbanking">Netbanking</option>
+                                        <option value="Online Portal">Online Portal</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Transaction ID</label>
+                                    <input type="text" class="form-control" name="transaction_id" id="transaction_id" placeholder="Auto-generated" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group">
+                                    <label>Payment Notes</label>
+                                    <textarea class="form-control" name="payment_notes" rows="3" placeholder="Any additional payment notes"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('billing')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="submit" class="btn btn-success pull-right aispb-desktop-submit">
+                                    <i class="fa fa-save"></i> Save Customer
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+// _S39R5L_GEO — Browser geolocation capture, shared by add and edit forms.
+(function(){
+  if (window.captureGeo) return;          // dedupe across includes
+  window.captureGeo = function(scope){
+    var prefix = scope === 'edit' ? 'edit_' : '';
+    var latInput = document.getElementById(prefix + 'latitude');
+    var lngInput = document.getElementById(prefix + 'longitude');
+    var status   = document.getElementById((scope==='edit'?'edit':'add') + '-geo-status');
+    var mapLink  = document.getElementById((scope==='edit'?'edit':'add') + '-geo-map-link');
+    if (!latInput || !lngInput){ console.warn('geo: inputs missing'); return; }
+    if (!navigator.geolocation){
+      if (status) status.textContent = 'Geolocation not supported by this browser.';
+      return;
+    }
+    if (status) status.textContent = 'Requesting location \u2026';
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var lat = pos.coords.latitude.toFixed(6);
+      var lng = pos.coords.longitude.toFixed(6);
+      latInput.value = lat; lngInput.value = lng;
+      if (status) status.innerHTML = '\u2713 Captured (\u00b1' +
+          Math.round(pos.coords.accuracy||0) + ' m)';
+      if (mapLink){
+        mapLink.href = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+        mapLink.style.display = 'inline-block';
+      }
+    }, function(err){
+      var msg = (err && err.message) || 'Permission denied';
+      if (status) status.textContent = 'Could not get location: ' + msg;
+    }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 0});
+  };
+  // If existing value is set on edit, surface the map link automatically.
+  document.addEventListener('DOMContentLoaded', function(){
+    ['','edit_'].forEach(function(p){
+      var lat = document.getElementById(p + 'latitude');
+      var lng = document.getElementById(p + 'longitude');
+      var ml  = document.getElementById((p==='edit_'?'edit':'add') + '-geo-map-link');
+      if (lat && lng && ml && lat.value && lng.value){
+        ml.href = 'https://www.google.com/maps?q=' + lat.value + ',' + lng.value;
+        ml.style.display = 'inline-block';
+      }
+    });
+  });
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+
+<script>
+// Validate fields and highlight errors
+function validateFields(fields) {
+    let isValid = true;
+    let firstInvalidField = null;
+    
+    fields.forEach(fieldId => {
+        const field = $('#' + fieldId);
+        const value = field.val().trim();
+        
+        // Remove previous error styling
+        field.removeClass('field-error');
+        
+        // Check if field is required and empty
+        if (field.prop('required') && !value) {
+            field.addClass('field-error');
+            isValid = false;
+            if (!firstInvalidField) firstInvalidField = field;
+        }
+        // Check pattern validation for email and mobile
+        else if (field.attr('pattern') && value) {
+            const pattern = new RegExp(field.attr('pattern'));
+            if (!pattern.test(value)) {
+                field.addClass('field-error');
+                isValid = false;
+                if (!firstInvalidField) firstInvalidField = field;
+            }
+        }
+    });
+    
+    // Focus on first invalid field
+    if (firstInvalidField) {
+        firstInvalidField.focus();
+        
+        // Show alert with specific error message
+        let errorMsg = 'Please fill all required fields correctly:\n\n';
+        $('.field-error').each(function() {
+            const label = $(this).closest('.form-group').find('label').text();
+            errorMsg += '• ' + label + '\n';
+        });
+        alert(errorMsg);
+    }
+    
+    return isValid;
+}
+
+// Validate password match
+function validatePasswordMatch() {
+    const password = $('#password').val();
+    const confirmPassword = $('#confirm_password').val();
+    
+    if (password && confirmPassword && password !== confirmPassword) {
+        $('#confirm_password').addClass('field-error');
+        alert('Password and Confirm Password do not match!');
+        return false;
+    }
+    
+    return true;
+}
+
+function nextTab(tabId) {
+    $('.nav-tabs a[href="#' + tabId + '"]').tab('show');
+}
+
+function prevTab(tabId) {
+    $('.nav-tabs a[href="#' + tabId + '"]').tab('show');
+}
+
+// Generate random 8-digit Customer ID (no prefix)
+function generateCustomerId() {
+    const randomNum = Math.floor(10000000 + Math.random() * 90000000);
+    return randomNum.toString();
+}
+
+// Generate random CAF NO with CAF prefix
+function generateCafNo() {
+    const randomNum = Math.floor(10000000 + Math.random() * 90000000);
+    return 'CAF' + randomNum;
+}
+
+// Calculate end date based on start date and period
+function calculateEndDate(startDate, periodMonths) {
+    if (!startDate || !periodMonths) return '';
+    
+    const parts = startDate.split('-');
+    if (parts.length !== 3) return '';
+    
+    const day = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    const year = parseInt(parts[2]);
+    
+    const start = new Date(year, month, day);
+    const end = new Date(year, month + parseInt(periodMonths), day);
+    end.setDate(end.getDate() - 1);
+    
+    const endDay = String(end.getDate()).padStart(2, '0');
+    const endMonth = String(end.getMonth() + 1).padStart(2, '0');
+    const endYear = end.getFullYear();
+    
+    return endDay + '-' + endMonth + '-' + endYear;
+}
+
+// Calculate payment amounts based on plan and period
+// _S39R5FIX11_ — expose the company's state to the tax calculator
+window.AISP_COMPANY_STATE = "{{ (company.state if company and company.state else '')|escape }}";
+$(function () {
+    $('#billing_state, #state').on('change', function () {
+        if (typeof calculatePaymentAmounts === 'function') calculatePaymentAmounts();
+    });
+});
+
+function calculatePaymentAmounts() {
+    const planSelect = $('#plan');
+    const periodSelect = $('#period');
+    
+    if (!planSelect.val() || !periodSelect.val()) return;
+    
+    const selectedOption = planSelect.find('option:selected');
+    const baseAmount = parseFloat(selectedOption.data('base-amount')) || 0;
+    let cgstRate = parseFloat(selectedOption.data('cgst')) || 0;
+    let sgstRate = parseFloat(selectedOption.data('sgst')) || 0;
+    let igstRate = parseFloat(selectedOption.data('igst')) || 0;
+    const period = parseInt(periodSelect.val());
+
+    // _S39R5FIX11_ — apply intra/inter-state rule: only one set of tax applies
+    //   intra (billing-state == company-state) → CGST + SGST, IGST = 0
+    //   inter (billing-state != company-state) → IGST only, CGST = SGST = 0
+    // If IGST rate is 0 in plan but tax should be IGST, derive it as CGST + SGST.
+    const _companyState = (window.AISP_COMPANY_STATE || '').toString().trim().toLowerCase();
+    const _billingState = ($('#billing_state').val() || $('#state').val() || '').toString().trim().toLowerCase();
+    const _isIntra = (!_companyState) || (!_billingState) || (_companyState === _billingState);
+    if (_isIntra) {
+        igstRate = 0;
+    } else {
+        // inter-state — collapse to IGST. If plan has explicit IGST use it; else
+        // fall back to CGST+SGST sum.
+        if (!igstRate) igstRate = cgstRate + sgstRate;
+        cgstRate = 0;
+        sgstRate = 0;
+    }
+
+    let cgstAmount = (cgstRate <= 100) ? (baseAmount * cgstRate / 100) : cgstRate;
+    let sgstAmount = (sgstRate <= 100) ? (baseAmount * sgstRate / 100) : sgstRate;
+    let igstAmount = (igstRate <= 100) ? (baseAmount * igstRate / 100) : igstRate;
+
+    // For postpaid, always use period=1 for display and Total Due calculation
+    const customerType = $('#customer_type').val();
+    const periodForCalc = (customerType === 'Postpaid') ? 1 : period;
+    
+    // Calculate monthly amounts
+    const billAmount = baseAmount * periodForCalc;
+    const totalCgst = cgstAmount * periodForCalc;
+    const totalSgst = sgstAmount * periodForCalc;
+    const totalIgst = igstAmount * periodForCalc;
+    
+    // Calculate total plan amount (base + taxes for the period)
+    const totalAmount = billAmount + totalCgst + totalSgst + totalIgst;
+    
+    // Update fields
+    $('#bill_amount').val('₹' + billAmount.toFixed(2));
+    $('#cgst_tax').val('₹' + totalCgst.toFixed(2));
+    $('#sgst_tax').val('₹' + totalSgst.toFixed(2));
+    $('#igst_tax').val('₹' + totalIgst.toFixed(2));
+    $('#total_bill_amount').val('₹' + totalAmount.toFixed(2));
+    
+    // Trigger Total Due Balance calculation
+    calculateTotalDueBalance();
+}
+
+// Calculate Total Due Balance
+function calculateTotalDueBalance() {
+    // Get values and strip currency formatting
+    // Always include plan amount for both prepaid and postpaid
+    const totalPlanAmount = parseFloat($('#total_bill_amount').val().replace('₹', '').replace(',', '').trim()) || 0;
+    
+    const routerCharges = parseFloat($('#router_charges').val()) || 0;
+    const installationCharges = parseFloat($('#installation_charges').val()) || 0;
+    const discountCredit = parseFloat($('#discount_credit').val()) || 0;
+    const receivedAmount = parseFloat($('#received_amount').val()) || 0;
+    
+    // Formula: Total Plan Amount + Router + Installation - Discount - Received Amount
+    // (Security deposit removed as per user request)
+    const totalDueBalance = totalPlanAmount + routerCharges + installationCharges - discountCredit - receivedAmount;
+    
+    // Update field
+    $('#total_due_balance').val(totalDueBalance.toFixed(2));
+}
+
+// Generate Transaction ID based on payment mode and received amount
+function generateTransactionId() {
+    const paymentMode = $('#payment_mode').val();
+    const receivedAmountRaw = $('#received_amount').val() || '';
+    
+    // Strip non-numeric characters (like ₹) and parse as number
+    const receivedAmount = Number(String(receivedAmountRaw).replace(/[^0-9.]/g, ''));
+    
+    // Only generate if both payment mode is selected and received amount is entered
+    if (!paymentMode || !receivedAmount || receivedAmount <= 0) {
+        $('#transaction_id').val('');
+        return;
+    }
+    
+    // Generate 5 random digits
+    const randomDigits = Math.floor(10000 + Math.random() * 90000);
+    
+    // Map payment modes to prefixes (using both value and text for robustness)
+    const prefixes = {
+        'Cash': 'CSH',
+        'cash': 'CSH',
+        'Paytm': 'PAYTM',
+        'paytm': 'PAYTM',
+        'Google Pay': 'GPAY',
+        'google pay': 'GPAY',
+        'gpay': 'GPAY',
+        'Phone Pay': 'PHNP',
+        'phone pay': 'PHNP',
+        'phonepe': 'PHNP',
+        'Cheque': 'CHQ',
+        'cheque': 'CHQ',
+        'Netbanking': 'NETB',
+        'netbanking': 'NETB',
+        'net banking': 'NETB',
+        'Online Portal': 'PORTL',
+        'online portal': 'PORTL',
+        'portal': 'PORTL'
+    };
+    
+    const prefix = prefixes[paymentMode] || prefixes[paymentMode.toLowerCase()] || 'TXN';
+    $('#transaction_id').val(prefix + randomDigits);
+}
+
+// Show processing popup
+function showProcessingPopup() {
+    // Create overlay if it doesn't exist
+    if ($('#processing-overlay').length === 0) {
+        $('body').append(`
+            <div id="processing-overlay" style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 9999;
+            ">
+                <div style="
+                    background: white;
+                    padding: 30px 50px;
+                    border-radius: 8px;
+                    text-align: center;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+                ">
+                    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <h4 style="margin-top: 20px; color: #333;">Processing...</h4>
+                    <p style="color: #666; margin-top: 10px;">Please wait while we add the customer</p>
+                </div>
+            </div>
+        `);
+    }
+    $('#processing-overlay').show();
+}
+
+// Hide processing popup
+function hideProcessingPopup() {
+    $('#processing-overlay').hide();
+}
+
+// Check if all required fields are filled
+function checkRequiredFields() {
+    const requiredFields = [
+        'service_type', 'customer_id', 'name', 'username', 'password', 'confirm_password',
+        'mobile', 'address', 'locality', 'state', 'city', 'pincode',
+        'plan', 'caf_no', 'start_date', 'period', 'payment_mode'
+    ];
+    
+    let allFilled = true;
+    for (let field of requiredFields) {
+        const value = $('[name="' + field + '"]').val();
+        if (!value || value === '') {
+            allFilled = false;
+            break;
+        }
+    }
+    
+    // Show/hide Download CAF button based on required fields
+    if (allFilled) {
+        $('#downloadCafBtn').show();
+    } else {
+        $('#downloadCafBtn').hide();
+    }
+}
+
+$(document).ready(function() {
+
+    // __s56g_nas_picker__ : populate NAS dropdown
+    (function loadProvisionedNasList(){
+      fetch('/api/nas-devices/list').then(function(r){return r.json();}).then(function(j){
+        var list = (j && j.devices) || (j && j.nas_devices) || j || [];
+        if (!Array.isArray(list)) return;
+        var sel = document.getElementById('provisioned_nas_id');
+        if (!sel) return;
+        // _S58BD_NO_AUTO_NAS_  Render only Active NAS, then auto-select
+        // the FIRST (oldest) one so the form never submits empty.
+        var actives = list.filter(function(n){
+          return (n.status || '').toLowerCase() === 'active';
+        }).sort(function(a, b){ return (a.id || 0) - (b.id || 0); });
+        actives.forEach(function(n, idx){
+          var opt = document.createElement('option');
+          opt.value = n.id;
+          var lbl = (n.name || ('NAS-' + n.id));
+          if (n.location)   lbl += ' — ' + n.location;
+          if (n.ip_address) lbl += '  [' + n.ip_address + ']';
+          opt.textContent = lbl;
+          sel.appendChild(opt);
+          // Pre-select the oldest NAS so the operator always starts from
+          // a valid choice (matches the backend auto-default).
+          if (idx === 0) opt.selected = true;
+        });
+      }).catch(function(){});
+    })();
+
+
+    // _S40zP_dns_  load DNS profiles into the customer form dropdown(s)
+    (function loadCustDnsProfiles() {
+        $.ajax({ url: '/api/admin/dns-profiles', method: 'GET' })
+         .done(function(r) {
+            var rows = (r && (r.items || r.profiles)) || [];
+            ['#dns_profile_id', '#edit_dns_profile_id'].forEach(function(sel) {
+                var $s = $(sel);
+                if (!$s.length) return;
+                $s.find('option:not(:first)').remove();
+                rows.forEach(function(p) {
+                    $s.append('<option value="' + p.id + '">' + (p.name || ('Profile #' + p.id)) + '</option>');
+                });
+            });
+        });
+    })();
+    // Auto-generate Customer ID on page load
+    $('#customer_id').val(generateCustomerId());
+    
+    // Auto-generate CAF NO on page load
+    $('#caf_no').val(generateCafNo());
+    
+    // Load locations from database and populate locality dropdown
+    function loadLocations() {
+        $.ajax({
+            url: '/api/locations/list',
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.locations) {
+                    const localitySelect = $('#locality');
+                    localitySelect.empty();
+                    
+                    // Filter to only Active locations
+                    const activeLocations = response.locations.filter(loc => loc.status === 'Active');
+                    
+                    if (activeLocations.length === 0) {
+                        localitySelect.append('<option value="">No locations available</option>');
+                        localitySelect.prop('disabled', true);
+                        $('#locality-error').show();
+                    } else {
+                        localitySelect.append('<option value="">Select Locality</option>');
+                        
+                        // Sort locations by name
+                        activeLocations.sort((a, b) => a.name.localeCompare(b.name));
+                        
+                        activeLocations.forEach(function(location) {
+                            localitySelect.append($('<option>', {
+                                value: location.name,
+                                text: location.name
+                            }));
+                        });
+                        
+                        localitySelect.prop('disabled', false);
+                        $('#locality-error').hide();
+                    }
+                } else {
+                    $('#locality').empty().append('<option value="">Error loading locations</option>').prop('disabled', true);
+                    $('#locality-error').show();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Failed to load locations:', error);
+                $('#locality').empty().append('<option value="">Error loading locations</option>').prop('disabled', true);
+                $('#locality-error').show();
+            }
+        });
+    }
+    
+    // Load locations on page load
+    loadLocations();
+    
+    // Load Indian states (populate both installation + billing state dropdowns)
+    $.getJSON('/static/data/states_IN.json', function(states) {
+        states.forEach(function(state) {
+            $('#state').append('<option value="' + state.code + '">' + state.name + '</option>');
+            $('#billing_state').append('<option value="' + state.code + '">' + state.name + '</option>');
+        });
+    });
+
+    // Billing address toggle — reveal / hide + toggle required on billing fields
+    $('#billing_address_different').on('change', function() {
+        var isChecked = $(this).is(':checked');
+        $('#billingAddressFields').toggle(isChecked);
+        $('#billing_address, #billing_locality, #billing_state, #billing_city, #billing_pincode').each(function() {
+            $(this).prop('required', isChecked);
+            if (!isChecked) {
+                $(this).removeClass('field-error').val('');
+            }
+        });
+    });
+    
+    // Populate Period dropdown (1-36 months) - will be filtered based on customer type
+    function populatePeriodDropdown() {
+        const customerType = $('#customer_type').val();
+        $('#period').empty().append('<option value="">Select Period</option>');
+        
+        if (customerType === 'Postpaid') {
+            // For postpaid, only show 1 month
+            $('#period').append('<option value="1">1 Month</option>');
+        } else {
+            // For prepaid, show 1-36 months
+            for (let i = 1; i <= 36; i++) {
+                $('#period').append('<option value="' + i + '">' + i + ' Month' + (i > 1 ? 's' : '') + '</option>');
+            }
+        }
+    }
+    
+    // Initial population
+    populatePeriodDropdown();
+    
+    // Initialize Flatpickr for Start Date with restrictions based on customer type
+    let startDatePicker = flatpickr('#start_date', {
+        dateFormat: 'd-m-Y',
+        maxDate: 'today', // Default for postpaid - only today or past dates
+        onChange: function(selectedDates, dateStr) {
+            const period = $('#period').val();
+            if (period) {
+                $('#end_date').val(calculateEndDate(dateStr, period));
+            }
+            checkRequiredFields();
+        }
+    });
+    
+    // Update start date restrictions and period when customer type changes
+    $('#customer_type').on('change', function() {
+        const customerType = $(this).val();
+        
+        // Update period dropdown
+        populatePeriodDropdown();
+        
+        // Update start date calendar restrictions
+        if (customerType === 'Postpaid') {
+            // For postpaid: only today or past dates
+            startDatePicker.set('maxDate', 'today');
+        } else {
+            // For prepaid: no restrictions
+            startDatePicker.set('maxDate', null);
+        }
+        
+        // Update amount display logic
+        updateAmountDisplay();
+        
+        // Recalculate if plan is already selected
+        if ($('#plan').val()) {
+            calculatePaymentAmounts();
+        }
+    });
+    
+    // Initialize Flatpickr for Installation/Creation Date with today's date as default
+    flatpickr("#installation_date", { clickOpens: false, allowInput: false,
+        dateFormat: 'd-m-Y',
+        defaultDate: new Date()
+    });
+    
+    // Load plans from database based on service type
+    function loadPlans() {
+        const serviceType = $('#service_type').val();
+        $.ajax({
+            url: '/api/plans/list',
+            method: 'GET',
+            data: { service: serviceType },
+            success: function(data) {
+                $('#plan').empty().append('<option value="">Select Plan</option>');
+                if (data.plans && data.plans.length > 0) {
+                    data.plans.forEach(function(plan) {
+                        const option = $('<option></option>')
+                            .val(plan.id)
+                            .text(plan.plan_name + ' - ' + plan.speed + ' (₹' + plan.after_tax_amount + '/month)')
+                            .data('base-amount', plan.base_amount)
+                            .data('cgst', plan.cgst_tax)
+                            .data('sgst', plan.sgst_tax)
+                            .data('igst', plan.igst_tax)
+                            .data('after-tax-amount', plan.after_tax_amount);
+                        $('#plan').append(option);
+                    });
+                }
+            },
+            error: function() {
+                console.log('Error loading plans');
+            }
+        });
+    }
+    
+    // Load plans on page load
+    loadPlans();
+    
+    // Reload plans when service type changes
+    function updateAuthTypeVisibility() {
+        var st = ($('#service_type').val() || '').toLowerCase();
+        var isCable = (st === 'cable');
+        $('#auth_type_row').toggle(!isCable);
+        if (isCable) {
+            // Cable TV customers never go through RADIUS — force auth_type
+            // to a sane default so the stored row is consistent, and hide
+            // the static-IP + hotspot-specific sub-fields too.
+            $('#auth_type').val('pppoe');
+            if (typeof toggleAuthTypeFields === 'function') toggleAuthTypeFields();
+        }
+    }
+    $('#service_type').on('change', function() {
+        loadPlans();
+        $('#monthly_amount').val('');
+        $('#bill_amount').val('');
+        $('#cgst_tax').val('');
+        $('#sgst_tax').val('');
+        $('#igst_tax').val('');
+        $('#total_bill_amount').val('');
+        checkRequiredFields();
+        updateAuthTypeVisibility();
+    });
+    // Run once on load for the server-rendered initial value.
+    updateAuthTypeVisibility();
+    
+    // Function to update amount display based on customer type
+    function updateAmountDisplay() {
+        const customerType = $('#customer_type').val();
+        
+        // Always show total plan amount for both prepaid and postpaid
+        $('#total_bill_amount').closest('.form-group').parent().show();
+    }
+    
+    // Update monthly amount when plan is selected
+    $('#plan').on('change', function() {
+        const selectedOption = $(this).find('option:selected');
+        const afterTaxAmount = selectedOption.data('after-tax-amount');
+        if (afterTaxAmount) {
+            $('#monthly_amount').val('₹' + afterTaxAmount.toFixed(2));
+        } else {
+            $('#monthly_amount').val('');
+        }
+        calculatePaymentAmounts();
+        updateAmountDisplay();
+        checkRequiredFields();
+    });
+    
+    // Calculate end date when period changes
+    $('#period').on('change', function() {
+        const startDate = $('#start_date').val();
+        if (startDate) {
+            $('#end_date').val(calculateEndDate(startDate, $(this).val()));
+        }
+        calculatePaymentAmounts();
+        checkRequiredFields();
+    });
+    
+    // Validation for General Information tab -> Address tab
+    $('#nextToAddress').on('click', function() {
+        const generalFields = ['name', 'username', 'password', 'confirm_password', 'email', 'mobile', 'id_proof', 'id_proof_no'];
+        
+        // Validate password match first
+        if (!validatePasswordMatch()) {
+            return false;
+        }
+        
+        // Validate all required fields
+        if (validateFields(generalFields)) {
+            nextTab('address');
+        }
+    });
+    
+    // Validation for Address tab -> Billing tab
+    $('#nextToBilling').on('click', function() {
+        const addressFields = ['address', 'locality', 'state', 'city', 'pincode'];
+        const billingFields = $('#billing_address_different').is(':checked')
+            ? ['billing_address', 'billing_locality', 'billing_state', 'billing_city', 'billing_pincode']
+            : [];
+        const fieldsToCheck = addressFields.concat(billingFields);
+
+        if (validateFields(fieldsToCheck)) {
+            nextTab('billing');
+        }
+    });
+    
+    // Validation for Billing tab -> Payment tab
+    $('#nextToPayment').on('click', function() {
+        const billingFields = ['plan', 'start_date', 'period', 'end_date'];
+        
+        if (validateFields(billingFields)) {
+            nextTab('payment');
+        }
+    });
+    
+    // Remove error styling on input change
+    $('input, select, textarea').on('input change', function() {
+        $(this).removeClass('field-error');
+        checkRequiredFields();
+    });
+    
+    // Password validation - highlight if less than 6 characters
+    $('#password, #confirm_password').on('keyup input', function() {
+        const field = $(this);
+        const value = field.val();
+        const helperId = field.attr('id') === 'password' ? '#password-helper' : '#confirm-password-helper';
+        
+        if (value.length > 0 && value.length < 6) {
+            field.addClass('is-invalid');
+            $(helperId).removeClass('text-muted').addClass('text-danger');
+        } else {
+            field.removeClass('is-invalid');
+            $(helperId).removeClass('text-danger').addClass('text-muted');
+        }
+    });
+    
+    // __s56AG_no_prefix__ — free-form username, strip whitespace only.
+    let usernameCheckTimeout;
+    let isUsernameValid = false;
+    $('#username').on('keyup input', function() {
+        // Strip whitespace only — anything else is fine.
+        const sanitized = ($(this).val() || '').replace(/\s+/g, '');
+        if (sanitized !== $(this).val()) $(this).val(sanitized);
+        const username = sanitized.trim();
+        const feedback = $('#username-feedback');
+        
+        // Clear previous timeout
+        clearTimeout(usernameCheckTimeout);
+        
+        if (username.length < 3) {
+            feedback.text('').removeClass('text-success text-danger');
+            isUsernameValid = false;
+            return;
+        }
+        
+        // Show checking message
+        feedback.text('Checking...').removeClass('text-success text-danger').addClass('text-muted');
+        
+        // Debounce: wait 500ms after user stops typing
+        usernameCheckTimeout = setTimeout(function() {
+            $.ajax({
+                url: '/api/customers/check-username',
+                method: 'GET',
+                data: { username: username },
+                success: function(response) {
+                    if (response.exists) {
+                        feedback.text('Username already exists! Please choose another.').removeClass('text-muted text-success').addClass('text-danger');
+                        $('#username').addClass('is-invalid');
+                        isUsernameValid = false;
+                    } else {
+                        feedback.text('Username available ✓').removeClass('text-muted text-danger').addClass('text-success');
+                        $('#username').removeClass('is-invalid');
+                        isUsernameValid = true;
+                    }
+                },
+                error: function() {
+                    feedback.text('Could not verify username. Please try again.').removeClass('text-muted text-success').addClass('text-danger');
+                    isUsernameValid = false;
+                }
+            });
+        }, 500);
+    });
+    
+    // Auto-generate Transaction ID when payment mode or received amount changes
+    $('#payment_mode, #received_amount').on('change keyup input', function() {
+        generateTransactionId();
+    });
+    
+    // Recalculate Total Due Balance when relevant fields change
+    $('#router_charges, #installation_charges, #discount_credit, #received_amount').on('change keyup', function() {
+        calculateTotalDueBalance();
+    });
+    
+    // Download CAF button click
+    $('#downloadCafBtn').on('click', function() {
+        alert('CAF download functionality will be implemented soon.');
+    });
+    
+    // Form validation and submission
+    $('#customerForm').on('submit', function(e) {
+        e.preventDefault();
+
+        // Check username validity (__s56AG_no_prefix__ — free-form usernames,
+        // min length 3, no prefix). Wait if the AJAX uniqueness check is
+        // still in flight (isUsernameValid flips after the server responds).
+        var __uname = ($('#username').val() || '').trim();
+        if (!isUsernameValid && __uname.length >= 3) {
+            alert('Please wait for username validation to complete or choose a different username.');
+            return false;
+        }
+
+        
+        // Validate password match
+        const password = $('#password').val();
+        const confirmPassword = $('#confirm_password').val();
+        if (password !== confirmPassword) {
+            alert('Passwords do not match!');
+            return false;
+        }
+        
+        // Validate password length
+        if (password.length < 6) {
+            alert('Password must be at least 6 characters long!');
+            return false;
+        }
+        
+        // Fallback: Generate transaction ID if not already generated
+        if (!$('#transaction_id').val()) {
+            generateTransactionId();
+        }
+        
+        // Show processing popup
+        showProcessingPopup();
+        
+        // Collect all form data from all tabs
+        const formData = {};
+        $('input, select, textarea').each(function() {
+            const name = $(this).attr('name');
+            if (name) {
+                formData[name] = $(this).val();
+            }
+        });
+        
+        // __s55s_vlan__ — explicit boolean for vlan_enabled (checkbox)
+        formData.vlan_enabled = ($('#vlan_enabled').is(':checked')) ? 1 : 0;
+        if (!formData.vlan_enabled) formData.vlan_id = null;
+        // Drop the checkbox-only + file fields from JSON — files go via multipart after success.
+        delete formData.billing_address_different;
+        delete formData.photograph;
+        delete formData.address_proof;
+        delete formData.id_proof_doc;
+
+        // If the checkbox is unchecked, don't send billing_* at all.
+        if (!$('#billing_address_different').is(':checked')) {
+            delete formData.billing_address;
+            delete formData.billing_locality;
+            delete formData.billing_state;
+            delete formData.billing_city;
+            delete formData.billing_pincode;
+        }
+
+        // Submit to backend
+        console.log('Submitting customer form with data:', formData);
+        $.ajax({
+            url: '/api/customers/create',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                console.log('Success response:', response);
+                if (!response.success) {
+                    hideProcessingPopup();
+                    alert('Error: ' + (response.message || 'Failed to add customer'));
+                    console.error('Server returned error:', response);
+                    return;
+                }
+
+                // Upload any optional document files *after* the customer is saved.
+                var customerId = formData.customer_id;
+                var photograph = $('#photograph')[0] && $('#photograph')[0].files[0];
+                var addressProof = $('#address_proof')[0] && $('#address_proof')[0].files[0];
+                var idProofDoc = $('#id_proof_doc')[0] && $('#id_proof_doc')[0].files[0];
+
+                function goToUsers() {
+                    hideProcessingPopup();
+                    alert('Customer added successfully!');
+                    window.location.href = '{{ path_prefix|default("/admin") }}/users';
+                }
+
+                if (!photograph && !addressProof && !idProofDoc) {
+                    goToUsers();
+                    return;
+                }
+
+                var fd = new FormData();
+                if (photograph)   fd.append('photograph',   photograph);
+                if (addressProof) fd.append('address_proof', addressProof);
+                if (idProofDoc)   fd.append('id_proof_doc',  idProofDoc);
+
+                $.ajax({
+                    url: '/api/customers/' + encodeURIComponent(customerId) + '/documents',
+                    method: 'POST',
+                    data: fd,
+                    processData: false,
+                    contentType: false,
+                    success: function(docResp) {
+                        if (!docResp.success) {
+                            console.warn('Document upload returned:', docResp);
+                            alert('Customer saved, but document upload failed: ' + (docResp.message || 'unknown error'));
+                        }
+                        goToUsers();
+                    },
+                    error: function(xhr) {
+                        console.error('Document upload error:', xhr);
+                        alert('Customer saved, but document upload failed. You can edit the customer to retry.');
+                        goToUsers();
+                    }
+                });
+            },
+            error: function(xhr, status, error) {
+                hideProcessingPopup();
+                console.error('AJAX error:', {xhr: xhr, status: status, error: error});
+                console.error('Response text:', xhr.responseText);
+                alert('Error adding customer: ' + (xhr.responseJSON?.message || xhr.responseText || 'Unknown error'));
+            }
+        });
+    });
+});
+</script>
+
+
+<!-- _S40g_MOBILE_MODE_ Bottom step nav -->
+<div id="aispb-step-nav" data-testid="aispb-step-nav">
+  <button type="button" class="btn-prev" data-testid="aispb-step-prev" onclick="aispbStep(-1)">‹ Prev</button>
+  <button type="button" class="btn-next" data-testid="aispb-step-next" onclick="aispbStep(+1)">Next ›</button>
+  <button type="button" class="btn-submit" data-testid="aispb-step-submit" onclick="aispbSubmit()" style="display:none;">Submit ✓</button>
+</div>
+<script>
+  (function() {
+    function isMobile() {
+      var u = new URLSearchParams(window.location.search);
+      return u.get("mobile") === "1";
+    }
+    if (!isMobile()) return;
+    document.body.classList.add("aispb-mobile-mode");
+    // Tab order matches existing template: general, address, billing, payment
+    var TABS = ["general", "address", "billing", "payment"];
+    var idx = 0;
+    function activate(i) {
+      idx = Math.max(0, Math.min(TABS.length - 1, i));
+      // Use Bootstrap's tab API
+      if (window.jQuery) {
+        jQuery('.nav-tabs a[href="#' + TABS[idx] + '"]').tab('show');
+      }
+      var prev = document.querySelector("#aispb-step-nav .btn-prev");
+      var next = document.querySelector("#aispb-step-nav .btn-next");
+      var sub  = document.querySelector("#aispb-step-nav .btn-submit");
+      if (prev) prev.disabled = idx === 0;
+      if (next) next.style.display = (idx < TABS.length - 1) ? "" : "none";
+      if (sub)  sub.style.display  = (idx === TABS.length - 1) ? "" : "none";
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+    window.aispbStep = function(delta) { activate(idx + delta); };
+    window.aispbSubmit = function() {
+      // Find the form's existing submit handler.
+      var form = document.querySelector("form#addCustomerForm, form[name='addCustomerForm'], section.content form");
+      if (form) {
+        // Find the desktop-submit button and trigger it
+        var btn = form.querySelector(".aispb-desktop-submit");
+        if (btn) { btn.click(); return; }
+        form.requestSubmit ? form.requestSubmit() : form.submit();
+      }
+    };
+    // Sync state when user manually taps a tab pill
+    if (window.jQuery) {
+      jQuery('.nav-tabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+        var href = (jQuery(e.target).attr('href') || "").replace('#','');
+        var i = TABS.indexOf(href);
+        if (i >= 0) activate(i);
+      });
+    }
+    // Initial activation after DOM ready
+    document.addEventListener("DOMContentLoaded", function() { activate(0); });
+    if (document.readyState !== "loading") activate(0);
+  })();
+</script>
+
+
+<script>
+/* _v4711_GPS_REQUIRED  When opened via the mobile app (?mobile=1), block
+   form submission unless latitude+longitude have been captured.  The desktop
+   web portal is unaffected. */
+(function(){
+  function isMobileMode(){
+    try {
+      return new URLSearchParams(window.location.search).get('mobile') === '1'
+          || (document.body && document.body.classList.contains('aispb-mobile-mode'));
+    } catch(_) { return false; }
+  }
+  function bindGuard(){
+    if (!isMobileMode()) return;
+    var form = document.querySelector('form#addCustomerForm, form[name="addCustomerForm"], section.content form');
+    if (!form || form.__v4711GpsBound) return;
+    form.__v4711GpsBound = true;
+    form.addEventListener('submit', function(ev){
+      var lat = (document.getElementById('latitude')||{}).value || '';
+      var lng = (document.getElementById('longitude')||{}).value || '';
+      if (!String(lat).trim() || !String(lng).trim()){
+        ev.preventDefault(); ev.stopImmediatePropagation();
+        try { alert('GPS location is mandatory on mobile.\nTap "Capture GPS" to grab the customer\u2019s coordinates before saving.'); } catch(_){}
+        var status = document.getElementById('add-geo-status');
+        if (status){ status.textContent = 'GPS is required \u2014 tap Capture GPS first.';
+                     status.style.color = '#dc2626'; status.style.fontWeight = '600'; }
+        var btn = document.querySelector('[onclick*="captureGeo"]');
+        if (btn) btn.scrollIntoView({ behavior:'smooth', block:'center' });
+        return false;
+      }
+    }, true);  /* capture phase so we run before any other handler */
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindGuard);
+  } else { bindGuard(); }
+})();
+</script>
+
+
+
+{% endblock %}

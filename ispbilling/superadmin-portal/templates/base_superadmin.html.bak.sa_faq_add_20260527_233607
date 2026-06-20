@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- E1_MODERN_OVERLAY_BOOT --><script>(function(){try{document.documentElement.classList.add("e1-dark");document.documentElement.setAttribute("data-e1-theme","dark");localStorage.setItem("e1-theme","dark");}catch(e){}})();</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <title>{% block title %}Superadmin - Auto ISP Billing{% endblock %}</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <!-- Bootstrap 3.3.7 (kept for compatibility with existing modals/grids/forms) -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <!-- Font Awesome 4.7.0 (keep for existing fa-* icons used across pages) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- Bootstrap Icons (modern extra icon set for new UI bits) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- AdminLTE 2.4.18 (still loaded so existing .box/.small-box widgets render; we override heavily below) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/AdminLTE.min.css">
+
+    {% block extra_css %}{% endblock %}
+
+    <style>
+        :root {
+            --bg: #f4f6fb;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --sidebar-bg: #0f172a;
+            --sidebar-bg-2: #111827;
+            --sidebar-fg: #cbd5e1;
+            --sidebar-muted: #94a3b8;
+            --sidebar-active: #1e293b;
+            --sidebar-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --primary-soft: #eef2ff;
+            --success: #10b981;
+            --success-soft: #ecfdf5;
+            --warning: #f59e0b;
+            --warning-soft: #fffbeb;
+            --danger: #ef4444;
+            --danger-soft: #fef2f2;
+            --info: #0ea5e9;
+            --info-soft: #f0f9ff;
+            --border: #e5e7eb;
+            --border-strong: #d1d5db;
+            --text: #0f172a;
+            --text-2: #334155;
+            --muted: #64748b;
+            --radius-sm: 8px;
+            --radius: 14px;
+            --radius-lg: 20px;
+            --shadow-xs: 0 1px 2px rgba(15,23,42,.04);
+            --shadow-sm: 0 2px 6px rgba(15,23,42,.05);
+            --shadow: 0 10px 30px rgba(15,23,42,.06);
+            --shadow-lg: 0 20px 40px rgba(15,23,42,.1);
+            --sidebar-w: 260px;
+            --sidebar-w-mini: 72px;
+            --topbar-h: 64px;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            margin: 0;
+        }
+        body.hold-transition { overflow-x: hidden; }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { color: var(--primary-dark); text-decoration: none; }
+        h1,h2,h3,h4,h5,h6 { color: var(--text); font-weight: 700; letter-spacing: -0.01em; }
+
+        /* ==== Layout shell ==== */
+        .wrapper { min-height: 100vh; background: var(--bg); }
+        .main-header { background: transparent !important; border: 0 !important; position: fixed; top: 0; left: 0; right: 0; z-index: 1040; height: var(--topbar-h); }
+        .main-header .logo, .main-header .navbar { height: var(--topbar-h); line-height: 1; }
+        .main-header .logo {
+            width: var(--sidebar-w);
+            background: var(--sidebar-bg) !important;
+            color: #f8fafc !important;
+            font-weight: 800;
+            font-size: 18px;
+            letter-spacing: 0.02em;
+            display: flex; align-items: center; justify-content: center;
+            border-bottom: 0 !important;
+            padding: 0 16px;
+        }
+        .main-header .logo b { color: #f8fafc; font-weight: 800; }
+        .main-header .logo .logo-lg span, .main-header .logo .logo-lg b { background: var(--sidebar-accent); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .main-header .logo .logo-mini { display: none; }
+        .main-header .logo .logo-lg { display: flex; align-items: center; gap: 8px; }
+        .main-header .logo .logo-lg::before { content: ''; width: 28px; height: 28px; border-radius: 8px; background: var(--sidebar-accent); flex: 0 0 28px; box-shadow: 0 6px 16px rgba(99,102,241,.45); }
+
+        .main-header .navbar {
+            margin-left: var(--sidebar-w);
+            background: var(--surface) !important;
+            border-bottom: 1px solid var(--border) !important;
+            box-shadow: var(--shadow-xs);
+            display: flex; align-items: center; padding: 0 24px;
+        }
+        .main-header .sidebar-toggle {
+            color: var(--text-2) !important;
+            padding: 8px 12px !important;
+            margin: 0 !important;
+            font-size: 18px;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            transition: background .15s;
+        }
+        .main-header .sidebar-toggle:hover { background: var(--primary-soft); color: var(--primary) !important; }
+        .main-header .sidebar-toggle::before { font-family: 'bootstrap-icons'; content: '\F479'; /* list */ }
+
+        .navbar-custom-menu { margin-left: auto; }
+        .navbar-custom-menu .nav > li > a { padding: 8px 12px !important; color: var(--text-2) !important; }
+        .navbar-custom-menu .user-menu .dropdown-toggle {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 10px !important;
+            border-radius: 999px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+        }
+        .navbar-custom-menu .user-menu .dropdown-toggle:hover { background: var(--primary-soft); border-color: #c7d2fe; }
+        .navbar-custom-menu .user-menu .user-image {
+            width: 32px !important; height: 32px !important; border-radius: 50%;
+            margin: 0 !important; object-fit: cover; background: var(--sidebar-accent);
+        }
+        .navbar-custom-menu .user-menu .dropdown-menu {
+            border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: var(--shadow-lg); padding: 0; overflow: hidden; margin-top: 8px;
+        }
+        .navbar-custom-menu .user-menu .user-header {
+            background: linear-gradient(135deg, var(--sidebar-bg) 0%, #1e293b 100%) !important;
+            padding: 20px !important; height: auto !important;
+            color: #f8fafc;
+        }
+        .navbar-custom-menu .user-menu .user-header p { color: #f8fafc; margin-top: 8px; }
+        .navbar-custom-menu .user-menu .user-header img { border: 3px solid rgba(255,255,255,.3); width: 64px; height: 64px; }
+        .navbar-custom-menu .user-menu .user-footer { padding: 12px; background: var(--surface); }
+        .navbar-custom-menu .user-menu .user-footer .btn { border-radius: var(--radius-sm); font-weight: 600; font-size: 13px; }
+        .navbar-custom-menu .user-menu .user-footer .btn-default { background: var(--surface-2); border-color: var(--border); color: var(--text-2); }
+        .navbar-custom-menu .user-menu .user-footer .btn-default:hover { background: var(--primary-soft); color: var(--primary); border-color: #c7d2fe; }
+
+        /* ==== Sidebar ==== */
+        .main-sidebar {
+            background: var(--sidebar-bg) !important;
+            width: var(--sidebar-w);
+            padding-top: var(--topbar-h);
+            position: fixed; top: 0; left: 0; bottom: 0;
+            z-index: 1030;
+            overflow: hidden;
+            box-shadow: 2px 0 20px rgba(15,23,42,.08);
+        }
+        .main-sidebar .sidebar {
+            height: calc(100vh - var(--topbar-h));
+            overflow-y: auto; overflow-x: hidden;
+            padding: 16px 12px;
+            scrollbar-width: thin; scrollbar-color: #334155 transparent;
+        }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 6px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+        .sidebar-menu { padding: 0; margin: 0; list-style: none; }
+        .sidebar-menu > li.header {
+            color: var(--sidebar-muted) !important;
+            font-size: 10px; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            padding: 16px 14px 8px !important;
+            background: transparent !important;
+        }
+        .sidebar-menu > li > a {
+            display: flex !important; align-items: center; gap: 12px;
+            color: var(--sidebar-fg) !important;
+            padding: 11px 14px !important;
+            border-radius: var(--radius-sm);
+            margin: 2px 0; font-weight: 500; font-size: 14px;
+            border-left: 0 !important;
+            transition: background .15s, color .15s;
+        }
+        .sidebar-menu > li > a > i {
+            font-size: 16px; width: 22px; text-align: center;
+            color: var(--sidebar-muted);
+            transition: color .15s;
+        }
+        .sidebar-menu > li > a:hover { background: rgba(99,102,241,.10) !important; color: #fff !important; }
+        .sidebar-menu > li > a:hover > i { color: #a5b4fc; }
+        .sidebar-menu > li.active > a {
+            background: var(--sidebar-active) !important;
+            color: #fff !important;
+            position: relative;
+            border-left: 0 !important;
+        }
+        .sidebar-menu > li.active > a::before {
+            content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px;
+            width: 4px; border-radius: 0 4px 4px 0;
+            background: var(--sidebar-accent);
+        }
+        .sidebar-menu > li.active > a > i { color: #a5b4fc; }
+
+        /* ==== Content area ==== */
+        .content-wrapper {
+            margin-left: var(--sidebar-w) !important;
+            padding-top: calc(var(--topbar-h) + 8px);
+            background: var(--bg) !important;
+            min-height: 100vh;
+        }
+        .main-footer {
+            margin-left: var(--sidebar-w) !important;
+            background: transparent !important;
+            border-top: 1px solid var(--border) !important;
+            color: var(--muted); font-size: 13px;
+            padding: 16px 24px !important;
+        }
+
+        /* ==== Page header ==== */
+        .content-header {
+            padding: 20px 24px 8px !important;
+            background: transparent !important;
+            border: 0 !important;
+            position: relative;
+        }
+        .content-header > h1 {
+            margin: 0 !important;
+            font-size: 24px !important; font-weight: 800 !important;
+            color: var(--text) !important;
+            letter-spacing: -0.015em;
+            display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+        }
+        .content-header > h1 > small {
+            color: var(--muted) !important;
+            font-weight: 500; font-size: 13px !important;
+            letter-spacing: 0;
+        }
+        .content-header .breadcrumb {
+            background: transparent; padding: 0; margin: 8px 0 0;
+            font-size: 12px;
+        }
+
+        .content { padding: 12px 24px 24px !important; }
+
+        /* ==== Modern card system (overrides AdminLTE .box) ==== */
+        .box {
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius) !important;
+            box-shadow: var(--shadow-xs) !important;
+            margin-bottom: 20px !important;
+            border-top: 1px solid var(--border) !important;
+            overflow: hidden;
+        }
+        .box.box-primary, .box.box-success, .box.box-info, .box.box-warning, .box.box-danger { border-top-width: 1px !important; }
+        .box.box-primary { border-top: 3px solid var(--primary) !important; }
+        .box.box-success { border-top: 3px solid var(--success) !important; }
+        .box.box-info    { border-top: 3px solid var(--info) !important; }
+        .box.box-warning { border-top: 3px solid var(--warning) !important; }
+        .box.box-danger  { border-top: 3px solid var(--danger) !important; }
+        .box .box-header {
+            padding: 16px 20px !important;
+            border-bottom: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        }
+        .box .box-header.with-border { border-bottom: 1px solid var(--border) !important; }
+        .box .box-header .box-title {
+            font-size: 16px !important; font-weight: 700 !important;
+            color: var(--text) !important;
+            margin: 0 !important; line-height: 1.3;
+        }
+        .box .box-header .box-tools { margin-left: auto; }
+        .box .box-body { padding: 20px !important; background: var(--surface) !important; color: var(--text-2); }
+        .box .box-footer { padding: 14px 20px !important; background: var(--surface-2) !important; border-top: 1px solid var(--border) !important; }
+
+        /* ==== Stat cards (.small-box modernized) ==== */
+        .small-box {
+            position: relative; overflow: hidden;
+            border-radius: var(--radius) !important;
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            box-shadow: var(--shadow-xs) !important;
+            border: 1px solid var(--border) !important;
+            margin-bottom: 20px !important;
+            transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .small-box:hover { transform: translateY(-2px); box-shadow: var(--shadow) !important; }
+        .small-box > .inner { padding: 20px 24px !important; position: relative; z-index: 2; }
+        .small-box h3 {
+            font-size: 32px !important; font-weight: 800 !important;
+            margin: 0 0 4px !important; color: var(--text) !important;
+            letter-spacing: -0.02em;
+        }
+        .small-box p { color: var(--muted) !important; font-weight: 600; font-size: 13px; margin: 0; letter-spacing: 0.01em; }
+        .small-box > .icon {
+            position: absolute; top: 18px; right: 18px; z-index: 1;
+            width: 52px; height: 52px; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; color: #fff;
+        }
+        .small-box > .icon > i { font-size: 22px !important; top: auto !important; right: auto !important; position: static !important; }
+        .small-box > .small-box-footer {
+            position: relative; z-index: 2;
+            background: var(--surface-2) !important;
+            color: var(--text-2) !important;
+            border-top: 1px solid var(--border) !important;
+            padding: 10px 24px !important;
+            font-weight: 600; font-size: 12.5px;
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
+        }
+        .small-box > .small-box-footer:hover { background: var(--primary-soft) !important; color: var(--primary) !important; }
+        .small-box.bg-aqua > .icon { background: linear-gradient(135deg, #06b6d4, #0ea5e9); box-shadow: 0 10px 20px rgba(14,165,233,.25); }
+        .small-box.bg-green > .icon { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px rgba(16,185,129,.25); }
+        .small-box.bg-yellow > .icon { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 10px 20px rgba(245,158,11,.25); }
+        .small-box.bg-red > .icon { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 10px 20px rgba(239,68,68,.25); }
+        .small-box.bg-blue > .icon { background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 10px 20px rgba(99,102,241,.25); }
+        .small-box.bg-aqua, .small-box.bg-green, .small-box.bg-yellow, .small-box.bg-red, .small-box.bg-blue { background: var(--surface) !important; color: var(--text) !important; }
+
+        /* ==== Forms ==== */
+        .form-control {
+            border-radius: var(--radius-sm) !important;
+            border: 1px solid var(--border-strong) !important;
+            box-shadow: none !important;
+            padding: 8px 12px !important;
+            height: 40px;
+            font-size: 14px;
+            background: var(--surface);
+            color: var(--text);
+            transition: border-color .15s, box-shadow .15s;
+        }
+        textarea.form-control { height: auto; min-height: 80px; }
+        select.form-control { padding-right: 28px !important; }
+        .form-control:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(79,70,229,.15) !important;
+        }
+        .form-group > label { font-weight: 600; color: var(--text-2); margin-bottom: 6px; font-size: 13px; }
+        .input-group-addon {
+            background: var(--surface-2) !important;
+            border-color: var(--border-strong) !important;
+            color: var(--text-2);
+            border-radius: var(--radius-sm) !important;
+        }
+
+        /* ==== Buttons ==== */
+        .btn {
+            border-radius: var(--radius-sm) !important;
+            font-weight: 600; font-size: 13px;
+            padding: 8px 16px !important;
+            border: 1px solid transparent;
+            transition: background .15s, color .15s, border-color .15s, box-shadow .15s, transform .05s;
+            letter-spacing: 0.01em;
+            line-height: 1.4;
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn-sm { padding: 6px 12px !important; font-size: 12px; }
+        .btn-xs { padding: 4px 8px !important; font-size: 11px; }
+        .btn-lg { padding: 10px 20px !important; font-size: 15px; }
+        .btn-primary { background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important; }
+        .btn-primary:hover, .btn-primary:focus { background: var(--primary-dark) !important; border-color: var(--primary-dark) !important; box-shadow: 0 6px 14px rgba(79,70,229,.28); color: #fff !important; }
+        .btn-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; }
+        .btn-success:hover { background: #059669 !important; border-color: #059669 !important; color: #fff !important; }
+        .btn-info { background: var(--info) !important; border-color: var(--info) !important; color: #fff !important; }
+        .btn-info:hover { background: #0284c7 !important; border-color: #0284c7 !important; color: #fff !important; }
+        .btn-warning { background: var(--warning) !important; border-color: var(--warning) !important; color: #fff !important; }
+        .btn-warning:hover { background: #d97706 !important; border-color: #d97706 !important; color: #fff !important; }
+        .btn-danger { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
+        .btn-danger:hover { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; }
+        .btn-default {
+            background: var(--surface) !important; color: var(--text-2) !important;
+            border: 1px solid var(--border-strong) !important;
+        }
+        .btn-default:hover { background: var(--surface-2) !important; border-color: var(--primary) !important; color: var(--primary) !important; }
+        .btn-flat { border-radius: var(--radius-sm) !important; }
+
+        /* ==== Tables ==== */
+        .table {
+            margin-bottom: 0;
+            background: var(--surface);
+            border-radius: var(--radius-sm); overflow: hidden;
+        }
+        .table > thead > tr > th {
+            background: var(--surface-2);
+            color: var(--muted);
+            font-weight: 700;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--border) !important;
+            border-top: 0 !important;
+            padding: 12px 16px !important;
+            white-space: nowrap;
+        }
+        .table > tbody > tr > td {
+            padding: 14px 16px !important;
+            border-top: 1px solid var(--border) !important;
+            color: var(--text-2);
+            font-size: 13.5px;
+            vertical-align: middle;
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) { background: #fafbfd; }
+        .table-hover > tbody > tr:hover { background: #f1f5f9 !important; }
+        .table-bordered { border: 1px solid var(--border) !important; }
+        .table-bordered > thead > tr > th, .table-bordered > tbody > tr > td { border: 1px solid var(--border) !important; }
+        .table-responsive { border: 0 !important; }
+
+        /* DataTables tweaks */
+        .dataTables_wrapper .dataTables_length select,
+        .dataTables_wrapper .dataTables_filter input {
+            border: 1px solid var(--border-strong) !important;
+            border-radius: var(--radius-sm) !important;
+            padding: 6px 10px !important;
+            font-size: 13px;
+            background: var(--surface);
+        }
+        .dataTables_wrapper .dataTables_length, .dataTables_wrapper .dataTables_filter,
+        .dataTables_wrapper .dataTables_info, .dataTables_wrapper .dataTables_paginate {
+            padding: 8px 0 !important; font-size: 13px; color: var(--muted);
+        }
+        .dataTables_wrapper .paginate_button {
+            border-radius: var(--radius-sm) !important;
+            padding: 6px 10px !important; border: 1px solid var(--border) !important;
+            background: var(--surface) !important; color: var(--text-2) !important;
+            margin-left: 2px; font-size: 12.5px;
+        }
+        .dataTables_wrapper .paginate_button.current,
+        .dataTables_wrapper .paginate_button.current:hover {
+            background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important;
+        }
+        .dataTables_wrapper .paginate_button:hover {
+            background: var(--primary-soft) !important; border-color: #c7d2fe !important; color: var(--primary) !important;
+        }
+
+        /* ==== Labels / Badges ==== */
+        .label {
+            font-weight: 600; padding: 4px 10px !important;
+            border-radius: 999px !important;
+            font-size: 11.5px; letter-spacing: 0.02em;
+            display: inline-block;
+        }
+        .label-default { background: #e5e7eb !important; color: #374151 !important; }
+        .label-primary { background: var(--primary-soft) !important; color: var(--primary) !important; }
+        .label-success { background: var(--success-soft) !important; color: #047857 !important; }
+        .label-info    { background: var(--info-soft) !important; color: #0369a1 !important; }
+        .label-warning { background: var(--warning-soft) !important; color: #b45309 !important; }
+        .label-danger  { background: var(--danger-soft) !important; color: #b91c1c !important; }
+
+        /* ==== Modals ==== */
+        .modal-content {
+            border: 0 !important;
+            border-radius: var(--radius) !important;
+            box-shadow: 0 30px 60px rgba(15,23,42,.3) !important;
+            overflow: hidden;
+        }
+        .modal-header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border) !important;
+            padding: 18px 24px !important;
+        }
+        .modal-header .modal-title { font-weight: 700; font-size: 17px; color: var(--text); }
+        .modal-header .close { font-size: 22px; opacity: 0.6; }
+        .modal-header .close:hover { opacity: 1; }
+        .modal-body { padding: 20px 24px !important; color: var(--text-2); }
+        .modal-footer { background: var(--surface-2); border-top: 1px solid var(--border) !important; padding: 14px 24px !important; }
+
+        /* ==== Alerts ==== */
+        .alert { border-radius: var(--radius-sm); border: 1px solid transparent; padding: 12px 16px; font-size: 13px; }
+        .alert-success { background: var(--success-soft); border-color: #bbf7d0; color: #047857; }
+        .alert-info    { background: var(--info-soft); border-color: #bae6fd; color: #0369a1; }
+        .alert-warning { background: var(--warning-soft); border-color: #fde68a; color: #b45309; }
+        .alert-danger  { background: var(--danger-soft); border-color: #fecaca; color: #b91c1c; }
+
+        /* Nav tabs */
+        .nav-tabs { border-bottom: 1px solid var(--border); }
+        .nav-tabs > li > a {
+            border: 0 !important; border-radius: 0 !important;
+            color: var(--muted) !important; font-weight: 600; font-size: 13px;
+            padding: 10px 14px !important;
+            border-bottom: 2px solid transparent !important;
+        }
+        .nav-tabs > li.active > a, .nav-tabs > li > a:hover {
+            color: var(--primary) !important;
+            background: transparent !important;
+            border-bottom: 2px solid var(--primary) !important;
+        }
+
+        /* Utility */
+        .info-row { background: var(--surface-2) !important; border-left: 3px solid var(--primary) !important; border-radius: var(--radius-sm); padding: 10px 14px !important; margin-bottom: 10px; }
+        .info-label { color: var(--muted) !important; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-right: 6px; }
+
+        /* ==== Mobile responsiveness ==== */
+        @media (max-width: 991px) {
+            .main-header .navbar { margin-left: 0 !important; padding-left: 12px; }
+            .main-header .logo { position: absolute; left: 0; right: 0; width: auto; text-align: center; }
+            .main-header .navbar .sidebar-toggle { margin-left: 0 !important; }
+            .content-wrapper, .main-footer { margin-left: 0 !important; }
+            .main-sidebar {
+                width: var(--sidebar-w);
+                transform: translateX(-100%);
+                transition: transform .25s ease;
+                box-shadow: 4px 0 24px rgba(0,0,0,.3);
+            }
+            body.sidebar-open .main-sidebar { transform: translateX(0); }
+            body.sidebar-open::after {
+                content: ''; position: fixed; inset: 0; background: rgba(15,23,42,.45);
+                z-index: 1025; backdrop-filter: blur(2px);
+            }
+            .content-header > h1 { font-size: 20px !important; }
+            .content { padding: 8px 16px 16px !important; }
+        }
+        @media (max-width: 575px) {
+            .content-header { padding: 16px 16px 4px !important; }
+            .box .box-header, .box .box-body { padding: 14px 16px !important; }
+            .small-box > .inner { padding: 16px 18px !important; }
+            .small-box h3 { font-size: 26px !important; }
+            .btn { padding: 8px 12px !important; font-size: 12.5px; }
+        }
+
+        /* Keep sidebar width consistent even if AdminLTE adds collapse classes */
+        .sidebar-mini.sidebar-collapse .main-header .logo { width: var(--sidebar-w) !important; }
+        .sidebar-mini.sidebar-collapse .main-sidebar { width: var(--sidebar-w) !important; }
+        .sidebar-mini.sidebar-collapse .content-wrapper,
+        .sidebar-mini.sidebar-collapse .main-footer { margin-left: var(--sidebar-w) !important; }
+    </style>
+
+    <!-- S32 DataTables (global) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap.min.css">
+
+<!-- __S39I_RESPONSIVE_FIXES__ — auto-injected by Session 39I -->
+<style id="aib-responsive-fixes">
+  /* Universal table horizontal scroll on small screens */
+  .autoispbilling-table-wrap,
+  .table-responsive {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 6px;
+  }
+  .autoispbilling-table-wrap > table,
+  .table-responsive > table {
+      margin-bottom: 0;
+      /* Make sure the table can grow wider than the wrap so the
+         horizontal scrollbar actually has content to scroll. */
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+  }
+  /* Force EVERY column to stay visible inside our wrap — overrides
+     Bootstrap 3 .hidden-xs/.hidden-sm/.hidden-md and any per-page
+     @media (max-width: …) td/th { display: none } rules. The user
+     can scroll horizontally to see every column instead of having
+     them hidden on smaller screens. */
+  .autoispbilling-table-wrap > table > thead > tr > th,
+  .autoispbilling-table-wrap > table > tbody > tr > td,
+  .autoispbilling-table-wrap > table > tbody > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > td,
+  .table-responsive > table > thead > tr > th,
+  .table-responsive > table > tbody > tr > td,
+  .table-responsive > table > tbody > tr > th,
+  .table-responsive > table > tfoot > tr > th,
+  .table-responsive > table > tfoot > tr > td {
+      display: table-cell !important;
+      visibility: visible !important;
+  }
+  /* Same for the row itself in case any rule hides whole rows. */
+  .autoispbilling-table-wrap > table > tbody > tr,
+  .autoispbilling-table-wrap > table > thead > tr,
+  .autoispbilling-table-wrap > table > tfoot > tr,
+  .table-responsive > table > tbody > tr,
+  .table-responsive > table > thead > tr,
+  .table-responsive > table > tfoot > tr {
+      display: table-row !important;
+  }
+  /* Truncated cells (max-width + ellipsis) become normal-wrap so users
+     can read full content while still scrolling. */
+  @media (max-width: 991.98px) {
+      .autoispbilling-table-wrap > table td,
+      .table-responsive > table td {
+          white-space: nowrap;          /* keep on one line so column width fits */
+      }
+  }
+  /* Make any container that holds wide stuff stay inside the viewport */
+  body, html { max-width: 100%; overflow-x: hidden; }
+
+  /* Page-level fluid content (kills the "half blank white" issue) */
+  @media (max-width: 991.98px) {
+      .wrapper > .content-wrapper,
+      .wrapper > .main-footer { margin-left: 0 !important; }
+      .content-wrapper, .content {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+      }
+      .content > .row,
+      .content > .container,
+      .content > .container-fluid {
+          margin-right: 0 !important;
+          margin-left: 0 !important;
+      }
+      /* Tighter padding for mobile */
+      .content { padding: 10px !important; }
+      .box .box-body { padding: 12px !important; }
+      .box-header h3.box-title { font-size: 15px !important; }
+      .users-panel,
+      .panel,
+      .card { padding: 10px !important; }
+
+      /* Make form rows wrap nicely */
+      .form-inline .form-group { display: block !important; margin-bottom: 8px !important; }
+      .form-inline .form-control { width: 100% !important; }
+
+      /* Buttons in the user toolbar wrap to next line instead of overflow */
+      .users-panel { flex-wrap: wrap !important; }
+      .btn { white-space: normal !important; }
+
+      /* Hide secondary chrome that doesn't fit */
+      .hidden-xs-mobile, .desktop-only { display: none !important; }
+  }
+
+  /* Even smaller screens (phones in portrait) */
+  @media (max-width: 575.98px) {
+      .content { padding: 8px !important; }
+      .box .box-body { padding: 10px !important; }
+      .h1, h1 { font-size: 20px !important; }
+      .h2, h2 { font-size: 17px !important; }
+      .modal-dialog { margin: 8px !important; }
+      .modal-dialog.modal-lg-wide,
+      .modal-dialog.modal-lg { width: auto !important; max-width: 96% !important; }
+
+      /* Two-column form rows collapse to one */
+      .col-sm-6, .col-md-6, .col-lg-6 { width: 100% !important; float: none !important; }
+  }
+
+  /* Modal content also scrolls horizontally if it has a wide table */
+  .modal-body { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* Charts inside cards never overflow the card */
+  .box canvas, .card canvas { max-width: 100%; height: auto; }
+
+  /* Sticky table headers when scrolling vertically (desktop & mobile) */
+  .autoispbilling-table-wrap thead th,
+  .table-responsive thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface, #fff);
+      z-index: 5;
+  }
+</style>
+<script id="aib-responsive-fixes-js">
+(function () {
+  function wrapTable(tbl) {
+    try {
+      if (!tbl || !tbl.parentNode) return;
+      var p = tbl.parentNode;
+      // Already wrapped?
+      if (p && p.classList && (
+          p.classList.contains('autoispbilling-table-wrap') ||
+          p.classList.contains('table-responsive') ||
+          p.classList.contains('table-responsive-sm'))) {
+        return;
+      }
+      // Avoid wrapping tables inside <thead><tr>/<tfoot> (pivots) — only
+      // wrap top-level tables.
+      var wrap = document.createElement('div');
+      wrap.className = 'autoispbilling-table-wrap';
+      p.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    } catch (e) { /* silent */ }
+  }
+  function wrapAll() {
+    var tbls = document.querySelectorAll('table');
+    for (var i = 0; i < tbls.length; i++) wrapTable(tbls[i]);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrapAll);
+  } else {
+    wrapAll();
+  }
+  // Also catch dynamically-rendered tables (DataTables, AJAX list refresh).
+  try {
+    var mo = new MutationObserver(function (muts) {
+      var dirty = false;
+      for (var i = 0; i < muts.length; i++) {
+        for (var j = 0; j < muts[i].addedNodes.length; j++) {
+          var n = muts[i].addedNodes[j];
+          if (n.nodeType !== 1) continue;
+          if (n.tagName === 'TABLE') { wrapTable(n); dirty = true; }
+          else if (n.querySelectorAll) {
+            var sub = n.querySelectorAll('table');
+            for (var k = 0; k < sub.length; k++) { wrapTable(sub[k]); dirty = true; }
+          }
+        }
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) { /* MutationObserver not available — DOMContentLoaded covered the rest */ }
+})();
+</script>
+<!-- /__S39I_RESPONSIVE_FIXES__ -->
+    <style>/* _S39R5M_GLOBAL_ 80% desktop zoom + sidebar overflow fix v2 */
+      @media (min-width: 992px){
+        html { zoom: 0.8; }
+        /* Force sidebar wrapper to be sized purely by height (drop bottom:0
+           which interacts badly with html { zoom }). */
+        aside.main-sidebar,
+        .main-sidebar {
+          top: 0 !important;
+          bottom: auto !important;
+          height: 100vh !important;
+          max-height: 100vh !important;
+          padding-top: var(--topbar-h, 64px) !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+        }
+        /* Inner scrollable panel — fill available space below the topbar */
+        .main-sidebar > .sidebar,
+        aside.main-sidebar .sidebar {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+        }
+        /* Visible scrollbar against dark sidebar */
+        .main-sidebar .sidebar { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; border: 1px solid rgba(0,0,0,.2); }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      }
+    </style>
+<!-- _S40zμ_  Profanity shield -->
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+    <!-- E1_MODERN_OVERLAY_CSS -->
+    <link rel="stylesheet" href="/static/css/e1-modern.css" data-tag="e1-modern">
+</head>
+<body class="hold-transition skin-blue sidebar-mini">
+    <div class="wrapper">
+        <!-- Header -->
+        <header class="main-header">
+            <a href="/superadmin/dashboard" class="logo">
+                <span class="logo-mini"><b>SA</b></span>
+                <span class="logo-lg"><b>Super</b>Admin</span>
+            </a>
+
+            <nav class="navbar navbar-static-top">
+                <a href="#" class="sidebar-toggle" id="sidebarToggle" role="button" aria-label="Toggle sidebar">
+                    <span class="sr-only">Toggle navigation</span>
+                </a>
+
+                <div class="navbar-custom-menu">
+                    <ul class="nav navbar-nav">
+                        <li class="dropdown user user-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <img src="{{ profile_image if profile_image else '/static/images/default-avatar.png' }}" class="user-image" alt="User Image" onerror="this.onerror=null;this.src='/static/images/default-avatar.png';">{# P0_PROFILE_IMG_BADGE #}
+                                <span class="hidden-xs">{{ user_name }}</span>
+                                <i class="bi bi-chevron-down" style="font-size: 11px; margin-left: 4px; color: var(--muted);"></i>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="user-header">
+                                    <img src="{{ profile_image if profile_image else '/static/images/default-avatar.png' }}" class="img-circle" alt="User Image" onerror="this.onerror=null;this.src='/static/images/default-avatar.png';">{# P0_PROFILE_IMG_BADGE #}
+                                    <p>{{ user_name }}<small>Superadmin</small></p>
+                                </li>
+                                <li class="user-footer">
+                                    <div class="pull-left">
+                                        <a href="/superadmin/profile" class="btn btn-default btn-flat"><i class="bi bi-person-circle"></i> Profile</a>
+                                    </div>
+                                    <div class="pull-right">
+                                        <a href="/logout" class="btn btn-default btn-flat"><i class="bi bi-box-arrow-right"></i> Sign out</a>
+                                    </div>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="main-sidebar">
+            <section class="sidebar">
+                <ul class="sidebar-menu" data-widget="tree">
+                    <li class="header">Main</li>
+
+                    <li class="{% if active_page == 'dashboard' %}active{% endif %}">
+                        <a href="/superadmin/dashboard">
+                            <i class="bi bi-grid-1x2-fill"></i> <span>Dashboard</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'admin_management' %}active{% endif %}">
+                        <a href="/superadmin/admins">
+                            <i class="bi bi-people-fill"></i> <span>Admin Management</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'packages' %}active{% endif %}">
+                        <a href="/superadmin/packages">
+                            <i class="bi bi-box-seam"></i> <span>Packages</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'transactions' %}active{% endif %}">
+                        <a href="/superadmin/transactions">
+                            <i class="bi bi-arrow-left-right"></i> <span>Transactions</span>
+                        </a>
+                    </li>
+
+                    <li class="header">Support</li>
+
+                    <li class="{% if active_page == 'complaints' %}active{% endif %}">
+                        <a href="/superadmin/complaints">
+                            <i class="bi bi-exclamation-triangle-fill"></i> <span>Complaints</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'support' %}active{% endif %}">
+                        <a href="/superadmin/support">
+                            <i class="bi bi-life-preserver"></i> <span>Support</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'notifications' %}active{% endif %}">
+                        <a href="/superadmin/notifications">
+                            <i class="bi bi-bell-fill"></i> <span>Notifications</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'mobile_banner' %}active{% endif %}"><a href="/superadmin/mobile-banner"><i class="bi bi-phone-fill"></i> <span>Mobile App Banner</span></a></li>
+
+                    <li class="header">Outreach</li>
+
+                    <li class="{% if active_page == 'whatsapp_campaign' %}active{% endif %}">
+                        <a href="/superadmin/whatsapp-campaign">
+                            <i class="bi bi-whatsapp"></i> <span>WhatsApp Campaign</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'whatsapp_templates' %}active{% endif %}">
+                        <a href="/superadmin/whatsapp-templates">
+                            <i class="bi bi-chat-left-text"></i> <span>WhatsApp Templates</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'sms_logs' %}active{% endif %}">
+                        <a href="/superadmin/sms-logs">
+                            <i class="bi bi-envelope-paper-fill"></i> <span>SMS Logs</span>
+                        </a>
+                    </li>
+
+                    <li class="header">Insights</li>
+
+                    <li class="{% if active_page == 'reports' %}active{% endif %}">
+                        <a href="/superadmin/reports">
+                            <i class="bi bi-bar-chart-fill"></i> <span>Reports</span>
+                        </a>
+                    </li>
+                    <li class="{% if active_page == 'profanity_violations' %}active{% endif %}" data-testid="sidebar-profanity">
+                        <a href="/superadmin/profanity-violations">
+                            <i class="bi bi-shield-fill-exclamation"></i> <span>Profanity Violations</span>
+                        </a>
+                    </li>
+
+
+                    <li class="{% if active_page == 'sent_invoices' %}active{% endif %}">
+                        <a href="/superadmin/sent-invoices">
+                            <i class="bi bi-file-earmark-pdf-fill"></i> <span>Sent Invoices</span>
+                        </a>
+                    </li>
+
+                    <li class="{% if active_page == 'deleted_admins' %}active{% endif %}">
+                        <a href="/superadmin/deleted-admins">
+                            <i class="bi bi-trash-fill"></i> <span>Deleted Admins</span>
+                        </a>
+                    </li>
+
+                    <li class="header" style="color:#94a3b8 !important;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:14px 20px 6px;">System</li>
+                    <li class="{% if active_page == 'feature_flags' %}active{% endif %}">
+                        <a href="/superadmin/feature-flags" data-testid="sa-nav-feature-flags">
+                            <i class="bi bi-toggles2"></i> <span>Feature Flags</span>
+                        </a>
+                    </li>
+                    <li class="{% if active_page == 'backups' %}active{% endif %}">
+                        <a href="/superadmin/backups" data-testid="sa-nav-backups">
+                            <i class="bi bi-shield-check"></i> <span>DB Backups</span>
+                        </a>
+                    </li>
+                    <li class="{% if active_page == 'wg_peers' %}active{% endif %}">
+                        <a href="/superadmin/wg-peers" data-testid="sa-nav-wg-peers">
+                            <i class="bi bi-hdd-network"></i> <span>OLT VPN Peers</span>
+                        </a>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            {% block content %}{% endblock %}
+        </div>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="pull-right hidden-xs">
+                <b>Version</b> 4.7.55
+            </div>
+            <strong>Copyright &copy; 2025 <a href="#">Auto ISP Billing</a>.</strong> All rights reserved.
+        </footer>
+    </div>
+
+    <!-- jQuery 2.2.4 -->
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <!-- Bootstrap 3.3.7 -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- AdminLTE App (kept for legacy widgets but we handle sidebar toggle ourselves below) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/js/adminlte.min.js"></script>
+
+    <script>
+        // Mobile-friendly sidebar toggle. Overrides AdminLTE's default so we get a
+        // true off-canvas drawer with backdrop on narrow screens while keeping the
+        // collapse behaviour intact on wide screens.
+        (function() {
+            var toggle = document.getElementById('sidebarToggle');
+            if (!toggle) return;
+            toggle.addEventListener('click', function(e) {
+                if (window.innerWidth <= 991) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    document.body.classList.toggle('sidebar-open');
+                }
+            });
+            // Close sidebar on backdrop click (mobile).
+            document.addEventListener('click', function(e) {
+                if (window.innerWidth > 991) return;
+                if (!document.body.classList.contains('sidebar-open')) return;
+                var sidebar = document.querySelector('.main-sidebar');
+                if (!sidebar.contains(e.target) && e.target !== toggle && !toggle.contains(e.target)) {
+                    document.body.classList.remove('sidebar-open');
+                }
+            });
+            document.querySelectorAll('.sidebar-menu > li > a').forEach(function(a) {
+                a.addEventListener('click', function() {
+                    if (window.innerWidth <= 991) document.body.classList.remove('sidebar-open');
+                });
+            });
+            window.addEventListener('resize', function() {
+                if (window.innerWidth > 991) document.body.classList.remove('sidebar-open');
+            });
+        })();
+    </script>
+
+    {% block extra_js %}{% endblock %}
+
+    <!-- S32 DataTables (global) -->
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap.min.js"></script>
+    <script>
+    (function(){
+      if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.dataTable) return;
+      // Global defaults: 20 rows per page, dropdown 10/20/50/100/All, clean pagination
+      jQuery.extend(true, jQuery.fn.dataTable.defaults, {
+        pageLength: 20,
+        lengthChange: true,
+        lengthMenu: [[10, 20, 50, 100, -1], [10, 20, 50, 100, 'All']],
+        pagingType: 'simple_numbers',
+        language: {
+          lengthMenu: 'Show _MENU_ per page',
+          info: 'Showing _START_–_END_ of _TOTAL_',
+          infoEmpty: '0 records',
+          infoFiltered: '(filtered from _MAX_)',
+          search: 'Search:',
+          paginate: { previous: '‹', next: '›' }
+        }
+      });
+
+      // Auto-init any plain listing table that isn't already a DataTable and
+      // isn't explicitly opted-out.
+      jQuery(function($){
+        $('table.table').each(function(){
+          var t = this, $t = $(this);
+          if ($t.hasClass('no-dt')) return;
+          if ($t.closest('.modal').length) return;
+          if ($t.is('[data-dt-skip]')) return;
+          if ($.fn.DataTable.isDataTable(t)) return;
+          if (!$t.find('thead tr').length) return;
+          if (!$t.find('tbody').length) return;
+          // Skip tables whose only tbody row is a placeholder (colspan=...)
+          var dataRows = $t.find('tbody > tr').filter(function(){
+            return $(this).children('td[colspan]').length === 0 &&
+                   $(this).children('td').length > 0;
+          }).length;
+          if (dataRows < 1) return;
+          try { $t.DataTable({}); } catch(e) { console.warn('[S32 DT]', e); }
+        });
+      });
+    })();
+    </script>
+
+<!-- _S40zκ_ IST DD-MM-YYYY HH:MM formatter (Superadmin portal) -->
+<script>
+(function(){
+  if (window.__SA_IST_INIT__) return; window.__SA_IST_INIT__ = true;
+  function pad(n){ return n < 10 ? ('0'+n) : (''+n); }
+  // _GLOBAL_FMTIST_STR_SAFE_V1_ (surgical) : accept strings & never return literal null.
+  function fmtIST(d){
+    if (d === null || d === undefined || d === '') return '—';
+    if (typeof d === 'string'){
+      var s = d.trim(); if (!s) return '—';
+      if (/^\d{2}-\d{2}-\d{4}(\s+\d{2}:\d{2})?(\s+IST)?$/.test(s))
+        return s.replace(/\s+IST$/,'');
+      var iso = s.indexOf('T') === -1 ? s.replace(' ','T') : s;
+      if (iso.indexOf('Z') === -1 && !/[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z';
+      var dt = new Date(iso);
+      if (!isNaN(dt.getTime())) d = dt; else return s;
+    }
+    if (!(d instanceof Date) || isNaN(d)) return '—';
+    try {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit', hour12:false });
+      const parts = fmt.formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a), {});
+      return parts.day + '-' + parts.month + '-' + parts.year + ' ' +
+             parts.hour + ':' + parts.minute;
+    } catch(_){ return null; }
+  }
+  window.fmtIST = fmtIST;
+  const RX_ISO   = /\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g;
+  const RX_SQL   = /\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?\b/g;
+  const RX_DATE  = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+  function convertIn(text){
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    out = out.replace(RX_ISO, (_, y,mo,d,h,mi)=> {
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_SQL, (_, y,mo,d,h,mi)=> {
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_DATE, (_, y,mo,d)=> d + '-' + mo + '-' + y);
+    return out;
+  }
+  function walkAndConvert(node){
+    if (!node) return;
+    if (node.nodeType === 3){
+      const orig = node.nodeValue;
+      const conv = convertIn(orig);
+      if (conv !== orig) node.nodeValue = conv;
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'CODE'
+        || tag === 'PRE' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'SELECT') return;
+    for (let i = node.childNodes.length - 1; i >= 0; i--) {
+      walkAndConvert(node.childNodes[i]);
+    }
+  }
+  function sweep(){ try { walkAndConvert(document.body); } catch(_){} }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') sweep();
+  else document.addEventListener('DOMContentLoaded', sweep);
+  const mo = new MutationObserver(muts=>{ for (const m of muts){ for (const n of m.addedNodes){ walkAndConvert(n); }}});
+  setTimeout(()=>mo.observe(document.body, {childList:true, subtree:true, characterData:true}), 200);
+  setInterval(sweep, 2500);
+})();
+</script>
+
+    <!-- E1_MODERN_OVERLAY_JS -->
+    <script defer src="/static/js/e1-modern.js"></script>
+</body>
+</html>

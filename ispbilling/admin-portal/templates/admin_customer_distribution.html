@@ -1,0 +1,361 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Customer Distribution - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .distribution-header {
+        background: white;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+    }
+    
+    .distribution-header .btn-group {
+        margin-right: 15px;
+    }
+    
+    .distribution-header .search-box {
+        max-width: 400px;
+        display: inline-block;
+    }
+    
+    .alphabet-filter {
+        background: white;
+        padding: 15px;
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+    }
+    
+    .alphabet-filter .letter-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        margin: 2px;
+        background: #17a2b8;
+        color: white;
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        font-weight: bold;
+        min-width: 40px;
+        text-align: center;
+    }
+    
+    .alphabet-filter .letter-btn:hover {
+        background: #138496;
+    }
+    
+    .alphabet-filter .letter-btn.active {
+        background: #0056b3;
+    }
+    
+    .distribution-table {
+        background: white;
+        padding: 20px;
+        border: 1px solid #ddd;
+    }
+    
+    .distribution-table table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .distribution-table th {
+        background: #667eea;
+        color: white;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+    }
+    
+    .distribution-table td {
+        padding: 12px;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .distribution-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .edit-btn {
+        background: #ffc107;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+    }
+    
+    .edit-btn:hover {
+        background: #e0a800;
+        color: white;
+    }
+    
+    .pagination-controls {
+        margin-top: 15px;
+        text-align: left;
+    }
+    
+    .pagination-controls select {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Customer Distribution
+        <small>Assign localities to employees</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="distribution-header">
+        <div class="btn-group">
+            <a href="/admin/customer-distribution/assign/Cable" class="btn btn-primary">
+                <i class="fa fa-plus"></i> Assign Locality Cable
+            </a>
+            <a href="/admin/customer-distribution/assign/Broadband" class="btn btn-info">
+                <i class="fa fa-plus"></i> Assign Locality Broadband
+            </a>
+        </div>
+        
+        <div class="search-box">
+            <div class="input-group">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search by Employee Name or Employee ID">
+                <span class="input-group-btn">
+                    <button type="button" class="btn btn-primary" onclick="searchEmployees()">
+                        <i class="fa fa-search"></i>
+                    </button>
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- S38 P1 Uncovered Localities __S38_UNCOVERED_PILL__ -->
+<div id="uncoveredLocalitiesWrap" style="margin:10px 0 15px;display:none;">
+    <div style="background:#fff3cd;border:1px solid #ffeaa7;border-radius:6px;padding:10px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+                <i class="fa fa-exclamation-triangle" style="color:#e09f05;"></i>
+                <b>Uncovered localities</b>
+                <span class="text-muted" style="font-size:12px;margin-left:6px;">
+                    (has customers but no employee assigned)
+                </span>
+                <span id="uncoveredCountBadge" class="badge" style="background:#e09f05;color:#fff;margin-left:8px;">0</span>
+            </div>
+            <a href="#" id="uncoveredAssignBtn" class="btn btn-xs btn-warning" style="display:none;">
+                <i class="fa fa-plus"></i> Assign now
+            </a>
+        </div>
+        <div id="uncoveredPills" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+</div>
+
+    <div class="alphabet-filter">
+        <a href="#" class="letter-btn active" data-letter="All" onclick="filterByLetter(event, 'All')">All</a>
+        <a href="#" class="letter-btn" data-letter="A" onclick="filterByLetter(event, 'A')">A</a>
+        <a href="#" class="letter-btn" data-letter="B" onclick="filterByLetter(event, 'B')">B</a>
+        <a href="#" class="letter-btn" data-letter="C" onclick="filterByLetter(event, 'C')">C</a>
+        <a href="#" class="letter-btn" data-letter="D" onclick="filterByLetter(event, 'D')">D</a>
+        <a href="#" class="letter-btn" data-letter="E" onclick="filterByLetter(event, 'E')">E</a>
+        <a href="#" class="letter-btn" data-letter="F" onclick="filterByLetter(event, 'F')">F</a>
+        <a href="#" class="letter-btn" data-letter="G" onclick="filterByLetter(event, 'G')">G</a>
+        <a href="#" class="letter-btn" data-letter="H" onclick="filterByLetter(event, 'H')">H</a>
+        <a href="#" class="letter-btn" data-letter="I" onclick="filterByLetter(event, 'I')">I</a>
+        <a href="#" class="letter-btn" data-letter="J" onclick="filterByLetter(event, 'J')">J</a>
+        <a href="#" class="letter-btn" data-letter="K" onclick="filterByLetter(event, 'K')">K</a>
+        <a href="#" class="letter-btn" data-letter="L" onclick="filterByLetter(event, 'L')">L</a>
+        <a href="#" class="letter-btn" data-letter="M" onclick="filterByLetter(event, 'M')">M</a>
+        <a href="#" class="letter-btn" data-letter="N" onclick="filterByLetter(event, 'N')">N</a>
+        <a href="#" class="letter-btn" data-letter="O" onclick="filterByLetter(event, 'O')">O</a>
+        <a href="#" class="letter-btn" data-letter="P" onclick="filterByLetter(event, 'P')">P</a>
+        <a href="#" class="letter-btn" data-letter="Q" onclick="filterByLetter(event, 'Q')">Q</a>
+        <a href="#" class="letter-btn" data-letter="R" onclick="filterByLetter(event, 'R')">R</a>
+        <a href="#" class="letter-btn" data-letter="S" onclick="filterByLetter(event, 'S')">S</a>
+        <a href="#" class="letter-btn" data-letter="T" onclick="filterByLetter(event, 'T')">T</a>
+        <a href="#" class="letter-btn" data-letter="U" onclick="filterByLetter(event, 'U')">U</a>
+        <a href="#" class="letter-btn" data-letter="V" onclick="filterByLetter(event, 'V')">V</a>
+        <a href="#" class="letter-btn" data-letter="W" onclick="filterByLetter(event, 'W')">W</a>
+        <a href="#" class="letter-btn" data-letter="X" onclick="filterByLetter(event, 'X')">X</a>
+        <a href="#" class="letter-btn" data-letter="Y" onclick="filterByLetter(event, 'Y')">Y</a>
+        <a href="#" class="letter-btn" data-letter="Z" onclick="filterByLetter(event, 'Z')">Z</a>
+    </div>
+    
+    <div class="distribution-table">
+        <table id="distributionTable">
+            <thead>
+                <tr>
+                    <th>S.No.</th>
+                    <th>Emp Name</th>
+                    <th>Emp Id</th>
+                    <th>Assigned Locality</th>
+                    <th>No of Subs.</th>
+                    <th>Type</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="distributionTableBody">
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 30px;">
+                        <i class="fa fa-spinner fa-spin fa-2x"></i><br>
+                        Loading employee distribution data...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div class="pagination-controls">
+            <label>
+                <select id="recordsPerPage" onchange="changeRecordsPerPage()">
+                    <option value="15">Show 15</option>
+                    <option value="25">Show 25</option>
+                    <option value="50">Show 50</option>
+                    <option value="100">Show 100</option>
+                </select>
+            </label>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentConnectionType = 'Broadband';
+let currentSearch = '';
+let currentLetter = 'All';
+let currentRecordsPerPage = 15;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadDistributionData();
+    
+    document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchEmployees();
+        }
+    });
+});
+
+function loadUncoveredLocalities(connType) {
+    fetch('/api/customer-distribution/uncovered-localities?connection_type=' + encodeURIComponent(connType))
+        .then(r => r.json())
+        .then(d => {
+            var wrap = document.getElementById('uncoveredLocalitiesWrap');
+            var pills = document.getElementById('uncoveredPills');
+            var badge = document.getElementById('uncoveredCountBadge');
+            var btn = document.getElementById('uncoveredAssignBtn');
+            if (!d || !d.success) { wrap.style.display = 'none'; return; }
+            var list = d.uncovered || [];
+            if (list.length === 0) { wrap.style.display = 'none'; return; }
+            wrap.style.display = 'block';
+            badge.textContent = list.length;
+            btn.href = '/admin/customer-distribution/assign/' + connType;
+            btn.style.display = 'inline-block';
+            pills.innerHTML = list.map(function(x) {
+                return '<span class="label label-default" style="font-size:12px;padding:5px 9px;background:#fff;border:1px solid #e09f05;color:#333;" ' +
+                       'data-testid="uncovered-locality-pill" title="Click to assign">' +
+                       '<i class="fa fa-map-marker" style="color:#e09f05;"></i> ' +
+                       x.name + ' <b style="color:#c0392b;">(' + x.customer_count + ')</b>' +
+                       '</span>';
+            }).join('');
+        })
+        .catch(function(err) {
+            document.getElementById('uncoveredLocalitiesWrap').style.display = 'none';
+        });
+}
+
+function loadDistributionData() {
+    loadUncoveredLocalities(currentConnectionType);
+
+    const params = new URLSearchParams({
+        connection_type: currentConnectionType,
+        search: currentSearch,
+        letter: currentLetter
+    });
+    
+    fetch(`/api/customer-distribution/list?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                window.location.href = '/login.html';
+                return;
+            }
+            
+            renderTable(data.employees);
+        })
+        .catch(error => {
+            console.error('Error loading distribution data:', error);
+            document.getElementById('distributionTableBody').innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 30px; color: red;">
+                        <i class="fa fa-exclamation-triangle"></i> Error loading data. Please try again.
+                    </td>
+                </tr>
+            `;
+        });
+}
+
+function renderTable(employees) {
+    const tbody = document.getElementById('distributionTableBody');
+    
+    if (employees.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align: center; padding: 30px;">
+                    <i class="fa fa-info-circle"></i> No employees found with locality assignments.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    const displayEmployees = employees.slice(0, currentRecordsPerPage);
+    
+    tbody.innerHTML = displayEmployees.map(emp => `
+        <tr>
+            <td>${emp.sno}</td>
+            <td>${emp.employee_name}</td>
+            <td>${emp.employee_code}</td>
+            <td>${emp.assigned_localities || '<em>No localities assigned</em>'}</td>
+            <td>${emp.subscriber_count}</td>
+            <td>${emp.connection_type}</td>
+            <td>
+                <a href="/admin/customer-distribution/edit/${emp.employee_id}/${emp.connection_type}" 
+                   class="edit-btn" title="Edit">
+                    <i class="fa fa-pencil"></i>
+                </a>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function searchEmployees() {
+    currentSearch = document.getElementById('searchInput').value.trim();
+    loadDistributionData();
+}
+
+function filterByLetter(event, letter) {
+    event.preventDefault();
+    
+    document.querySelectorAll('.letter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    event.target.classList.add('active');
+    
+    currentLetter = letter;
+    currentSearch = '';
+    document.getElementById('searchInput').value = '';
+    
+    loadDistributionData();
+}
+
+function changeRecordsPerPage() {
+    currentRecordsPerPage = parseInt(document.getElementById('recordsPerPage').value);
+    loadDistributionData();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,429 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Add Broadband Customer - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Add Broadband Customer
+        <small>Add new broadband subscriber</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box box-primary">
+        <div class="box-body">
+            <!-- Tab Navigation -->
+            <ul class="nav nav-tabs" role="tablist" style="margin-bottom: 20px;">
+                <li role="presentation" class="active">
+                    <a href="#general" aria-controls="general" role="tab" data-toggle="tab">
+                        <i class="fa fa-info-circle"></i> General Information
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#address" aria-controls="address" role="tab" data-toggle="tab">
+                        <i class="fa fa-map-marker"></i> Address Detail
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#billing" aria-controls="billing" role="tab" data-toggle="tab">
+                        <i class="fa fa-file-text"></i> Billing Detail
+                    </a>
+                </li>
+                <li role="presentation">
+                    <a href="#payment" aria-controls="payment" role="tab" data-toggle="tab">
+                        <i class="fa fa-credit-card"></i> Payment Detail
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- General Information Tab -->
+                <div role="tabpanel" class="tab-pane active" id="general">
+                    <form id="broadbandForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Category *</label>
+                                    <input type="text" class="form-control" name="category" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer ID *</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" name="customer_id" placeholder="Enter Customer Id">
+                                        <span class="input-group-btn">
+                                            <button class="btn btn-info" type="button">Generate</button>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>User Name *</label>
+                                    <input type="text" class="form-control" name="username" placeholder="Customer User Name">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Name *</label>
+                                    <input type="text" class="form-control" name="name" placeholder="Customer Name">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Nickname</label>
+                                    <input type="text" class="form-control" name="nickname" placeholder="Nickname">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" class="form-control" name="email" placeholder="Customer Email">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Mobile *</label>
+                                    <input type="tel" class="form-control" name="mobile" placeholder="Mobile Number">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Customer GST No.</label>
+                                    <input type="text" class="form-control" name="customer_gst_no" placeholder="Customer GST No.">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>ID Proof</label>
+                                    <select class="form-control" name="id_proof">
+                                        <option>Select ID Proof</option>
+                                        <option>Voter ID</option>
+                                        <option>Passport</option>
+                                        <option>Driving license</option>
+                                        <option>Service ID card</option>
+                                        <option>Aadhar card</option>
+                                        <option>Passbook of Govt bank</option>
+                                        <option>Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>ID Proof No</label>
+                                    <input type="text" class="form-control" name="id_proof_no" placeholder="ID Proof No">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Alternate Mobile</label>
+                                    <input type="tel" class="form-control" name="alt_mobile" placeholder="Alternate Mobile">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-primary pull-right" onclick="nextTab('address')">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                                <a href="/admin/users" class="btn btn-default">Back</a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Address Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="address">
+                    <form>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group">
+                                    <label>Address *</label>
+                                    <textarea class="form-control" name="address" rows="3" placeholder="Enter Full Address">456 Park Avenue, Floor 2, Building C</textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Locality *</label>
+                                    <select class="form-control" name="locality" id="locality">
+                                        <option>Loading locations...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>City *</label>
+                                    <input type="text" class="form-control" name="city" placeholder="City">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>State *</label>
+                                    <select class="form-control" name="state">
+                                        <option>Select State</option>
+                                        <option>Maharashtra</option>
+                                        <option>Delhi</option>
+                                        <option>Karnataka</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>PIN Code *</label>
+                                    <input type="text" class="form-control" name="pincode" placeholder="PIN Code">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('general')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="button" class="btn btn-primary pull-right" onclick="nextTab('billing')">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Billing Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="billing">
+                    <form>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Plan *</label>
+                                    <select class="form-control" name="plan">
+                                        <option>Select Plan</option>
+                                        <option>50 Mbps - Unlimited (₹599/month)</option>
+                                        <option>100 Mbps - Unlimited (₹799/month)</option>
+                                        <option>200 Mbps - Unlimited (₹1199/month)</option>
+                                        <option>500 Mbps - Unlimited (₹1999/month)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Monthly Amount *</label>
+                                    <input type="number" class="form-control" name="amount" placeholder="Monthly Amount">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Installation Date *</label>
+                                    <input type="date" class="form-control" name="installation_date">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Billing Cycle *</label>
+                                    <select class="form-control" name="billing_cycle">
+                                        <option>Monthly</option>
+                                        <option>Quarterly</option>
+                                        <option>Half Yearly</option>
+                                        <option>Yearly</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>IP Address Type</label>
+                                    <select class="form-control" name="ip_type">
+                                        <option>Dynamic IP</option>
+                                        <option>Static IP</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Router MAC Address</label>
+                                    <input type="text" class="form-control" name="mac_address" placeholder="Router MAC Address">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Connection Type</label>
+                                    <select class="form-control" name="connection_type">
+                                        <option>Fiber Optic</option>
+                                        <option>Cable</option>
+                                        <option>Wireless</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('address')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="button" class="btn btn-primary pull-right" onclick="nextTab('payment')">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Payment Detail Tab -->
+                <div role="tabpanel" class="tab-pane" id="payment">
+                    <form>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Payment Mode *</label>
+                                    <select class="form-control" name="payment_mode">
+                                        <option>Select Payment Mode</option>
+                                        <option>Cash</option>
+                                        <option>Online Payment</option>
+                                        <option>Cheque</option>
+                                        <option>UPI</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Initial Payment *</label>
+                                    <input type="number" class="form-control" name="initial_payment" placeholder="Initial Payment Amount">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Security Deposit</label>
+                                    <input type="number" class="form-control" name="security_deposit" placeholder="Security Deposit">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Installation Charges</label>
+                                    <input type="number" class="form-control" name="installation_charges" placeholder="Installation Charges">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Router Charges</label>
+                                    <input type="number" class="form-control" name="router_charges" placeholder="Router Charges">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Transaction ID</label>
+                                    <input type="text" class="form-control" name="transaction_id" placeholder="Transaction ID">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group">
+                                    <label>Payment Notes</label>
+                                    <textarea class="form-control" name="payment_notes" rows="3" placeholder="Any additional payment notes">Initial payment received via online transfer. Security deposit and installation charges included. Router provided on rental basis.</textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button type="button" class="btn btn-default" onclick="prevTab('billing')">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </button>
+                                <button type="submit" class="btn btn-success pull-right">
+                                    <i class="fa fa-save"></i> Save Customer
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+function nextTab(tabId) {
+    $('.nav-tabs a[href="#' + tabId + '"]').tab('show');
+}
+
+function prevTab(tabId) {
+    $('.nav-tabs a[href="#' + tabId + '"]').tab('show');
+}
+
+$(document).ready(function() {
+    // Load locations from database
+    $.ajax({
+        url: '/api/locations/list',
+        method: 'GET',
+        success: function(response) {
+            if (response.success && response.locations) {
+                const localitySelect = $('#locality');
+                localitySelect.empty();
+                const activeLocations = response.locations.filter(loc => loc.status === 'Active');
+                
+                if (activeLocations.length === 0) {
+                    localitySelect.append('<option>No locations available</option>');
+                } else {
+                    localitySelect.append('<option>Select Locality</option>');
+                    activeLocations.sort((a, b) => a.name.localeCompare(b.name));
+                    activeLocations.forEach(function(location) {
+                        localitySelect.append($('<option>', {
+                            value: location.name,
+                            text: location.name
+                        }));
+                    });
+                }
+            }
+        },
+        error: function() {
+            $('#locality').empty().append('<option>Error loading locations</option>');
+        }
+    });
+    
+    $('#broadbandForm').on('submit', function(e) {
+        e.preventDefault();
+        alert('Broadband customer form submitted! (Demo mode - no actual save)');
+    });
+});
+</script>
+{% endblock %}

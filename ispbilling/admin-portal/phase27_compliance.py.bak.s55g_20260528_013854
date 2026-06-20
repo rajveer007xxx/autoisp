@@ -1,0 +1,1194 @@
+"""
+phase27_compliance.py — Session S40zN
+Adds 4 DoT/TRAI compliance modules WITHOUT modifying compliance.py:
+
+  1) IPDR (5-tuple) ingest + view + export
+  2) URL logs ingest + view + export
+  3) CMS Mirror config (per-tenant) — UI to track endpoint/key/status
+  4) 2-year retention policy — nightly cron + attestation log
+
+All endpoints scoped to `company_id` from session. Idempotent table creation.
+Uses HMAC-SHA256 signed bearer tokens for ingest endpoints (issued from UI).
+
+This module is completely additive — no existing route or table touched.
+"""
+from __future__ import annotations
+
+import io
+import os
+import re
+from openpyxl import Workbook as _XlsxBook
+import csv
+import json
+import hmac
+import secrets
+import hashlib
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List
+
+from fastapi import Request, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+try:
+    from phase28_lock import hidden_customer_ids_for_request as _hidden_cust_ids_p27
+except Exception:
+    def _hidden_cust_ids_p27(request, db): return set()
+
+
+IST = timezone(timedelta(hours=5, minutes=30))
+DB_PATH = os.environ.get("ISPBILLING_DB",
+                         "/var/lib/autoispbilling/autoispbilling.db")
+RADACCT_DB = "/var/lib/freeradius/radacct.db"
+
+
+# ───────────────────────────────────────────── DDL (idempotent)
+def _ensure_tables():
+    """Create the 4 new tables in the main billing DB if missing."""
+    con = sqlite3.connect(DB_PATH, timeout=15)
+    try:
+        cur = con.cursor()
+        cur.executescript("""
+        CREATE TABLE IF NOT EXISTS ipdr_records (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT    NOT NULL,
+            customer_id   TEXT,
+            user_ip       TEXT,
+            src_ip        TEXT,
+            src_port      INTEGER,
+            dst_ip        TEXT,
+            dst_port      INTEGER,
+            protocol      TEXT,
+            start_ts      DATETIME,
+            stop_ts       DATETIME,
+            bytes_in      INTEGER DEFAULT 0,
+            bytes_out     INTEGER DEFAULT 0,
+            nas_ip        TEXT,
+            created_at    DATETIME DEFAULT (CURRENT_TIMESTAMP)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ipdr_company_start
+            ON ipdr_records(company_id, start_ts);
+        CREATE INDEX IF NOT EXISTS idx_ipdr_user_ip
+            ON ipdr_records(company_id, user_ip);
+
+        CREATE TABLE IF NOT EXISTS url_logs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT    NOT NULL,
+            customer_id   TEXT,
+            user_ip       TEXT,
+            ts            DATETIME,
+            method        TEXT,
+            host          TEXT,
+            url           TEXT,
+            dst_port      INTEGER,
+            status_code   INTEGER,
+            bytes_xfer    INTEGER DEFAULT 0,
+            user_agent    TEXT,
+            nas_ip        TEXT,
+            created_at    DATETIME DEFAULT (CURRENT_TIMESTAMP)
+        );
+        CREATE INDEX IF NOT EXISTS idx_url_company_ts
+            ON url_logs(company_id, ts);
+        CREATE INDEX IF NOT EXISTS idx_url_host
+            ON url_logs(company_id, host);
+
+        CREATE TABLE IF NOT EXISTS cms_mirror_config (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT    NOT NULL UNIQUE,
+            cms_endpoint  TEXT,
+            cms_key       TEXT,
+            mirror_nas_id INTEGER,
+            enabled       INTEGER DEFAULT 0,
+            last_test_at  DATETIME,
+            last_test_ok  INTEGER DEFAULT 0,
+            last_test_msg TEXT,
+            updated_at    DATETIME DEFAULT (CURRENT_TIMESTAMP),
+            updated_by    TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS retention_runs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at        DATETIME DEFAULT (CURRENT_TIMESTAMP),
+            target_table  TEXT,
+            cutoff_ts     DATETIME,
+            rows_archived INTEGER DEFAULT 0,
+            rows_deleted  INTEGER DEFAULT 0,
+            archive_path  TEXT,
+            ok            INTEGER DEFAULT 1,
+            message       TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS compliance_ingest_tokens (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT NOT NULL,
+            kind          TEXT NOT NULL,   -- 'ipdr' | 'url'
+            token_hash    TEXT NOT NULL,   -- sha256(token)
+            label         TEXT,
+            created_at    DATETIME DEFAULT (CURRENT_TIMESTAMP),
+            last_used_at  DATETIME,
+            revoked       INTEGER DEFAULT 0
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ingest_token_hash
+            ON compliance_ingest_tokens(token_hash);
+
+        CREATE TABLE IF NOT EXISTS nas_compliance_deployments (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT NOT NULL,
+            nas_id        INTEGER NOT NULL,
+            kind          TEXT NOT NULL,    -- 'ipdr' | 'url'
+            token_id      INTEGER,          -- FK to compliance_ingest_tokens
+            endpoint      TEXT,
+            generated_at  DATETIME DEFAULT (CURRENT_TIMESTAMP),
+            generated_by  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_nasdep_lookup
+            ON nas_compliance_deployments(company_id, nas_id, kind);
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+def _conn():
+    c = sqlite3.connect(DB_PATH, timeout=15)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _verify_ingest_token(token: str, kind: str) -> Optional[str]:
+    """Returns company_id if token is valid + active, else None."""
+    if not token:
+        return None
+    h = _hash_token(token)
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id, company_id FROM compliance_ingest_tokens "
+            " WHERE token_hash=? AND kind=? AND COALESCE(revoked,0)=0",
+            (h, kind)).fetchone()
+        if not row:
+            return None
+        c.execute("UPDATE compliance_ingest_tokens SET last_used_at=? WHERE id=?",
+                  (datetime.now(timezone.utc).isoformat(), row["id"]))
+        c.commit()
+        return row["company_id"]
+
+
+# ───────────────────────────────────────────── retention policy core
+RETENTION_DAYS = 730  # 2 years
+ARCHIVE_DIR = "/var/lib/autoispbilling/compliance_archive"
+
+
+def _run_retention_once() -> dict:
+    """Archive then delete rows older than RETENTION_DAYS from compliance tables.
+    Writes CSV archives to ARCHIVE_DIR and records each run in retention_runs."""
+    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    cutoff_iso = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+    summary = []
+
+    targets = [
+        ("ipdr_records", "start_ts",
+         "id,company_id,customer_id,user_ip,src_ip,src_port,dst_ip,dst_port,protocol,start_ts,stop_ts,bytes_in,bytes_out,nas_ip,created_at"),
+        ("url_logs", "ts",
+         "id,company_id,customer_id,user_ip,ts,method,host,url,dst_port,status_code,bytes_xfer,user_agent,nas_ip,created_at"),
+    ]
+
+    for table, ts_col, cols in targets:
+        rows_archived = 0
+        rows_deleted = 0
+        archive_path = ""
+        ok = 1
+        msg = ""
+        try:
+            with _conn() as c:
+                rows = c.execute(
+                    f"SELECT {cols} FROM {table} WHERE {ts_col} IS NOT NULL AND {ts_col} < ?",
+                    (cutoff_iso,)).fetchall()
+                if rows:
+                    archive_path = os.path.join(
+                        ARCHIVE_DIR,
+                        f"{table}_pruned_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv")
+                    with open(archive_path, "w", encoding="utf-8", newline="") as f:
+                        w = csv.writer(f)
+                        w.writerow(cols.split(","))
+                        for r in rows:
+                            w.writerow([r[k] if k in r.keys() else "" for k in cols.split(",")])
+                    rows_archived = len(rows)
+                    c.execute(
+                        f"DELETE FROM {table} WHERE {ts_col} IS NOT NULL AND {ts_col} < ?",
+                        (cutoff_iso,))
+                    rows_deleted = c.total_changes
+                    c.commit()
+                msg = f"archived {rows_archived}, deleted {rows_deleted}"
+        except Exception as e:
+            ok = 0
+            msg = f"error: {e}"
+
+        with _conn() as c:
+            c.execute(
+                "INSERT INTO retention_runs(target_table,cutoff_ts,rows_archived,"
+                " rows_deleted,archive_path,ok,message) VALUES (?,?,?,?,?,?,?)",
+                (table, cutoff_iso, rows_archived, rows_deleted,
+                 archive_path, ok, msg))
+            c.commit()
+        summary.append({"table": table, "archived": rows_archived,
+                         "deleted": rows_deleted, "ok": bool(ok),
+                         "msg": msg})
+
+    # Also prune radacct (FreeRADIUS DB) but DO NOT delete (read-only mirror).
+    # Just emit an attestation row noting current row counts.
+    try:
+        rcon = sqlite3.connect(RADACCT_DB, timeout=10)
+        ra_cnt = rcon.execute(
+            "SELECT COUNT(*) FROM radacct WHERE acctstarttime IS NOT NULL "
+            " AND acctstarttime < datetime(?, 'unixepoch')",
+            (int(cutoff.timestamp()),)).fetchone()[0]
+        rcon.close()
+    except Exception as e:
+        ra_cnt = -1
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO retention_runs(target_table,cutoff_ts,rows_archived,"
+            " rows_deleted,ok,message) VALUES ('radacct',?,?,0,1,?)",
+            (cutoff_iso, ra_cnt,
+             f"radacct rows older than cutoff: {ra_cnt} (kept; read-only)"))
+        c.commit()
+    summary.append({"table": "radacct", "older_count": ra_cnt, "kept": True})
+
+    return {"cutoff": cutoff_iso, "summary": summary}
+
+
+# ───────────────────────────────────────────── route mounting
+def mount(app, templates, get_db, require_admin):
+    """Adds routes to the provided FastAPI app instance."""
+    _ensure_tables()
+
+    # ── IPDR ingest (token-auth) ────────────────────────────────────
+    @app.post("/api/compliance/ipdr/import")
+    async def api_ipdr_import(request: Request):
+        token = (request.headers.get("Authorization") or "").replace("Bearer ", "").strip()
+        cid = _verify_ingest_token(token, "ipdr")
+        if not cid:
+            return JSONResponse({"success": False, "message": "Invalid or revoked token"},
+                                status_code=401)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "message": "Invalid JSON body"},
+                                status_code=400)
+        records = payload.get("records") if isinstance(payload, dict) else payload
+        if not isinstance(records, list):
+            return JSONResponse({"success": False, "message": "Body must be {records:[...]}"},
+                                status_code=400)
+        nas_ip = (payload.get("nas_ip") if isinstance(payload, dict) else "") or ""
+
+        cnt = 0
+        skipped = 0
+        with _conn() as c:
+            for r in records:
+                if not isinstance(r, dict):
+                    skipped += 1
+                    continue
+                try:
+                    c.execute(
+                        "INSERT INTO ipdr_records(company_id,customer_id,user_ip,"
+                        "src_ip,src_port,dst_ip,dst_port,protocol,start_ts,stop_ts,"
+                        "bytes_in,bytes_out,nas_ip) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (cid, r.get("customer_id") or None, r.get("user_ip") or "",
+                         r.get("src_ip") or "", int(r.get("src_port") or 0) or None,
+                         r.get("dst_ip") or "", int(r.get("dst_port") or 0) or None,
+                         (r.get("protocol") or "").upper()[:8],
+                         r.get("start_ts") or None, r.get("stop_ts") or None,
+                         int(r.get("bytes_in") or 0), int(r.get("bytes_out") or 0),
+                         r.get("nas_ip") or nas_ip))
+                    cnt += 1
+                except Exception:
+                    skipped += 1
+            c.commit()
+        return {"success": True, "ingested": cnt, "skipped": skipped}
+
+    # ── URL logs ingest (token-auth) ────────────────────────────────
+    @app.post("/api/compliance/url-logs/import")
+    async def api_urllogs_import(request: Request):
+        token = (request.headers.get("Authorization") or "").replace("Bearer ", "").strip()
+        cid = _verify_ingest_token(token, "url")
+        if not cid:
+            return JSONResponse({"success": False, "message": "Invalid or revoked token"},
+                                status_code=401)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "message": "Invalid JSON body"},
+                                status_code=400)
+        records = payload.get("records") if isinstance(payload, dict) else payload
+        if not isinstance(records, list):
+            return JSONResponse({"success": False, "message": "Body must be {records:[...]}"},
+                                status_code=400)
+        nas_ip = (payload.get("nas_ip") if isinstance(payload, dict) else "") or ""
+
+        cnt = 0; skipped = 0
+        with _conn() as c:
+            for r in records:
+                if not isinstance(r, dict):
+                    skipped += 1; continue
+                try:
+                    c.execute(
+                        "INSERT INTO url_logs(company_id,customer_id,user_ip,ts,"
+                        "method,host,url,dst_port,status_code,bytes_xfer,user_agent,nas_ip) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (cid, r.get("customer_id") or None, r.get("user_ip") or "",
+                         r.get("ts") or None,
+                         (r.get("method") or "").upper()[:8],
+                         (r.get("host") or "")[:255], (r.get("url") or "")[:1024],
+                         int(r.get("dst_port") or 0) or None,
+                         int(r.get("status_code") or 0) or None,
+                         int(r.get("bytes_xfer") or 0),
+                         (r.get("user_agent") or "")[:255],
+                         r.get("nas_ip") or nas_ip))
+                    cnt += 1
+                except Exception:
+                    skipped += 1
+            c.commit()
+        return {"success": True, "ingested": cnt, "skipped": skipped}
+
+    # ── Token issuance (admin UI) ───────────────────────────────────
+    @app.post("/api/compliance/ingest-tokens/issue")
+    async def api_token_issue(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        try:
+            data = await request.json()
+        except Exception:
+            data = dict(await request.form())
+        kind = (data.get("kind") or "").lower()
+        if kind not in ("ipdr", "url"):
+            return JSONResponse({"success": False, "message": "kind must be 'ipdr' or 'url'"},
+                                status_code=400)
+        label = (data.get("label") or "").strip()[:80]
+        token = secrets.token_urlsafe(32)
+        with _conn() as c:
+            c.execute(
+                "INSERT INTO compliance_ingest_tokens(company_id,kind,token_hash,label) "
+                "VALUES (?,?,?,?)",
+                (cid, kind, _hash_token(token), label))
+            c.commit()
+        return {"success": True, "token": token,
+                "message": "Save this token now — it cannot be shown again."}
+
+    @app.get("/api/compliance/ingest-tokens/list")
+    async def api_token_list(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT id, kind, label, created_at, last_used_at, revoked "
+                " FROM compliance_ingest_tokens WHERE company_id=? "
+                " ORDER BY id DESC", (cid,)).fetchall()
+        return {"success": True,
+                "items": [dict(r) for r in rows]}
+
+    @app.post("/api/compliance/ingest-tokens/{token_id}/revoke")
+    async def api_token_revoke(token_id: int, request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        with _conn() as c:
+            c.execute("UPDATE compliance_ingest_tokens SET revoked=1 "
+                      " WHERE id=? AND company_id=?", (token_id, cid))
+            c.commit()
+        return {"success": True}
+
+    # ── IPDR list page + JSON ───────────────────────────────────────
+    @app.get("/admin/compliance/ipdr", response_class=HTMLResponse)
+    async def page_ipdr(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        ctx.update({"request": request, "kind_label": "IPDR (5-tuple)"})
+        return templates.TemplateResponse("compliance_ipdr.html", ctx)
+
+    @app.get("/api/compliance/ipdr/list")
+    async def api_ipdr_list(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        qp = request.query_params
+        limit = max(1, min(int(qp.get("limit") or 200), 1000))
+        q = (qp.get("q") or "").strip()
+        dt_from = qp.get("from") or ""
+        dt_to = qp.get("to") or ""
+        sql = ("SELECT id,customer_id,user_ip,src_ip,src_port,dst_ip,dst_port,"
+               "protocol,start_ts,stop_ts,bytes_in,bytes_out,nas_ip "
+               "FROM ipdr_records WHERE company_id=? ")
+        params = [cid]
+        if q:
+            sql += "AND (user_ip LIKE ? OR dst_ip LIKE ? OR customer_id LIKE ?) "
+            like = f"%{q}%"; params += [like, like, like]
+        if dt_from:
+            sql += "AND start_ts >= ? "; params.append(dt_from)
+        if dt_to:
+            sql += "AND start_ts <= ? "; params.append(dt_to + " 23:59:59")
+        sql += "ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with _conn() as c:
+            rows = c.execute(sql, tuple(params)).fetchall()
+            total = c.execute("SELECT COUNT(*) FROM ipdr_records WHERE company_id=?",
+                              (cid,)).fetchone()[0]
+        # _S40zP_lock_filter_ipdr_ Hide locked sub-lco customers from admin view
+        _hide = _hidden_cust_ids_p27(request, db)
+        if _hide:
+            rows = [r for r in rows if (r["customer_id"] or "") not in _hide]
+            total = total - sum(1 for _ in [r for r in rows if 0])  # safe no-op
+        return {"success": True, "total": total, "rows": [dict(r) for r in rows]}
+
+    @app.get("/admin/compliance/ipdr/export.csv")
+    async def export_ipdr_csv(request: Request, db: Session = Depends(get_db)):
+        return await _export_ipdr(request, db, fmt="csv")
+
+    @app.get("/admin/compliance/ipdr/export.xlsx")
+    async def export_ipdr_xlsx(request: Request, db: Session = Depends(get_db)):
+        return await _export_ipdr(request, db, fmt="xlsx")
+
+    async def _export_ipdr(request: Request, db: Session, fmt: str = "csv"):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        qp = request.query_params
+        dt_from = qp.get("from") or ""
+        dt_to = qp.get("to") or ""
+        sql = ("SELECT id,customer_id,user_ip,src_ip,src_port,dst_ip,dst_port,"
+               "protocol,start_ts,stop_ts,bytes_in,bytes_out,nas_ip,created_at "
+               "FROM ipdr_records WHERE company_id=? ")
+        params = [cid]
+        if dt_from: sql += "AND start_ts >= ? "; params.append(dt_from)
+        if dt_to:   sql += "AND start_ts <= ? "; params.append(dt_to + " 23:59:59")
+        sql += "ORDER BY id DESC"
+        with _conn() as c:
+            rows = c.execute(sql, tuple(params)).fetchall()
+        # _S40zP_lock_filter_ipdr_export_
+        _hide = _hidden_cust_ids_p27(request, db)
+        if _hide: rows = [r for r in rows if (r["customer_id"] or "") not in _hide]
+        cols = ["id","customer_id","user_ip","src_ip","src_port","dst_ip",
+                "dst_port","protocol","start_ts","stop_ts","bytes_in",
+                "bytes_out","nas_ip","created_at"]
+        if fmt == "xlsx":
+            wb = _XlsxBook()
+            ws = wb.active
+            ws.title = "IPDR"
+            ws.append(cols)
+            for r in rows: ws.append([r[k] for k in cols])
+            bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+            return StreamingResponse(bio,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=ipdr_records.xlsx"})
+        # CSV
+        buf = io.StringIO()
+        w = csv.writer(buf); w.writerow(cols)
+        for r in rows: w.writerow([r[k] for k in cols])
+        return StreamingResponse(io.BytesIO(buf.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=ipdr_records.csv"})
+
+    # ── URL logs list page + JSON + CSV ─────────────────────────────
+    @app.get("/admin/compliance/url-logs", response_class=HTMLResponse)
+    async def page_urls(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        ctx.update({"request": request})
+        return templates.TemplateResponse("compliance_url_logs.html", ctx)
+
+    @app.get("/api/compliance/url-logs/list")
+    async def api_urls_list(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        qp = request.query_params
+        limit = max(1, min(int(qp.get("limit") or 200), 1000))
+        q = (qp.get("q") or "").strip()
+        dt_from = qp.get("from") or ""
+        dt_to = qp.get("to") or ""
+        sql = ("SELECT id,customer_id,user_ip,ts,method,host,url,dst_port,"
+               "status_code,bytes_xfer,user_agent,nas_ip "
+               " FROM url_logs WHERE company_id=? ")
+        params = [cid]
+        if q:
+            sql += "AND (host LIKE ? OR url LIKE ? OR user_ip LIKE ?) "
+            like = f"%{q}%"; params += [like, like, like]
+        if dt_from: sql += "AND ts >= ? "; params.append(dt_from)
+        if dt_to:   sql += "AND ts <= ? "; params.append(dt_to + " 23:59:59")
+        sql += "ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with _conn() as c:
+            rows = c.execute(sql, tuple(params)).fetchall()
+            total = c.execute("SELECT COUNT(*) FROM url_logs WHERE company_id=?",
+                              (cid,)).fetchone()[0]
+        # _S40zP_lock_filter_url_ Hide locked sub-lco customers
+        _hide = _hidden_cust_ids_p27(request, db)
+        if _hide:
+            rows = [r for r in rows if (r["customer_id"] or "") not in _hide]
+        return {"success": True, "total": total, "rows": [dict(r) for r in rows]}
+
+    @app.get("/admin/compliance/url-logs/export.csv")
+    async def export_urls_csv(request: Request, db: Session = Depends(get_db)):
+        return await _export_urls(request, db, fmt="csv")
+
+    @app.get("/admin/compliance/url-logs/export.xlsx")
+    async def export_urls_xlsx(request: Request, db: Session = Depends(get_db)):
+        return await _export_urls(request, db, fmt="xlsx")
+
+    async def _export_urls(request: Request, db: Session, fmt: str = "csv"):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        qp = request.query_params
+        dt_from = qp.get("from") or ""; dt_to = qp.get("to") or ""
+        sql = ("SELECT id,customer_id,user_ip,ts,method,host,url,dst_port,"
+               "status_code,bytes_xfer,user_agent,nas_ip,created_at "
+               " FROM url_logs WHERE company_id=? ")
+        params = [cid]
+        if dt_from: sql += "AND ts >= ? "; params.append(dt_from)
+        if dt_to:   sql += "AND ts <= ? "; params.append(dt_to + " 23:59:59")
+        sql += "ORDER BY id DESC"
+        with _conn() as c:
+            rows = c.execute(sql, tuple(params)).fetchall()
+        # _S40zP_lock_filter_url_export_
+        _hide = _hidden_cust_ids_p27(request, db)
+        if _hide: rows = [r for r in rows if (r["customer_id"] or "") not in _hide]
+        cols = ["id","customer_id","user_ip","ts","method","host","url",
+                "dst_port","status_code","bytes_xfer","user_agent","nas_ip",
+                "created_at"]
+        if fmt == "xlsx":
+            wb = _XlsxBook()
+            ws = wb.active; ws.title = "URL Logs"
+            ws.append(cols)
+            for r in rows: ws.append([r[k] for k in cols])
+            bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+            return StreamingResponse(bio,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=url_logs.xlsx"})
+        buf = io.StringIO()
+        w = csv.writer(buf); w.writerow(cols)
+        for r in rows: w.writerow([r[k] for k in cols])
+        return StreamingResponse(io.BytesIO(buf.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=url_logs.csv"})
+
+    # ── CMS Mirror config ───────────────────────────────────────────
+    @app.get("/admin/compliance/cms-mirror", response_class=HTMLResponse)
+    async def page_cms(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        ctx.update({"request": request})
+        return templates.TemplateResponse("compliance_cms_mirror.html", ctx)
+
+    @app.get("/api/compliance/cms-mirror/get")
+    async def api_cms_get(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        with _conn() as c:
+            r = c.execute(
+                "SELECT cms_endpoint, mirror_nas_id, enabled, last_test_at,"
+                "       last_test_ok, last_test_msg "
+                " FROM cms_mirror_config WHERE company_id=?", (cid,)).fetchone()
+        return {"success": True,
+                "config": dict(r) if r else {"enabled": 0, "cms_endpoint": "",
+                                              "mirror_nas_id": None}}
+
+    @app.post("/api/compliance/cms-mirror/save")
+    async def api_cms_save(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        try:
+            data = await request.json()
+        except Exception:
+            data = dict(await request.form())
+        endpoint = (data.get("cms_endpoint") or "").strip()
+        cms_key = (data.get("cms_key") or "").strip()
+        nas_id = data.get("mirror_nas_id")
+        try: nas_id = int(nas_id) if nas_id not in (None, "", "null") else None
+        except Exception: nas_id = None
+        enabled = 1 if str(data.get("enabled") or "0") in ("1","true","on") else 0
+        actor = request.session.get("user_id") or ""
+        with _conn() as c:
+            c.execute("INSERT INTO cms_mirror_config(company_id,cms_endpoint,"
+                      "cms_key,mirror_nas_id,enabled,updated_at,updated_by) "
+                      "VALUES (?,?,?,?,?,?,?) "
+                      "ON CONFLICT(company_id) DO UPDATE SET "
+                      " cms_endpoint=excluded.cms_endpoint, "
+                      " cms_key=CASE WHEN excluded.cms_key='' THEN cms_mirror_config.cms_key "
+                      "         ELSE excluded.cms_key END,"
+                      " mirror_nas_id=excluded.mirror_nas_id, enabled=excluded.enabled,"
+                      " updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                      (cid, endpoint, cms_key, nas_id, enabled,
+                       datetime.now(timezone.utc).isoformat(), actor))
+            c.commit()
+        return {"success": True, "message": "CMS Mirror config saved"}
+
+    @app.post("/api/compliance/cms-mirror/test")
+    async def api_cms_test(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        with _conn() as c:
+            r = c.execute("SELECT cms_endpoint FROM cms_mirror_config "
+                          "WHERE company_id=?", (cid,)).fetchone()
+        endpoint = (r["cms_endpoint"] if r else "") or ""
+        if not endpoint:
+            msg = "No endpoint configured."
+            ok = 0
+        else:
+            try:
+                import httpx as _h
+                with _h.Client(timeout=6, verify=False) as cli:
+                    resp = cli.get(endpoint)
+                    ok = 1 if resp.status_code < 500 else 0
+                    msg = f"HTTP {resp.status_code}"
+            except Exception as e:
+                ok = 0
+                msg = f"error: {e}"
+        with _conn() as c:
+            c.execute("UPDATE cms_mirror_config SET last_test_at=?, last_test_ok=?, "
+                      "last_test_msg=? WHERE company_id=?",
+                      (datetime.now(timezone.utc).isoformat(), ok, msg, cid))
+            c.commit()
+        return {"success": bool(ok), "message": msg}
+
+    # ── Retention page + run-now button + history ───────────────────
+    @app.get("/admin/compliance/retention", response_class=HTMLResponse)
+    async def page_retention(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        from main import get_admin_context
+        ctx = get_admin_context(request, db, "compliance")
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT id, ran_at, target_table, cutoff_ts, rows_archived,"
+                " rows_deleted, archive_path, ok, message "
+                " FROM retention_runs ORDER BY id DESC LIMIT 50").fetchall()
+        ctx.update({"request": request, "runs": [dict(r) for r in rows],
+                     "retention_days": RETENTION_DAYS,
+                     "archive_dir": ARCHIVE_DIR})
+        return templates.TemplateResponse("compliance_retention.html", ctx)
+
+    @app.post("/api/compliance/retention/run")
+    async def api_retention_run(request: Request):
+        gate = require_admin(request)
+        if gate: return gate
+        # Run synchronously — small datasets, feedback to user immediately
+        try:
+            r = _run_retention_once()
+            return {"success": True, "result": r}
+        except Exception as e:
+            return JSONResponse({"success": False, "message": f"{e}"},
+                                 status_code=500)
+
+
+    # ─────────── Per-NAS RouterOS deployment script generator ──────────
+    @app.post("/api/admin/nas/{nas_id}/compliance-script/{kind}")
+    async def api_nas_script_gen(nas_id: int, kind: str,
+                                  request: Request,
+                                  db: Session = Depends(get_db)):
+        # Allow admin session OR internal-proxy from superadmin portal.
+        try:
+            from main import require_admin_or_internal as _gate_fn, INTERNAL_TOKEN as _INT
+        except Exception:
+            _gate_fn = None
+        cid = ""
+        actor = ""
+        if _gate_fn:
+            res = _gate_fn(request)
+            if isinstance(res, str):
+                cid = res
+                actor = (request.headers.get("X-Actor-Id")
+                         or request.session.get("user_id") or "")
+            else:
+                return res
+        else:
+            gate = require_admin(request)
+            if gate: return gate
+            cid = request.session.get("company_id") or ""
+            actor = request.session.get("user_id") or ""
+        kind = (kind or "").lower()
+        if kind not in ("ipdr", "url"):
+            return JSONResponse({"success": False, "message": "kind must be ipdr|url"},
+                                  status_code=400)
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        endpoint_base = (data.get("endpoint_base") or "").rstrip("/")
+        if not endpoint_base:
+            # auto-detect from the request itself
+            scheme = request.headers.get("X-Forwarded-Proto") or "https"
+            host = request.headers.get("X-Forwarded-Host") or request.url.hostname or "localhost"
+            endpoint_base = f"{scheme}://{host}"
+
+        # Verify NAS belongs to this tenant. NasDevice lives in radius_network.
+        nas = None
+        try:
+            from radius_network import NasDevice
+            nas = db.query(NasDevice).filter(
+                NasDevice.id == nas_id,
+                NasDevice.company_id == cid).first()
+        except Exception:
+            try:
+                with _conn() as _c:
+                    row = _c.execute(
+                        "SELECT id, name, ip_address FROM nas_devices "
+                        " WHERE id=? AND company_id=?",
+                        (nas_id, cid)).fetchone()
+                if row:
+                    class _N: pass
+                    nas = _N()
+                    nas.id = row["id"]; nas.name = row["name"]
+                    nas.ip_address = row["ip_address"]
+            except Exception:
+                nas = None
+        if not nas:
+            return JSONResponse({"success": False, "message": "NAS not found"},
+                                  status_code=404)
+
+        # Issue a fresh token (so old deployments stay valid until revoked)
+        token = secrets.token_urlsafe(32)
+        with _conn() as c:
+            cur = c.execute(
+                "INSERT INTO compliance_ingest_tokens(company_id,kind,token_hash,label) "
+                "VALUES (?,?,?,?)",
+                (cid, kind, _hash_token(token),
+                 f"NAS#{nas_id} {nas.name or ''}"[:80]))
+            tok_id = cur.lastrowid
+            c.execute(
+                "INSERT INTO nas_compliance_deployments(company_id,nas_id,kind,"
+                "token_id,endpoint,generated_by) VALUES (?,?,?,?,?,?)",
+                (cid, nas_id, kind, tok_id, endpoint_base, actor))
+            c.commit()
+
+        ingest_url = f"{endpoint_base}/api/compliance/{'ipdr' if kind=='ipdr' else 'url-logs'}/import"
+        nas_label = (nas.name or f"NAS-{nas_id}").replace('"', "'")
+        nas_ip_for_record = nas.ip_address or ""
+
+        if kind == "ipdr":
+            script = f'''# ───────────────────────────────────────────────────────────────
+# Auto-generated IPDR exporter for "{nas_label}"  (NAS id {nas_id})
+# Posts 5-tuple connection-tracking records to your billing server
+# Generated: {datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")} IST
+# ───────────────────────────────────────────────────────────────
+
+# Step 1 — store the ingest token (one-time)
+:global ispIpdrToken "{token}"
+:global ispIpdrUrl   "{ingest_url}"
+:global ispNasIp     "{nas_ip_for_record}"
+
+# Step 2 — schedule push every 5 minutes
+/system scheduler
+remove [find name="isp-ipdr-push"]
+add name="isp-ipdr-push" interval=5m on-event="/system script run isp-ipdr-push" \\
+    policy=read,write,policy,test,sniff start-time=startup
+
+# Step 3 — the push script (snapshots /ip firewall connection table)
+/system script
+remove [find name="isp-ipdr-push"]
+add name="isp-ipdr-push" policy=read,write,policy,test,sniff source={{
+:global ispIpdrToken
+:global ispIpdrUrl
+:global ispNasIp
+:local payload "{{\\\"records\\\":["
+:local first true
+:foreach c in=[/ip firewall connection find] do={{
+    :local pn  [/ip firewall connection get $c protocol]
+    :local sa  [/ip firewall connection get $c src-address]
+    :local da  [/ip firewall connection get $c dst-address]
+    :local sip [:pick $sa 0 [:find $sa ":"]]
+    :local sp  [:pick $sa ([:find $sa ":"] + 1) [:len $sa]]
+    :local dip [:pick $da 0 [:find $da ":"]]
+    :local dp  [:pick $da ([:find $da ":"] + 1) [:len $da]]
+    :if (!$first) do={{ :set payload ($payload . ",") }}
+    :set payload ($payload . "{{\\\"user_ip\\\":\\\"" . $sip . "\\\",\\\"src_ip\\\":\\\"" . $sip . "\\\",\\\"src_port\\\":" . $sp . ",\\\"dst_ip\\\":\\\"" . $dip . "\\\",\\\"dst_port\\\":" . $dp . ",\\\"protocol\\\":\\\"" . [:toupper $pn] . "\\\",\\\"start_ts\\\":\\\"" . [/system clock get date] . " " . [/system clock get time] . "\\\"}}")
+    :set first false
+}}
+:set payload ($payload . "],\\\"nas_ip\\\":\\\"" . $ispNasIp . "\\\"}}")
+/tool fetch url=$ispIpdrUrl mode=https http-method=post http-header-field=("Authorization: Bearer " . $ispIpdrToken . ",Content-Type: application/json") http-data=$payload output=none keep-result=no
+}}
+
+# To remove later:
+#   /system scheduler remove [find name="isp-ipdr-push"]
+#   /system script    remove [find name="isp-ipdr-push"]
+'''
+        else:  # kind == "url"
+            script = f'''# ───────────────────────────────────────────────────────────────
+# Auto-generated URL-log exporter for "{nas_label}"  (NAS id {nas_id})
+# Pipes Mikrotik web-proxy access log to your billing server
+# Generated: {datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")} IST
+# ───────────────────────────────────────────────────────────────
+
+# Step 1 — make sure web-proxy is enabled
+/ip web-proxy
+set enabled=yes cache-on-disk=no
+
+# Step 2 — log web-proxy access to system log
+/system logging action
+add name="isp-url-log" target=memory memory-lines=4096
+
+/system logging
+add topics=web-proxy,!debug action=isp-url-log
+
+# Step 3 — store the ingest token
+:global ispUrlToken "{token}"
+:global ispUrlUrl   "{ingest_url}"
+:global ispNasIp    "{nas_ip_for_record}"
+
+# Step 4 — schedule push every 2 minutes (drains the buffer)
+/system scheduler
+remove [find name="isp-urllog-push"]
+add name="isp-urllog-push" interval=2m on-event="/system script run isp-urllog-push" \\
+    policy=read,write,policy,test start-time=startup
+
+/system script
+remove [find name="isp-urllog-push"]
+add name="isp-urllog-push" policy=read,write,policy,test source={{
+:global ispUrlToken
+:global ispUrlUrl
+:global ispNasIp
+:local logs [/log find topics~"web-proxy"]
+:if ([:len $logs] = 0) do={{ :return "" }}
+:local payload "{{\\\"records\\\":["
+:local first true
+:foreach l in=$logs do={{
+    :local msg [/log get $l message]
+    :local ts  [/log get $l time]
+    :if (!$first) do={{ :set payload ($payload . ",") }}
+    :set payload ($payload . "{{\\\"ts\\\":\\\"" . [/system clock get date] . " " . $ts . "\\\",\\\"url\\\":\\\"" . $msg . "\\\",\\\"method\\\":\\\"GET\\\"}}")
+    :set first false
+}}
+:set payload ($payload . "],\\\"nas_ip\\\":\\\"" . $ispNasIp . "\\\"}}")
+/tool fetch url=$ispUrlUrl mode=https http-method=post http-header-field=("Authorization: Bearer " . $ispUrlToken . ",Content-Type: application/json") http-data=$payload output=none keep-result=no
+}}
+
+# To remove later:
+#   /system scheduler remove [find name="isp-urllog-push"]
+#   /system script    remove [find name="isp-urllog-push"]
+'''
+
+        return {
+            "success": True,
+            "kind": kind,
+            "script": script,
+            "token": token,
+            "endpoint": ingest_url,
+            "nas": {"id": nas_id, "name": nas.name, "ip": nas.ip_address or ""},
+            "generated_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+            "warning": "Save this token now — it will not be shown again.",
+        }
+
+    @app.get("/api/admin/nas/{nas_id}/compliance-script/status")
+    async def api_nas_script_status(nas_id: int, request: Request,
+                                      db: Session = Depends(get_db)):
+        try:
+            from main import require_admin_or_internal as _gate_fn
+        except Exception:
+            _gate_fn = None
+        cid = ""
+        if _gate_fn:
+            res = _gate_fn(request)
+            if isinstance(res, str): cid = res
+            else: return res
+        else:
+            gate = require_admin(request)
+            if gate: return gate
+            cid = request.session.get("company_id") or ""
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT kind, MAX(generated_at) AS last_at, COUNT(*) AS times "
+                "FROM nas_compliance_deployments "
+                "WHERE company_id=? AND nas_id=? GROUP BY kind",
+                (cid, nas_id)).fetchall()
+        return {"success": True,
+                "items": {r["kind"]: {"last_at": r["last_at"], "times": r["times"]}
+                          for r in rows}}
+
+
+    # ─────────── NAS push activity status ─────────────────────────
+    @app.get("/api/compliance/nas-push-status")
+    async def api_nas_push_status(request: Request, db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+        # Lookup NAS list for tenant
+        try:
+            from radius_network import NasDevice
+            nas_list = db.query(NasDevice).filter(NasDevice.company_id == cid).all()
+        except Exception:
+            nas_list = []
+        cutoff_24 = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        items = []
+        with _conn() as c:
+            # _S40zP_lock_filter_nps_ Hide locked sub-lco customer ip from counts
+            try:
+                _hide_p = _hidden_cust_ids_p27(request, db)
+            except Exception:
+                _hide_p = set()
+            _excl_sql = "" if not _hide_p else (
+                " AND COALESCE(customer_id,'') NOT IN (" + ",".join('?' for _ in _hide_p) + ")")
+            _excl_args = list(_hide_p)
+            for nas in nas_list:
+                ip = nas.ip_address or ""
+                ipdr_last = c.execute(
+                    "SELECT MAX(created_at) FROM ipdr_records WHERE company_id=? AND nas_ip=?" + _excl_sql,
+                    tuple([cid, ip] + _excl_args)).fetchone()[0]
+                url_last  = c.execute(
+                    "SELECT MAX(created_at) FROM url_logs   WHERE company_id=? AND nas_ip=?",
+                    (cid, ip)).fetchone()[0]
+                ipdr_24 = c.execute(
+                    "SELECT COUNT(*) FROM ipdr_records WHERE company_id=? AND nas_ip=? AND created_at >= ?",
+                    (cid, ip, cutoff_24)).fetchone()[0]
+                url_24  = c.execute(
+                    "SELECT COUNT(*) FROM url_logs   WHERE company_id=? AND nas_ip=? AND created_at >= ?",
+                    (cid, ip, cutoff_24)).fetchone()[0]
+                # Has a deployment script ever been generated for this NAS?
+                deploys = c.execute(
+                    "SELECT kind, MAX(generated_at) AS gen FROM nas_compliance_deployments "
+                    "WHERE company_id=? AND nas_id=? GROUP BY kind",
+                    (cid, nas.id)).fetchall()
+                deploy_map = {d["kind"]: d["gen"] for d in deploys}
+                items.append({
+                    "nas_id": nas.id, "name": nas.name or "",
+                    "ip": ip,
+                    "ipdr_last": ipdr_last, "ipdr_count_24h": ipdr_24,
+                    "ipdr_deployed_at": deploy_map.get("ipdr"),
+                    "url_last": url_last,   "url_count_24h": url_24,
+                    "url_deployed_at": deploy_map.get("url"),
+                })
+        # Compute per-NAS status pill (green/amber/red)
+        now = datetime.now(timezone.utc)
+        for it in items:
+            for kind in ("ipdr", "url"):
+                last_key = f"{kind}_last"
+                deploy_key = f"{kind}_deployed_at"
+                status_key = f"{kind}_status"
+                last = it[last_key]
+                if not it[deploy_key]:
+                    it[status_key] = "not_deployed"
+                    continue
+                if not last:
+                    it[status_key] = "deployed_no_data"
+                    continue
+                try:
+                    dt = datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")
+                    delta_min = (now.replace(tzinfo=None) - dt).total_seconds() / 60
+                except Exception:
+                    delta_min = 99999
+                if delta_min < 30:
+                    it[status_key] = "active"
+                elif delta_min < 240:
+                    it[status_key] = "stale"
+                else:
+                    it[status_key] = "stopped"
+        return {"success": True, "items": items}
+
+    # ─────────── Per-LI-order forensic ZIP bundle ────────────────
+    @app.get("/admin/compliance/li-orders/{order_id}/bundle.zip")
+    async def li_order_bundle(order_id: int, request: Request,
+                                 db: Session = Depends(get_db)):
+        gate = require_admin(request)
+        if gate: return gate
+        cid = request.session.get("company_id") or ""
+
+        # Load the LI order
+        with _conn() as c:
+            order = c.execute(
+                "SELECT id, order_no, agency, target_username, ordered_on, "
+                "ends_on, destroy_at, status, notes, created_by, created_at "
+                "FROM li_orders WHERE id=? AND company_id=?",
+                (order_id, cid)).fetchone()
+        if not order:
+            return JSONResponse({"success": False, "message": "Order not found"},
+                                  status_code=404)
+        target_user = (order["target_username"] or "").strip()
+        # _S40zP_lock_filter_li_ block bundle if the target customer is hidden
+        try:
+            from phase28_lock import hidden_usernames as _hu_p28
+            _hidden_users = _hu_p28(cid, db)
+        except Exception:
+            _hidden_users = set()
+        if target_user in _hidden_users:
+            # _S40zP_li_quiet_ — silently behave as if order does not exist.
+            return JSONResponse({"success": False,
+                "message": "Order not found"},
+                status_code=404)
+        dt_from = (order["ordered_on"] or "").strip()
+        dt_to   = (order["ends_on"]   or "").strip()
+
+        # Map username → customer_id (for IPDR + URL log filtering)
+        cust_id = ""
+        cust_ip = ""
+        try:
+            from database import Customer
+            cust = db.query(Customer).filter(
+                Customer.company_id == cid,
+                Customer.username == target_user).first()
+            if cust:
+                cust_id = cust.customer_id or ""
+        except Exception:
+            cust = None
+
+        import io as _io, csv as _csv, zipfile as _zip, hashlib as _h
+        buf = _io.BytesIO()
+        ipdr_count = url_count = 0
+        radacct_rows = []
+
+        with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
+            # README / chain-of-custody
+            now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+            actor   = request.session.get("user_id") or "admin"
+            readme = (
+                "Lawful Interception Forensic Bundle\n"
+                "===================================\n"
+                f"Order Number      : {order['order_no']}\n"
+                f"Issuing Agency    : {order['agency']}\n"
+                f"Target Username   : {target_user}\n"
+                f"Target Customer ID: {cust_id or '(not resolved)'}\n"
+                f"Order Range       : {dt_from} to {dt_to}\n"
+                f"Order Status      : {order['status']}\n"
+                f"Auto-destroy on   : {order['destroy_at'] or '(n/a)'}\n"
+                f"Generated         : {now_str}\n"
+                f"Generated by      : {actor}\n"
+                "\n"
+                "Contents:\n"
+                "  ipdr_records.csv  — connection-level activity\n"
+                "  url_logs.csv      — visited URLs / hosts\n"
+                "  session_records.csv — RADIUS accounting (read-only mirror)\n"
+                "  order_metadata.json — full order record\n"
+                "  chain_of_custody.txt — this file with SHA-256 checksums\n"
+            )
+
+            # IPDR slice
+            ipdr_csv = _io.StringIO()
+            w = _csv.writer(ipdr_csv)
+            w.writerow(["start_ts", "stop_ts", "user_ip", "src_ip", "src_port",
+                          "dst_ip", "dst_port", "protocol", "bytes_in", "bytes_out",
+                          "nas_ip"])
+            with _conn() as c:
+                rows = c.execute(
+                    "SELECT start_ts, stop_ts, user_ip, src_ip, src_port, dst_ip, "
+                    "dst_port, protocol, bytes_in, bytes_out, nas_ip "
+                    "FROM ipdr_records WHERE company_id=? "
+                    "  AND ((? != '' AND customer_id=?) OR (? = '')) "
+                    "  AND (? = '' OR start_ts >= ?) "
+                    "  AND (? = '' OR start_ts <= ?) "
+                    "ORDER BY start_ts",
+                    (cid, cust_id, cust_id, cust_id,
+                     dt_from, dt_from + " 00:00:00",
+                     dt_to,   dt_to   + " 23:59:59")).fetchall()
+            for r in rows: w.writerow([r[k] for k in r.keys()])
+            ipdr_count = len(rows)
+            ipdr_bytes = ipdr_csv.getvalue().encode("utf-8")
+            z.writestr("ipdr_records.csv", ipdr_bytes)
+
+            # URL log slice
+            url_csv = _io.StringIO()
+            w = _csv.writer(url_csv)
+            w.writerow(["ts", "user_ip", "method", "host", "url", "dst_port",
+                          "status_code", "bytes_xfer", "user_agent", "nas_ip"])
+            with _conn() as c:
+                rows = c.execute(
+                    "SELECT ts, user_ip, method, host, url, dst_port, status_code, "
+                    "bytes_xfer, user_agent, nas_ip FROM url_logs "
+                    "WHERE company_id=? "
+                    "  AND ((? != '' AND customer_id=?) OR (? = '')) "
+                    "  AND (? = '' OR ts >= ?) "
+                    "  AND (? = '' OR ts <= ?) "
+                    "ORDER BY ts",
+                    (cid, cust_id, cust_id, cust_id,
+                     dt_from, dt_from + " 00:00:00",
+                     dt_to,   dt_to   + " 23:59:59")).fetchall()
+            for r in rows: w.writerow([r[k] for k in r.keys()])
+            url_count = len(rows)
+            url_bytes = url_csv.getvalue().encode("utf-8")
+            z.writestr("url_logs.csv", url_bytes)
+
+            # Session/accounting (radacct mirror) — best effort
+            sess_csv = _io.StringIO()
+            w = _csv.writer(sess_csv)
+            w.writerow(["username", "framedipaddress", "callingstationid",
+                          "nasipaddress", "acctstarttime", "acctstoptime",
+                          "acctsessiontime", "acctinputoctets", "acctoutputoctets",
+                          "acctterminatecause"])
+            try:
+                rcon = sqlite3.connect(RADACCT_DB, timeout=10)
+                rcon.row_factory = sqlite3.Row
+                # S42J — backfill + strict company_id fence on LI exports.
+                try:
+                    from radpostauth_tenant import backfill_radacct_company_id as _rp_bfa7
+                    _rp_bfa7(db, radacct_path=RADACCT_DB, limit=2000)
+                except Exception:
+                    pass
+                ra = rcon.execute(
+                    "SELECT username, framedipaddress, callingstationid, "
+                    "nasipaddress, acctstarttime, acctstoptime, acctsessiontime, "
+                    "acctinputoctets, acctoutputoctets, acctterminatecause "
+                    "FROM radacct WHERE username=? AND company_id=? "
+                    "  AND (? = '' OR acctstarttime >= ?) "
+                    "  AND (? = '' OR acctstarttime <= ?) ORDER BY acctstarttime",
+                    (target_user, str(cid),
+                     dt_from, dt_from + " 00:00:00",
+                     dt_to, dt_to + " 23:59:59")).fetchall()
+                rcon.close()
+                for r in ra:
+                    w.writerow([r[k] for k in r.keys()])
+                radacct_rows = list(ra)
+            except Exception as e:
+                w.writerow([f"-- radacct unavailable: {e}", "", "", "", "", "", "", "", "", ""])
+            sess_bytes = sess_csv.getvalue().encode("utf-8")
+            z.writestr("session_records.csv", sess_bytes)
+
+            # Order metadata
+            import json as _json
+            md = {
+                "order": dict(order),
+                "company_id": cid,
+                "generated_at": now_str,
+                "generated_by": actor,
+                "counts": {
+                    "ipdr": ipdr_count,
+                    "url_logs": url_count,
+                    "session_records": len(radacct_rows),
+                },
+            }
+            md_bytes = _json.dumps(md, indent=2, default=str).encode("utf-8")
+            z.writestr("order_metadata.json", md_bytes)
+
+            # Chain of custody (sha256 of each file)
+            coc = (readme
+                + "\n\nFile checksums (SHA-256):\n"
+                + f"  ipdr_records.csv     {_h.sha256(ipdr_bytes).hexdigest()}\n"
+                + f"  url_logs.csv         {_h.sha256(url_bytes).hexdigest()}\n"
+                + f"  session_records.csv  {_h.sha256(sess_bytes).hexdigest()}\n"
+                + f"  order_metadata.json  {_h.sha256(md_bytes).hexdigest()}\n"
+                + "\nRow counts:\n"
+                + f"  ipdr_records.csv    : {ipdr_count}\n"
+                + f"  url_logs.csv        : {url_count}\n"
+                + f"  session_records.csv : {len(radacct_rows)}\n")
+            z.writestr("chain_of_custody.txt", coc)
+
+        buf.seek(0)
+        safe_order = re.sub(r"[^A-Za-z0-9_-]+", "_", str(order["order_no"]))[:40]
+        fname = f"li_bundle_{safe_order}_{datetime.now(IST).strftime('%Y%m%d_%H%M')}.zip"
+        return StreamingResponse(iter([buf.getvalue()]),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+    print("[phase27_compliance] registered: IPDR, URL logs, CMS Mirror, Retention")

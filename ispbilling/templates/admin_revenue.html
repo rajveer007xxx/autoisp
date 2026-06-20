@@ -1,0 +1,99 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Revenue List - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Revenue List
+        <small>Revenue tracking and reports</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-aqua"><i class="fa fa-money"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Today's Revenue</span>
+                    <span class="info-box-number">₹ 0.00</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-green"><i class="fa fa-calendar"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">This Month</span>
+                    <span class="info-box-number">₹ 0.00</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-yellow"><i class="fa fa-line-chart"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Last Month</span>
+                    <span class="info-box-number">₹ 0.00</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-red"><i class="fa fa-bar-chart"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Total Revenue</span>
+                    <span class="info-box-number">₹ 0.00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Revenue</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Start Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>End Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary">Apply Filter</button>
+                <button type="button" class="btn btn-success"><i class="fa fa-download"></i> Export</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Revenue Details</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Customer Count</th>
+                            <th>Transactions</th>
+                            <th>Total Amount</th>
+                            <th>Payment Mode</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" class="text-center">No revenue data available</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

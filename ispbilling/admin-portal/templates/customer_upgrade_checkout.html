@@ -1,0 +1,158 @@
+{% extends "base_user.html" %}
+{% block title %}Complete Upgrade Payment - {{ company_name }}{% endblock %}
+{% block content %}
+<style>
+.up-wrap{max-width:760px;margin:0 auto;}
+.up-card{background:#fff;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);color:#0b1120;}
+.up-card,.up-card *{color:#0b1120;}
+.up-h{font-size:20px;font-weight:800;margin-bottom:6px;}
+.up-sub{font-size:13px;color:#475569 !important;margin-bottom:14px;}
+.up-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #e2e8f0;font-size:14px;}
+.up-row:last-child{border-bottom:none;font-weight:800;font-size:17px;padding-top:14px;}
+.up-row .lbl{color:#475569 !important;}
+.up-gw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px;}
+.up-gw{display:flex;align-items:center;justify-content:center;gap:10px;padding:14px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;font-weight:700;color:#0b1120;transition:all .15s;background:#fff;}
+.up-gw:hover{border-color:#6366f1;transform:translateY(-1px);box-shadow:0 6px 18px rgba(99,102,241,.18);}
+.up-gw.selected{border-color:#10b981;background:#f0fdf4;}
+.up-gw .gw-default{font-size:10px;color:#fff;background:#10b981;border-radius:8px;padding:2px 6px;margin-left:6px;}
+.up-pay-btn{margin-top:14px;width:100%;padding:14px 22px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:800;border:none;border-radius:12px;font-size:16px;cursor:pointer;}
+.up-pay-btn:disabled{opacity:.5;cursor:not-allowed;}
+.up-back{display:inline-block;margin-top:10px;color:#475569;text-decoration:underline;font-size:13px;}
+.up-error{background:#fef2f2;color:#b91c1c !important;border:1px solid #fecaca;padding:10px 14px;border-radius:8px;margin-top:12px;font-size:13px;display:none;}
+</style>
+
+<section class="content-header">
+  <h1>Complete Upgrade Payment<small>Pay your outstanding balance and the new plan charge in one go</small></h1>
+</section>
+
+<section class="content">
+<div class="up-wrap">
+  <div class="up-card" data-testid="upgrade-summary">
+    <div class="up-h">Upgrading to <span style="color:#6366f1 !important;">{{ plan_name }}</span></div>
+    <div class="up-sub">Review the breakdown below, then choose a payment method.</div>
+    <div class="up-row"><span class="lbl">New plan charge</span><span data-testid="upgrade-plan-amt">₹ {{ '%.2f'|format(plan_amount) }}</span></div>
+    <div class="up-row"><span class="lbl">Previous outstanding</span><span data-testid="upgrade-dues-amt">₹ {{ '%.2f'|format(previous_dues) }}</span></div>
+    <div class="up-row"><span class="lbl">Total to pay</span><span data-testid="upgrade-total-amt">₹ {{ '%.2f'|format(total_amount) }}</span></div>
+  </div>
+
+  <div class="up-card" data-testid="upgrade-gateway-picker">
+    <div class="up-h" style="font-size:16px;">Choose Payment Method</div>
+    {% if available_gateways and available_gateways|length > 0 %}
+      <div class="up-gw-grid">
+        {% for gw in available_gateways %}
+        <div class="up-gw {% if gw.name == default_gateway %}selected{% endif %}"
+             data-gw="{{ gw.name }}" onclick="selectGw('{{ gw.name }}')"
+             data-testid="upgrade-gw-{{ gw.name }}">
+          <i class="bi bi-credit-card-2-front"></i>
+          <span>{{ gw.label }}</span>
+          {% if gw.default %}<span class="gw-default">DEFAULT</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <button class="up-pay-btn" id="payBtn" onclick="startPay()"
+              data-testid="upgrade-pay-btn">Pay ₹ {{ '%.2f'|format(total_amount) }} & Upgrade</button>
+      <div class="up-error" id="errBox"></div>
+    {% else %}
+      <div style="padding:14px;background:#fef3c7;border-radius:8px;color:#92400e !important;font-size:14px;">
+        Online payment is not configured for your ISP. Please contact them on WhatsApp to upgrade.
+      </div>
+    {% endif %}
+    <a href="/customer/change-plan" class="up-back" data-testid="upgrade-back-link">&larr; Back to plans</a>
+  </div>
+</div>
+</section>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+const ORDER_ID = {{ order_id }};
+let _gw = "{{ default_gateway or '' }}";
+
+function selectGw(name){
+  _gw = name;
+  document.querySelectorAll('.up-gw').forEach(el => {
+    el.classList.toggle('selected', el.dataset.gw === name);
+  });
+}
+function showErr(msg){
+  const e = document.getElementById('errBox');
+  e.textContent = msg; e.style.display = 'block';
+}
+function postForm(url, fields){
+  const f = document.createElement('form');
+  f.method = 'POST'; f.action = url; f.style.display = 'none';
+  for (const k in fields){
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = k; i.value = fields[k] == null ? '' : String(fields[k]);
+    f.appendChild(i);
+  }
+  document.body.appendChild(f); f.submit();
+}
+
+async function startPay(){
+  if(!_gw){ showErr('Please choose a payment method.'); return; }
+  const btn = document.getElementById('payBtn');
+  btn.disabled = true; btn.textContent = 'Initialising…';
+  try {
+    const r = await fetch(`/api/customer/upgrade/${ORDER_ID}/start/${_gw}`,
+      { method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    if(!d.success){
+      showErr(d.message || 'Could not start payment.');
+      btn.disabled = false; btn.textContent = 'Pay & Upgrade';
+      return;
+    }
+    if(_gw === 'razorpay'){
+      const rzp = new Razorpay({
+        key: d.key_id, amount: d.amount, currency: d.currency || 'INR',
+        name: 'Plan Upgrade',
+        description: `Plan + dues (₹${d.amount_inr})`,
+        order_id: d.order_id,
+        handler: async function(resp){
+          btn.textContent = 'Verifying…';
+          const cf = await fetch(`/api/customer/upgrade/${ORDER_ID}/confirm-razorpay`,{
+            method:'POST', credentials:'include',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              razorpay_order_id: resp.razorpay_order_id,
+              razorpay_payment_id: resp.razorpay_payment_id,
+              razorpay_signature: resp.razorpay_signature,
+            })
+          });
+          const cd = await cf.json();
+          if(cd.success){
+            alert('🎉 Plan upgraded successfully!');
+            window.location = '/customer/dashboard';
+          } else {
+            showErr('Verify failed: ' + (cd.message || 'unknown'));
+            btn.disabled = false; btn.textContent = 'Pay & Upgrade';
+          }
+        },
+        modal:{ ondismiss: function(){ btn.disabled=false; btn.textContent='Pay & Upgrade'; } },
+        theme:{ color:'#6366f1' },
+      });
+      rzp.open();
+      return;
+    }
+    if(_gw === 'payu' || _gw === 'ccavenue'){
+      postForm(d.post_url, d.fields);
+      return;
+    }
+    if(_gw === 'cashfree' || _gw === 'phonepe' || _gw === 'stripe'){
+      if(!d.redirect_url){
+        showErr('Gateway did not return a checkout URL.');
+        btn.disabled=false; btn.textContent='Pay & Upgrade';
+        return;
+      }
+      window.location = d.redirect_url;
+      return;
+    }
+    showErr('Unsupported gateway: ' + _gw);
+    btn.disabled=false; btn.textContent='Pay & Upgrade';
+  } catch(e){
+    showErr('Network error: ' + e.message);
+    btn.disabled=false; btn.textContent='Pay & Upgrade';
+  }
+}
+</script>
+{% endblock %}

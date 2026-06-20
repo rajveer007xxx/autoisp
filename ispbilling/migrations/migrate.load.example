@@ -1,0 +1,25 @@
+LOAD DATABASE
+  FROM sqlite:///var/lib/autoispbilling/autoispbilling.db
+  INTO postgresql://ispbilling:REDACTED@127.0.0.1:5432/autoispbilling
+
+  WITH include drop,
+       create tables,
+       create indexes,
+       reset sequences,
+       truncate,
+       drop indexes,
+       quote identifiers
+
+  SET work_mem to '128MB',
+      maintenance_work_mem to '256MB'
+
+  CAST type datetime to "timestamptz" drop default drop not null using zero-dates-to-null,
+       type date to "date" drop default drop not null using zero-dates-to-null,
+       type tinyint to "smallint" drop typemod,
+       type real to "double precision",
+       column onus.distance_m to "double precision" using float-to-string,
+       column onu_signal_samples.distance_m to "double precision" using float-to-string,
+       column onus.uptime_sec to "bigint" using float-to-string,
+       column olt_polls.uptime_sec to "bigint" using float-to-string
+
+  EXCLUDING TABLE NAMES LIKE 'sqlite_sequence';

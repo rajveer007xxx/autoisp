@@ -1,0 +1,2345 @@
+"""
+AutoISP Billing — Mobile API Service (FastAPI)
+
+Separate service from admin-portal. Listens on 0.0.0.0:8005.
+Reads/writes the same SQLite DB as the main portal.
+
+Endpoints (v1):
+  POST  /api/mobile/v1/auth/login          # 5 roles: customer/admin/employee/sub_lco/superadmin
+  POST  /api/mobile/v1/auth/logout
+  GET   /api/mobile/v1/auth/me
+  GET   /api/mobile/v1/login/banners       # promo/popup carousel for login page
+  GET   /api/mobile/v1/dashboard/summary   # tile counts (subscribers, dues, online, complaints)
+  GET   /api/mobile/v1/subscribers         # ?q=&type=Broadband|Cable&page=&per=
+  GET   /api/mobile/v1/subscribers/online  # currently-online customers (radacct open sessions)
+  GET   /api/mobile/v1/subscribers/{id}    # detail
+  GET   /api/mobile/v1/health
+"""
+import os
+import time
+import sys
+import sqlite3
+import secrets
+from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List
+
+from fastapi import FastAPI, HTTPException, Header, Query, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+# Reuse the existing main DB + bcrypt verifier from admin-portal.
+sys.path.insert(0, "/opt/ispbilling/admin-portal")
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+RADACCT_PATH = "/var/lib/freeradius/radacct.db"
+
+try:
+    from passlib.hash import bcrypt as _bcrypt
+except Exception:
+    _bcrypt = None
+
+app = FastAPI(title="AutoISP Mobile API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # mobile clients only — use Authorization header
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------- DB helper ----------------
+def _conn():
+    c = sqlite3.connect(DB_PATH, timeout=10)
+    c.row_factory = sqlite3.Row
+    return c
+
+def _ra_conn():
+    return sqlite3.connect(f"file:{RADACCT_PATH}?mode=ro", uri=True, timeout=5)
+
+# ---------------- Real-time online detection ----------------
+# A radacct row with acctstoptime IS NULL is "open", but if the NAS crashed
+# without sending an Acct-Stop the row stays open forever. To return a
+# trustworthy `online_now`, we additionally require:
+#   1. The session's last update happened within RADACCT_STALE_SECONDS.
+#   2. The session's NAS is NOT marked as down/unreachable in nas_devices.
+import os as _os_for_radacct
+RADACCT_STALE_SECONDS = int(_os_for_radacct.environ.get("RADACCT_STALE_SECONDS", "600"))
+
+def _down_nas_ips(company_id: str = None) -> set:
+    """Return set of NAS IPs whose last_status indicates they are down/unreachable.
+    These are excluded when computing real online users."""
+    bad = set()
+    try:
+        with _conn() as c:
+            sql = "SELECT ip_address FROM nas_devices WHERE LOWER(IFNULL(last_status,''))"                   " IN ('down','unreachable','offline','error','timeout')"
+            params = ()
+            if company_id:
+                sql += " AND company_id=?"
+                params = (company_id,)
+            for r in c.execute(sql, params).fetchall():
+                if r[0]:
+                    bad.add(str(r[0]).strip())
+    except Exception:
+        pass
+    return bad
+
+def _online_set_real(usernames=None, company_id: str = None) -> set:
+    """Return set of usernames that are *really* online right now.
+
+    Filters applied:
+      * acctstoptime IS NULL (session not closed)
+      * COALESCE(acctupdatetime, acctstarttime) within RADACCT_STALE_SECONDS
+      * nasipaddress not in down NAS list (per nas_devices.last_status)
+
+    `usernames`: optional iterable to scope the lookup (faster + safer for tenant).
+    """
+    online = set()
+    cutoff = None
+    try:
+        import time as _time
+        cutoff = int(_time.time()) - RADACCT_STALE_SECONDS
+    except Exception:
+        cutoff = 0
+    bad_ips = _down_nas_ips(company_id)
+    try:
+        with _ra_conn() as rc:
+            base = (
+                "SELECT DISTINCT username, nasipaddress FROM radacct "
+                " WHERE acctstoptime IS NULL "
+                "   AND CAST(COALESCE(acctupdatetime, acctstarttime) AS INTEGER) >= ? "
+            )
+            if usernames:
+                u = list(usernames)
+                # Chunk to avoid SQL placeholder limits
+                CHUNK = 400
+                for i in range(0, len(u), CHUNK):
+                    batch = u[i:i+CHUNK]
+                    p = ",".join("?"*len(batch))
+                    rows = rc.execute(
+                        base + f" AND username IN ({p})",
+                        [cutoff] + batch
+                    ).fetchall()
+                    for un, nip in rows:
+                        if nip and nip in bad_ips:
+                            continue
+                        if un:
+                            online.add(un)
+            else:
+                rows = rc.execute(base, (cutoff,)).fetchall()
+                for un, nip in rows:
+                    if nip and nip in bad_ips:
+                        continue
+                    if un:
+                        online.add(un)
+    except Exception:
+        pass
+    return online
+
+def _online_session_real(username: str, company_id: str = None):
+    """Return (open, recent, NAS-up) session row for a single username, else None."""
+    if not username:
+        return None
+    try:
+        import time as _time
+        cutoff = int(_time.time()) - RADACCT_STALE_SECONDS
+    except Exception:
+        cutoff = 0
+    bad_ips = _down_nas_ips(company_id)
+    try:
+        with _ra_conn() as rc:
+            row = rc.execute(
+                "SELECT acctstarttime, acctupdatetime, acctinputoctets, acctoutputoctets, "
+                "       framedipaddress, callingstationid, nasipaddress "
+                "  FROM radacct "
+                " WHERE acctstoptime IS NULL AND username=? "
+                "   AND CAST(COALESCE(acctupdatetime, acctstarttime) AS INTEGER) >= ? "
+                " ORDER BY radacctid DESC LIMIT 1",
+                (username, cutoff)).fetchone()
+            if not row:
+                return None
+            if row["nasipaddress"] and row["nasipaddress"] in bad_ips:
+                return None
+            return row
+    except Exception:
+        return None
+
+
+# ---------------- Bootstrap mobile tables ----------------
+def _bootstrap():
+    with _conn() as c:
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS mobile_login_banners (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title       TEXT NOT NULL,
+                message     TEXT,
+                image_url   TEXT,
+                link_url    TEXT,
+                is_popup    INTEGER NOT NULL DEFAULT 0,
+                start_date  TEXT,
+                end_date    TEXT,
+                active      INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by  TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS mobile_sessions (
+                token       TEXT PRIMARY KEY,
+                user_type   TEXT NOT NULL,
+                company_id  TEXT,
+                user_pk     TEXT,
+                username    TEXT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen   TEXT,
+                expires_at  TEXT,
+                device_info TEXT
+            );
+        """)
+        c.commit()
+_bootstrap()
+
+# ---------------- Auth helpers ----------------
+def _verify_pwd(stored_hash: Optional[str], plain: str) -> bool:
+    if not stored_hash or not plain:
+        return False
+    if not _bcrypt:
+        return False
+    try:
+        return _bcrypt.verify(plain, stored_hash)
+    except Exception:
+        return False
+
+def _new_token(user_type: str, company_id: str, user_pk: str,
+               username: str, device_info: str = "") -> str:
+    tok = secrets.token_urlsafe(32)
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")  # _S40zπ_MOBILE_FIX_
+    exp = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO mobile_sessions (token,user_type,company_id,user_pk,"
+            " username,created_at,last_seen,expires_at,device_info) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (tok, user_type, company_id, str(user_pk), username,
+             now, now, exp, device_info or ""))
+        c.commit()
+    return tok
+
+def _resolve_token(authorization: Optional[str]) -> Optional[dict]:
+    if not authorization:
+        return None
+    if not authorization.lower().startswith("bearer "):
+        return None
+    tok = authorization.split(None, 1)[1].strip()
+    if not tok:
+        return None
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM mobile_sessions WHERE token=?", (tok,)).fetchone()
+        if not row:
+            return None
+        # Update last_seen, expire if too old
+        if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc).isoformat():
+            return None
+        c.execute("UPDATE mobile_sessions SET last_seen=? WHERE token=?",
+                  (datetime.now(timezone.utc).isoformat(), tok))
+        c.commit()
+        out = dict(row)
+        # _v4721_SESS_CUST — Resolve and inject customer_id when the
+        # logged-in user is a customer. Many endpoints (notifications,
+        # tickets) depend on s['customer_id'] being present.
+        try:
+            if (out.get('user_type') or '').lower() == 'customer':
+                cust = c.execute(
+                    "SELECT customer_id FROM customers "
+                    " WHERE company_id=? AND (id=? OR username=? OR customer_id=?) "
+                    " LIMIT 1",
+                    (out.get('company_id') or '',
+                     out.get('user_pk') or '',
+                     out.get('username') or '',
+                     out.get('username') or '')).fetchone()
+                if cust:
+                    out['customer_id'] = cust['customer_id']
+        except Exception:
+            pass
+        return out
+
+def _require_auth(authorization: Optional[str]) -> dict:
+    s = _resolve_token(authorization)
+    if not s:
+        raise HTTPException(401, "auth_required")
+    return s
+
+# ---------------- Models ----------------
+class LoginIn(BaseModel):
+    user_type: str            # customer | admin | employee | sub_lco | superadmin
+    company_id: Optional[str] = None
+    username: str
+    password: str
+    device_info: Optional[str] = ""
+
+class BannerIn(BaseModel):
+    title: str
+    message: Optional[str] = ""
+    image_url: Optional[str] = ""
+    link_url: Optional[str] = ""
+    is_popup: bool = False
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    active: bool = True
+
+# ---------------- Health ----------------
+class SsoMintIn(BaseModel):
+    target: Optional[str] = None  # e.g. "/admin/add-customer?mobile=1"
+
+
+@app.post("/api/mobile/v1/auth/sso-mint")
+def sso_mint(body: SsoMintIn,
+             authorization: Optional[str] = Header(default=None)):
+    """_S40g_ — Mint a short-lived (5 min) one-time SSO token from the
+    caller's mobile session. The web side consumes this at /auth/sso?token=…,
+    sets a normal web session cookie, and redirects to the requested
+    target. Caller passes a valid `Authorization: Bearer <mobile-token>`."""
+    s = _require_auth(authorization)
+    tok = secrets.token_urlsafe(32)
+    exp = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO mobile_sso_tokens "
+            "(token,user_type,company_id,user_pk,username,target,expires_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (tok, s["user_type"], s["company_id"], s["user_pk"],
+             s["username"], (body.target or ""), exp))
+        c.commit()
+    return {"ok": True, "sso_token": tok,
+            "expires_at": exp,
+            "url": f"/auth/sso?token={tok}"}
+
+
+@app.get("/api/mobile/v1/health")
+def health():
+    return {"ok": True, "service": "mobile-api", "version": "1.0.0",
+            "ts": datetime.now(timezone.utc).isoformat()}
+
+# ---------------- Login banners (public) ----------------
+@app.get("/api/mobile/v1/login/banners")
+def list_banners():
+    today = datetime.now(timezone.utc).date().isoformat()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id,title,message,image_url,link_url,is_popup,"
+            "       start_date,end_date "
+            "  FROM mobile_login_banners "
+            " WHERE active=1 "
+            "   AND (start_date IS NULL OR start_date='' OR start_date<=?) "
+            "   AND (end_date   IS NULL OR end_date  ='' OR end_date  >=?) "
+            " ORDER BY id DESC LIMIT 50", (today, today)).fetchall()
+    items = [dict(r) for r in rows]
+    return {"ok": True, "items": items, "popups":
+            [x for x in items if x.get("is_popup")]}
+
+# ---------------- Auth ----------------
+@app.post("/api/mobile/v1/auth/login")
+def login(body: LoginIn):
+    ut = (body.user_type or "").strip().lower()
+    cid = (body.company_id or "").strip()
+    un = (body.username or "").strip()
+    pw = body.password or ""
+
+    if ut not in ("customer","admin","employee","sub_lco"):
+        raise HTTPException(400, "invalid_user_type")
+    if not un or not pw:
+        raise HTTPException(400, "missing_credentials")
+
+    with _conn() as c:
+        if ut == "admin":
+            row = c.execute(
+                "SELECT id,admin_id,company_id,password_hash,admin_name AS name "
+                "  FROM admins WHERE admin_id=? AND company_id=?",
+                (un, cid)).fetchone()
+            if not row or not _verify_pwd(row["password_hash"], pw):
+                raise HTTPException(401, "invalid_credentials")
+            tok = _new_token("admin", row["company_id"], row["id"],
+                             row["admin_id"], body.device_info or "")
+            return {"ok": True, "token": tok,
+                    "user": {"id": row["id"], "name": row["name"],
+                              "company_id": row["company_id"],
+                              "username": row["admin_id"], "role": "admin"}}
+
+        if ut == "customer":
+            # username can be username/customer_id; company narrows scope
+            q = ("SELECT id,customer_id,username,company_id,password_hash,"
+                 "       customer_name,customer_phone AS mobile_no,status "
+                 "  FROM customers "
+                 " WHERE (username=? OR customer_id=?) ")
+            params = [un, un]
+            if cid:
+                q += " AND company_id=?"; params.append(cid)
+            row = c.execute(q + " LIMIT 1", params).fetchone()
+            if not row or not _verify_pwd(row["password_hash"], pw):
+                raise HTTPException(401, "invalid_credentials")
+            tok = _new_token("customer", row["company_id"], row["id"],
+                             row["username"] or row["customer_id"],
+                             body.device_info or "")
+            return {"ok": True, "token": tok,
+                    "user": {"id": row["id"], "name": row["customer_name"],
+                              "company_id": row["company_id"],
+                              "username": row["username"] or row["customer_id"],
+                              "mobile": row["mobile_no"],
+                              "status": row["status"], "role": "customer"}}
+
+        if ut == "employee":
+            row = c.execute(
+                "SELECT id,employee_code,company_id,password_hash,employee_name AS name "
+                "  FROM employees WHERE employee_code=? AND company_id=?",
+                (un, cid)).fetchone()
+            if not row or not _verify_pwd(row["password_hash"], pw):
+                raise HTTPException(401, "invalid_credentials")
+            tok = _new_token("employee", row["company_id"], row["id"],
+                             row["employee_code"], body.device_info or "")
+            return {"ok": True, "token": tok,
+                    "user": {"id": row["id"], "name": row["name"],
+                              "company_id": row["company_id"],
+                              "username": row["employee_code"], "role": "employee"}}
+
+        if ut == "sub_lco":
+            row = c.execute(
+                "SELECT id,sub_lco_code,company_id,password_hash,name "
+                "  FROM sub_lcos WHERE sub_lco_code=? AND company_id=?",
+                (un, cid)).fetchone()
+            if not row or not _verify_pwd(row["password_hash"], pw):
+                raise HTTPException(401, "invalid_credentials")
+            tok = _new_token("sub_lco", row["company_id"], row["id"],
+                             row["sub_lco_code"], body.device_info or "")
+            return {"ok": True, "token": tok,
+                    "user": {"id": row["id"], "name": row["name"],
+                              "company_id": row["company_id"],
+                              "username": row["sub_lco_code"], "role": "sub_lco"}}
+
+        if ut == "superadmin":
+            row = c.execute(
+                "SELECT id,superadmin_id,password_hash,superadmin_name AS name "
+                "  FROM superadmins WHERE superadmin_id=?",
+                (un,)).fetchone()
+            if not row or not _verify_pwd(row["password_hash"], pw):
+                raise HTTPException(401, "invalid_credentials")
+            tok = _new_token("superadmin", "", row["id"],
+                             row["superadmin_id"], body.device_info or "")
+            return {"ok": True, "token": tok,
+                    "user": {"id": row["id"], "name": row["name"],
+                              "username": row["superadmin_id"], "role": "superadmin"}}
+
+    raise HTTPException(401, "invalid_credentials")
+
+@app.post("/api/mobile/v1/auth/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    with _conn() as c:
+        c.execute("DELETE FROM mobile_sessions WHERE token=?",
+                  (authorization.split(None,1)[1].strip(),))
+        c.commit()
+    return {"ok": True}
+
+@app.get("/api/mobile/v1/auth/me")
+def me(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    ut  = s.get("user_type") or ""
+    # _S39R5N — Enrich /me with full_name + profile_image + company info so
+    # the mobile sidebar header shows the right user + brand instead of
+    # "ADMIN 14150129".
+    user = {"id": s.get("user_pk"), "user_type": ut,
+            "company_id": cid, "username": s.get("username")}
+    company = {"company_id": cid}
+    with _conn() as c:
+        try:
+            comp = c.execute(
+                "SELECT company_name, company_phone, company_email, company_address, "
+                "       gst_number, upi_id, logo_path "
+                "  FROM companies WHERE company_id=?", (cid,)
+            ).fetchone()
+            if comp:
+                company.update({
+                    "company_name":    comp["company_name"],
+                    "company_phone":   comp["company_phone"],
+                    "company_email":   comp["company_email"],
+                    "company_address": comp["company_address"],
+                    "gst_number":      comp["gst_number"],
+                    "upi_id":          comp["upi_id"],
+                    "logo_url":        _file_url(comp["logo_path"]) if comp["logo_path"] else None,
+                })
+        except Exception:
+            pass
+        try:
+            if ut == "admin":
+                r2 = c.execute(
+                    "SELECT admin_name AS name, admin_mobile AS mobile, "
+                    "       admin_email AS email, profile_image_path AS img "
+                    "  FROM admins WHERE id=?", (s.get("user_pk"),)
+                ).fetchone()
+            elif ut == "sub_lco":
+                r2 = c.execute(
+                    "SELECT name, mobile, email, "
+                    "       profile_image AS img "
+                    "  FROM sub_lcos WHERE id=?", (s.get("user_pk"),)
+                ).fetchone()
+            elif ut == "employee":
+                r2 = c.execute(
+                    "SELECT employee_name AS name, mobile, email, "
+                    "       profile_image_path AS img "
+                    "  FROM employees WHERE id=?", (s.get("user_pk"),)
+                ).fetchone()
+            elif ut == "customer":
+                # _v4721_AUTH_ME_CUST — customer enrichment
+                r2 = c.execute(
+                    "SELECT customer_name AS name, "
+                    "       customer_phone AS mobile, "
+                    "       customer_email AS email, "
+                    "       photograph_path AS img, "
+                    "       customer_id "
+                    "  FROM customers WHERE id=?",
+                    (s.get("user_pk"),)
+                ).fetchone()
+                if r2:
+                    try:
+                        user["customer_id"] = r2["customer_id"]
+                    except Exception: pass
+            else:
+                r2 = None
+            if r2:
+                user["full_name"]     = r2["name"]
+                user["mobile"]        = r2["mobile"]
+                user["email"]         = r2["email"]
+                if r2["img"]:
+                    user["profile_image_url"] = _file_url(r2["img"])
+        except Exception:
+            pass
+    return {"ok": True, "user": user, "company": company,
+            # legacy flat fields kept for back-compat
+            "user_type": ut, "company_id": cid,
+            "username": s.get("username")}
+
+
+def _file_url(p):
+    """Return absolute https URL to a path stored under /uploads/... ."""
+    if not p:
+        return None
+    p = p.strip()
+    if p.startswith("http"):
+        return p
+    if not p.startswith("/"):
+        p = "/" + p
+    return f"https://www.autoispbilling.com{p}"
+
+
+def _scope_clause(s):
+    """Return (sql_fragment, params) restricting the customer query to
+    the caller's tenant + role scope. Used by /subscribers, /online,
+    /dashboard/summary so sub_lco / employee can NEVER see customers
+    outside their hierarchy."""
+    cid = s.get("company_id") or ""
+    ut  = s.get("user_type") or ""
+    pk  = s.get("user_pk")
+    frag = " WHERE company_id=? "
+    params = [cid]
+    if ut == "sub_lco":
+        # _v4717_SCOPE  Canonical sub_lco scope:
+        #   own adds  OR  child-sub_lco adds  OR  employees-of-self adds.
+        frag += ("""
+            AND (
+                sub_lco_id = ?
+             OR created_by_employee_id IN (
+                    SELECT id FROM employees
+                     WHERE sub_lco_id = ? AND company_id = ?
+                )
+            )
+        """)
+        # _v4717_SCOPE  No child-sub_lco column in this schema.
+        params += [pk, pk, cid]
+    elif ut == "employee":
+        # _v4717_SCOPE  Canonical employee scope: own adds OR assigned localities.
+        try:
+            with _conn() as cx:
+                allowed = [r[0] for r in cx.execute(
+                    "SELECT location_id FROM employee_locality_assignments "
+                    "WHERE employee_id=? AND company_id=?", (pk, cid)
+                ).fetchall()]
+        except Exception:
+            allowed = []
+        if allowed:
+            qmarks = ",".join("?" * len(allowed))
+            frag += f" AND (location_id IN ({qmarks}) OR created_by_employee_id=?) "
+            params += allowed + [pk]
+        else:
+            frag += " AND created_by_employee_id=? "
+            params += [pk]
+    return frag, params
+
+# ---------------- Dashboard summary ----------------
+@app.get("/api/mobile/v1/dashboard/summary")
+def summary(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    out = {"ok": True}
+    # _v4719_CUST_SUMMARY  Customer logins get their OWN summary (due, plan,
+    # expiry, status) — the staff branch below is for admin/sub_lco/employee.
+    if (s.get("user_type") or "") == "customer":
+        try:
+            # _v4720_BY_PK  Look up by the session's `user_pk` (= customers.id)
+            # — guarantees we resolve THIS customer no matter what they typed
+            # at login.  Falls back to username only if user_pk is missing.
+            pk_raw = s.get("user_pk") or ""
+            try:
+                pk_int = int(str(pk_raw)) if str(pk_raw).strip() else 0
+            except Exception:
+                pk_int = 0
+            uname = s.get("username") or ""
+            with _conn() as c:
+                cust = None
+                if pk_int:
+                    cust = c.execute(
+                        "SELECT c.customer_id, c.customer_name, c.status, "
+                        "       c.end_date, p.plan_name, "
+                        "       IFNULL(c.total_bill_amount,0) - IFNULL(c.received_amount,0) AS due "
+                        "  FROM customers c LEFT JOIN plans p ON p.id=c.plan_id "
+                        " WHERE c.id=? AND c.company_id=? LIMIT 1",
+                        (pk_int, cid)).fetchone()
+                if cust is None:
+                    cust = c.execute(
+                        "SELECT c.customer_id, c.customer_name, c.status, "
+                        "       c.end_date, p.plan_name, "
+                        "       IFNULL(c.total_bill_amount,0) - IFNULL(c.received_amount,0) AS due "
+                        "  FROM customers c LEFT JOIN plans p ON p.id=c.plan_id "
+                        " WHERE c.company_id=? AND (c.username=? OR c.customer_id=?) LIMIT 1",
+                        (cid, uname, uname)).fetchone()
+            if cust:
+                # Format end_date as DD-MM-YYYY for the screen.
+                ed = (cust["end_date"] or "")
+                if len(ed) >= 10 and ed[4] == '-' and ed[7] == '-':
+                    ed = f"{ed[8:10]}-{ed[5:7]}-{ed[:4]}"
+                # _v4720_LIVE_DUE  Use the same live ledger calc as /me:
+                # sum(invoices.total_amount) − sum(payments.amount+discount).
+                # The cached `total_bill_amount`/`received_amount` columns on
+                # `customers` can be stale (showed 6622 while the real ledger
+                # was 350).  Always compute fresh.
+                try:
+                    with _conn() as c2:
+                        inv_tot = c2.execute(
+                            "SELECT COALESCE(SUM(total_amount),0) FROM invoices "
+                            " WHERE company_id=? AND customer_id=?",
+                            (cid, cust["customer_id"])).fetchone()[0]
+                        pay_tot = c2.execute(
+                            "SELECT COALESCE(SUM(amount),0)+COALESCE(SUM(discount),0) "
+                            " FROM payments WHERE company_id=? AND customer_id=?",
+                            (cid, cust["customer_id"])).fetchone()[0]
+                    due_val = max(round(float(inv_tot or 0) - float(pay_tot or 0), 2), 0.0)
+                except Exception:
+                    due_val = max(float(cust["due"] or 0), 0.0)
+                out.update({
+                    "customer_id":   cust["customer_id"],
+                    "customer_name": cust["customer_name"],
+                    "status":        cust["status"] or "Active",
+                    "plan_name":     cust["plan_name"] or "—",
+                    "end_date":      ed or "—",
+                    "due_amount":    round(due_val, 2),
+                    "balance":       round(due_val, 2),
+                    "online":        False,   # filled below if RADIUS confirms
+                })
+                try:
+                    online_set = _online_set_real([cust["customer_id"]], company_id=cid)
+                    out["online"] = bool(online_set)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return out
+    # _S39R5N — Apply role scope so sub_lco / employee see only their
+    # own customer counts, never the whole company.
+    scope_sql, scope_params = _scope_clause(s)
+    with _conn() as c:
+        # _S40zπ_MOBILE_FIX_  Exclude soft-deleted customers from the count
+        _del_ex = " AND COALESCE(status,'') NOT IN ('Deleted','deleted','Terminated','terminated') "
+        out["subscribers_total"]  = c.execute(
+            "SELECT COUNT(*) FROM customers " + scope_sql + _del_ex, scope_params
+        ).fetchone()[0]
+        out["subscribers_active"] = c.execute(
+            "SELECT COUNT(*) FROM customers " + scope_sql + " AND status='Active'" + _del_ex,
+            scope_params
+        ).fetchone()[0]
+        # Complaints scoped by company only (sub_lco/employee can see customer
+        # complaints in their scope — TODO: add scope filter if requested).
+        out["complaints_open"] = c.execute(
+            "SELECT COUNT(*) FROM complaints WHERE company_id=? "
+            "AND IFNULL(status,'')!='Resolved'",(cid,)
+        ).fetchone()[0]
+        # _S39R5N — bill_dues was returning row count (always 0 because the
+        # field is total_due_balance, not total_bill_amount). Fix: SUM the
+        # actual balance owed.
+        try:
+            # _S39R5N — Real "amount due" = total_bill_amount - received_amount,
+            # only count customers where that delta is > 0.
+            row = c.execute(
+                "SELECT IFNULL(SUM("
+                "  CASE WHEN (IFNULL(total_bill_amount,0) - IFNULL(received_amount,0)) > 0 "
+                "       THEN (IFNULL(total_bill_amount,0) - IFNULL(received_amount,0)) "
+                "       ELSE 0 END), 0), "
+                " SUM(CASE WHEN (IFNULL(total_bill_amount,0) - IFNULL(received_amount,0)) > 0 "
+                "          THEN 1 ELSE 0 END) "
+                " FROM customers " + scope_sql, scope_params
+            ).fetchone()
+            out["bill_dues_amount"] = float(row[0] or 0)
+            out["bill_dues_count"]  = int(row[1] or 0)
+            out["bill_dues"]        = int(row[1] or 0)
+        except Exception as _e:
+            out["bill_dues_amount"] = 0.0
+            out["bill_dues_count"]  = 0
+            out["bill_dues"]        = 0
+
+    # online count from radacct — real-time (stale + NAS-down filtered)
+    try:
+        usernames = [r[0] for r in
+                     _conn().execute("SELECT username FROM customers WHERE company_id=? AND IFNULL(username,'')!=''",(cid,)).fetchall()]
+        if usernames:
+            out["online_now"] = len(_online_set_real(usernames, company_id=cid))
+        else:
+            out["online_now"] = 0
+    except Exception:
+        out["online_now"] = 0
+    return out
+
+# ---------------- Subscribers ----------------
+@app.get("/api/mobile/v1/subscribers")
+def subscribers(authorization: Optional[str] = Header(None),
+                q: str = "",
+                page: int = Query(1, ge=1),
+                per: int = Query(20, ge=1, le=100),
+                only_online: bool = False,
+                service_type: Optional[str] = None,
+                locality_id: Optional[int] = None,
+                user_type: Optional[str] = None,
+                customer_type: Optional[str] = None):
+    # _S40zπ_v462_  customer_type is the canonical mobile-side filter name;
+    # user_type kept as a back-compat alias.
+    if not user_type and customer_type:
+        user_type = customer_type
+    """_S39R5N — supports service_type / locality_id / user_type filters
+    plus role scope so sub_lco/employee never sees out-of-scope rows."""
+    s = _require_auth(authorization)
+    scope_sql, scope_params = _scope_clause(s)
+    sql = ("SELECT id,customer_id,username,customer_name,customer_phone AS mobile_no,"
+           "        address,locality,location_id,plan_id,status,end_date,start_date,"
+           "        total_bill_amount,received_amount,"
+           "        (IFNULL(total_bill_amount,0) - IFNULL(received_amount,0)) AS due_balance,"
+           "        service_type,customer_type "
+           "   FROM customers " + scope_sql +
+           "  AND COALESCE(status,'') NOT IN ('Deleted','deleted','Terminated','terminated') ")
+    params = list(scope_params)
+    if q:
+        sql += (" AND (customer_id LIKE ? OR customer_name LIKE ? "
+                "      OR username LIKE ? OR customer_phone LIKE ? "
+                "      OR locality LIKE ?) ")
+        like = f"%{q}%"
+        params += [like]*5
+    if service_type and service_type.lower() not in ("all", ""):
+        # Match case-insensitively: "Broadband" / "broadband" / "BroadBand"
+        sql += " AND LOWER(IFNULL(service_type,''))=LOWER(?) "
+        params.append(service_type)
+    if user_type and user_type.lower() not in ("all", ""):
+        # _S40zπ_v462_  Match either column. "Broadband"/"Cable"/"Fiber"/"Wireless"
+        # are service_types; "Prepaid"/"Postpaid" are billing customer_types.
+        # Single dropdown surfaces both, so we OR them together.
+        ut = user_type.strip().lower().replace(" ", "_")
+        sql += (" AND ("
+                "  LOWER(REPLACE(IFNULL(service_type,''),' ','_'))=? "
+                "OR LOWER(REPLACE(IFNULL(customer_type,''),' ','_'))=? )")
+        params += [ut, ut]
+    if locality_id:
+        sql += " AND location_id=? "
+        params.append(int(locality_id))
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ? "
+    params += [per, (page-1)*per]
+
+    with _conn() as c:
+        rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+
+    # Online lookup — real-time (stale + NAS-down filtered)
+    user_set = {r["username"] for r in rows if r.get("username")}
+    online_set = _online_set_real(user_set, company_id=s.get("company_id")) if user_set else set()
+    for r in rows:
+        r["online"] = bool(r.get("username") and r["username"] in online_set)
+
+    if only_online:
+        rows = [r for r in rows if r.get("online")]
+
+    return {"ok": True, "page": page, "per": per,
+            "count": len(rows), "items": rows}
+
+@app.get("/api/mobile/v1/subscribers/online")
+def subscribers_online(authorization: Optional[str] = Header(None),
+                        page: int = 1, per: int = 50):
+    return subscribers(authorization, q="", page=page, per=per, only_online=True)
+
+@app.get("/api/mobile/v1/subscribers/{cust_pk}")
+def subscriber_detail(cust_pk: int,
+                      authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id, customer_id, username, customer_name, customer_email, customer_phone, alt_mobile, address, locality, city, state, pincode, plan_id, monthly_amount, auto_renew, customer_type, mac_address, ip_address, vendor, modem_no, start_date, end_date, period, bill_amount, total_bill_amount, received_amount, security_deposit, installation_charges, router_charges, discount_credit, status, payment_mode, transaction_id, payment_notes, service_type, sub_lco_id, location_id, auth_type, static_ip_address, zone, node, allow_devices, custom_rate_limit, created_at, updated_at, installation_date, id_proof, id_proof_no FROM customers WHERE id=? AND company_id=?",
+            (cust_pk, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "not_found")
+        r = {k: row[k] for k in row.keys()}
+        # Plan name lookup
+        pname = None
+        if r.get("plan_id"):
+            prow = c.execute(
+                "SELECT plan_name, speed, after_tax_amount, validity, validity_unit "
+                "  FROM plans WHERE id=?", (r["plan_id"],)).fetchone()
+            if prow:
+                r["plan_name"] = prow["plan_name"]
+                r["plan_speed"] = prow["speed"]
+                r["plan_amount"] = prow["after_tax_amount"]
+                r["plan_validity"] = f'{prow["validity"] or ""} {prow["validity_unit"] or ""}'.strip()
+    # online + last session bytes
+    r["online"] = False
+    r["session_bytes_in"] = 0
+    r["session_bytes_out"] = 0
+    if r.get("username"):
+        act = _online_session_real(r["username"], company_id=cid)
+        if act:
+            r["online"] = True
+            r["session_started_at"] = act["acctstarttime"]
+            r["session_bytes_in"] = act["acctinputoctets"] or 0
+            r["session_bytes_out"] = act["acctoutputoctets"] or 0
+            r["session_ip"] = act["framedipaddress"]
+            r["session_mac"] = act["callingstationid"]
+    # _S39R5N — Compute formatted_period "DD-MM-YYYY to DD-MM-YYYY" so the
+    # mobile detail screen shows the real billing window instead of "1 mo".
+    try:
+        sd = (r.get("start_date") or "").strip()
+        ed = (r.get("end_date") or "").strip()
+        def _fmt(d):
+            if d and len(d) >= 10 and d[4] == "-" and d[7] == "-":
+                return f"{d[8:10]}-{d[5:7]}-{d[0:4]}"
+            return d or ""
+        if sd and ed:
+            r["formatted_period"] = f"{_fmt(sd)} to {_fmt(ed)}"
+        elif ed:
+            r["formatted_period"] = _fmt(ed)
+        else:
+            r["formatted_period"] = ""
+    except Exception:
+        r["formatted_period"] = ""
+    # _S40zπ_v462_  Real outstanding — match the web portal's logic.
+    # Web shows latest invoice's `due_at_issue` (= prev_balance + this_period)
+    # MINUS payments made AFTER that invoice was issued. This stays consistent
+    # with what the user sees on the receipt and on the subscriber-detail page
+    # of the desktop admin.
+    try:
+        with _conn() as _c2:
+            inv = _c2.execute(
+                "SELECT total_amount, due_at_issue, issue_date "
+                "  FROM invoices "
+                " WHERE company_id=? AND customer_id=? "
+                " ORDER BY id DESC LIMIT 1",
+                (cid, r.get("customer_id"))).fetchone()
+            current_period   = float(inv["total_amount"] or 0) if inv else 0.0
+            due_at_issue     = float(inv["due_at_issue"] or 0) if inv else 0.0
+            previous_balance = round(due_at_issue - current_period, 2)
+            # Subtract payments AFTER the issue_date so the live "payable_due"
+            # actually reflects what the user owes RIGHT NOW.
+            paid_since = 0.0
+            if inv and inv["issue_date"]:
+                ps = _c2.execute(
+                    "SELECT COALESCE(SUM(amount),0) + COALESCE(SUM(discount),0) "
+                    "  FROM payments "
+                    " WHERE company_id=? AND customer_id=? "
+                    "   AND DATE(paid_at) >= DATE(?)",
+                    (cid, r.get("customer_id"), inv["issue_date"])).fetchone()
+                paid_since = float(ps[0] or 0)
+            payable_due = round(max(0.0, due_at_issue - paid_since), 2)
+            r["previous_balance"]   = round(max(0.0, previous_balance), 2)
+            r["current_period_due"] = round(current_period, 2)
+            r["current_dues"]       = round(current_period, 2)  # legacy alias
+            r["payable_due"]        = payable_due
+            r["balance"]            = payable_due
+
+            # Last payment shown on receipts
+            lp = _c2.execute(
+                "SELECT amount, paid_at FROM payments "
+                " WHERE company_id=? AND customer_id=? "
+                " ORDER BY id DESC LIMIT 1",
+                (cid, r.get("customer_id"))).fetchone()
+            if lp:
+                r["last_payment_amount"] = round(float(lp["amount"] or 0), 2)
+                # Format paid_at as IST DD-MM-YYYY HH:MM (DB stores naive IST)
+                try:
+                    raw = str(lp["paid_at"] or "").strip()
+                    for fmt_in in ("%Y-%m-%d %H:%M:%S.%f","%Y-%m-%d %H:%M:%S"):
+                        try:
+                            r["last_paid_at"] = datetime.strptime(raw[:26], fmt_in)\
+                                .strftime("%d-%m-%Y %H:%M")
+                            break
+                        except Exception: pass
+                except Exception:
+                    r["last_paid_at"] = lp["paid_at"]
+            else:
+                r["last_payment_amount"] = 0.0
+                r["last_paid_at"]        = ""
+    except Exception:
+        r["previous_balance"]    = 0.0
+        r["current_period_due"]  = 0.0
+        r["current_dues"]        = 0.0
+        r["payable_due"]         = 0.0
+        r["balance"]             = 0.0
+        r["last_payment_amount"] = 0.0
+        r["last_paid_at"]        = ""
+    return {"ok": True, "subscriber": r}
+
+
+# ---------------- Employee GPS tracking ----------------
+class TrackIn(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+    battery: Optional[float] = None
+
+@app.post("/api/mobile/v1/employee/track")
+def employee_track(body: TrackIn,
+                   authorization: Optional[str] = Header(None)):
+    """Mobile app pushes employee live GPS here.
+    Updates employees.last_latitude/last_longitude/last_seen_at so the
+    admin Track Employees Google-Maps page picks it up immediately.
+    """
+    s = _require_auth(authorization)
+    if s["user_type"] != "employee":
+        # Only employees push location; other roles get a noop ack.
+        return {"ok": True, "noop": True, "reason": "not_employee"}
+    pk = int(s["user_pk"])
+    cid = s["company_id"] or ""
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")  # _S40zπ_MOBILE_FIX_
+    with _conn() as c:
+        c.execute(
+            "UPDATE employees SET last_latitude=?, last_longitude=?, "
+            " last_seen_at=? WHERE id=? AND company_id=?",
+            (body.latitude, body.longitude, now, pk, cid))
+        # _S39EMP_TRACK_HISTORY — append to the history table so the admin
+        # Track Employees page can plot a polyline trail.
+        c.execute(
+            "INSERT INTO employee_location_history "
+            " (employee_id, company_id, latitude, longitude, accuracy, recorded_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (pk, cid, body.latitude, body.longitude,
+             body.accuracy, now))
+        c.commit()
+    # _S39R5B_GEOFENCE_HOOK — evaluate enter/exit transitions
+    try:
+        import sys as _sys
+        if "/opt/ispbilling/admin-portal" not in _sys.path:
+            _sys.path.insert(0, "/opt/ispbilling/admin-portal")
+        from geofences import evaluate_position as _gf_eval
+        _gf_eval(cid, pk, body.latitude, body.longitude)
+    except Exception as _gf_err:
+        print(f"[geofence] eval skipped: {_gf_err}")
+    return {"ok": True, "updated_at": now}
+
+
+# ============== PHASE 2 ENDPOINTS ==============
+
+class PaymentIn(BaseModel):
+    amount: float
+    payment_mode: str  # cash / upi / card / online
+    reference_no: Optional[str] = ""
+    note: Optional[str] = ""
+
+class SubscriberCreateIn(BaseModel):
+    customer_name: str
+    customer_phone: str
+    customer_email: Optional[str] = ""
+    address: str
+    locality: Optional[str] = ""
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+    pincode: Optional[str] = ""
+    plan_id: int
+    auth_type: Optional[str] = "pppoe"
+    static_ip_address: Optional[str] = ""
+    username: Optional[str] = ""        # generated if blank
+    password: Optional[str] = ""        # generated if blank
+    period: Optional[int] = 1           # months
+    received_amount: Optional[float] = 0
+    payment_mode: Optional[str] = ""
+    sub_lco_id: Optional[int] = None
+    location_id: Optional[int] = None
+    # _S40zπ_PHASEC_  GPS captured at install — auto-feeds ONU placement.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+class ComplaintIn(BaseModel):
+    subject: str
+    description: str
+    complaint_type: Optional[str] = "Other"
+    priority: Optional[str] = "Medium"
+    customer_id: Optional[str] = None   # for admin/employee — about which customer
+
+# ---- list subscriber payments ----
+@app.get("/api/mobile/v1/subscribers/{cust_pk}/payments")
+def subscriber_payments(cust_pk: int, authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    with _conn() as c:
+        cust = c.execute(
+            "SELECT customer_id FROM customers WHERE id=? AND company_id=?",
+            (cust_pk, cid)).fetchone()
+        if not cust:
+            raise HTTPException(404, "not_found")
+        rows = c.execute(
+            "SELECT id, transaction_type, amount, payment_method, reference_no, "
+            "       note, remarks, start_date, end_date, period_months, created_at "
+            "  FROM transactions "
+            " WHERE company_id=? AND customer_id=? "
+            " ORDER BY id DESC LIMIT 100", (cid, cust["customer_id"])).fetchall()
+    return {"ok": True, "items": [dict(r) for r in rows]}
+
+# ---- usage (last 7 days from radacct) ----
+@app.get("/api/mobile/v1/subscribers/{cust_pk}/usage")
+def subscriber_usage(cust_pk: int, authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    with _conn() as c:
+        cust = c.execute(
+            "SELECT id, username, customer_id FROM customers WHERE id=? AND company_id=?",
+            (cust_pk, cid)).fetchone()
+        if not cust:
+            raise HTTPException(404, "not_found")
+        un = cust["username"] or ""
+    days = []
+    total_in = 0
+    total_out = 0
+    if un:
+        try:
+            with _ra_conn() as rc:
+                # Daily sum for last 7 days (UTC)
+                rows = rc.execute(
+                    "SELECT DATE(acctstarttime) AS d, "
+                    "       SUM(acctinputoctets)  AS bin, "
+                    "       SUM(acctoutputoctets) AS bout, "
+                    "       COUNT(*) AS sess "
+                    "  FROM radacct "
+                    " WHERE username=? "
+                    "   AND acctstarttime >= DATETIME('now','-7 days') "
+                    " GROUP BY DATE(acctstarttime) "
+                    " ORDER BY d ASC", (un,)).fetchall()
+                for r in rows:
+                    days.append({
+                        "date": r["d"],
+                        "bytes_in": int(r["bin"] or 0),
+                        "bytes_out": int(r["bout"] or 0),
+                        "sessions": int(r["sess"] or 0),
+                    })
+                tot = rc.execute(
+                    "SELECT SUM(acctinputoctets) AS bin, SUM(acctoutputoctets) AS bout "
+                    "  FROM radacct WHERE username=?", (un,)).fetchone()
+                if tot:
+                    total_in  = int(tot["bin"]  or 0)
+                    total_out = int(tot["bout"] or 0)
+        except Exception:
+            pass
+    return {"ok": True, "days": days,
+            "total_bytes_in": total_in, "total_bytes_out": total_out}
+
+# ---- list plans ----
+@app.get("/api/mobile/v1/plans")
+def list_plans(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, plan_name, service, speed, download_speed, upload_speed, "
+            "       validity, validity_unit, base_amount, after_tax_amount, "
+            "       fup_enabled, fup_limit_gb "
+            "  FROM plans WHERE company_id=? "
+            " ORDER BY after_tax_amount ASC", (cid,)).fetchall()
+    return {"ok": True, "items": [dict(r) for r in rows]}
+
+# ---- list complaints ----
+@app.get("/api/mobile/v1/complaints")
+def list_complaints(authorization: Optional[str] = Header(None),
+                    status: Optional[str] = None,
+                    page: int = Query(1, ge=1), per: int = Query(20, ge=1, le=100)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    # _v4718_LOC_JOIN  Also LEFT JOIN locations so the locality text falls
+    # back to locations.name when customers.locality is NULL.
+    sql = ("SELECT cp.id, cp.ticket_no, cp.customer_id, cp.complaint_type, "
+           "       cp.priority, cp.subject, cp.description, cp.status, "
+           "       cp.created_at, cp.resolved_at, cp.resolved_by, "
+           "       cu.customer_name, cu.username, cu.address, "
+           "       COALESCE(NULLIF(cu.locality,''), lo.name) AS locality, "
+           "       cu.customer_phone AS mobile, cu.customer_type "
+           "  FROM complaints cp "
+           "  LEFT JOIN customers cu "
+           "    ON cu.customer_id=cp.customer_id AND cu.company_id=cp.company_id "
+           "  LEFT JOIN locations lo "
+           "    ON lo.id=cu.location_id AND lo.company_id=cu.company_id "
+           " WHERE cp.company_id=?")
+    params: list = [cid]
+    # If user is a customer, scope to own
+    if s["user_type"] == "customer":
+        # username = customer_id or username; fetch their customer_id
+        with _conn() as c:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE company_id=? AND (username=? OR customer_id=?) LIMIT 1",
+                (cid, s["username"], s["username"])).fetchone()
+        if cust:
+            sql += " AND cp.customer_id=?"; params.append(cust["customer_id"])
+        else:
+            return {"ok": True, "items": [], "page": page, "per": per}
+    # _v4717_CMP_SCOPE  sub_lco / employee see only complaints from their
+    # OWN customers (via the canonical _scope_clause).  Admin sees all.
+    elif s["user_type"] in ("sub_lco", "employee"):
+        _scope_sql, _scope_params = _scope_clause(s)
+        with _conn() as c:
+            in_ids = [r[0] for r in c.execute(
+                "SELECT customer_id FROM customers " + _scope_sql,
+                _scope_params).fetchall()]
+        if in_ids:
+            qm = ",".join("?" * len(in_ids))
+            sql += f" AND cp.customer_id IN ({qm}) "
+            params += in_ids
+        else:
+            return {"ok": True, "items": [], "page": page, "per": per}
+    if status and status.strip().lower() not in ("all", ""):
+        # _v4714_  Normalize ' ' and '_' so 'in_progress' matches 'In Progress'.
+        # Group Pending under In Progress (matches /complaints-list semantics).
+        _norm = status.strip().lower().replace(' ', '').replace('_', '')
+        if _norm in ('inprogress', 'pending'):
+            sql += (" AND LOWER(REPLACE(REPLACE(IFNULL(cp.status,''),' ',''),'_','')) "
+                    "     IN ('inprogress','pending')")
+        else:
+            sql += (" AND LOWER(REPLACE(REPLACE(IFNULL(cp.status,''),' ',''),'_','')) "
+                    "      = ?")
+            params.append(_norm)
+    sql += " ORDER BY cp.id DESC LIMIT ? OFFSET ?"
+    params += [per, (page - 1) * per]
+    with _conn() as c:
+        rows = c.execute(sql, params).fetchall()
+    out_items = [dict(r) for r in rows]
+    # _v4720_LIST_RAISER  When a ticket has no customer row (INTERNAL tickets
+    # or rows where customer_id points to admin/sub_lco/employee code), look
+    # up the raiser so the card shows a name instead of a blank row.
+    raiser_cache: dict = {}
+    def _lookup_raiser(code):
+        if not code: return None
+        if code in raiser_cache: return raiser_cache[code]
+        if code.upper() == "INTERNAL":
+            raiser_cache[code] = None
+            return None
+        with _conn() as c2:
+            r = c2.execute(
+                "SELECT admin_id AS code, admin_name AS name, 'admin' AS role, "
+                "       admin_mobile AS mobile FROM admins "
+                " WHERE company_id=? AND admin_id=?", (cid, code)).fetchone()
+            if not r:
+                r = c2.execute(
+                    "SELECT sub_lco_code AS code, name, 'sub_lco' AS role, mobile "
+                    "  FROM sub_lcos WHERE company_id=? AND sub_lco_code=?",
+                    (cid, code)).fetchone()
+            if not r:
+                r = c2.execute(
+                    "SELECT employee_code AS code, employee_name AS name, "
+                    "       'employee' AS role, mobile FROM employees "
+                    " WHERE company_id=? AND employee_code=?",
+                    (cid, code)).fetchone()
+        raiser_cache[code] = (dict(r) if r else None)
+        return raiser_cache[code]
+    for it in out_items:
+        if not it.get("customer_name"):
+            r = _lookup_raiser(it.get("customer_id") or "")
+            if r:
+                it["raised_by_name"]   = r["name"]
+                it["raised_by_role"]   = r["role"]
+                it["raised_by_mobile"] = r.get("mobile") or ""
+                it["customer_name"] = f"{r['name']} ({r['role'].replace('_',' ')})"
+                if not it.get("mobile"):
+                    it["mobile"] = r.get("mobile") or ""
+            elif (it.get("customer_id") or "").upper() == "INTERNAL":
+                it["customer_name"] = "Internal ticket"
+    return {"ok": True, "items": out_items, "page": page, "per": per}
+
+# ---- raise complaint ----
+
+# _S40zπ_MOBILE_FIX_  Tickets endpoint — alias of complaints with relaxed schema
+class _TicketIn(BaseModel):
+    # _v464_ — All fields optional with safe defaults; UI 422 errors
+    # caused by missing 'subject' or 'description' now degrade gracefully.
+    subject: Optional[str] = "Mobile complaint"
+    description: Optional[str] = ""
+    complaint_type: Optional[str] = "Other"
+    priority: Optional[str] = "Medium"
+    customer_id: Optional[str] = None
+    target_type: Optional[str] = None     # "admin" / "sub_lco" / "employee"
+    target_id: Optional[str] = None       # admin_id / sub_lco_code / employee_code
+
+@app.post("/api/mobile/v1/tickets")
+def create_ticket(body: _TicketIn,
+                  authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    # _v4721_TKT_CUST — customers must always raise tickets under their
+    # OWN customer_id, ignoring whatever the client sent. Other roles
+    # (admin/sub_lco/employee) may target a specific customer or leave
+    # blank for an INTERNAL ticket.
+    if (s.get("user_type") or "").lower() == "customer":
+        cust_id = s.get("customer_id")
+        if not cust_id:
+            with _conn() as _cc:
+                _cust = _cc.execute(
+                    "SELECT customer_id FROM customers "
+                    " WHERE company_id=? AND (id=? OR username=? OR customer_id=?) "
+                    " LIMIT 1",
+                    (cid, s.get("user_pk") or "",
+                     s.get("username") or "",
+                     s.get("username") or "")).fetchone()
+            cust_id = _cust["customer_id"] if _cust else ""
+        customer_id = cust_id or "INTERNAL"
+    else:
+        customer_id = body.customer_id or "INTERNAL"
+    import time as _t, secrets as _sec
+    ticket = f"TKT{int(_t.time())}{_sec.token_hex(2).upper()}"
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
+    target_role = (body.target_type or "admin").lower()
+    if target_role not in ("admin", "sub_lco", "employee"):
+        target_role = "admin"
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO complaints (company_id, customer_id, ticket_no, "
+            " complaint_type, priority, subject, description, status, "
+            " created_at, updated_at, kind, source, target_role, resolved_by) "
+            "VALUES (?,?,?,?,?,?,?,'Open',?,?,'Ticket','mobile',?,?)",
+            (cid, customer_id, ticket, body.complaint_type, body.priority,
+             body.subject, body.description, now, now, target_role,
+             body.target_id or ""))
+        c.commit()
+    return {"ok": True, "ticket_no": ticket, "id": ticket}
+
+@app.get("/api/mobile/v1/tickets/targets")
+def ticket_targets(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    with _conn() as c:
+        admins = [{"id": r["admin_id"], "name": r["admin_name"] or r["admin_id"], "code": r["admin_id"]}
+                  for r in c.execute(
+                      "SELECT admin_id, admin_name FROM admins WHERE company_id=?",
+                      (cid,)).fetchall()]
+        sublcos = [{"id": r["sub_lco_code"], "name": r["name"], "code": r["sub_lco_code"]}
+                   for r in c.execute(
+                       "SELECT sub_lco_code, name FROM sub_lcos WHERE company_id=?",
+                       (cid,)).fetchall()]
+        employees = [{"id": r["employee_code"], "name": r["employee_name"], "code": r["employee_code"]}
+                     for r in c.execute(
+                         "SELECT employee_code, employee_name FROM employees WHERE company_id=?",
+                         (cid,)).fetchall()]
+    return {"ok": True, "admins": admins, "sub_lcos": sublcos, "employees": employees}
+
+
+# ─────────────── Notifications (Phase D) ───────────────
+@app.get("/api/mobile/v1/notifications")
+def notifications_list(authorization: Optional[str] = Header(None),
+                       page: int = Query(1, ge=1),
+                       per: int = Query(50, ge=1, le=200)):
+    """_v471_NOTIF_SCOPE — Aggregated notifications feed.
+    Sub-LCO / Employee see only their own customers' complaints + payments.
+    Customer role sees only their own complaints + payments."""
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    ut  = (s.get("user_type") or "").lower()
+    cust_self = s.get("customer_id") or ""
+    items = []
+    # Build the customer_id whitelist when role is sub_lco/employee/customer
+    in_scope_ids = None  # None = no scope filter (admin)
+    with _conn() as c:
+        if ut == "customer" and cust_self:
+            in_scope_ids = [cust_self]
+        elif ut in ("sub_lco", "employee"):
+            scope_sql, scope_params = _scope_clause(s)
+            try:
+                rows = c.execute("SELECT customer_id FROM customers " + scope_sql,
+                                 scope_params).fetchall()
+                in_scope_ids = [r["customer_id"] for r in rows if r["customer_id"]]
+            except Exception:
+                in_scope_ids = []
+        # Open complaints
+        try:
+            base_q = ("SELECT id, ticket_no, subject, status, customer_id, created_at "
+                      "  FROM complaints WHERE company_id=? AND IFNULL(status,'')!='Resolved' ")
+            qparams = [cid]
+            if in_scope_ids is not None:
+                if in_scope_ids:
+                    qm = ",".join("?" * len(in_scope_ids))
+                    base_q += f" AND customer_id IN ({qm}) "
+                    qparams += in_scope_ids
+                else:
+                    base_q += " AND 1=0 "
+            base_q += " ORDER BY id DESC LIMIT 30"
+            for r in c.execute(base_q, qparams).fetchall():
+                items.append({
+                    "id": f"cmp_{r['id']}", "kind": "complaint",
+                    "title": f"Ticket {r['ticket_no'] or r['id']}",
+                    "body":  r["subject"] or "Complaint open",
+                    "ref":   r["ticket_no"] or "",
+                    "ts":    r["created_at"] or "",
+                    "unread": True,
+                })
+        except Exception: pass
+        # Recent payments (last 30)
+        try:
+            base_q = ("SELECT id, transaction_no, amount, paid_at, customer_id "
+                      "  FROM payments WHERE company_id=? ")
+            qparams = [cid]
+            if in_scope_ids is not None:
+                if in_scope_ids:
+                    qm = ",".join("?" * len(in_scope_ids))
+                    base_q += f" AND customer_id IN ({qm}) "
+                    qparams += in_scope_ids
+                else:
+                    base_q += " AND 1=0 "
+            base_q += " ORDER BY id DESC LIMIT 30"
+            for r in c.execute(base_q, qparams).fetchall():
+                items.append({
+                    "id": f"pay_{r['id']}", "kind": "payment",
+                    "title": f"Payment received \u20b9{int(float(r['amount'] or 0))}",
+                    "body":  f"{r['customer_id'] or ''} \u00b7 {r['transaction_no'] or ''}",
+                    "ref":   r["transaction_no"] or "",
+                    "ts":    r["paid_at"] or "",
+                    "unread": False,
+                })
+        except Exception: pass
+        # OLT/ONU unacked alerts (staff roles only — customers never see
+        # global network alerts on their personal feed).
+        try:
+            if ut == "customer":
+                raise StopIteration
+            for r in c.execute(
+                "SELECT id, severity, title, message, created_at "
+                "  FROM olt_alerts WHERE company_id=? "
+                "   AND COALESCE(acked,0)=0 "
+                " ORDER BY id DESC LIMIT 30", (cid,)).fetchall():
+                items.append({
+                    "id": f"alt_{r['id']}", "kind": "alert",
+                    "title": r["title"] or "Network alert",
+                    "body":  r["message"] or "",
+                    "ts":    r["created_at"] or "",
+                    "unread": True,
+                })
+        except Exception: pass
+
+    items.sort(key=lambda x: x.get("ts") or "", reverse=True)
+    items = items[(page-1)*per:(page-1)*per + per]
+    return {"ok": True, "items": items, "page": page, "per": per,
+            "count": len(items)}
+
+@app.get("/api/mobile/v1/notifications/badge")
+def notifications_badge(authorization: Optional[str] = Header(None)):
+    """_v4721_  Unread badge count, role-scoped."""
+    s = _require_auth(authorization); cid = s["company_id"] or ""
+    ut = (s.get("user_type") or "").lower()
+    cust_self = s.get("customer_id") or ""
+    in_scope_ids = None
+    unread = 0
+    with _conn() as c:
+        if ut == "customer" and cust_self:
+            in_scope_ids = [cust_self]
+        elif ut in ("sub_lco", "employee"):
+            try:
+                scope_sql, scope_params = _scope_clause(s)
+                rows = c.execute("SELECT customer_id FROM customers " + scope_sql,
+                                 scope_params).fetchall()
+                in_scope_ids = [r["customer_id"] for r in rows if r["customer_id"]]
+            except Exception:
+                in_scope_ids = []
+        try:
+            q = ("SELECT COUNT(*) FROM complaints "
+                 " WHERE company_id=? AND IFNULL(status,'')!='Resolved'")
+            qp = [cid]
+            if in_scope_ids is not None:
+                if in_scope_ids:
+                    qm = ",".join("?" * len(in_scope_ids))
+                    q += f" AND customer_id IN ({qm})"
+                    qp += in_scope_ids
+                else:
+                    q += " AND 1=0"
+            unread += c.execute(q, qp).fetchone()[0] or 0
+        except Exception: pass
+        # OLT alerts only count for staff roles
+        if ut != "customer":
+            try:
+                unread += c.execute(
+                    "SELECT COUNT(*) FROM olt_alerts "
+                    " WHERE company_id=? AND COALESCE(acked,0)=0",
+                    (cid,)).fetchone()[0] or 0
+            except Exception: pass
+    return {"ok": True, "unread": unread}
+
+@app.post("/api/mobile/v1/complaints")
+def create_complaint(body: ComplaintIn,
+                     authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    cid = s["company_id"] or ""
+    customer_id = body.customer_id
+    if s["user_type"] == "customer":
+        with _conn() as c:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE company_id=? AND (username=? OR customer_id=?) LIMIT 1",
+                (cid, s["username"], s["username"])).fetchone()
+            if cust: customer_id = cust["customer_id"]
+    if not customer_id:
+        # _S40zπ_MOBILE_FIX_  Allow admin/staff to file an internal ticket
+        # without selecting a customer. Use a synthetic 'INTERNAL' ID.
+        customer_id = "INTERNAL"
+    import time
+    ticket = f"MOB{int(_time_v4721.time())}"
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")  # _S40zπ_MOBILE_FIX_
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO complaints (company_id, customer_id, ticket_no, "
+            " complaint_type, priority, subject, description, status, "
+            " created_at, updated_at, kind, source, target_role) "
+            "VALUES (?,?,?,?,?,?,?, 'Open', ?, ?, 'Complaint', 'mobile', 'admin')",
+            (cid, customer_id, ticket, body.complaint_type, body.priority,
+             body.subject, body.description, now, now))
+        c.commit()
+    return {"ok": True, "ticket_no": ticket}
+
+# ---- record payment + return receipt JSON ----
+@app.post("/api/mobile/v1/subscribers/{cust_pk}/payment")
+def record_payment(cust_pk: int, body: PaymentIn,
+                   authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    if s["user_type"] not in ("admin", "employee", "sub_lco"):
+        raise HTTPException(403, "forbidden")
+    cid = s["company_id"] or ""
+    if body.amount <= 0:
+        raise HTTPException(400, "amount_must_be_positive")
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")  # _S40zπ_MOBILE_FIX_
+    with _conn() as c:
+        cust = c.execute(
+            "SELECT id, customer_id, customer_name, customer_phone, customer_email, "
+            "       total_bill_amount, received_amount, plan_id, end_date "
+            "  FROM customers WHERE id=? AND company_id=?",
+            (cust_pk, cid)).fetchone()
+        if not cust:
+            raise HTTPException(404, "not_found")
+        # 1) Insert transaction row
+        c.execute(
+            "INSERT INTO transactions (company_id, customer_id, transaction_type, "
+            "  amount, invoice_id, period_months, remarks, created_at, "
+            "  payment_method, reference_no, note, transaction_date) "
+            "VALUES (?,?, 'Payment', ?, NULL, NULL, ?, ?, ?, ?, ?, ?)",
+            (cid, cust["customer_id"], body.amount,
+             body.note or "Mobile-app payment", now,
+             body.payment_mode, body.reference_no or "", body.note or "", now))
+        tx_id = c.lastrowid
+        # 2) Reduce dues on customer row
+        new_recv = (cust["received_amount"] or 0) + body.amount
+        new_bill = max(0.0, (cust["total_bill_amount"] or 0) - body.amount)
+        c.execute(
+            "UPDATE customers SET received_amount=?, total_bill_amount=?, "
+            "   payment_mode=?, transaction_id=?, updated_at=? WHERE id=?",
+            (new_recv, new_bill, body.payment_mode,
+             body.reference_no or "", now, cust_pk))
+        # 3) Company / superadmin name for receipt header
+        comp = c.execute(
+            "SELECT company_name, gst_number, company_address, company_phone "
+            "  FROM companies WHERE company_id=?", (cid,)).fetchone()
+        c.commit()
+
+    receipt = {
+        "receipt_no":   f"R{tx_id:06d}",
+        "datetime":     now,
+        "company_id":   cid,
+        "company_name": (comp["company_name"] if comp else "AutoISP Billing"),
+        "company_gst":  (comp["gst_number"]   if comp else ""),
+        "company_addr": (comp["company_address"] if comp else ""),
+        "company_phone":(comp["company_phone"]   if comp else ""),
+        "customer": {
+            "id":    cust["customer_id"],
+            "name":  cust["customer_name"],
+            "phone": cust["customer_phone"],
+            "email": cust["customer_email"],
+        },
+        "amount":        body.amount,
+        "payment_mode":  body.payment_mode,
+        "reference_no":  body.reference_no or "",
+        "note":          body.note or "",
+        "balance_due":   new_bill,
+        "received_by":   s["username"],
+    }
+    return {"ok": True, "transaction_id": tx_id, "receipt": receipt}
+
+# ---- create subscriber ----
+@app.post("/api/mobile/v1/subscribers")
+def create_subscriber(body: SubscriberCreateIn,
+                      authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    if s["user_type"] not in ("admin", "employee", "sub_lco"):
+        raise HTTPException(403, "forbidden")
+    cid = s["company_id"] or ""
+    import secrets as _se, time as _t
+    cust_id = str(int(_t.time()))[-8:]   # 8-digit numeric customer id
+    username = (body.username or f"u{cust_id}").strip().lower()
+    password = body.password or _se.token_urlsafe(8)
+
+    pw_hash = ""
+    if _bcrypt:
+        try: pw_hash = _bcrypt.hash(password)
+        except Exception: pw_hash = ""
+
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")  # _S40zπ_MOBILE_FIX_
+    with _conn() as c:
+        plan = c.execute(
+            "SELECT id, after_tax_amount, validity, validity_unit "
+            "  FROM plans WHERE id=? AND company_id=?",
+            (body.plan_id, cid)).fetchone()
+        if not plan:
+            raise HTTPException(400, "invalid_plan_id")
+        amt = float(plan["after_tax_amount"] or 0)
+        period = max(1, int(body.period or 1))
+        bill = amt * period
+        # Compute end_date
+        from datetime import timedelta as _td
+        days = period * (30 if (plan["validity_unit"] or "days").lower().startswith("month") else int(plan["validity"] or 30))
+        end_date = (datetime.now(timezone.utc) + _td(days=days)).date().isoformat()
+
+        c.execute(
+            "INSERT INTO customers (company_id, customer_id, username, "
+            " password_hash, registration_type, service_type, customer_name, "
+            " customer_phone, customer_email, address, locality, city, state, "
+            " pincode, plan_id, monthly_amount, period, end_date, bill_amount, "
+            " total_bill_amount, received_amount, payment_mode, status, "
+            " auth_type, static_ip_address, sub_lco_id, location_id, "
+            " created_at, updated_at, start_date) "
+            "VALUES (?,?,?,?, 'Online', 'Broadband', ?,?,?,?,?,?,?,?,?,?,?,?, "
+            "        ?, ?, ?, 'Active', ?,?,?,?, ?, ?, ?)",
+            (cid, cust_id, username, pw_hash,
+             body.customer_name, body.customer_phone, body.customer_email or "",
+             body.address, body.locality or "", body.city or "",
+             body.state or "", body.pincode or "",
+             body.plan_id, amt, period, end_date,
+             bill, max(0.0, bill - (body.received_amount or 0)),
+             body.received_amount or 0,
+             body.payment_mode or "",
+             body.auth_type or "pppoe", body.static_ip_address or "",
+             body.sub_lco_id, body.location_id,
+             now, now, datetime.now(timezone.utc).date().isoformat()))
+        new_pk = c.lastrowid
+        # _S40zπ_PHASEC_  Persist GPS coords on customers row so
+        # ONU 'Use Customer Address' auto-placement works without
+        # an extra geocoding round-trip.
+        if body.latitude is not None and body.longitude is not None:
+            try:
+                c.execute(
+                    "UPDATE customers SET lat=?, lng=?, latitude=?, "
+                    "       geocoded_at=datetime('now'), "
+                    "       geocode_confidence=1.0 "
+                    " WHERE id=?",
+                    (float(body.latitude), float(body.longitude),
+                     float(body.latitude), new_pk))
+            except Exception:
+                pass
+                # If they paid something at install — log a transaction
+        if body.received_amount and body.received_amount > 0:
+            c.execute(
+                "INSERT INTO transactions (company_id, customer_id, "
+                " transaction_type, amount, period_months, remarks, "
+                " payment_method, transaction_date, created_at) "
+                "VALUES (?,?, 'Payment', ?, ?, ?, ?, ?, ?)",
+                (cid, cust_id, body.received_amount, period,
+                 "Initial payment at signup",
+                 body.payment_mode or "Cash", now, now))
+        c.commit()
+    return {"ok": True, "id": new_pk, "customer_id": cust_id,
+            "username": username, "password": password,
+            "end_date": end_date, "bill_amount": bill}
+
+# ---- customer self: profile + billing ----
+@app.get("/api/mobile/v1/me/billing")
+def me_billing(authorization: Optional[str] = Header(None)):
+    """_v4721_  Live customer billing snapshot used by Dashboard +
+    Subscribers screens. Returns flat fields (plan_name, end_date,
+    due_amount, balance, status, online) plus a `subscriber` envelope
+    for back-compat."""
+    s = _require_auth(authorization)
+    if s.get("user_type") != "customer":
+        raise HTTPException(403, "customer_only")
+    cid = s.get("company_id") or ""
+    pk  = s.get("user_pk") or ""
+    uname = s.get("username") or ""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id, customer_id, username, customer_name, "
+            "       customer_email, customer_phone, alt_mobile, address, "
+            "       locality, city, state, pincode, plan_id, monthly_amount, "
+            "       customer_type, mac_address, ip_address, vendor, "
+            "       modem_no, start_date, end_date, period, bill_amount, "
+            "       total_bill_amount, received_amount, security_deposit, "
+            "       status, payment_mode, service_type, sub_lco_id, "
+            "       location_id, photograph_path, created_at, updated_at "
+            "  FROM customers "
+            " WHERE company_id=? AND (id=? OR username=? OR customer_id=?) "
+            " LIMIT 1",
+            (cid, pk, uname, uname)).fetchone()
+        if not row:
+            raise HTTPException(404, "not_found")
+        r = {k: row[k] for k in row.keys()}
+        plan_name = ""; plan_amount = float(r.get("monthly_amount") or 0)
+        if r.get("plan_id"):
+            p = c.execute(
+                "SELECT plan_name, speed, after_tax_amount, validity, validity_unit "
+                "  FROM plans WHERE id=?", (r["plan_id"],)).fetchone()
+            if p:
+                plan_name = p["plan_name"] or ""
+                plan_amount = float(p["after_tax_amount"] or plan_amount)
+                r["plan_name"]     = plan_name
+                r["plan_speed"]    = p["speed"]
+                r["plan_amount"]   = plan_amount
+                r["plan_validity"] = f"{p['validity'] or ''} {p['validity_unit'] or ''}".strip()
+        # Live ledger calc (same approach as /me)
+        try:
+            inv_total = c.execute(
+                "SELECT COALESCE(SUM(total_amount),0) FROM invoices "
+                " WHERE company_id=? AND customer_id=?",
+                (cid, r["customer_id"])).fetchone()[0] or 0
+        except Exception:
+            inv_total = 0
+        try:
+            pay_total = c.execute(
+                "SELECT COALESCE(SUM(amount),0)+COALESCE(SUM(discount),0) "
+                "  FROM payments WHERE company_id=? AND customer_id=?",
+                (cid, r["customer_id"])).fetchone()[0] or 0
+        except Exception:
+            pay_total = 0
+        due = max(0.0, round(float(inv_total) - float(pay_total), 2))
+        # Recent transactions
+        try:
+            txns = c.execute(
+                "SELECT id, transaction_no AS reference_no, amount, "
+                "       payment_mode AS payment_method, paid_at AS created_at, "
+                "       'Payment' AS transaction_type "
+                "  FROM payments "
+                " WHERE company_id=? AND customer_id=? "
+                " ORDER BY id DESC LIMIT 20",
+                (cid, r["customer_id"])).fetchall()
+            r["payments"] = [dict(x) for x in txns]
+        except Exception:
+            r["payments"] = []
+    # Friendly date format (DD-MM-YYYY) for the UI card
+    ed = r.get("end_date") or ""
+    if ed and len(ed) >= 10 and ed[4] == "-":
+        ed_disp = f"{ed[8:10]}-{ed[5:7]}-{ed[0:4]}"
+    else:
+        ed_disp = ed
+    # Profile image absolute URL
+    img_url = None
+    p = (r.get("photograph_path") or "").strip()
+    if p:
+        if p.startswith("http"):
+            img_url = p
+        else:
+            img_url = f"https://www.autoispbilling.com/{p.lstrip('/')}"
+    return {
+        "ok": True,
+        # Flat fields the Dashboard reads directly
+        "customer_id":   r["customer_id"],
+        "customer_name": r["customer_name"],
+        "plan_name":     plan_name or None,
+        "plan_amount":   plan_amount,
+        "end_date":      ed_disp,
+        "status":        r.get("status") or "Active",
+        "due_amount":    due,
+        "balance":       due,
+        "online":        False,
+        "profile_image_url": img_url,
+        # Full envelope for legacy callers (subscribers.tsx, /me/pay etc.)
+        "subscriber": r,
+    }
+
+# === _S39R5j_v3_pack_loaded === #
+try:
+    import sys as _sys
+    if "/opt/ispbilling" not in _sys.path:
+        _sys.path.insert(0, "/opt/ispbilling")
+    import mobile_api_v3 as _v3pack
+    _v3pack.install(app, _conn=_conn, _require_auth=_require_auth)
+    print("[+] mobile_api_v3 endpoints registered")
+except Exception as _e:
+    print(f"[!] mobile_api_v3 load failed: {_e}")
+
+
+# ============================================================================
+#                            S39R5N — NEW ENDPOINTS
+# ============================================================================
+
+@app.get("/api/mobile/v1/transactions")
+def transactions(authorization: Optional[str] = Header(None),
+                 q: str = "", customer_type: str = "",
+                 locality_id: Optional[int] = None,
+                 limit: int = Query(100, ge=1, le=500)):
+    """List recent transactions, scoped by role + filterable by user-type
+    and locality. Times are returned in ISO8601 — the mobile UI converts
+    to DD-MM-YYYY HH:MM in Asia/Kolkata."""
+    s = _require_auth(authorization)
+    scope_sql, scope_params = _scope_clause(s)
+    with _conn() as c:
+        # Join customers to apply scope; transactions table has no scope of its own.
+        sql = ("SELECT t.id, "
+               "        t.paid_at AS transaction_date, "
+               "        t.amount, "
+               "        'Payment' AS transaction_type, "
+               "        t.payment_mode AS payment_method, "
+               "        t.transaction_no AS reference_no, "
+               "        c.start_date, c.end_date, "
+               "        c.period AS period_months, "
+               "        t.remarks, t.created_at, "
+               "        c.customer_name, c.customer_id, c.username, c.customer_type, "
+               "        c.location_id "
+               "   FROM payments t "
+               "   JOIN customers c ON c.customer_id = t.customer_id "
+               + scope_sql.replace("WHERE company_id=?", "AND c.company_id=?"))
+        sql = sql.replace(" WHERE company_id=?", " AND c.company_id=?")
+        # The scope_sql starts with " WHERE company_id=? "; we just made it conjunctive.
+        # Re-prefix with WHERE 1=1.
+        sql = sql.replace(" AND c.company_id=?", " WHERE 1=1 AND c.company_id=?", 1)
+        params = list(scope_params)
+        if customer_type and customer_type.lower() not in ("all", ""):
+            ut = customer_type.strip().lower().replace(" ", "_")
+            sql += (" AND ("
+                    "  LOWER(REPLACE(IFNULL(c.service_type,''),' ','_'))=? "
+                    "OR LOWER(REPLACE(IFNULL(c.customer_type,''),' ','_'))=? )")
+            params += [ut, ut]
+        if locality_id:
+            sql += " AND c.location_id=? "
+            params.append(int(locality_id))
+        if q:
+            sql += (" AND (c.customer_name LIKE ? OR c.customer_id LIKE ? "
+                    " OR c.username LIKE ? OR t.transaction_no LIKE ?) ")
+            like = f"%{q}%"
+            params += [like]*4
+        sql += " ORDER BY t.id DESC LIMIT ? "
+        params.append(limit)
+        rows = c.execute(sql, params).fetchall()
+        items = []
+        for r in rows:
+            d = {k: r[k] for k in r.keys()}
+            items.append(d)
+        return {"ok": True, "count": len(items), "items": items}
+
+
+@app.get("/api/mobile/v1/transactions/{txn_id}")
+def transaction_detail(txn_id: int, authorization: Optional[str] = Header(None)):
+    """Detailed transaction view including the customer's plan + period."""
+    s = _require_auth(authorization)
+    scope_sql, scope_params = _scope_clause(s)
+    with _conn() as c:
+        sql = ("SELECT t.id, t.amount, t.discount, t.payment_mode AS payment_method, "
+               "        t.transaction_no AS reference_no, "
+               "        t.paid_at AS transaction_date, "
+               "        t.remarks, t.created_at, t.employee_id, "
+               "        c.customer_name, c.customer_id AS cust_id, c.username, "
+               "        c.customer_type, c.customer_phone AS mobile, "
+               "        c.customer_email AS email, c.address, "
+               "        c.start_date, c.end_date, c.period AS period_months, "
+               "        p.plan_name, p.speed, p.after_tax_amount AS plan_amount "
+               "   FROM payments t "
+               "   JOIN customers c ON c.customer_id = t.customer_id "
+               "   LEFT JOIN plans p ON p.id = c.plan_id "
+               "  WHERE t.id=? AND c.company_id=? LIMIT 1")
+        params = [txn_id, scope_params[0]]
+        row = c.execute(sql, params).fetchone()
+    if not row:
+        raise HTTPException(404, "Transaction not found")
+    d = {k: row[k] for k in row.keys()}
+    sd = (d.get("start_date") or "").strip()
+    ed = (d.get("end_date") or "").strip()
+    def _fmt(x):
+        if x and len(x) >= 10 and x[4] == "-" and x[7] == "-":
+            return f"{x[8:10]}-{x[5:7]}-{x[0:4]}"
+        return x or ""
+    if sd and ed:
+        d["formatted_period"] = f"{_fmt(sd)} to {_fmt(ed)}"
+    else:
+        d["formatted_period"] = ""
+
+    # _S40zπ_v462_  Receipt-grade breakdown so the mobile UI shows
+    # Renewal period / Previous due / Current due / Balance after / Last payment
+    # consistent with what the receipt looked like at issue time.
+    try:
+        with _conn() as _c2:
+            cust_id = d.get("cust_id") or d.get("customer_id")
+            scope_args = scope_params  # (cid,)
+            cid = scope_args[0]
+
+            # The most recent invoice OLDER OR EQUAL to this txn date,
+            # which is the one the user paid against.
+            inv = _c2.execute(
+                "SELECT total_amount, due_at_issue, issue_date "
+                "  FROM invoices "
+                " WHERE company_id=? AND customer_id=? "
+                "   AND DATE(issue_date) <= DATE(?) "
+                " ORDER BY id DESC LIMIT 1",
+                (cid, cust_id, d.get("transaction_date") or "")).fetchone()
+            if inv:
+                cur = float(inv["total_amount"] or 0)
+                due = float(inv["due_at_issue"] or 0)
+                d["renewal_period"]   = d["formatted_period"]
+                d["previous_balance"] = round(max(0.0, due - cur), 2)
+                d["current_due"]      = round(cur, 2)
+            # Balance immediately after this payment
+            up_to = _c2.execute(
+                "SELECT COALESCE(SUM(amount),0)+COALESCE(SUM(discount),0) "
+                "  FROM payments WHERE company_id=? AND customer_id=? "
+                "   AND id<=?",
+                (cid, cust_id, d.get("id"))).fetchone()
+            inv_total = _c2.execute(
+                "SELECT COALESCE(SUM(total_amount),0) FROM invoices "
+                " WHERE company_id=? AND customer_id=? "
+                "   AND DATE(issue_date) <= DATE(?)",
+                (cid, cust_id, d.get("transaction_date") or "")).fetchone()
+            d["balance_after"] = round(max(0.0,
+                float(inv_total[0] or 0) - float(up_to[0] or 0)), 2)
+            # Previous payment to this one
+            prev = _c2.execute(
+                "SELECT amount, paid_at FROM payments "
+                " WHERE company_id=? AND customer_id=? AND id<? "
+                " ORDER BY id DESC LIMIT 1",
+                (cid, cust_id, d.get("id"))).fetchone()
+            d["last_payment_amount"] = round(float(prev["amount"]),2) if prev else 0.0
+            try:
+                if prev and prev["paid_at"]:
+                    raw = str(prev["paid_at"]).strip()
+                    for pf in ("%Y-%m-%d %H:%M:%S.%f","%Y-%m-%d %H:%M:%S"):
+                        try:
+                            d["last_paid_at"] = datetime.strptime(raw[:26], pf)\
+                                .strftime("%d-%m-%Y %H:%M")
+                            break
+                        except Exception: pass
+                else:
+                    d["last_paid_at"] = ""
+            except Exception:
+                d["last_paid_at"] = ""
+
+            # Format this transaction's own paid_at to IST DD-MM-YYYY HH:MM
+            try:
+                raw = str(d.get("transaction_date") or "").strip()
+                for pf in ("%Y-%m-%d %H:%M:%S.%f","%Y-%m-%d %H:%M:%S"):
+                    try:
+                        d["paid_at_fmt"] = datetime.strptime(raw[:26], pf)\
+                            .strftime("%d-%m-%Y %H:%M")
+                        break
+                    except Exception: pass
+            except Exception:
+                d["paid_at_fmt"] = d.get("transaction_date") or ""
+    except Exception:
+        pass
+
+    return {"ok": True, "transaction": d}
+
+
+@app.get("/api/mobile/v1/staff")
+def staff_list(authorization: Optional[str] = Header(None)):
+    """Return Admins + Sub-LCOs + Employees for the ticket-assign dropdown."""
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    out = []
+    with _conn() as c:
+        try:
+            for r in c.execute(
+                "SELECT id, admin_name AS name, admin_id AS user_id "
+                "  FROM admins WHERE company_id=? ORDER BY admin_name", (cid,)
+            ).fetchall():
+                out.append({"id": r["id"], "name": r["name"],
+                            "user_id": r["user_id"], "role": "admin"})
+        except Exception:
+            pass
+        try:
+            for r in c.execute(
+                "SELECT id, name, sub_lco_id AS user_id "
+                "  FROM sub_lcos WHERE company_id=? ORDER BY name", (cid,)
+            ).fetchall():
+                out.append({"id": r["id"], "name": r["name"],
+                            "user_id": r["user_id"], "role": "sub_lco"})
+        except Exception:
+            pass
+        try:
+            for r in c.execute(
+                "SELECT id, employee_name AS name, employee_id AS user_id "
+                "  FROM employees WHERE company_id=? ORDER BY employee_name", (cid,)
+            ).fetchall():
+                out.append({"id": r["id"], "name": r["name"],
+                            "user_id": r["user_id"], "role": "employee"})
+        except Exception:
+            pass
+    return {"ok": True, "items": out}
+
+
+@app.get("/api/mobile/v1/localities")
+def localities(authorization: Optional[str] = Header(None)):
+    """Locality / area dropdown."""
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, locality_name, city, state "
+            "  FROM locations WHERE company_id=? ORDER BY locality_name", (cid,)
+        ).fetchall()
+    return {"ok": True, "items": [
+        {"id": r["id"], "name": r["locality_name"], "city": r["city"], "state": r["state"]}
+        for r in rows
+    ]}
+
+
+@app.get("/api/mobile/v1/invoices")
+def invoices(authorization: Optional[str] = Header(None),
+             q: str = "", user_type: str = "",
+             locality_id: Optional[int] = None,
+             limit: int = Query(100, ge=1, le=500)):
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    scope_sql, scope_params = _scope_clause(s)
+    with _conn() as c:
+        # _v467_INV — alias total_amount as amount; ledger-correct due_balance.
+        sql = ("SELECT i.id, i.invoice_no, i.total_amount AS amount, "
+               "        i.total_amount, i.start_date, i.end_date, "
+               "        i.created_at, i.issue_date, i.due_date, i.status, "
+               "        c.customer_name, c.customer_id, c.customer_type, "
+               "        c.customer_phone AS mobile, c.location_id, c.locality, "
+               "        ( (SELECT COALESCE(SUM(total_amount),0) FROM invoices ii WHERE ii.customer_id=c.customer_id AND ii.company_id=c.company_id) "
+               "          - (SELECT COALESCE(SUM(amount),0) + COALESCE(SUM(discount),0) FROM payments pp WHERE pp.customer_id=c.customer_id AND pp.company_id=c.company_id) "
+               "        ) AS due_balance, "
+               "        ( (SELECT COALESCE(SUM(total_amount),0) FROM invoices ii WHERE ii.customer_id=c.customer_id AND ii.company_id=c.company_id) "
+               "          - (SELECT COALESCE(SUM(amount),0) + COALESCE(SUM(discount),0) FROM payments pp WHERE pp.customer_id=c.customer_id AND pp.company_id=c.company_id) "
+               "        ) AS current_due "
+               "   FROM invoices i "
+               "   JOIN customers c ON c.customer_id = i.customer_id "
+               "  WHERE 1=1 ")
+        params = []
+        # Re-add scope
+        sub = scope_sql.replace(" WHERE company_id=?", " AND c.company_id=?", 1)
+        sql += sub
+        params += list(scope_params)
+        if user_type and user_type.lower() not in ("all", ""):
+            # _v467_FILT — DB has 'Postpaid'/'Prepaid'/'broadband'. Mobile UI sends
+            # 'broadband' or 'cable_tv'. Map both correctly:
+            #   broadband → matches Postpaid + Prepaid + broadband (any PPP user)
+            #   cable_tv  → matches cable_tv / Cable TV / CableTV
+            v = user_type.lower().replace("_", "")
+            if v == "broadband":
+                sql += (" AND LOWER(REPLACE(IFNULL(c.customer_type,''),' ','')) "
+                        "   IN ('broadband','postpaid','prepaid','ppp') ")
+            elif v in ("cabletv", "cable"):
+                sql += (" AND LOWER(REPLACE(IFNULL(c.customer_type,''),' ','')) "
+                        "   IN ('cabletv','cable','catv') ")
+            else:
+                sql += " AND LOWER(IFNULL(c.customer_type,''))=LOWER(?) "
+                params.append(user_type)
+        if locality_id:
+            sql += " AND c.location_id=? "
+            params.append(int(locality_id))
+        if q:
+            sql += (" AND (i.invoice_no LIKE ? OR c.customer_name LIKE ? "
+                    " OR c.customer_id LIKE ?) ")
+            like = f"%{q}%"
+            params += [like]*3
+        sql += " ORDER BY i.id DESC LIMIT ? "
+        params.append(limit)
+        rows = c.execute(sql, params).fetchall()
+        items = [{k: r[k] for k in r.keys()} for r in rows]
+    return {"ok": True, "count": len(items), "items": items}
+
+
+# _v4711_ Superadmin contact for "About Us" page in the mobile app.
+# Returns the single superadmin row's mobile/email/name (no auth required —
+# it is intentionally a public support contact lookup).
+@app.get("/api/mobile/v1/superadmin-contact")
+def superadmin_contact():
+    try:
+        with _conn() as c:
+            r = c.execute(
+                "SELECT superadmin_name, email, mobile "
+                "  FROM superadmins ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+        if not r:
+            return {"ok": False, "name": "", "email": "", "mobile": ""}
+        return {
+            "ok": True,
+            "name": (r["superadmin_name"] if "superadmin_name" in r.keys() else "") or "",
+            "email": (r["email"] if "email" in r.keys() else "") or "",
+            "mobile": (r["mobile"] if "mobile" in r.keys() else "") or "",
+        }
+    except Exception as ex:
+        return {"ok": False, "error": str(ex), "mobile": "", "email": "", "name": ""}
+
+
+
+# _v4719_ME_INVOICES  Customer transactions page — combined chronological feed
+# of invoices + payments with DD-MM-YYYY dates and per-row download URLs.
+def _v4719_fmt_d(raw):
+    s = str(raw or "").strip()
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        return f"{s[8:10]}-{s[5:7]}-{s[:4]}"
+    return s
+
+@app.get("/api/mobile/v1/me/invoices")
+def me_invoices(authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    if (s.get("user_type") or "") != "customer":
+        raise HTTPException(403, "customer_only")
+    cid   = s.get("company_id") or ""
+    uname = s.get("username") or ""
+    with _conn() as c:
+        # _v4720_INV_PK  Resolve THIS customer by id (user_pk).
+        pk_raw = s.get("user_pk") or ""
+        try:
+            pk_int = int(str(pk_raw)) if str(pk_raw).strip() else 0
+        except Exception:
+            pk_int = 0
+        cust = None
+        if pk_int:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE id=? AND company_id=? LIMIT 1",
+                (pk_int, cid)).fetchone()
+        if cust is None:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE company_id=? AND (username=? OR customer_id=?) LIMIT 1",
+                (cid, uname, uname)).fetchone()
+        if not cust:
+            return {"ok": True, "items": [], "invoices": []}
+        cust_id = cust["customer_id"]
+        invoices = c.execute(
+            "SELECT id, invoice_no, issue_date AS dt, total_amount AS amount, "
+            "       IFNULL(status,'Unpaid') AS status "
+            "  FROM invoices WHERE company_id=? AND customer_id=? "
+            " ORDER BY id DESC LIMIT 200",
+            (cid, cust_id)).fetchall()
+        payments = c.execute(
+            "SELECT id, transaction_no, paid_at AS dt, amount, "
+            "       IFNULL(payment_mode,'') AS mode "
+            "  FROM payments WHERE company_id=? AND customer_id=? "
+            " ORDER BY id DESC LIMIT 200",
+            (cid, cust_id)).fetchall()
+    items = []
+    for r in invoices:
+        items.append({
+            "kind": "invoice",
+            "id": r["id"],
+            "ref": r["invoice_no"] or f"INV-{r['id']}",
+            "date": _v4719_fmt_d(r["dt"]),
+            "amount": round(float(r["amount"] or 0), 2),
+            "status": r["status"],
+            "_sort": str(r["dt"] or ""),
+            "download_url": f"/api/mobile/v1/me/invoices/{r['id']}/pdf",
+        })
+    for r in payments:
+        items.append({
+            "kind": "payment",
+            "id": r["id"],
+            "ref": r["transaction_no"] or f"PAY-{r['id']}",
+            "date": _v4719_fmt_d(r["dt"]),
+            "amount": round(float(r["amount"] or 0), 2),
+            "status": "Paid",
+            "mode": r["mode"],
+            "_sort": str(r["dt"] or ""),
+            "download_url": f"/api/mobile/v1/me/payments/{r['id']}/pdf",
+        })
+    items.sort(key=lambda x: x["_sort"], reverse=True)
+    for it in items:
+        it.pop("_sort", None)
+    # Back-compat: legacy clients read `.invoices`.
+    return {"ok": True, "items": items,
+            "invoices": [i for i in items if i["kind"] == "invoice"]}
+
+def _v4719_fetch_pdf(url: str):
+    """Stream a PDF response from the localhost admin-portal.  Returns
+    a 200 with the PDF on success, or a structured JSON error otherwise."""
+    import requests as _r, json as _json
+    from fastapi.responses import Response as _Resp
+    try:
+        r = _r.get(url, timeout=30)
+        if r.status_code == 200 and (r.headers.get("content-type") or "").startswith(
+                ("application/pdf", "application/octet-stream")):
+            return _Resp(content=r.content, media_type="application/pdf")
+        # _v4720_PDF_ERR  Surface whatever the admin portal said as JSON.
+        detail = "pdf_unavailable"
+        try:
+            j = r.json(); detail = j.get("detail") or detail
+        except Exception:
+            detail = (r.text or "")[:300] or detail
+        return _Resp(
+            content=_json.dumps({"ok": False, "status": r.status_code,
+                                  "detail": detail}).encode(),
+            status_code=502, media_type="application/json")
+    except Exception as e:
+        return _Resp(
+            content=_json.dumps({"ok": False, "detail": f"pdf_error: {e}"}).encode(),
+            status_code=502, media_type="application/json")
+
+@app.get("/api/mobile/v1/me/payments/{pay_id}/pdf")
+def me_payment_pdf(pay_id: int, authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    if (s.get("user_type") or "") != "customer":
+        raise HTTPException(403, "customer_only")
+    cid   = s.get("company_id") or ""
+    uname = s.get("username") or ""
+    with _conn() as c:
+        # _v4720_INV_PK  Resolve THIS customer by id (user_pk).
+        pk_raw = s.get("user_pk") or ""
+        try:
+            pk_int = int(str(pk_raw)) if str(pk_raw).strip() else 0
+        except Exception:
+            pk_int = 0
+        cust = None
+        if pk_int:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE id=? AND company_id=? LIMIT 1",
+                (pk_int, cid)).fetchone()
+        if cust is None:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE company_id=? AND (username=? OR customer_id=?) LIMIT 1",
+                (cid, uname, uname)).fetchone()
+        if not cust:
+            raise HTTPException(404, "not_found")
+        ok = c.execute(
+            "SELECT id FROM payments WHERE id=? AND company_id=? AND customer_id=?",
+            (pay_id, cid, cust["customer_id"])).fetchone()
+        if not ok:
+            raise HTTPException(404, "not_found")
+    return _v4719_fetch_pdf(
+        f"http://127.0.0.1:8001/api/internal/payments/{pay_id}/receipt-pdf"
+        f"?company_id={cid}")
+
+@app.get("/api/mobile/v1/me/invoices/{inv_id}/pdf")
+def me_invoice_pdf(inv_id: int, authorization: Optional[str] = Header(None)):
+    s = _require_auth(authorization)
+    if (s.get("user_type") or "") != "customer":
+        raise HTTPException(403, "customer_only")
+    cid   = s.get("company_id") or ""
+    uname = s.get("username") or ""
+    with _conn() as c:
+        # _v4720_INV_PK  Resolve THIS customer by id (user_pk).
+        pk_raw = s.get("user_pk") or ""
+        try:
+            pk_int = int(str(pk_raw)) if str(pk_raw).strip() else 0
+        except Exception:
+            pk_int = 0
+        cust = None
+        if pk_int:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE id=? AND company_id=? LIMIT 1",
+                (pk_int, cid)).fetchone()
+        if cust is None:
+            cust = c.execute(
+                "SELECT customer_id FROM customers "
+                " WHERE company_id=? AND (username=? OR customer_id=?) LIMIT 1",
+                (cid, uname, uname)).fetchone()
+        if not cust:
+            raise HTTPException(404, "not_found")
+        ok = c.execute(
+            "SELECT id FROM invoices WHERE id=? AND company_id=? AND customer_id=?",
+            (inv_id, cid, cust["customer_id"])).fetchone()
+        if not ok:
+            raise HTTPException(404, "not_found")
+    return _v4719_fetch_pdf(
+        f"http://127.0.0.1:8001/api/internal/invoices/{inv_id}/pdf"
+        f"?company_id={cid}")
+
+
+# ============================================================================
+#                       _v4721_  Profile self-service endpoints
+# ============================================================================
+from fastapi import UploadFile, File, Form  # _v4721_
+import os as _os_v4721, time as _time_v4721
+
+class _ProfileIn(BaseModel):
+    name:   Optional[str] = None
+    email:  Optional[str] = None
+    mobile: Optional[str] = None
+
+@app.patch("/api/mobile/v1/auth/profile")
+def update_profile_v4721(body: _ProfileIn,
+                         authorization: Optional[str] = Header(None)):
+    """_v4721_  Update name / email / mobile for the logged-in user across
+    admin / sub_lco / employee / customer tables."""
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    pk  = s.get("user_pk") or ""
+    ut  = (s.get("user_type") or "").lower()
+    name   = (body.name or "").strip()
+    email  = (body.email or "").strip()
+    mobile = (body.mobile or "").strip()
+    with _conn() as c:
+        if ut == "admin":
+            c.execute(
+                "UPDATE admins SET "
+                "  admin_name=COALESCE(NULLIF(?,''),admin_name), "
+                "  admin_email=COALESCE(NULLIF(?,''),admin_email), "
+                "  admin_mobile=COALESCE(NULLIF(?,''),admin_mobile) "
+                "WHERE id=? AND company_id=?",
+                (name, email, mobile, pk, cid))
+        elif ut == "sub_lco":
+            c.execute(
+                "UPDATE sub_lcos SET "
+                "  name=COALESCE(NULLIF(?,''),name), "
+                "  email=COALESCE(NULLIF(?,''),email), "
+                "  mobile=COALESCE(NULLIF(?,''),mobile) "
+                "WHERE id=? AND company_id=?",
+                (name, email, mobile, pk, cid))
+        elif ut == "employee":
+            c.execute(
+                "UPDATE employees SET "
+                "  employee_name=COALESCE(NULLIF(?,''),employee_name), "
+                "  email=COALESCE(NULLIF(?,''),email), "
+                "  mobile=COALESCE(NULLIF(?,''),mobile) "
+                "WHERE id=? AND company_id=?",
+                (name, email, mobile, pk, cid))
+        elif ut == "customer":
+            c.execute(
+                "UPDATE customers SET "
+                "  customer_name=COALESCE(NULLIF(?,''),customer_name), "
+                "  customer_email=COALESCE(NULLIF(?,''),customer_email), "
+                "  customer_phone=COALESCE(NULLIF(?,''),customer_phone) "
+                "WHERE id=? AND company_id=?",
+                (name, email, mobile, pk, cid))
+        else:
+            raise HTTPException(400, "unsupported_role")
+        c.commit()
+    return {"ok": True}
+
+
+class _PwIn(BaseModel):
+    old_password: str
+    new_password: str
+
+@app.post("/api/mobile/v1/auth/change-password")
+def change_password_v4721(body: _PwIn,
+                          authorization: Optional[str] = Header(None)):
+    """_v4721_  Change password for the logged-in user. Verifies the current
+    password against the same hash scheme used by /auth/login (bcrypt + a
+    legacy sha256 fallback for older accounts)."""
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    pk  = s.get("user_pk") or ""
+    ut  = (s.get("user_type") or "").lower()
+    new_pw = (body.new_password or "").strip()
+    old_pw = body.old_password or ""
+    if len(new_pw) < 6:
+        raise HTTPException(400, "password_too_short")
+    table_col = {
+        "admin":    ("admins",    "password_hash"),
+        "sub_lco":  ("sub_lcos",  "password_hash"),
+        "employee": ("employees", "password_hash"),
+        "customer": ("customers", "password_hash"),
+    }.get(ut)
+    if not table_col:
+        raise HTTPException(400, "unsupported_role")
+    tbl, col = table_col
+    with _conn() as c:
+        row = c.execute(
+            f"SELECT {col} AS h FROM {tbl} WHERE id=? AND company_id=?",
+            (pk, cid)).fetchone()
+        if not row:
+            raise HTTPException(404, "user_not_found")
+        stored = row["h"] or ""
+        # Verify old password
+        ok = False
+        try:
+            import bcrypt
+            if stored.startswith("$2"):
+                ok = bcrypt.checkpw(old_pw.encode(), stored.encode())
+        except Exception:
+            ok = False
+        if not ok:
+            # Legacy sha256 fallback
+            try:
+                import hashlib
+                if hashlib.sha256(old_pw.encode()).hexdigest() == stored:
+                    ok = True
+            except Exception:
+                pass
+        if not ok and stored and stored == old_pw:
+            ok = True  # plaintext legacy
+        if not ok:
+            raise HTTPException(401, "wrong_password")
+        # Hash new
+        try:
+            import bcrypt
+            new_hash = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt()).decode()
+        except Exception:
+            import hashlib
+            new_hash = hashlib.sha256(new_pw.encode()).hexdigest()
+        c.execute(
+            f"UPDATE {tbl} SET {col}=? WHERE id=? AND company_id=?",
+            (new_hash, pk, cid))
+        c.commit()
+    return {"ok": True}
+
+
+@app.post("/api/mobile/v1/auth/profile/image")
+async def upload_profile_image_v4721(
+        file: UploadFile = File(...),
+        authorization: Optional[str] = Header(None)):
+    """_v4721_  Upload + persist a profile picture for the logged-in user.
+    Saves to /opt/ispbilling/static/uploads/<company_id>/avatars/<id>.<ext>
+    and writes the relative path back to the user's row."""
+    s = _require_auth(authorization)
+    cid = s.get("company_id") or ""
+    pk  = s.get("user_pk") or ""
+    ut  = (s.get("user_type") or "").lower()
+    table_col = {
+        "admin":    ("admins",    "profile_image_path"),
+        "sub_lco":  ("sub_lcos",  "profile_image"),
+        "employee": ("employees", "profile_image_path"),
+        "customer": ("customers", "photograph_path"),
+    }.get(ut)
+    if not table_col:
+        raise HTTPException(400, "unsupported_role")
+    tbl, col = table_col
+    # Sniff extension
+    fname = (file.filename or "image.jpg").lower()
+    ext = "jpg"
+    for cand in ("png", "jpg", "jpeg", "webp", "heic"):
+        if fname.endswith("." + cand):
+            ext = cand if cand != "jpeg" else "jpg"
+            break
+    # Storage path
+    rel_dir = f"static/uploads/{cid}/avatars"
+    abs_dir = f"/opt/ispbilling/admin-portal/{rel_dir}"
+    try:
+        _os_v4721.makedirs(abs_dir, exist_ok=True)
+    except Exception:
+        pass
+    fn = f"{ut}-{pk}-{int(time.time())}.{ext}"
+    abs_path = f"{abs_dir}/{fn}"
+    rel_path = f"/{rel_dir}/{fn}"
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(413, "file_too_large")
+    with open(abs_path, "wb") as out:
+        out.write(data)
+    with _conn() as c:
+        c.execute(
+            f"UPDATE {tbl} SET {col}=? WHERE id=? AND company_id=?",
+            (rel_path, pk, cid))
+        c.commit()
+    return {"ok": True,
+            "profile_image_url": f"https://www.autoispbilling.com{rel_path}",
+            "path": rel_path}
+# === end _v4721_  Profile self-service endpoints ===

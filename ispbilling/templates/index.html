@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto ISP Billing - Complete ISP Management Solution</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* Global 10% size reduction (90% zoom) */
+        :root {
+            --site-scale: 0.9;
+        }
+        
+        @supports (zoom: 1) {
+            body {
+                zoom: var(--site-scale);
+            }
+        }
+        
+        @supports not (zoom: 1) {
+            /* Firefox fallback: scale font sizes */
+            html {
+                font-size: calc(16px * var(--site-scale));
+            }
+        }
+        
+        @media print {
+            body {
+                zoom: 1 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-default navbar-fixed-top">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">
+                    <strong>Auto ISP Billing</strong>
+                </a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-collapse">
+                <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/login">Login</a></li>
+                    <li><a href="#demo">Request Demo</a></li>
+                    <li><a href="tel:+918085868114"><i class="fa fa-whatsapp"></i> {{ support_phone }}</a></li>
+                    <li><a href="#" class="btn btn-sm btn-primary" style="margin-top: 8px;">Sign Up</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8 col-md-offset-2 text-center">
+                    <h1>Complete ISP Billing & Management Platform</h1>
+                    <p class="lead">Streamline your internet service provider operations with our comprehensive billing, customer management, and automation solution</p>
+                    <div class="hero-buttons">
+                        <a href="#demo" class="btn btn-lg btn-success">Get Started Free</a>
+                        <a href="#features" class="btn btn-lg btn-default">Learn More</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <h2>Powerful Features for Modern ISPs</h2>
+                    <p class="section-subtitle">Everything you need to manage and grow your internet service business</p>
+                </div>
+            </div>
+            <div class="row feature-cards">
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-users fa-3x"></i>
+                        <h4>Customer Management</h4>
+                        <p>Comprehensive customer database with detailed profiles and service history</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-file-text fa-3x"></i>
+                        <h4>CAF Processing</h4>
+                        <p>Digital customer application forms with automated approval workflows</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-refresh fa-3x"></i>
+                        <h4>Subscription Renewal</h4>
+                        <p>Automated renewal reminders and seamless subscription management</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-credit-card fa-3x"></i>
+                        <h4>24/7 Online Payments</h4>
+                        <p>Multiple payment gateway integration for customer convenience</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-money fa-3x"></i>
+                        <h4>Outstanding Management</h4>
+                        <p>Track and manage pending payments with automated follow-ups</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-check-circle fa-3x"></i>
+                        <h4>Payment Reconciliation</h4>
+                        <p>Automatic matching of payments with invoices and accounts</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-ticket fa-3x"></i>
+                        <h4>Support Ticket System</h4>
+                        <p>Integrated helpdesk for efficient customer support management</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-line-chart fa-3x"></i>
+                        <h4>Sales Tracking</h4>
+                        <p>Monitor sales performance and revenue trends in real-time</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-mobile fa-3x"></i>
+                        <h4>Mobile Applications</h4>
+                        <p>Native iOS and Android apps for customers and field staff</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-commenting fa-3x"></i>
+                        <h4>SMS & WhatsApp Alerts</h4>
+                        <p>Automated notifications for bills, payments, and service updates</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-bar-chart fa-3x"></i>
+                        <h4>Advanced Reporting</h4>
+                        <p>Comprehensive analytics and customizable business reports</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-calculator fa-3x"></i>
+                        <h4>Expense Tracking</h4>
+                        <p>Monitor operational costs and maintain financial records</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-bullhorn fa-3x"></i>
+                        <h4>Lead Generation</h4>
+                        <p>Capture and nurture potential customers effectively</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-map-marker fa-3x"></i>
+                        <h4>GPS Tracking</h4>
+                        <p>Real-time location tracking for field technicians and assets</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-desktop fa-3x"></i>
+                        <h4>Intuitive Interface</h4>
+                        <p>User-friendly dashboard with easy navigation and quick access</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="feature-card">
+                        <i class="fa fa-shield fa-3x"></i>
+                        <h4>Enterprise Security</h4>
+                        <p>Bank-grade encryption and secure data protection</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Integration Section -->
+    <section class="integration-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <h2>Seamless Integration with Leading Platforms</h2>
+                    <p class="section-subtitle">Connect with your existing infrastructure effortlessly</p>
+                </div>
+            </div>
+            <div class="row integration-logos">
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">MikroTik</div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">Cisco</div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">Ubiquiti</div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">RADIUS</div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">pfSense</div>
+                </div>
+                <div class="col-md-2 col-sm-4 col-xs-6">
+                    <div class="integration-logo">FreeRADIUS</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Request Section -->
+    <section id="demo" class="demo-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6 col-md-offset-3">
+                    <div class="demo-form-container">
+                        <h2 class="text-center">Request a Free Demo</h2>
+                        <p class="text-center">See how Auto ISP Billing can transform your business</p>
+                        <form class="demo-form">
+                            <div class="form-group">
+                                <input type="text" class="form-control" placeholder="Your Name" required>
+                            </div>
+                            <div class="form-group">
+                                <input type="email" class="form-control" placeholder="Email Address" required>
+                            </div>
+                            <div class="form-group">
+                                <input type="tel" class="form-control" placeholder="Phone Number" required>
+                            </div>
+                            <div class="form-group">
+                                <input type="text" class="form-control" placeholder="Company Name" required>
+                            </div>
+                            <div class="form-group">
+                                <select class="form-control" required>
+                                    <option value="">Number of Customers</option>
+                                    <option value="0-100">0-100</option>
+                                    <option value="100-500">100-500</option>
+                                    <option value="500-1000">500-1000</option>
+                                    <option value="1000+">1000+</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block btn-lg">Request Demo</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CRM Features Section -->
+    <section class="crm-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <h2>Complete CRM Solution</h2>
+                    <p class="section-subtitle">Manage every aspect of customer relationships</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-3 col-sm-6">
+                    <div class="crm-card">
+                        <i class="fa fa-user-plus fa-2x"></i>
+                        <h4>Lead Management</h4>
+                        <p>Capture, track, and convert leads into customers</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="crm-card">
+                        <i class="fa fa-phone fa-2x"></i>
+                        <h4>Communication Hub</h4>
+                        <p>Centralized communication history and interactions</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="crm-card">
+                        <i class="fa fa-tasks fa-2x"></i>
+                        <h4>Task Automation</h4>
+                        <p>Automate routine tasks and workflows</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="crm-card">
+                        <i class="fa fa-pie-chart fa-2x"></i>
+                        <h4>Customer Analytics</h4>
+                        <p>Deep insights into customer behavior and trends</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits Section -->
+    <section class="benefits-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <h2>Why Choose Auto ISP Billing?</h2>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-3 col-sm-6">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">
+                            <i class="fa fa-clock-o fa-3x"></i>
+                        </div>
+                        <h4>Save Time</h4>
+                        <p>Automate repetitive tasks and reduce manual work by 70%</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">
+                            <i class="fa fa-dollar fa-3x"></i>
+                        </div>
+                        <h4>Increase Revenue</h4>
+                        <p>Reduce payment delays and improve cash flow management</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">
+                            <i class="fa fa-smile-o fa-3x"></i>
+                        </div>
+                        <h4>Happy Customers</h4>
+                        <p>Provide better service with faster response times</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">
+                            <i class="fa fa-rocket fa-3x"></i>
+                        </div>
+                        <h4>Scale Easily</h4>
+                        <p>Grow your business without operational bottlenecks</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Security Section -->
+    <section class="security-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-3 col-sm-6">
+                    <div class="security-card">
+                        <i class="fa fa-lock fa-2x"></i>
+                        <h4>Norton Secured</h4>
+                        <p>Protected by industry-leading security</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="security-card">
+                        <i class="fa fa-credit-card fa-2x"></i>
+                        <h4>Multiple Payment Options</h4>
+                        <p>Support for all major payment methods</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="security-card">
+                        <i class="fa fa-check-circle fa-2x"></i>
+                        <h4>100% Assurance</h4>
+                        <p>Money-back guarantee if not satisfied</p>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="security-card">
+                        <i class="fa fa-shield fa-2x"></i>
+                        <h4>256-bit SSL</h4>
+                        <p>Bank-grade encryption for all data</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h4>Auto ISP Billing</h4>
+                    <p>Complete ISP management solution for modern internet service providers</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fa fa-facebook"></i></a>
+                        <a href="#"><i class="fa fa-twitter"></i></a>
+                        <a href="#"><i class="fa fa-linkedin"></i></a>
+                        <a href="#"><i class="fa fa-youtube"></i></a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <h4>Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#demo">Request Demo</a></li>
+                        <li><a href="/login">Login</a></li>
+                        <li><a href="/privacy-policy">Privacy Policy</a></li>
+                        <li><a href="/terms-of-service">Terms of Service</a></li>
+                        <li><a href="/refund-policy">Refund Policy</a></li>
+                        <li><a href="/contact">Contact Us</a></li>
+                        <li><a href="/faq">FAQ/Help Center</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h4>Contact Us</h4>
+                    <p><i class="fa fa-phone"></i> {{ support_phone }}</p>
+                    <p><i class="fa fa-envelope"></i> support@autoispbilling.com</p>
+                    <p><i class="fa fa-whatsapp"></i> WhatsApp Support Available</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12 text-center footer-bottom">
+                    <p>&copy; 2025 Auto ISP Billing. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Demo request form submission
+            $('#demo form').on('submit', function(e) {
+                e.preventDefault();
+                
+                var formData = new FormData();
+                formData.append('name', $(this).find('input[type="text"]').eq(0).val());
+                formData.append('email', $(this).find('input[type="email"]').val());
+                formData.append('phone', $(this).find('input[type="tel"]').val());
+                formData.append('company', $(this).find('input[type="text"]').eq(1).val());
+                formData.append('customers', $(this).find('select').val());
+                
+                // Show loading state
+                var submitBtn = $(this).find('button[type="submit"]');
+                var originalText = submitBtn.html();
+                submitBtn.html('<i class="fa fa-spinner fa-spin"></i> Sending Request...').prop('disabled', true);
+                
+                // Submit form to API
+                $.ajax({
+                    url: '/api/demo-request',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        alert(response.message);
+                        $('#demo form')[0].reset();
+                        submitBtn.html(originalText).prop('disabled', false);
+                    },
+                    error: function(xhr) {
+                        var errorMsg = 'Failed to send request. Please try again or contact us directly.';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMsg = xhr.responseJSON.message;
+                        }
+                        alert(errorMsg);
+                        submitBtn.html(originalText).prop('disabled', false);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

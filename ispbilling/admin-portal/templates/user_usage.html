@@ -1,0 +1,21 @@
+{% extends "base_user.html" %}
+{% block title %}Data Usage — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title"><div><h1>Data Usage</h1><p>Your last 30 days of bandwidth.</p></div></div>
+<div class="card-row" style="margin-bottom:24px;">
+  <div class="card stat-tile"><div class="label">Total Used</div><div class="value accent">{{ data_used_gb|default(0) }} GB</div></div>
+  <div class="card stat-tile"><div class="label">Downloaded</div><div class="value">{{ downloaded_gb|default(0) }} GB</div></div>
+  <div class="card stat-tile"><div class="label">Uploaded</div><div class="value">{{ uploaded_gb|default(0) }} GB</div></div>
+  <div class="card stat-tile"><div class="label">Sessions</div><div class="value">{{ session_count|default(0) }}</div></div>
+</div>
+<div class="card"><h3>Recent Sessions</h3>
+<table><thead><tr><th>Started</th><th>Duration</th><th>↓ Down</th><th>↑ Up</th><th>NAS IP</th></tr></thead>
+<tbody>
+{% for s in sessions|default([]) %}
+<tr><td>{{ s.start }}</td><td>{{ s.duration }}</td><td>{{ s.down_gb }} GB</td><td>{{ s.up_gb }} GB</td><td style="color:var(--text-lo);">{{ s.nas_ip }}</td></tr>
+{% else %}
+<tr><td colspan="5" style="text-align:center;color:var(--text-lo);padding:40px;">No session data available.</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}

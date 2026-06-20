@@ -1,0 +1,486 @@
+"""SuperAdmin one-click endpoints (Session 39F).
+Mirrors the admin-portal endpoints but uses the SuperAdmin URL prefix
+`/api/superadmin/admins/{company_id}/nas/{nas_id}/oneclick-(pools|auth)`.
+
+All hotspot/auto-detection helpers live in the admin-portal codebase, so we
+import them lazily by adding /opt/ispbilling/admin-portal to sys.path."""
+
+from __future__ import annotations
+import os, sys
+from typing import Any, Dict, List
+
+from fastapi import Request, Depends
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+
+# admin-portal is the canonical home for routeros_provision + DB models.
+_AP = "/opt/ispbilling/admin-portal"
+if _AP not in sys.path:
+    sys.path.insert(0, _AP)
+
+
+def _require_superadmin(request: Request) -> bool:
+    return (request.session.get("user_type") or "").lower() == "superadmin"
+
+
+def register(app, *, get_db):
+
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/oneclick-pools")
+    async def sa_oneclick_pools(company_id: str, nas_id: int,
+                                 request: Request,
+                                 db: Session = Depends(get_db)):
+        if not _require_superadmin(request):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+        pools = body.get("pools") or []
+        if not pools:
+            return JSONResponse({"ok": False, "error": "no pools provided"},
+                                status_code=400)
+
+        from radius_network import NasDevice
+        from routeros_provision import auto_configure
+        nas = (db.query(NasDevice)
+                  .filter(NasDevice.id == nas_id,
+                          NasDevice.company_id == company_id).first())
+        if not nas:
+            return JSONResponse({"ok": False, "error": "nas not found"},
+                                status_code=404)
+
+        radius_ip = (os.environ.get("ISP_PUBLIC_IP")
+                     or getattr(request.url, "hostname", None) or "127.0.0.1")
+        normalised: List[Dict[str, Any]] = []
+        pppoe_pool_name = None
+        for p in pools:
+            iface = (p.get("interface") or "").strip()
+            if iface == "__manual__":
+                iface = ""
+            entry = {
+                "name":      (p.get("name") or "").strip(),
+                "network":   (p.get("network") or "").strip(),
+                "start_ip":  (p.get("start_ip") or "").strip(),
+                "end_ip":    (p.get("end_ip") or "").strip(),
+                "interface": iface or None,
+                "gateway":   (p.get("gateway") or "").strip() or None,
+                "next_pool_id": p.get("next_pool_id") or None,
+                "comment":   "auto-isp-billing oneclick-pool",
+            }
+            normalised.append(entry)
+            if p.get("is_pppoe_pool"):
+                pppoe_pool_name = entry["name"] or None
+
+        report = auto_configure(
+            nas=nas, options={"ip_pools": True},
+            ip_pools=normalised, plans=[],
+            radius_server_ip=radius_ip,
+            radius_secret=(nas.secret or "testing123"),
+            dry_run=False,
+        )
+        return JSONResponse({"ok": True, "report": report})
+
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/oneclick-auth")
+    async def sa_oneclick_auth(company_id: str, nas_id: int,
+                                request: Request,
+                                db: Session = Depends(get_db)):
+        if not _require_superadmin(request):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+
+        from radius_network import NasDevice
+        from routeros_provision import auto_configure, RouterOSClient
+        nas = (db.query(NasDevice)
+                  .filter(NasDevice.id == nas_id,
+                          NasDevice.company_id == company_id).first())
+        if not nas:
+            return JSONResponse({"ok": False, "error": "nas not found"},
+                                status_code=404)
+
+        radius_ip = (os.environ.get("ISP_PUBLIC_IP")
+                     or getattr(request.url, "hostname", None) or "127.0.0.1")
+
+        # Auto-detect WAN interface (default-route gateway lookup).
+        wan_iface = "ether1"
+        try:
+            with RouterOSClient(nas, dry_run=False) as c:
+                for r in c._api.path("ip/route"):
+                    if r.get("dst-address") in ("0.0.0.0/0", "::/0"):
+                        gw = r.get("gateway") or ""
+                        if "%" in gw:
+                            wan_iface = gw.split("%", 1)[1]
+                        elif gw and not gw[0].isdigit():
+                            wan_iface = gw
+                        break
+        except Exception:
+            pass
+
+        pp = body.get("pppoe")     or {}
+        st = body.get("static_ip") or {}
+        hs = body.get("hotspot")   or {}
+        do_pppoe   = bool(pp.get("enabled"))
+        do_static  = bool(st.get("enabled"))
+        do_hotspot = bool(hs.get("enabled"))
+        if not (do_pppoe or do_static or do_hotspot):
+            return JSONResponse({"ok": False,
+                                 "error": "select at least one auth mode"},
+                                status_code=400)
+
+        options: Dict[str, bool] = {
+            "queue_types":   True,
+            "radius_client": True,
+            "pppoe_server":  do_pppoe,
+            "hotspot":       do_hotspot,
+            "parking_pool":  do_static or do_hotspot,
+            "firewall_nat_baseline": True,
+        }
+
+        # Auto-detect LAN subnets (everything except WAN).
+        lan_subnets: List[str] = []
+        try:
+            with RouterOSClient(nas, dry_run=False) as c:
+                for a in c._api.path("ip/address"):
+                    if a.get("interface") == wan_iface:
+                        continue
+                    addr = a.get("address") or ""
+                    net = a.get("network") or ""
+                    if "/" in addr and net and not net.startswith("169.254"):
+                        lan_subnets.append(net + "/" + addr.split("/")[1])
+        except Exception:
+            pass
+
+        # Update auth_modes on the NAS (additive, no removal).
+        try:
+            current = (nas.auth_modes or "").strip()
+            curset = set(filter(None, current.split(",")))
+            for k, on in (("pppoe", do_pppoe), ("static_ip", do_static),
+                          ("hotspot", do_hotspot)):
+                if on:
+                    curset.add(k)
+            nas.auth_modes = ",".join(sorted(curset))
+            db.add(nas); db.commit()
+        except Exception:
+            db.rollback()
+
+        report = auto_configure(
+            nas=nas, options=options, ip_pools=[], plans=[],
+            radius_server_ip=radius_ip,
+            radius_secret=(nas.secret or "testing123"),
+            dry_run=False,
+            wan_interface=wan_iface,
+            lan_subnets=lan_subnets or None,
+            pppoe_interface=(pp.get("interface") or nas.pppoe_interface or "ether2"),
+            pppoe_service_name=(pp.get("service_name") or nas.pppoe_service_name or "isp-pppoe"),
+            pppoe_vlan_id=int(pp.get("vlan_id") or nas.pppoe_vlan_id or 0),
+            enable_pppoe_server=do_pppoe,
+            hotspot_interface=(hs.get("interface") or nas.hotspot_interface or "ether3"),
+            enable_hotspot=do_hotspot,
+            enable_ppp_use_radius=do_pppoe,
+        )
+
+        hs_extras: Dict[str, Any] = {"skipped": True}
+        if do_hotspot:
+            try:
+                from scripts_runtime_hotspot_helpers import (
+                    push_branded_captive_portal,
+                    ensure_hotspot_user_profiles,
+                    ensure_hotspot_bypass_bindings,
+                )
+                hs_extras = {
+                    "branded_html":    push_branded_captive_portal(nas),
+                    "user_profiles":   ensure_hotspot_user_profiles(nas),
+                    "bypass_bindings": ensure_hotspot_bypass_bindings(nas),
+                }
+            except Exception as e:
+                hs_extras = {"error": str(e)}
+
+        return JSONResponse({
+            "ok": True,
+            "auth_modes": nas.auth_modes,
+            "wan_interface": wan_iface,
+            "lan_subnets":   lan_subnets,
+            "report":        report,
+            "hotspot_extras": hs_extras,
+        })
+
+
+    # ============================================================
+    # __sa_user_provisioning__ — Session 39G: SuperAdmin RouterOS user mgmt
+    # ============================================================
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/add-default-users")
+    async def sa_add_default_users(company_id: str, nas_id: int,
+                                    request: Request,
+                                    db: Session = Depends(get_db)):
+        """Idempotently add two RouterOS users:
+             api      — group=read, password from body or default
+             autoisp  — group=full, password from body or default"""
+        if not _require_superadmin(request):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+        api_pwd     = (body.get("api_password")     or "autoispbilling@121212").strip()
+        autoisp_pwd = (body.get("autoisp_password") or "autoispbilling@121212").strip()
+
+        from radius_network import NasDevice
+        from librouteros import connect
+        from librouteros.login import plain as login_plain
+        nas = (db.query(NasDevice)
+                  .filter(NasDevice.id == nas_id,
+                          NasDevice.company_id == company_id).first())
+        if not nas:
+            return JSONResponse({"ok": False, "error": "nas not found"},
+                                status_code=404)
+        try:
+            api = connect(host=nas.ip_address, username=nas.api_username,
+                          password=nas.api_password,
+                          port=int(nas.port or 8728),
+                          login_method=login_plain, timeout=20)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"router unreachable: {e}"},
+                                status_code=502)
+
+        users_to_add = [
+            {"name": "api",     "password": api_pwd,     "group": "read",
+             "comment": "auto-isp-billing read-only user"},
+            {"name": "autoisp", "password": autoisp_pwd, "group": "full",
+             "comment": "auto-isp-billing full-access user"},
+        ]
+        existing = list(api("/user/print"))
+        existing_names = {u.get("name"): u for u in existing}
+        result = {"created": [], "updated": [], "errors": []}
+        for u in users_to_add:
+            try:
+                if u["name"] in existing_names:
+                    api.path("/user").update(**{".id": existing_names[u["name"]][".id"],
+                                                 "password": u["password"],
+                                                 "group":    u["group"],
+                                                 "comment":  u["comment"]})
+                    result["updated"].append(u["name"])
+                else:
+                    api.path("/user").add(name=u["name"], password=u["password"],
+                                          group=u["group"], comment=u["comment"])
+                    result["created"].append(u["name"])
+            except Exception as e:
+                result["errors"].append(f"{u['name']}: {e}")
+        return JSONResponse({"ok": not result["errors"], "result": result})
+
+
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/add-api-admin-user")
+    async def sa_add_api_admin_user(company_id: str, nas_id: int,
+                                     request: Request,
+                                     db: Session = Depends(get_db)):
+        """Add 'api-admin' user with group=full, restricted to billing
+        server's IP. After creation, optionally promote it to be the
+        Mikrotik's main API user (updates nas.api_username/password if
+        promote=true)."""
+        if not _require_superadmin(request):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+        password = (body.get("password") or "autoispbilling@121212").strip()
+        promote  = bool(body.get("promote", False))
+
+        # Resolve allow-from address: explicit body > ISP_PUBLIC_IP env > host header
+        addr = (body.get("address") or "").strip()
+        if not addr:
+            addr = (os.environ.get("ISP_PUBLIC_IP") or "").strip()
+        if not addr:
+            try:
+                import socket
+                addr = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                addr = ""
+
+        from radius_network import NasDevice
+        from librouteros import connect
+        from librouteros.login import plain as login_plain
+        nas = (db.query(NasDevice)
+                  .filter(NasDevice.id == nas_id,
+                          NasDevice.company_id == company_id).first())
+        if not nas:
+            return JSONResponse({"ok": False, "error": "nas not found"},
+                                status_code=404)
+        try:
+            api = connect(host=nas.ip_address, username=nas.api_username,
+                          password=nas.api_password,
+                          port=int(nas.port or 8728),
+                          login_method=login_plain, timeout=20)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"router unreachable: {e}"},
+                                status_code=502)
+
+        existing = {u.get("name"): u for u in api("/user/print")}
+        params = {
+            "name":     "api-admin",
+            "password": password,
+            "group":    "full",
+            "comment":  "auto-isp-billing dedicated API user (billing server only)",
+        }
+        # `address` accepts CIDR list; only set if we have a value (Mikrotik
+        # treats empty as 'allow from anywhere' which we explicitly DO NOT want).
+        if addr:
+            params["address"] = (addr if "/" in addr else addr + "/32")
+
+        try:
+            if "api-admin" in existing:
+                api.path("/user").update(**{".id": existing["api-admin"][".id"], **params})
+                action = "updated"
+            else:
+                api.path("/user").add(**params)
+                action = "created"
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"{action if False else 'add'}: {e}"},
+                                status_code=500)
+
+        promoted = False
+        if promote:
+            # Verify we can authenticate with the new credentials BEFORE
+            # switching the stored user on the NAS row — otherwise we lock
+            # ourselves out.
+            try:
+                test_api = connect(host=nas.ip_address, username="api-admin",
+                                   password=password,
+                                   port=int(nas.port or 8728),
+                                   login_method=login_plain, timeout=10)
+                _ = list(test_api("/system/identity/print"))
+                nas.api_username = "api-admin"
+                nas.api_password = password
+                db.add(nas); db.commit()
+                promoted = True
+            except Exception as e:
+                # Don't fail the whole request — user was created, just not promoted.
+                return JSONResponse({"ok": True, "action": action,
+                                     "address": params.get("address",""),
+                                     "promoted": False,
+                                     "promote_error": str(e)})
+
+        return JSONResponse({"ok": True, "action": action,
+                             "address": params.get("address",""),
+                             "promoted": promoted})
+
+
+    # ──────────────── SuperAdmin VLAN trunk one-click (s55t) ────────────────
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/oneclick-vlan-trunk")
+    async def sa_oneclick_vlan_trunk(company_id: str, nas_id: int,
+                                     request: Request,
+                                     db: Session = Depends(get_db)):
+        if not _require_superadmin(request):
+            return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+        body = await request.json()
+
+        from radius_network import NasDevice
+        from routeros_provision import RouterOSClient
+        from sqlalchemy import text as _t
+        import json, datetime
+
+        nas = (db.query(NasDevice)
+                  .filter(NasDevice.id == nas_id,
+                          NasDevice.company_id == company_id).first())
+        if not nas:
+            return JSONResponse({"ok": False, "error": "nas not found"}, status_code=404)
+
+        trunk = (body.get("trunk_interface") or "ether2").strip()
+        service_name = (body.get("service_name") or "isp").strip()
+        auto_vif = bool(body.get("auto_create_vlan_interfaces", True))
+
+        # Optional: seed VLAN pool in admin DB before push
+        seed_start = body.get("seed_start")
+        seed_end = body.get("seed_end")
+        seed_label = body.get("seed_label") or "sa-oneclick"
+        seeded = 0
+        if seed_start and seed_end:
+            try:
+                s_i, e_i = int(seed_start), int(seed_end)
+                if 2 <= s_i <= e_i <= 4094:
+                    for v in range(s_i, e_i + 1):
+                        try:
+                            db.execute(_t(
+                                "INSERT INTO vlan_pool (company_id, vlan_id, label, state) "
+                                "VALUES (:c,:v,:l,'free')"
+                            ), {"c": company_id, "v": v, "l": seed_label})
+                            seeded += 1
+                        except Exception:
+                            db.rollback()
+                    db.commit()
+            except Exception as _e:
+                db.rollback()
+
+        # Pull VLAN ids to create on trunk (all non-retired in pool)
+        vlan_ids = body.get("vlan_ids") or []
+        if not vlan_ids:
+            rows = db.execute(_t(
+                "SELECT vlan_id FROM vlan_pool WHERE company_id=:c AND state!='retired' ORDER BY vlan_id"
+            ), {"c": company_id}).fetchall()
+            vlan_ids = [r[0] for r in rows]
+
+        report = {"trunk_interface": trunk, "service_name": service_name,
+                  "vlan_count": len(vlan_ids), "seeded": seeded,
+                  "actions": [], "errors": []}
+
+        try:
+            with RouterOSClient(nas, dry_run=False) as c:
+                if auto_vif and vlan_ids:
+                    existing = {str(v.get("vlan-id")): v for v in c._api.path("interface/vlan")
+                                if v.get("interface") == trunk}
+                    for vid in vlan_ids:
+                        try:
+                            if str(vid) in existing:
+                                report["actions"].append(f"vlan-{vid} already present")
+                                continue
+                            c._api.path("interface/vlan").add(
+                                interface=trunk, **{"vlan-id": str(vid)},
+                                name=f"vlan-{vid}", comment="auto-isp-billing-vlan")
+                            report["actions"].append(f"created vlan-{vid} on {trunk}")
+                        except Exception as e:
+                            report["errors"].append(f"vlan-{vid}: {e}")
+                try:
+                    srvs = list(c._api.path("interface/pppoe-server/server"))
+                    found = next((srv for srv in srvs
+                                  if srv.get("interface") == trunk
+                                  and srv.get("service-name") == service_name), None)
+                    if not found:
+                        c._api.path("interface/pppoe-server/server").add(
+                            interface=trunk,
+                            **{"service-name": service_name, "use-radius": "yes",
+                               "one-session-per-host": "yes", "disabled": "no",
+                               "default-profile": "default",
+                               "authentication": "chap,mschap2"},
+                            comment="auto-isp-billing-vlan-bng")
+                        report["actions"].append(f"pppoe-server on {trunk} (use-radius=yes)")
+                    elif str(found.get("use-radius", "no")).lower() != "yes":
+                        c._api.path("interface/pppoe-server/server").update(
+                            {"id": found[".id"], "use-radius": "yes"})
+                        report["actions"].append("pppoe-server.use-radius -> yes")
+                    else:
+                        report["actions"].append("pppoe-server already configured")
+                except Exception as e:
+                    report["errors"].append(f"pppoe-server: {e}")
+                try:
+                    aaa = list(c._api.path("ppp/aaa"))
+                    if aaa and str(aaa[0].get("use-radius", "no")).lower() != "yes":
+                        c._api.path("ppp/aaa").update({".id": aaa[0][".id"], "use-radius": "yes"})
+                        report["actions"].append("ppp.aaa.use-radius -> yes")
+                    elif aaa:
+                        report["actions"].append("ppp.aaa already use-radius=yes")
+                except Exception as e:
+                    report["errors"].append(f"ppp-aaa: {e}")
+                try:
+                    rin = list(c._api.path("radius/incoming"))
+                    if rin and str(rin[0].get("accept", "no")).lower() != "yes":
+                        c._api.path("radius/incoming").update({".id": rin[0][".id"], "accept": "yes"})
+                        report["actions"].append("radius.incoming.accept -> yes")
+                    elif rin:
+                        report["actions"].append("radius.incoming already accept=yes")
+                except Exception as e:
+                    report["errors"].append(f"radius-incoming: {e}")
+        except Exception as e:
+            report["errors"].append(f"connection: {e}")
+
+        # Audit
+        try:
+            db.execute(_t(
+                "INSERT INTO vlan_setup_log (company_id, nas_id, actor_user, actor_role, action, detail, ok) "
+                "VALUES (:c,:n,:au,'superadmin','sa-oneclick-trunk',:d,:k)"
+            ), {"c": company_id, "n": nas_id,
+                "au": request.session.get("user_id"),
+                "d": json.dumps(report), "k": 0 if report["errors"] else 1})
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return {"ok": not report["errors"], "report": report}

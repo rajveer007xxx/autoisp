@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing - Auto-Renew Expired Customers (daily)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling:/opt/ispbilling/admin-portal:/opt/ispbilling/superadmin-portal
+ExecStart=/opt/ispbilling/venv/bin/python /opt/ispbilling/auto_renew_expired.py
+StandardOutput=append:/var/log/autoispbilling/auto-renew-customers.log
+StandardError=append:/var/log/autoispbilling/auto-renew-customers.log
+User=root

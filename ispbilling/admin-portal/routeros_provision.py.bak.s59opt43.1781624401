@@ -1,0 +1,2837 @@
+"""
+RouterOS provisioning module.
+
+Provides a transport abstraction that can talk to a Mikrotik router via:
+  - API       (port 8728, plaintext)
+  - API-SSL   (port 8729, TLS)
+  - SSH       (CLI fallback via paramiko)
+
+All provisioning helpers accept a `dry_run` flag that returns the
+commands that WOULD be executed without touching the router.
+
+Helpers implemented (idempotent, safe to re-run):
+  test_connection
+  configure_pppoe_server
+  configure_hotspot
+  create_queue_types
+  sync_ip_pools_to_router
+  sync_plans_to_queues
+  setup_radius_client
+  pppoe_secrets_list / create / delete
+"""
+
+from __future__ import annotations
+import datetime
+import socket
+import ssl
+from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    import librouteros
+    from librouteros import connect as _ros_connect
+    from librouteros.login import plain as _ros_login_plain
+    _LIBROUTEROS_OK = True
+except Exception:  # noqa: BLE001
+    librouteros = None
+    _LIBROUTEROS_OK = False
+
+try:
+    import paramiko
+    _PARAMIKO_OK = True
+except Exception:  # noqa: BLE001
+    paramiko = None
+    _PARAMIKO_OK = False
+
+
+# =============================================================================
+# Transport abstraction
+# =============================================================================
+class _APITransport:
+    """RouterOS API (plain or TLS) transport using librouteros."""
+
+    def __init__(self, host, username, password, port=8728, use_tls=False, timeout=30):
+        if not _LIBROUTEROS_OK:
+            raise RuntimeError("librouteros not installed")
+        ssl_ctx = None
+        if use_tls:
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            ssl_ctx.set_ciphers("ALL:@SECLEVEL=0")
+        self._api = _ros_connect(
+            host=host, username=username, password=password,
+            port=int(port or (8729 if use_tls else 8728)),
+            timeout=timeout,
+            login_method=_ros_login_plain,
+            ssl_wrapper=(lambda s: ssl_ctx.wrap_socket(s)) if ssl_ctx else None,
+        )
+
+    def path(self, p: str):
+        """Return an API path proxy object for operations like .add(), .remove(), etc."""
+        parts = [seg for seg in p.strip("/").split("/") if seg]
+        return self._api.path(*parts)
+
+    def close(self):
+        try:
+            self._api.close()
+        except Exception:
+            pass
+
+
+class _SSHTransport:
+    """Fallback transport that shells out to RouterOS CLI over SSH.
+
+    Commands are translated from API-style (path + kv params) into
+    CLI-style lines. Only a subset of operations is supported: print, add,
+    remove. Good enough for idempotent provisioning.
+    """
+
+    def __init__(self, host, username, password, port=22, timeout=30):
+        if not _PARAMIKO_OK:
+            raise RuntimeError("paramiko not installed")
+        self._client = paramiko.SSHClient()
+        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self._client.connect(
+            hostname=host, port=int(port or 22),
+            username=username, password=password,
+            timeout=timeout, allow_agent=False, look_for_keys=False,
+        )
+
+    def exec(self, cli: str) -> Tuple[str, str, int]:
+        stdin, stdout, stderr = self._client.exec_command(cli, timeout=20)
+        out = stdout.read().decode(errors="ignore")
+        err = stderr.read().decode(errors="ignore")
+        rc = stdout.channel.recv_exit_status()
+        return out, err, rc
+
+    def close(self):
+        try:
+            self._client.close()
+        except Exception:
+            pass
+
+
+# =============================================================================
+# High-level client
+# =============================================================================
+class RouterOSClient:
+    """Context manager wrapping either API or SSH transport."""
+
+    def __init__(self, nas, dry_run: bool = False):
+        self.nas = nas
+        self.dry_run = dry_run
+        self._api: Optional[_APITransport] = None
+        self._ssh: Optional[_SSHTransport] = None
+        self.transport_used: Optional[str] = None
+        self.commands: List[str] = []
+
+    # ------- Connection ---------------------------------------------------
+    def __enter__(self):
+        if self.dry_run:
+            return self
+        if getattr(self.nas, "use_ssh", False):
+            self._ssh = _SSHTransport(
+                host=self.nas.ip_address,
+                username=self.nas.api_username or "admin",
+                password=self.nas.api_password or "",
+                port=self.nas.ssh_port or 22,
+            )
+            self.transport_used = "ssh"
+        else:
+            self._api = _APITransport(
+                host=self.nas.ip_address,
+                username=self.nas.api_username or "admin",
+                password=self.nas.api_password or "",
+                port=self.nas.port or (8729 if self.nas.use_tls else 8728),
+                use_tls=bool(self.nas.use_tls),
+            )
+            self.transport_used = "api-ssl" if self.nas.use_tls else "api"
+        return self
+
+
+    # s36b9-upload-file-sftp ------------------------------------------------
+    def upload_file_sftp(self, remote_name: str, content: bytes) -> Dict:
+        """Upload arbitrary bytes to the RouterOS file-system over SFTP.
+
+        `remote_name` is the path as RouterOS sees it, e.g.
+        `hotspot/login.html` or `isp-billing/cp-login.html`. Any parent
+        directories are auto-created.
+
+        Works only with SSH-enabled NAS (paramiko SFTP). For API-only
+        devices, the caller should enable SSH on the NAS (RouterOS always
+        bundles SSH alongside API).
+        """
+        if self.dry_run:
+            self.commands.append(f"/tool fetch (SFTP upload {remote_name}, {len(content)} bytes)")
+            return {"dry_run": True, "remote": remote_name, "size": len(content)}
+
+        # We need a SSH client. Prefer existing _ssh transport; otherwise
+        # spin up a temporary paramiko connection just for this upload.
+        ssh_client = None
+        temp_ssh = False
+        try:
+            if self._ssh is not None:
+                ssh_client = self._ssh._client  # reuse
+            else:
+                if not _PARAMIKO_OK:
+                    return {"success": False, "error": "paramiko not installed"}
+                ssh_client = paramiko.SSHClient()
+                ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                ssh_client.connect(
+                    hostname=self.nas.ip_address,
+                    port=int(self.nas.ssh_port or 22),
+                    username=self.nas.api_username or "admin",
+                    password=self.nas.api_password or "",
+                    timeout=30, allow_agent=False, look_for_keys=False,
+                )
+                temp_ssh = True
+
+            sftp = ssh_client.open_sftp()
+            try:
+                # Ensure parent dirs exist (RouterOS supports `mkdir` over SFTP).
+                parts = remote_name.strip("/").split("/")
+                if len(parts) > 1:
+                    cur = ""
+                    for seg in parts[:-1]:
+                        cur = f"{cur}/{seg}" if cur else seg
+                        try:
+                            sftp.stat(cur)
+                        except IOError:
+                            try:
+                                sftp.mkdir(cur)
+                            except IOError:
+                                pass  # best-effort
+                with sftp.open(remote_name, "wb") as fh:
+                    fh.write(content)
+                size = len(content)
+                self.commands.append(f"sftp put {remote_name} ({size} bytes)")
+                return {"success": True, "remote": remote_name, "size": size}
+            finally:
+                sftp.close()
+        except Exception as e:
+            return {"success": False, "error": f"sftp upload failed: {e}"}
+        finally:
+            if temp_ssh and ssh_client is not None:
+                try:
+                    ssh_client.close()
+                except Exception:
+                    pass
+    # --------------------------------------------------------------------
+
+    def __exit__(self, *_):
+        if self._api:
+            self._api.close()
+        if self._ssh:
+            self._ssh.close()
+
+    # ------- Low-level helpers -------------------------------------------
+    def _cli(self, path: str, cmd: str, **params) -> str:
+        kv = " ".join(f"{k}={v}" for k, v in params.items() if v not in (None, ""))
+        return f"/{path.strip('/').replace('/', ' ')} {cmd} {kv}".strip()
+
+    def _api_add_if_missing(self, p: str, match_key: str, params: Dict[str, Any]) -> Dict:
+        """Add an entry if no existing one matches `params[match_key]`."""
+        cli = self._cli(p, "add", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        path_obj = self._api.path(p)
+        existing = list(path_obj)
+        for row in existing:
+            if row.get(match_key) == params.get(match_key):
+                return {"skipped": True, "reason": f"{match_key}='{params.get(match_key)}' exists", "existing_id": row.get(".id")}
+        path_obj.add(**params)
+        return {"added": True}
+
+    def _api_set_or_add(self, p: str, match_key: str, params: Dict[str, Any]) -> Dict:
+        """Create-or-update: if an entry exists with matching key, set fields; else add."""
+        cli = self._cli(p, "add/set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        path_obj = self._api.path(p)
+        for row in list(path_obj):
+            if row.get(match_key) == params.get(match_key):
+                path_obj.update(**{".id": row[".id"], **{k: v for k, v in params.items() if k != match_key}})
+                return {"updated": True, "id": row[".id"]}
+        path_obj.add(**params)
+        return {"added": True}
+
+    def _ssh_run(self, path: str, cmd: str, **params) -> Dict:
+        cli = self._cli(path, cmd, **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        out, err, rc = self._ssh.exec(cli)
+        return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+
+    def _do_add(self, p: str, match_key: str, params: Dict[str, Any]) -> Dict:
+        return self._ssh_run(p, "add", **params) if self._ssh else self._api_add_if_missing(p, match_key, params)
+
+    # =====================================================================
+    # Provisioning operations
+    # =====================================================================
+    def test(self) -> Dict:
+        if self.dry_run:
+            return {"dry_run": True, "transport": "simulated"}
+        if self._api:
+            ident = list(self._api.path("system/identity"))
+            res = list(self._api.path("system/resource"))
+            ident0 = ident[0] if ident else {}
+            res0 = res[0] if res else {}
+            return {
+                "ok": True,
+                "transport": self.transport_used,
+                "identity": ident0.get("name"),
+                "version": res0.get("version"),
+                "board_name": res0.get("board-name"),
+                "uptime": res0.get("uptime"),
+            }
+        out, err, rc = self._ssh.exec("/system resource print")
+        return {"ok": rc == 0, "transport": "ssh", "stdout": out.strip(), "stderr": err.strip()}
+
+    def create_queue_types(self) -> List[Dict]:
+        results = []
+        results.append(self._do_add("queue/type", "name", {
+            "name": "pcq-download-default",
+            "kind": "pcq",
+            "pcq-classifier": "dst-address",
+        }))
+        results.append(self._do_add("queue/type", "name", {
+            "name": "pcq-upload-default",
+            "kind": "pcq",
+            "pcq-classifier": "src-address",
+        }))
+        return results
+
+    # __S38R_POOL_EXCLUSION__ -----------------------------------------------------
+    def set_pool_ranges(self, pool_name: str, ranges: str) -> dict:
+        """Find `/ip/pool` by `name=pool_name` and update its `ranges`
+        attribute to `ranges` (e.g. ``"10.0.0.10-10.0.0.99,10.0.0.101-10.0.0.250"``).
+        Returns ``{"updated": True}`` / ``{"noop": ...}`` / ``{"error": ...}``.
+        Safe no-op if the pool is missing."""
+        cli = f'/ip pool set [find name={pool_name}] ranges="{ranges}"'
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        try:
+            if self._ssh:
+                out, err, rc = self._ssh.exec(cli)
+                return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+            po = self._api.path("ip/pool")
+            rows = list(po)
+            for row in rows:
+                if row.get("name") == pool_name:
+                    rid = row.get(".id")
+                    if not rid:
+                        return {"error": f"pool {pool_name} has no .id"}
+                    if (row.get("ranges") or "") == ranges:
+                        return {"noop": True, "reason": "already set"}
+                    po.update(**{".id": rid, "ranges": ranges})
+                    return {"updated": True, "previous": row.get("ranges") or ""}
+            return {"noop": True, "reason": f"pool {pool_name} not found on device"}
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e), "cli": cli}
+
+    def configure_parking_pool(self, parking_pool_name: str = "parking-pool",
+                                parking_ranges: str = "10.255.0.0/16",
+                                landing_page_ip: str = "",
+                                dns_servers: Optional[List[str]] = None) -> List[Dict]:
+        """Install the 'Disable users' NAT pattern — copied **verbatim**
+        from the live ISP audit (CCR1009 backup, apr/2026):
+
+            /ip firewall nat
+            add action=dst-nat chain=dstnat comment="Disable users"
+                dst-port=80 protocol=tcp src-address=10.255.0.0/16
+                to-addresses=<landing_page_ip>
+            add action=masquerade chain=srcnat comment="Disable users"
+                dst-address=<landing_page_ip> src-address=10.255.0.0/16
+            add action=masquerade chain=srcnat comment="Disable users"
+                dst-address=8.8.8.8 src-address=10.255.0.0/16
+            add action=masquerade chain=srcnat comment="Disable users"
+                dst-address=4.2.2.2 src-address=10.255.0.0/16
+
+        Customers whose RADIUS reply carries `Framed-Pool=<parking>` land
+        in `10.255.0.0/16`; the dst-nat hijacks their HTTP to the
+        `landing_page_ip` (where you host a "Pay your bill" page), and
+        the masquerade rules ensure their browser can resolve DNS +
+        load the captive page itself.
+
+        Pass `landing_page_ip=""` to skip dst-nat and just provision the
+        pool + address-list.
+        `dns_servers` defaults to `["8.8.8.8", "4.2.2.2"]` to exactly
+        mirror the audited production rules; pass a custom list to use
+        your own upstream resolvers."""
+        results = []
+        # Convert CIDR to start-end range for /ip/pool (RouterOS pools take ranges, not CIDRs)
+        if "-" in parking_ranges:
+            pool_ranges = parking_ranges
+        elif "/" in parking_ranges:
+            try:
+                import ipaddress as _ip
+                net = _ip.ip_network(parking_ranges, strict=False)
+                hosts = list(net.hosts())
+                pool_ranges = f"{hosts[0]}-{hosts[-1]}" if hosts else str(net)
+            except Exception:
+                pool_ranges = parking_ranges
+        else:
+            pool_ranges = parking_ranges
+        results.append(self._do_add("ip/pool", "name", {
+            "name": parking_pool_name, "ranges": pool_ranges,
+        }))
+        # Address-list rule so firewall/NAT filters can match
+        results.append(self._do_add("ip/firewall/address-list", "list", {
+            "list": "blocked",
+            "address": parking_ranges,
+            "comment": "auto-isp-billing-parking",
+        }))
+        if landing_page_ip:
+            # s26.6: hardened-walled-garden — full deny-by-default + Razorpay allow-list.
+            # dst-nat HTTP to captive page
+            results.append(self._do_add("ip/firewall/nat", "comment", {
+                "chain": "dstnat",
+                "action": "dst-nat",
+                "to-addresses": landing_page_ip,
+                "protocol": "tcp",
+                "src-address": parking_ranges,
+                "dst-port": "80",
+                "comment": "auto-isp-billing-parking-http",
+            }))
+            # s26.7c: https-reject-not-mitm
+            # NOTE: We deliberately DO NOT dst-nat tcp/443. Rewriting
+            # HTTPS to our portal would serve pay.autoispbilling.com's
+            # cert to a user who asked for google.com -> the browser
+            # aborts with NET::ERR_CERT_COMMON_NAME_INVALID. Instead
+            # we reject 443 with TCP-reset (added in the filter chain
+            # below). Browsers fail fast, OS captive-portal probes
+            # (which use HTTP) see the 302, and the user gets a native
+            # "Sign in to network" prompt that opens our pay page.
+            # Masquerade the captive portal IP for the FULL parking_ranges
+            results.append(self._do_add("ip/firewall/nat", "comment", {
+                "chain": "srcnat",
+                "action": "masquerade",
+                "src-address": parking_ranges,
+                "dst-address": landing_page_ip,
+                "comment": "auto-isp-billing-wg-portal",
+            }))
+            if not dns_servers:
+                dns_servers = ["8.8.8.8", "4.2.2.2"]
+            for dns in dns_servers:
+                results.append(self._do_add("ip/firewall/nat", "comment", {
+                    "chain": "srcnat",
+                    "action": "masquerade",
+                    "src-address": parking_ranges,
+                    "dst-address": dns,
+                    "comment": f"auto-isp-billing-parking-dns-{dns}",
+                }))
+
+            # === Forward-filter: allow whitelisted destinations, drop the rest ===
+            # 1) landing page
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "accept",
+                "src-address": parking_ranges,
+                "dst-address": landing_page_ip,
+                "comment": "auto-isp-billing-wg-allow-landing",
+            }))
+            # 2) DNS allow-list (exact IPs)
+            for dns in dns_servers:
+                results.append(self._do_add("ip/firewall/filter", "comment", {
+                    "chain": "forward", "action": "accept",
+                    "src-address": parking_ranges,
+                    "dst-address": dns,
+                    "comment": f"auto-isp-billing-wg-allow-dns-{dns}",
+                }))
+            # 3) DNS wildcard (UDP+TCP port 53 — lets CPE-assigned resolvers work)
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "accept",
+                "src-address": parking_ranges,
+                "protocol": "udp", "dst-port": "53",
+                "comment": "auto-isp-billing-wg-allow-dns-udp-53",
+            }))
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "accept",
+                "src-address": parking_ranges,
+                "protocol": "tcp", "dst-port": "53",
+                "comment": "auto-isp-billing-wg-allow-dns-tcp-53",
+            }))
+            # 4) Razorpay host allow-list (resolved at deploy time).
+            try:
+                import socket as _sock
+                rzp_hosts = ["api.razorpay.com", "checkout.razorpay.com",
+                             "cdn.razorpay.com", "lumberjack.razorpay.com"]
+                rzp_ips = set()
+                for h in rzp_hosts:
+                    try:
+                        for info in _sock.getaddrinfo(h, 443, type=_sock.SOCK_STREAM):
+                            ip = info[4][0]
+                            if ":" not in ip:
+                                rzp_ips.add(ip)
+                    except Exception:
+                        pass
+                for ip in sorted(rzp_ips):
+                    results.append(self._do_add("ip/firewall/filter", "comment", {
+                        "chain": "forward", "action": "accept",
+                        "src-address": parking_ranges,
+                        "dst-address": ip,
+                        "comment": f"auto-isp-billing-wg-allow-rzp-{ip}",
+                    }))
+            except Exception as _e:
+                results.append({"_rzp_allow_err": str(_e)})
+            # s26.7c: https-reject-not-mitm
+            # Reject tcp/443 explicitly with TCP-reset so browsers abort
+            # fast (vs the ~30s hang they'd get from a silent drop).
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "reject",
+                "reject-with": "tcp-reset",
+                "protocol": "tcp",
+                "src-address": parking_ranges,
+                "dst-port": "443",
+                "comment": "auto-isp-billing-wg-reject-https",
+            }))
+            # s41g: drop QUIC (HTTP/3 over UDP-443) so Chrome falls back
+            # to HTTP/2 over TCP. Without this, Chrome may QUIC-only and
+            # silently fail to show the captive page.
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "drop",
+                "protocol": "udp",
+                "src-address": parking_ranges,
+                "dst-port": "443",
+                "comment": "auto-isp-billing-wg-drop-quic",
+            }))
+            # 5) Catch-all DROP for everything else from parking range.
+            results.append(self._do_add("ip/firewall/filter", "comment", {
+                "chain": "forward", "action": "drop",
+                "src-address": parking_ranges,
+                "comment": "auto-isp-billing-wg-drop-all",
+            }))
+        return results
+
+    def get_status(self) -> Dict:
+        """One-shot router status snapshot — identity, resource, active
+        sessions counts, pool usage, firewall rule count, RADIUS clients.
+        Designed for the 'Router Status' panel on the NAS Devices page so
+        admins don't have to log into Winbox just to check health.
+        Strictly READ-ONLY — all iteration, no writes."""
+        if self.dry_run:
+            return {"dry_run": True}
+
+        if self._ssh:
+            # SSH fallback — just return identity + resource via CLI parse
+            out, _, _ = self._ssh.exec("/system identity print")
+            return {"ok": True, "transport": "ssh", "identity_raw": out.strip()}
+
+        def _rows(p):
+            try:
+                return list(self._api.path(p))
+            except Exception as e:  # noqa: BLE001
+                return [{"_error": str(e)}]
+
+        ident = _rows("system/identity")
+        res = _rows("system/resource")
+        pppoe_active = _rows("ppp/active")
+        pppoe_servers = _rows("interface/pppoe-server/server")
+        hs_active = _rows("ip/hotspot/active")
+        hs_servers = _rows("ip/hotspot")
+        pools = _rows("ip/pool")
+        pool_used = _rows("ip/pool/used")
+        radius_rows = _rows("radius")
+        radius_incoming = _rows("radius/incoming")
+        aaa_rows = _rows("ppp/aaa")
+        default_routes = [r for r in _rows("ip/route")
+                          if (r.get("dst-address") or "") == "0.0.0.0/0"]
+        fw_filter = _rows("ip/firewall/filter")
+        fw_nat = _rows("ip/firewall/nat")
+        queues_simple = _rows("queue/simple")
+
+        # Pool usage: count used addresses per pool name
+        used_per_pool: Dict[str, int] = {}
+        for u in pool_used:
+            pname = u.get("pool") or "?"
+            used_per_pool[pname] = used_per_pool.get(pname, 0) + 1
+
+        pools_summary = []
+        for p in pools:
+            if p.get("_error"):
+                continue
+            pools_summary.append({
+                "name": p.get("name"),
+                "ranges": p.get("ranges"),
+                "used": used_per_pool.get(p.get("name"), 0),
+            })
+
+        ident0 = ident[0] if ident and not ident[0].get("_error") else {}
+        res0 = res[0] if res and not res[0].get("_error") else {}
+
+        # Top-N online users (for quick preview in UI)
+        online_sample = []
+        for s in pppoe_active[:50]:
+            if s.get("_error"):
+                continue
+            online_sample.append({
+                "username": s.get("name"),
+                "address": s.get("address"),
+                "caller_id": s.get("caller-id"),
+                "uptime": s.get("uptime"),
+                "radius": bool(s.get("radius")),
+                "service": s.get("service"),
+            })
+
+        return {
+            "ok": True,
+            "transport": self.transport_used,
+            "identity": ident0.get("name"),
+            "version": res0.get("version"),
+            "board_name": res0.get("board-name"),
+            "uptime": res0.get("uptime"),
+            "cpu_load": res0.get("cpu-load"),
+            "free_memory": res0.get("free-memory"),
+            "total_memory": res0.get("total-memory"),
+            # Counts
+            "pppoe_active_count": len([x for x in pppoe_active if not x.get("_error")]),
+            "pppoe_server_count": len([x for x in pppoe_servers if not x.get("_error")]),
+            "pppoe_servers_disabled": [s.get("service-name") for s in pppoe_servers
+                                        if not s.get("_error") and s.get("disabled") in (True, "true", "yes")],
+            "hotspot_active_count": len([x for x in hs_active if not x.get("_error")]),
+            "hotspot_server_count": len([x for x in hs_servers if not x.get("_error")]),
+            "radius_count": len([x for x in radius_rows if not x.get("_error")]),
+            "radius_incoming_accept": (radius_incoming[0].get("accept")
+                                        if radius_incoming and not radius_incoming[0].get("_error") else None),
+            "ppp_aaa_use_radius": (aaa_rows[0].get("use-radius")
+                                    if aaa_rows and not aaa_rows[0].get("_error") else None),
+            "default_route_count": len(default_routes),
+            "fw_filter_count": len([x for x in fw_filter if not x.get("_error")]),
+            "fw_nat_count": len([x for x in fw_nat if not x.get("_error")]),
+            "simple_queue_count": len([x for x in queues_simple if not x.get("_error")]),
+            # Detailed views
+            "pools": pools_summary,
+            "online_sample": online_sample,
+        }
+
+    def configure_pppoe_server(self, interface: str = "ether2",
+                               default_profile_name: str = "isp-default",
+                               local_address: str = "192.168.100.1",
+                               pool_name: str = "pppoe-pool",
+                               pool_ranges: str = "192.168.100.10-192.168.100.250",
+                               dns_servers: str = "8.8.8.8,1.1.1.1",
+                               disabled: bool = True,
+                               service_name: str = "isp-pppoe",
+                               vlan_id: int = 0) -> List[Dict]:
+        """Create/verify a PPPoE server. By default the server is DISABLED so
+        it can't hijack traffic on the selected interface. Enable it manually
+        in /interface pppoe-server server once you've confirmed the interface
+        is correct (must NOT be your WAN/uplink).
+
+        Multi-scenario support (Session 18):
+          • `service_name=""` → accept-any. The PPPoE server answers to
+            ANY client regardless of what service name they dial. Used
+            by ISPs who don't want to advertise a brand.
+          • `service_name="something"` → only respond to clients that
+            requested that service name. Used for multi-brand BNGs.
+          • `vlan_id=123` → create `/interface/vlan name=isp-pppoe-vlan
+            vlan-id=123 interface=<interface>` first, then bind the
+            PPPoE server to `isp-pppoe-vlan` instead of the base ether.
+            Used for tagged-ethernet aggregation (one trunk port
+            carries many customer VLANs).
+
+        Creates these linked objects:
+          1. An IP pool (default `pppoe-pool`) that hands out IPs.
+          2. A PPP profile whose `local-address` is our gateway IP,
+             `remote-address` points at the pool above, carrying
+             `dns-server` + `change-tcp-mss=yes`.
+          3. (Optional) VLAN interface if `vlan_id>0`.
+          4. The PPPoE server on the chosen interface (or vlan),
+             PPPoE-friendly MTU/MRU/MRRU (1480/1480/1600), PAP-only
+             authentication (required for RADIUS cleartext passwords),
+             `one-session-per-host=yes`.
+        """
+        results = []
+        # 1. PPPoE client IP pool (used as profile remote-address)
+        results.append(self._do_add("ip/pool", "name", {
+            "name": pool_name,
+            "ranges": pool_ranges,
+        }))
+        # 2. PPP profile — must reference pool via `remote-address=<pool-name>`
+        profile_params = {
+            "name": default_profile_name,
+            "local-address": local_address,
+            "remote-address": pool_name,
+            "only-one": "yes",
+            "change-tcp-mss": "yes",
+        }
+        if dns_servers:
+            profile_params["dns-server"] = dns_servers
+        results.append(self._do_add("ppp/profile", "name", profile_params))
+
+        # 3. Optional VLAN tagging. Real-ISP pattern: create
+        # /interface/vlan name=isp-pppoe-vlan vlan-id=<id> interface=<phys>.
+        pppoe_bind_interface = interface
+        if vlan_id and int(vlan_id) > 0:
+            vlan_iface_name = f"isp-pppoe-vlan{int(vlan_id)}"
+            results.append(self._do_add("interface/vlan", "name", {
+                "name": vlan_iface_name,
+                "vlan-id": str(int(vlan_id)),
+                "interface": interface,
+                "comment": "auto-isp-billing-pppoe-vlan",
+            }))
+            pppoe_bind_interface = vlan_iface_name
+
+        # 4. PPPoE server — service-name can be empty (accept-any)
+        server_params = {
+            "service-name": service_name or "",
+            "interface": pppoe_bind_interface,
+            "default-profile": default_profile_name,
+            "disabled": "yes" if disabled else "no",
+            "authentication": "pap",
+            "max-mtu": "1480",
+            "max-mru": "1480",
+            "mrru": "1600",
+            "one-session-per-host": "yes",
+            "keepalive-timeout": "300",
+        }
+        # Match-key: service-name + interface together — so two different
+        # PPPoE servers on different VLANs of the same phys port co-exist.
+        results.append(self._do_add_composite("interface/pppoe-server/server",
+                                                ["service-name", "interface"],
+                                                server_params))
+        return results
+
+    def _do_add_composite(self, path, match_keys, params):
+        """Like `_do_add` but matches on multiple keys — used when
+        (service-name) alone isn't unique (e.g. VLAN-layered PPPoE)."""
+        def matches(row):
+            return all((row.get(k) or "") == (params.get(k) or "") for k in match_keys)
+        if self._ssh:
+            kv = " ".join(f'{k}="{v}"' for k, v in params.items())
+            out, err, rc = self._ssh.exec(f"/{path} add {kv}")
+            return {"ssh_rc": rc, "ssh_err": err.strip(), **params}
+        if self.dry_run:
+            return {"dry_run": True, "path": path, **params}
+        try:
+            p = self._api.path(path)
+            for row in list(p):
+                if matches(row):
+                    return {"id": row.get(".id"), "exists": True, **params}
+            return p.add(**params)
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e), **params}
+
+    def ensure_pppoe_default_profile(self, gateway: str = "192.168.100.1",
+                                      pool_name: str = "pppoe-pool",
+                                      dns_servers: str = "8.8.8.8,1.1.1.1",
+                                      profile_name: str = "isp-default") -> Dict:
+        """Targeted one-click fix for the classic Mikrotik log error
+        `could not determine local ip address` on RADIUS-authenticated
+        PPPoE sessions.
+
+        Root cause: when RADIUS reply contains `Framed-Pool` but no
+        `Framed-IP-Address`, the router falls back to the PPPoE server's
+        `default-profile` for the session's `local-address`. If that
+        profile doesn't have `local-address` set (e.g. stock
+        `default-encryption`), the session bounces immediately with
+        user logged at 0.0.0.0 and 'could not determine local ip address'
+        in /log.
+
+        This method is a strict create-or-UPDATE (unlike the
+        idempotent-add-only `_do_add`) so running it against a router
+        where `isp-default` already exists with wrong values will
+        FORCE-CORRECT it:
+          1. `/ppp/profile isp-default` → local-address=<gateway>,
+             remote-address=<pool>, dns-server, change-tcp-mss=yes,
+             only-one=yes.
+          2. Every `/interface/pppoe-server/server` row → set
+             `default-profile=isp-default`.
+
+        Returns a report detailing the profile update + each server
+        touched, so the admin can verify."""
+        report = {"profile": None, "servers": []}
+        profile_params = {
+            "name": profile_name,
+            "local-address": gateway,
+            "remote-address": pool_name,
+            "only-one": "yes",
+            "change-tcp-mss": "yes",
+        }
+        if dns_servers:
+            profile_params["dns-server"] = dns_servers
+        # Force-update (not merely add-if-missing) via _api_set_or_add.
+        if self._ssh:
+            # SSH path: add then set (RouterOS ignores the add-on-exists error)
+            self._ssh.exec(f"/ppp profile add name={profile_name}")
+            set_kv = " ".join(f"{k}={v}" for k, v in profile_params.items() if k != "name")
+            out, err, rc = self._ssh.exec(
+                f"/ppp profile set [find name={profile_name}] {set_kv}"
+            )
+            report["profile"] = {"ssh_rc": rc, "ssh_err": err.strip(),
+                                  **profile_params}
+        elif self.dry_run:
+            report["profile"] = {"dry_run": True, **profile_params}
+        else:
+            r = self._api_set_or_add("ppp/profile", "name", profile_params)
+            # Merge the effective params into the response so the UI can
+            # show admin exactly what got written (gateway, pool, DNS).
+            r.update({k: v for k, v in profile_params.items()})
+            report["profile"] = r
+
+        # 2. Point every PPPoE server at this profile
+        if self.dry_run:
+            report["servers"].append({"dry_run": True,
+                "note": f"/interface/pppoe-server/server set default-profile={profile_name}"})
+            return report
+        if self._ssh:
+            out, err, rc = self._ssh.exec(
+                f"/interface pppoe-server server set [find] default-profile={profile_name}"
+            )
+            report["servers"].append({"ssh_rc": rc, "ssh_out": out.strip(),
+                                       "ssh_err": err.strip()})
+            return report
+        # librouteros path: iterate each server and update .id individually
+        try:
+            po = self._api.path("interface/pppoe-server/server")
+            for row in list(po):
+                sid = row.get(".id")
+                sname = row.get("service-name") or row.get("name") or "(unnamed)"
+                if not sid:
+                    report["servers"].append({"service": sname, "skipped": "no .id"})
+                    continue
+                try:
+                    po.update(**{".id": sid, "default-profile": profile_name})
+                    report["servers"].append({"service": sname, "updated": True,
+                                               "default_profile": profile_name})
+                except Exception as e:  # noqa: BLE001
+                    report["servers"].append({"service": sname,
+                                               "error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            report["servers"].append({"error": str(e)})
+        return report
+
+    def configure_hotspot(self, interface: str = "ether3",
+                          address: str = "10.10.10.1/24",
+                          pool_name: str = "hotspot-pool",
+                          pool_ranges: str = "10.10.10.10-10.10.10.250",
+                          use_radius: bool = True,
+                          disabled: bool = True) -> List[Dict]:
+        """Create Hotspot artefacts DISABLED by default — enable manually
+        after verifying the interface isn't your WAN/LAN bridge.
+
+        Profile is created with RADIUS auth + MAC-auth fallback so the
+        FreeRADIUS instance this billing server ships with can drive
+        authentication the same way PPPoE does (single source of truth)."""
+        results = []
+        # Pool for hotspot
+        results.append(self._do_add("ip/pool", "name", {
+            "name": pool_name, "ranges": pool_ranges,
+        }))
+        # IP address on hotspot interface
+        results.append(self._do_add("ip/address", "address", {
+            "address": address, "interface": interface, "disabled": "yes" if disabled else "no",
+        }))
+        # Hotspot profile — RADIUS-driven, matches real ISP convention
+        profile_params = {
+            "name": "isp-hotspot",
+            "hotspot-address": address.split("/")[0],
+            "dns-name": "hotspot.local",
+            "login-by": "mac,http-pap" if use_radius else "http-pap,http-chap",
+        }
+        if use_radius:
+            profile_params.update({
+                "use-radius": "yes",
+                "radius-accounting": "yes",
+                "radius-interim-update": "received",
+                "nas-port-type": "ethernet",
+                "mac-auth-mode": "mac-as-username-and-password",
+                "radius-mac-format": "XX:XX:XX:XX:XX:XX",
+            })
+        results.append(self._do_add("ip/hotspot/profile", "name", profile_params))
+        # Hotspot server itself
+        results.append(self._do_add("ip/hotspot", "name", {
+            "name": "isp-hotspot",
+            "interface": interface,
+            "address-pool": pool_name,
+            "profile": "isp-hotspot",
+            "idle-timeout": "5m",
+            "keepalive-timeout": "none",
+            "disabled": "yes" if disabled else "no",
+        }))
+        return results
+
+    def sync_ip_pools_to_router(self, pools: List[Dict]) -> List[Dict]:
+        """Push each DB pool to /ip/pool on the router. When a pool entry
+        also carries an `interface` + `gateway`, additionally add an
+        /ip/address on that interface so the pool's gateway IP is bound.
+        This makes the pool *usable* right away (clients pulling an IP from
+        the pool have a reachable gateway), and saves admins from manually
+        running `/ip address add ...` per interface."""
+        results = []
+        for p in pools:
+            name = p.get("name") or "unnamed-pool"
+            # Compute ranges string
+            if p.get("ranges"):
+                ranges = p["ranges"]
+            elif p.get("start_ip") and p.get("end_ip"):
+                ranges = f"{p['start_ip']}-{p['end_ip']}"
+            else:
+                ranges = p.get("network", "")
+            _pool_spec = {"name": name, "ranges": ranges}
+            # s26.12: next-pool-overflow — if DB gave us next_pool name,
+            # push it so RouterOS spills into the next pool on exhaustion.
+            _np = (p.get("next_pool") or "").strip()
+            if _np:
+                _pool_spec["next-pool"] = _np
+            results.append(self._do_add("ip/pool", "name", _pool_spec))
+            # Optionally bind gateway IP to the chosen interface
+            iface = (p.get("interface") or "").strip()
+            gw = (p.get("gateway") or "").strip()
+            if iface and gw:
+                cidr = gw if "/" in gw else f"{gw}/24"
+                results.append(self._do_add("ip/address", "address", {
+                    "address": cidr, "interface": iface,
+                    "comment": f"auto-isp-billing-pool-{name}",
+                }))
+        return results
+
+
+    # _S39POOL_TWOWAY ---------------------------------------------------
+    def upsert_ip_pool(self, p: Dict) -> Dict:
+        """Insert OR update an /ip/pool row matching by `name`. Used when
+        admins edit a pool from the portal — the name didn't change but the
+        ranges/next-pool did, so add-if-missing is the wrong primitive."""
+        if self.dry_run:
+            return {"status": "dry-run", "name": p.get("name")}
+        if self._ssh:
+            return {"status": "skipped-ssh"}
+        name = (p.get("name") or "").strip()
+        if not name:
+            return {"status": "no-name"}
+        ranges = p.get("ranges")
+        if not ranges:
+            if p.get("start_ip") and p.get("end_ip"):
+                ranges = f"{p['start_ip']}-{p['end_ip']}"
+            else:
+                ranges = p.get("network", "")
+        spec = {"name": name, "ranges": ranges or ""}
+        np_ = (p.get("next_pool") or "").strip()
+        if np_:
+            spec["next-pool"] = np_
+        else:
+            spec["next-pool"] = "none"   # explicitly clear when removed
+        path = self._api.path("ip/pool")
+        existing = None
+        for r in path:
+            if r.get("name") == name:
+                existing = r; break
+        try:
+            if existing:
+                # Trim attributes the API can't set
+                update = dict(spec)
+                path.update(**{".id": existing[".id"], **update})
+                return {"status": "updated", "name": name}
+            else:
+                spec_clean = {k: v for k, v in spec.items() if v not in (None, "")}
+                path.add(**spec_clean)
+                return {"status": "created", "name": name}
+        except Exception as e:
+            return {"status": "error", "name": name, "message": str(e)}
+
+
+    # _S39POOL_PUBLIC_IP — Apply public-IP details to the router.
+    # Called when admin saves a pool that holds a public-IP block (e.g.
+    # 36.50.119.184/29). Adds the gateway as /ip/address on the WAN
+    # interface, configures /ip/route default-gateway when missing, and
+    # ensures the pool itself exists.
+    def apply_public_ip_block(self, network: str, gateway: str = "",
+                              wan_interface: str = "ether1",
+                              upstream_gateway: str = "",
+                              pool_name: str = "") -> Dict:
+        """Push public-IP plumbing to the router. Best-effort — returns a
+        dict of {ip_address, route, pool} statuses."""
+        out = {"ip_address": None, "route": None, "pool": None}
+        if self.dry_run or self._ssh:
+            return {"status": "skipped", "reason": "dry-run-or-ssh"}
+        if not network or "/" not in network:
+            return {"status": "error", "reason": "network_required"}
+        try:
+            # 1) /ip/address — bind gateway to wan iface (idempotent)
+            if gateway:
+                addr = f"{gateway}/{network.split('/',1)[1]}"
+                ipa = self._api.path("ip/address")
+                exists = next((r for r in ipa
+                               if r.get("address","").split("/")[0] == gateway), None)
+                if exists:
+                    out["ip_address"] = {"status": "already-set",
+                                          "address": exists.get("address")}
+                else:
+                    ipa.add(address=addr, interface=wan_interface,
+                            comment="public-ip block / autoispbilling")
+                    out["ip_address"] = {"status": "added", "address": addr}
+
+            # 2) /ip/route — default gateway via upstream router
+            if upstream_gateway:
+                r = self._api.path("ip/route")
+                has_default = any((rr.get("dst-address") or "") == "0.0.0.0/0"
+                                  and (rr.get("gateway") or "") == upstream_gateway
+                                  for rr in r)
+                if has_default:
+                    out["route"] = {"status": "already-set"}
+                else:
+                    r.add(**{"dst-address": "0.0.0.0/0",
+                              "gateway": upstream_gateway,
+                              "comment": "default route / autoispbilling"})
+                    out["route"] = {"status": "added",
+                                     "gateway": upstream_gateway}
+
+            # 3) /ip/pool — let our existing upsert do it if a name was given
+            if pool_name:
+                # Build ranges that EXCLUDE gateway + broadcast for safety
+                a, _, plen = network.partition("/")
+                a_int = int.from_bytes(bytes(int(x) for x in a.split(".")), "big")
+                plen_n = int(plen)
+                size = 1 << (32 - plen_n)
+                first_usable = a_int + 1
+                last_usable  = a_int + size - 2
+                gw_int = int.from_bytes(
+                    bytes(int(x) for x in (gateway or "").split(".")), "big"
+                ) if gateway else None
+                # If gateway is the first usable, skip it
+                start = (first_usable + 1) if (gw_int == first_usable) else first_usable
+                def _intip(n):
+                    return ".".join(str((n>>shift)&0xFF) for shift in (24,16,8,0))
+                ranges = f"{_intip(start)}-{_intip(last_usable)}"
+                out["pool"] = self.upsert_ip_pool({"name": pool_name,
+                                                    "ranges": ranges})
+        except Exception as e:
+            out["error"] = str(e)
+        return out
+
+    def delete_ip_pool(self, name: str) -> Dict:
+        """Remove an /ip/pool row by name. Idempotent: returns 'not-found'
+        when the router never had it."""
+        if self.dry_run:
+            return {"status": "dry-run", "name": name}
+        if self._ssh:
+            return {"status": "skipped-ssh"}
+        try:
+            path = self._api.path("ip/pool")
+            for r in path:
+                if r.get("name") == name:
+                    path.remove(r[".id"])
+                    return {"status": "removed", "name": name}
+            return {"status": "not-found", "name": name}
+        except Exception as e:
+            return {"status": "error", "name": name, "message": str(e)}
+    # _S39POOL_TWOWAY end -----------------------------------------------
+
+    def _speed_str(self, dl, ul):
+        """Convert RouterOS-friendly bitrate pair like '50M/25M'."""
+        dl = (dl or "0").strip()
+        ul = (ul or "0").strip()
+        return f"{ul}/{dl}"  # RouterOS uses upload/download for max-limit
+
+    def sync_plans_to_queues(self, plans: List[Dict], parent_interface: str = "ether1") -> List[Dict]:
+        results = []
+        for plan in plans:
+            if not (plan.get("download_speed") or plan.get("upload_speed")):
+                continue
+            params = {
+                "name": f"plan-{plan['plan_name'].lower().replace(' ', '-')}",
+                "target": "",  # per-customer queues override this
+                "max-limit": self._speed_str(plan.get("download_speed"), plan.get("upload_speed")),
+                "priority": str(plan.get("priority") or 8),
+                "queue": plan.get("queue_type") or "default",
+            }
+            if plan.get("burst_enabled"):
+                params.update({
+                    "burst-limit": self._speed_str(plan.get("burst_limit_down"), plan.get("burst_limit_up")),
+                    "burst-threshold": self._speed_str(plan.get("burst_threshold_down"), plan.get("burst_threshold_up")),
+                    "burst-time": f"{plan.get('burst_time_up') or 0}s/{plan.get('burst_time_down') or 0}s",
+                })
+            results.append(self._do_add("queue/simple", "name", params))
+        return results
+
+    def setup_radius_client(self, radius_server_ip: str, secret: str,
+                            service: str = "ppp,hotspot",
+                            enable_ppp_use_radius: bool = False) -> List[Dict]:
+        """Register our billing server as a RADIUS client on the router AND
+        enable CoA / PoD listener on UDP/3799 so FreeRADIUS can kick or
+        re-authorise an online user.
+
+        FORCE-UPDATES the secret on an existing `auto-isp-billing` entry —
+        using the default `_do_add` (add-if-missing) silently skips secret
+        updates, so if a previous run seeded a stock `testing123` the router
+        stays on the old secret forever. A mismatched secret causes
+        FreeRADIUS to sign replies the router rejects → timeouts + endless
+        PPPoE reconnect loop + "could not determine local ip address" in
+        the router log.
+
+        `/ppp aaa use-radius=yes` is NOT flipped by default — doing so would
+        force the router's OWN PPPoE-client (if it uses one to reach the
+        ISP) to auth through our RADIUS, which would fail and drop the
+        uplink. Pass `enable_ppp_use_radius=True` explicitly only AFTER
+        confirming the router isn't a PPPoE-client itself (typical for a
+        dedicated BNG/NAS).
+        """
+        results = []
+        params = {
+            "address": radius_server_ip,
+            "secret": secret,
+            "service": service,
+            "authentication-port": "1812",
+            "accounting-port": "1813",
+            "timeout": "3s",
+            "comment": "auto-isp-billing",
+        }
+        results.append(self._api_set_or_add("radius", "comment", params)
+                        if (not self.dry_run) and self._api
+                        else self._do_add("radius", "comment", params))
+        # CoA / PoD listener — required so FreeRADIUS can kick online sessions
+        results.append(self._do_set_single("radius/incoming", {
+            "accept": "yes",
+            "port": "3799",
+        }))
+        if enable_ppp_use_radius:
+            results.append(self._do_set_single("ppp/aaa", {
+                "use-radius": "yes",
+                "accounting": "yes",
+                "interim-update": "0s",
+            }))
+        return results
+
+    def sync_radius_secret(self, radius_server_ip: str, secret: str,
+                            service: str = "ppp,hotspot") -> Dict:
+        """One-shot force-update of the router's `/radius` entry secret to
+        match the NAS DB `secret` column. Targets any row with
+        `comment=auto-isp-billing` (created by setup_radius_client).
+        Returns what was written for UI confirmation."""
+        params = {
+            "address": radius_server_ip,
+            "secret": secret,
+            "service": service,
+            "authentication-port": "1812",
+            "accounting-port": "1813",
+            "timeout": "3s",
+            "comment": "auto-isp-billing",
+        }
+        if self.dry_run:
+            return {"dry_run": True, "params": params}
+        if self._ssh:
+            kv = " ".join(f'{k}="{v}"' for k, v in params.items()
+                          if k != "comment")
+            out, err, rc = self._ssh.exec(
+                f'/radius set [find comment="auto-isp-billing"] {kv}'
+            )
+            return {"ssh_rc": rc, "ssh_err": err.strip(),
+                     "address": radius_server_ip,
+                     "secret_length": len(secret)}
+        return self._api_set_or_add("radius", "comment", params)
+
+    def _do_set_single(self, path: str, params: Dict[str, str]) -> Dict:
+        """Set fields on a "single-row" config object (like /ppp/aaa or
+        /radius/incoming) — no .add(), just .update() on the existing row.
+
+        Librouteros sometimes returns these rows WITHOUT a `.id` field
+        (because they represent a single logical config, not a list entry);
+        in that case we call `.update(**params)` on the raw path, which
+        librouteros dispatches as a no-argument `set` on the singleton."""
+        cli = self._cli(path, "set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            kv = " ".join(f"{k}={v}" for k, v in params.items())
+            out, err, rc = self._ssh.exec(f"/{path.strip('/').replace('/', ' ')} set {kv}")
+            return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+        po = self._api.path(path)
+        try:
+            rows = list(po)
+        except Exception as _e:  # noqa: BLE001
+            rows = []
+        if rows:
+            first = rows[0]
+            try:
+                if isinstance(first, dict) and ".id" in first:
+                    po.update(**{".id": first[".id"], **params})
+                else:
+                    # Singleton — update without .id
+                    po.update(**params)
+                return {"updated": True}
+            except Exception as e:  # noqa: BLE001
+                return {"error": str(e), "cli": cli}
+        # No existing row — try add as fallback (rare)
+        try:
+            po.add(**params)
+            return {"added": True}
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e), "cli": cli}
+
+    def configure_firewall_nat_baseline(self, wan_interface: str = "ether1",
+                                         lan_interface: str = "bridge",
+                                         lan_subnets: Optional[List[str]] = None,
+                                         management_sources: Optional[List[str]] = None,
+                                         management_ports: Optional[List[int]] = None,
+                                         with_wan_drop: bool = False,
+                                         with_audit_log: bool = False) -> List[Dict]:
+        """Add a safe, minimal firewall + NAT baseline.
+
+        Patterned after the **live ISP audit** (CCR1009 backup):
+          • `MASQUERADE` address-list holds all billable customer subnets.
+          • `ALLOW` address-list mirrors MASQUERADE + any public admin
+            subnets (used for audit-log rules, NOT for dropping).
+          • Single `srcnat masquerade src-address-list=MASQUERADE` rule.
+          • NO firewall DROP rules by default — the audited production
+            router uses only `action=log` on forward chain for monitoring.
+            Real ISPs don't drop WAN at the router's input chain; they
+            rely on upstream routing + address-list membership to gate
+            internet access.
+
+        Flags:
+          • `with_wan_drop=True` (OFF by default) → add the catch-all
+            WAN-drop rules (stateful accept + MANAGEMENT whitelist +
+            drop). Use ONLY if you want the router itself to refuse
+            WAN-originated traffic. Improperly configured MANAGEMENT
+            list = lockout.
+          • `with_audit_log=True` → add the real-ISP log rules
+            (forward chain, src-address-list=ALLOW, dst-port!=53,
+            connection-state=new) for TCP and UDP. Useful for ISPs who
+            want to see which subscriber generated which flows.
+
+        Uses address-list-based masquerade (NOT out-interface) — matches
+        real-world ISP convention."""
+        results = []
+
+        # Seed the MASQUERADE address-list with LAN subnets
+        if lan_subnets is None:
+            lan_subnets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
+        for subnet in lan_subnets:
+            results.append(self._do_add("ip/firewall/address-list", "address", {
+                "list": "MASQUERADE",
+                "address": subnet,
+                "comment": "auto-isp-billing-lan",
+            }))
+        # Mirror into ALLOW list (real-ISP convention: ALLOW = audit set)
+        for subnet in lan_subnets:
+            results.append(self._do_add("ip/firewall/address-list", "address", {
+                "list": "ALLOW",
+                "address": subnet,
+                "comment": "auto-isp-billing-lan",
+            }))
+        # Also include MANAGEMENT sources in ALLOW so admin flows get logged too
+        if management_sources:
+            for src in management_sources:
+                if src:
+                    results.append(self._do_add("ip/firewall/address-list", "address", {
+                        "list": "ALLOW",
+                        "address": src,
+                        "comment": "auto-isp-billing-admin",
+                    }))
+
+        # NAT: masquerade anything whose source is in the MASQUERADE list
+        results.append(self._do_add("ip/firewall/nat", "comment", {
+            "chain": "srcnat",
+            "src-address-list": "MASQUERADE",
+            "action": "masquerade",
+            "comment": "auto-isp-billing-masquerade",
+        }))
+
+        # Audit-log rules (real-ISP pattern — see audit file):
+        #   action=log chain=forward connection-state=new dst-port=!53
+        #          protocol=tcp|udp src-address-list=ALLOW
+        if with_audit_log:
+            for proto in ("tcp", "udp"):
+                results.append(self._do_add("ip/firewall/filter", "comment", {
+                    "chain": "forward",
+                    "connection-state": "new",
+                    "dst-port": "!53",
+                    "protocol": proto,
+                    "src-address-list": "ALLOW",
+                    "action": "log",
+                    "comment": f"auto-isp-billing-fwd-log-{proto}",
+                }))
+
+        # Default: NO firewall DROP rules — matches audited production ISP.
+        # If admin explicitly opts in (`with_wan_drop=True`), install the
+        # safe locked-out-prevention set below.
+        if not with_wan_drop:
+            return results
+
+        # --- Optional WAN-drop set (OPT-IN) ---
+        # Seed the MANAGEMENT address-list with admin sources (billing server etc)
+        if management_sources is None:
+            management_sources = []
+        for src in management_sources:
+            if src:
+                results.append(self._do_add("ip/firewall/address-list", "address", {
+                    "list": "MANAGEMENT",
+                    "address": src,
+                    "comment": "auto-isp-billing-mgmt",
+                }))
+        if not management_ports:
+            management_ports = [8728, 8729, 22]
+
+        # Filter rules — ORDER MATTERS. Build them in logical order:
+        #   1. accept established,related        (stateful firewall works)
+        #   2. drop invalid
+        #   3. accept MANAGEMENT address-list    ← LOCKOUT PREVENTION
+        #   4. accept ICMP
+        #   5. drop everything else from WAN     (catch-all)
+        # Each rule uses place-before semantics handled by RouterOS natively
+        # (rules without a specific place-before get appended; the order we
+        # .add() them IS the order they appear in the filter list).
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "connection-state": "established,related",
+            "action": "accept",
+            "comment": "auto-isp-billing-input-est",
+        }))
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "connection-state": "invalid",
+            "action": "drop",
+            "comment": "auto-isp-billing-input-invalid",
+        }))
+        # *** LOCKOUT PREVENTION *** — accept mgmt from WAN for API/SSH
+        # This MUST be added BEFORE the WAN-drop rule below. Idempotent adds
+        # return existing IDs without reordering, so fresh installs get it
+        # right; on re-runs RouterOS keeps the existing rule.
+        port_csv = ",".join(str(p) for p in management_ports)
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "src-address-list": "MANAGEMENT",
+            "protocol": "tcp",
+            "dst-port": port_csv,
+            "action": "accept",
+            "comment": "auto-isp-billing-input-mgmt",
+        }))
+        # Also accept ANY ICMP from MANAGEMENT sources (ping-for-health)
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "src-address-list": "MANAGEMENT",
+            "protocol": "icmp",
+            "action": "accept",
+            "comment": "auto-isp-billing-input-mgmt-icmp",
+        }))
+        # Accept ICMP from anywhere (light-weight, useful for debug)
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "protocol": "icmp",
+            "action": "accept",
+            "comment": "auto-isp-billing-input-icmp",
+        }))
+        # CATCH-ALL drop from WAN — now safe because MANAGEMENT accepts above
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "input",
+            "in-interface": wan_interface,
+            "action": "drop",
+            "comment": "auto-isp-billing-input-wan-drop",
+        }))
+        # Forward chain (LAN clients' outbound traffic)
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "forward",
+            "connection-state": "established,related",
+            "action": "accept",
+            "comment": "auto-isp-billing-fwd-est",
+        }))
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "forward",
+            "connection-state": "invalid",
+            "action": "drop",
+            "comment": "auto-isp-billing-fwd-invalid",
+        }))
+        results.append(self._do_add("ip/firewall/filter", "comment", {
+            "chain": "forward",
+            "connection-state": "new",
+            "in-interface": wan_interface,
+            "action": "drop",
+            "comment": "auto-isp-billing-fwd-wan-new-drop",
+        }))
+        return results
+
+    def emergency_unblock(self) -> Dict:
+        """Remove ONLY the WAN-drop filter rules so a locked-out admin can
+        regain access (runs via API so whoever can still reach the router
+        from LAN can trigger it). Everything else — NAT, accept rules,
+        PPPoE, RADIUS — is left untouched."""
+        if self.dry_run:
+            cmds = [
+                '/ip firewall filter remove [find comment="auto-isp-billing-input-wan-drop"]',
+                '/ip firewall filter remove [find comment="auto-isp-billing-fwd-wan-new-drop"]',
+            ]
+            self.commands.extend(cmds)
+            return {"dry_run": True, "commands": cmds}
+        removed = []
+        errors = []
+        for comment in ("auto-isp-billing-input-wan-drop",
+                         "auto-isp-billing-fwd-wan-new-drop"):
+            try:
+                if self._ssh:
+                    out, err, rc = self._ssh.exec(
+                        f'/ip firewall filter remove [find comment="{comment}"]')
+                    removed.append({"comment": comment, "rc": rc,
+                                     "stderr": (err or "").strip()})
+                else:
+                    po = self._api.path("ip/firewall/filter")
+                    for row in list(po):
+                        if row.get("comment") == comment:
+                            po.remove(row[".id"])
+                            removed.append({"comment": comment, "id": row[".id"]})
+            except Exception as e:  # noqa: BLE001
+                errors.append({"comment": comment, "error": str(e)})
+        return {"success": True, "removed": removed, "errors": errors}
+
+    def unprovision_commands(self) -> List[str]:
+        """Return a list of CLI commands that reverse whatever auto-configure
+        created (matched by comment=auto-isp-billing*). Admin can paste these
+        into the router terminal if something went wrong."""
+        return [
+            "# Reverse auto-isp-billing entries:",
+            "/interface pppoe-server server remove [find service-name=isp-pppoe]",
+            "/ppp profile remove [find name~\"^(plan-|isp-default)\"]",
+            "/ppp secret remove [find service=pppoe]",
+            "/ip hotspot remove [find name=isp-hotspot]",
+            "/ip hotspot profile remove [find name=isp-hotspot]",
+            "/ip address remove [find comment~\"^auto-isp-billing-pool-\"]",
+            "/ip firewall address-list remove [find list=MASQUERADE comment~\"^auto-isp-billing\"]",
+            "/ip firewall address-list remove [find list=blocked comment~\"^auto-isp-billing\"]",
+            "/ip pool remove [find name~\"^(pppoe-pool|hotspot-pool|parking-pool|Home-Pool|Business-Pool|Hotspot-Pool)\"]",
+            "/queue simple remove [find name~\"^plan-\"]",
+            "/queue type remove [find name~\"^pcq-\"]",
+            "/radius remove [find comment=auto-isp-billing]",
+            "/ip firewall filter remove [find comment~\"^auto-isp-billing\"]",
+            "/ip firewall nat    remove [find comment~\"^auto-isp-billing\"]",
+            "/ppp aaa set use-radius=no",
+        ]
+
+    # ------- PPPoE secrets ------------------------------------------------
+    def configure_plan_profile(self, plan: Dict, pool_name: Optional[str] = None) -> Dict:
+        """Create/update a /ppp/profile whose rate-limit matches the plan's DL/UL.
+
+        CRITICAL: `remote-address` MUST reference a valid `/ip/pool` name or
+        clients will connect but never receive an IP (symptom: PPPoE session
+        up on the router but the customer's laptop shows "connected, no
+        internet" because there's no framed-IP). `pool_name` defaults to the
+        plan's dedicated `pool_name`, else the server-wide `pppoe-pool`.
+        """
+        profile_name = (plan.get("profile_name")
+                        or f"plan-{(plan.get('plan_name') or 'unnamed').lower().replace(' ', '-')}")
+        dl = (plan.get("download_speed") or "").strip()
+        ul = (plan.get("upload_speed") or "").strip()
+        rate_limit = ""
+        if dl or ul:
+            rate_limit = f"{ul or dl}/{dl or ul}"  # RouterOS: <tx>/<rx>
+        effective_pool = (pool_name or plan.get("pool_name") or "pppoe-pool").strip()
+        dns_servers = (plan.get("dns_servers") or "8.8.8.8,1.1.1.1").strip()
+        params = {
+            "name": profile_name,
+            "only-one": "yes",
+            "local-address": plan.get("local_address", "192.168.100.1"),
+            "remote-address": effective_pool,
+            "change-tcp-mss": "yes",
+        }
+        if dns_servers:
+            params["dns-server"] = dns_servers
+        if rate_limit:
+            params["rate-limit"] = rate_limit
+
+        cli = self._cli("ppp/profile", "add/set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli, "profile_name": profile_name, "rate_limit": rate_limit}
+        if self._ssh:
+            # add if not exists; ignore error if it does; then set
+            out1, _, _ = self._ssh.exec(f"/ppp profile add name={profile_name}")
+            set_kv = " ".join(f"{k}={v}" for k, v in params.items() if k != "name")
+            out2, err2, rc2 = self._ssh.exec(f"/ppp profile set [find name={profile_name}] {set_kv}")
+            return {"profile_name": profile_name, "rate_limit": rate_limit,
+                    "ssh_rc": rc2, "ssh_err": err2.strip()}
+        path_obj = self._api.path("ppp/profile")
+        for row in list(path_obj):
+            if row.get("name") == profile_name:
+                path_obj.update(**{".id": row[".id"],
+                                   **{k: v for k, v in params.items() if k != "name"}})
+                return {"updated": True, "profile_name": profile_name, "rate_limit": rate_limit}
+        path_obj.add(**params)
+        return {"added": True, "profile_name": profile_name, "rate_limit": rate_limit}
+
+    def list_pppoe_secrets(self) -> List[Dict]:
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/ppp secret print detail")
+            return [{"raw": out.strip()}]
+        return [dict(r) for r in self._api.path("ppp/secret")]
+
+    def list_pppoe_active(self) -> List[Dict]:
+        """Return current /ppp/active sessions — used for live Online Users view."""
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/ppp active print detail")
+            return [{"raw": out.strip()}]
+        return [dict(r) for r in self._api.path("ppp/active")]
+    def list_hotspot_active(self) -> List[Dict]:
+        """Return current /ip/hotspot/active sessions for the live Online Users view.
+        Each row carries: user, address, mac-address, server, uptime, bytes-in/out."""
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/ip hotspot active print detail")
+            return [{"raw": out.strip()}]
+        try:
+            return [dict(r) for r in self._api.path("ip/hotspot/active")]
+        except Exception:
+            return []
+
+    # ------- WAN auto-detect / introspection -----------------------------
+    def list_interfaces(self) -> List[Dict]:
+        """Return a minimal list of /interface rows so the UI can populate
+        WAN / LAN dropdowns instead of asking admins to type names."""
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/interface print terse")
+            return [{"raw": out.strip()}]
+        rows = []
+        for r in self._api.path("interface"):
+            rows.append({
+                "name": r.get("name"), "type": r.get("type"),
+                "running": r.get("running"), "disabled": r.get("disabled"),
+                "comment": r.get("comment", ""),
+            })
+        return rows
+
+    def list_ip_pools(self) -> List[Dict]:
+        """Return current /ip/pool rows on the router (live snapshot)."""
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/ip pool print terse")
+            return [{"raw": out.strip()}]
+        return [{"name": r.get("name"), "ranges": r.get("ranges"),
+                 "next-pool": r.get("next-pool", "")}
+                for r in self._api.path("ip/pool")]
+
+    # --- S38g: /radius entries snapshot (used for secret repair) ---------
+    def list_radius(self) -> List[Dict]:
+        """Return /radius rows.  Each row includes `address`, `secret`,
+        `service`, `timeout`, `comment`, `disabled`.  Used by the
+        'Copy router -> DB' repair button when the secret on the router
+        diverged from what the app stored.
+        """
+        if self.dry_run:
+            return []
+        if self._ssh:
+            out, _, _ = self._ssh.exec("/radius print terse")
+            return [{"raw": out.strip()}]
+        rows = []
+        for rr in self._api.path("radius"):
+            rows.append({
+                "id": rr.get(".id", ""),
+                "address": rr.get("address", ""),
+                "secret":  rr.get("secret", ""),
+                "service": rr.get("service", ""),
+                "timeout": rr.get("timeout", ""),
+                "comment": rr.get("comment", ""),
+                "disabled": rr.get("disabled", "false") in (True, "true", "yes"),
+            })
+        return rows
+
+    def detect_wan(self) -> Dict:
+        """Detect the WAN interface by reading the active default route
+        (dst-address=0.0.0.0/0). Falls back to resolving gateway via
+        /ip/address if the route row doesn't carry an interface name.
+
+        Returns {"interface": str|None, "gateway": str|None,
+                 "source": "route"|"gateway-lookup"|"none",
+                 "candidates": [...]}  — UI uses `candidates` to offer a
+        dropdown with the resolved interface pre-selected.
+        """
+        if self.dry_run:
+            return {"interface": None, "gateway": None, "source": "none", "candidates": []}
+        if self._ssh:
+            out, _, _ = self._ssh.exec('/ip route print terse where dst-address="0.0.0.0/0" active=yes')
+            return {"interface": None, "gateway": None, "source": "ssh-raw",
+                    "raw": out.strip(), "candidates": []}
+
+        # Collect default routes (active only)
+        default_routes = []
+        for r in self._api.path("ip/route"):
+            dst = r.get("dst-address") or ""
+            active = (r.get("active") in (True, "true", "yes"))
+            if dst == "0.0.0.0/0" and active:
+                default_routes.append(r)
+        if not default_routes:
+            # try without active filter (some v6 routers)
+            for r in self._api.path("ip/route"):
+                if (r.get("dst-address") or "") == "0.0.0.0/0":
+                    default_routes.append(r)
+
+        gateway = None
+        iface = None
+        source = "none"
+        if default_routes:
+            route = default_routes[0]
+            gateway = route.get("gateway") or None
+            # RouterOS v7 sometimes exposes gateway resolved as "IP%interface"
+            if gateway and "%" in gateway:
+                gateway, iface = gateway.split("%", 1)
+                source = "route"
+            # Some rows carry an explicit interface hint
+            if not iface:
+                iface = (route.get("gateway-status") or "").split(" ")[-1] or None
+                if iface:
+                    source = "route"
+            if not iface:
+                # Resolve gateway IP -> interface via /ip/address subnet match
+                try:
+                    import ipaddress as _ip
+                    gw_ip = _ip.ip_address(gateway) if gateway else None
+                except Exception:
+                    gw_ip = None
+                if gw_ip is not None:
+                    for a in self._api.path("ip/address"):
+                        addr = a.get("address") or ""
+                        if "/" not in addr:
+                            continue
+                        try:
+                            net = _ip.ip_network(addr, strict=False)
+                            if gw_ip in net:
+                                iface = a.get("interface")
+                                source = "gateway-lookup"
+                                break
+                        except Exception:
+                            continue
+
+        # Build candidate list (running interfaces first)
+        candidates = []
+        for r in self._api.path("interface"):
+            candidates.append({
+                "name": r.get("name"), "type": r.get("type"),
+                "running": r.get("running") in (True, "true", "yes"),
+                "disabled": r.get("disabled") in (True, "true", "yes"),
+            })
+        candidates.sort(key=lambda x: (not x["running"], x["disabled"], x["name"] or ""))
+        return {"interface": iface, "gateway": gateway, "source": source,
+                "candidates": candidates, "default_routes": [dict(r) for r in default_routes]}
+
+    def run_unprovision(self) -> Dict:
+        """Execute the recovery commands produced by `unprovision_commands()`
+        against the router via whichever transport is active. Each command
+        is best-effort — errors on individual lines don't abort the run."""
+        cmds = self.unprovision_commands()
+        executed = []
+        errors = []
+        if self.dry_run:
+            for c in cmds:
+                self.commands.append(c)
+            return {"dry_run": True, "commands": cmds, "executed": [], "errors": []}
+
+        for c in cmds:
+            if c.startswith("#") or not c.strip():
+                continue
+            self.commands.append(c)
+            try:
+                if self._ssh:
+                    out, err, rc = self._ssh.exec(c)
+                    executed.append({"cmd": c, "rc": rc, "stderr": (err or "").strip()})
+                    if rc != 0 and (err or "").strip():
+                        errors.append({"cmd": c, "stderr": err.strip()})
+                else:
+                    # Translate the CLI line into an API call
+                    parts = c.strip().split()
+                    # Find path until first verb (remove/add/set)
+                    verbs = {"remove", "add", "set", "print"}
+                    path_tokens = []
+                    verb = None
+                    rest = []
+                    for tok in parts[1:]:  # skip leading /
+                        if verb is None and tok in verbs:
+                            verb = tok
+                        elif verb is None:
+                            path_tokens.append(tok)
+                        else:
+                            rest.append(tok)
+                    api_path = "/".join(path_tokens)
+                    po = self._api.path(api_path)
+                    if verb == "remove":
+                        # Parse [find ...] filter — rest ≈ ['[find', 'key=val]'] or similar.
+                        filter_str = " ".join(rest).strip("[]")
+                        # Extract pattern e.g. "find service-name=isp-pppoe" or "find name~\"^plan-\""
+                        filters = {}
+                        for piece in filter_str.replace("find", "", 1).strip().split():
+                            if "=" in piece:
+                                k, v = piece.split("=", 1)
+                                filters[k] = v.strip('"')
+                        removed = 0
+                        for row in list(po):
+                            match = True
+                            for k, v in filters.items():
+                                val = row.get(k, "")
+                                if v.startswith("~"):
+                                    # regex-ish — skip strict matching, approximate contains
+                                    import re as _re
+                                    pat = v.lstrip("~").strip('"')
+                                    if not _re.search(pat, str(val)):
+                                        match = False; break
+                                elif "~" in k:
+                                    # comment~"^..." style
+                                    import re as _re
+                                    real_key = k.split("~")[0]
+                                    pat = v.strip('"')
+                                    if not _re.search(pat, str(row.get(real_key, ""))):
+                                        match = False; break
+                                elif str(val) != v:
+                                    match = False; break
+                            if match:
+                                po.remove(row[".id"])
+                                removed += 1
+                        executed.append({"cmd": c, "removed": removed})
+                    elif verb == "set":
+                        # /ppp aaa set use-radius=no
+                        params = {}
+                        for piece in rest:
+                            if "=" in piece:
+                                k, v = piece.split("=", 1)
+                                params[k] = v
+                        # aaa is a "single-row" config item
+                        try:
+                            po.update(**params)
+                            executed.append({"cmd": c, "updated": True})
+                        except Exception as _e:
+                            errors.append({"cmd": c, "error": str(_e)})
+                    else:
+                        executed.append({"cmd": c, "skipped": True})
+            except Exception as e:  # noqa: BLE001
+                errors.append({"cmd": c, "error": str(e)})
+        return {"dry_run": False, "commands": cmds, "executed": executed, "errors": errors}
+
+    def switch_to_radius_only(self, radius_server_ip: str = "",
+                              radius_secret: str = "",
+                              clear_local: bool = False,
+                              dry_run_internal: bool = False) -> Dict:
+        """Force the router into RADIUS-only authentication mode.
+
+        Rationale:
+          Mikrotik checks LOCAL /ppp/secret BEFORE consulting RADIUS.
+          As long as any local secret exists, Mikrotik will accept OR
+          reject the user locally — RADIUS (and therefore our
+          Framed-Pool/walled-garden logic) is never consulted. This
+          helper removes that shortcut so every PPPoE auth flows
+          through FreeRADIUS, which is the prerequisite for the
+          parking-pool / suspension captive-portal feature.
+
+        Steps (each idempotent, safe to re-run):
+          A. /ppp/aaa  -> use-radius=yes, accounting=yes,
+                         interim-update=0s
+          B. /radius   -> ensure an auto-isp-billing entry exists.
+                         If not, add (caller must pass radius_server_ip
+                         + radius_secret; for an existing correct row
+                         they may be empty).
+          C. /ppp/secret -> if `clear_local=True`, REMOVE every row.
+                             A text backup is returned in the report
+                             so the admin can reinstate them.
+                             Otherwise leave them untouched; the admin
+                             can clean up later or let RADIUS shadow
+                             them (Mikrotik will still check local
+                             first, so this mode is mainly useful if
+                             there are only a couple legacy rows).
+
+        Returns a dict with `success`, `stages`, and `secrets_before`
+        (the pre-purge snapshot). NEVER raises — callers check `success`.
+        """
+        report = {
+            "success": False,
+            "stages": [],
+            "secrets_before": [],
+            "cleared_count": 0,
+            "aaa": {},
+            "radius_row": {},
+        }
+        if not self._api and not self._ssh:
+            report["stages"].append("no-transport")
+            report["message"] = "router unreachable (no API / SSH session)"
+            return report
+        try:
+            # A. /ppp/aaa
+            if self._api:
+                aaa_params = {
+                    "use-radius": "yes",
+                    "accounting": "yes",
+                    "interim-update": "0s",
+                }
+                if not dry_run_internal:
+                    self._api.path("ppp/aaa").update(**aaa_params)
+                report["stages"].append("set /ppp/aaa use-radius=yes")
+                # snapshot
+                for row in self._api.path("ppp/aaa"):
+                    report["aaa"] = {k: v for k, v in row.items()
+                                     if k in ("use-radius", "accounting",
+                                              "interim-update")}
+            else:
+                report["stages"].append("A: skipped (api only)")
+
+            # B. /radius ensure auto-isp-billing row
+            if self._api:
+                found = None
+                for row in self._api.path("radius"):
+                    if (row.get("comment") or "") == "auto-isp-billing":
+                        found = row
+                        break
+                if not found and radius_server_ip and radius_secret:
+                    if not dry_run_internal:
+                        self._api.path("radius").add(
+                            address=radius_server_ip,
+                            secret=radius_secret,
+                            service="ppp,hotspot",
+                            **{"authentication-port": "1812",
+                               "accounting-port": "1813"},
+                            timeout="3s",
+                            comment="auto-isp-billing",
+                        )
+                        # also CoA listener
+                        self._api.path("radius/incoming").set(
+                            **{"accept": "yes", "port": "3799"})
+                    report["stages"].append("added /radius auto-isp-billing")
+                elif found:
+                    report["radius_row"] = {
+                        "address": found.get("address"),
+                        "service": found.get("service"),
+                        "comment": found.get("comment"),
+                    }
+                    report["stages"].append("/radius entry already present")
+                else:
+                    report["stages"].append(
+                        "WARNING: no /radius auto-isp-billing row and no "
+                        "radius_server_ip/secret supplied -- Mikrotik will "
+                        "now use-radius=yes but has no server to ask; users "
+                        "will get Access-Reject until admin adds one.")
+
+            # C. snapshot + optional purge of /ppp/secret
+            if self._api:
+                for row in self._api.path("ppp/secret"):
+                    report["secrets_before"].append({
+                        "name": row.get("name"),
+                        "service": row.get("service"),
+                        "profile": row.get("profile"),
+                        "disabled": row.get("disabled"),
+                    })
+                if clear_local and not dry_run_internal:
+                    cnt = 0
+                    for row in list(self._api.path("ppp/secret")):
+                        try:
+                            self._api.path("ppp/secret").remove(row[".id"])
+                            cnt += 1
+                        except Exception as e:
+                            report["stages"].append(f"remove-err {row.get('name')}: {e}")
+                    report["cleared_count"] = cnt
+                    report["stages"].append(f"removed {cnt} /ppp/secret rows")
+                elif clear_local and dry_run_internal:
+                    report["stages"].append(
+                        f"DRY-RUN would remove {len(report['secrets_before'])} "
+                        "/ppp/secret rows")
+                else:
+                    report["stages"].append(
+                        f"kept {len(report['secrets_before'])} /ppp/secret "
+                        "rows (Mikrotik will still check local first; pass "
+                        "clear_local=true to truly force RADIUS-only)")
+
+            report["success"] = True
+            return report
+        except Exception as e:
+            report["stages"].append(f"error: {e}")
+            report["message"] = str(e)
+            return report
+
+    def create_pppoe_secret(self, name: str, password: str, profile: str = "isp-default",
+                            remote_address: Optional[str] = None) -> Dict:
+        params = {"name": name, "password": password, "service": "pppoe", "profile": profile}
+        if remote_address:
+            params["remote-address"] = remote_address
+
+        cli = self._cli("ppp/secret", "add/set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            # add, then set (idempotent)
+            self._ssh.exec(f"/ppp secret add name={name} password={password} service=pppoe")
+            set_kv = " ".join(f"{k}={v}" for k, v in params.items() if k != "name")
+            out, err, rc = self._ssh.exec(f"/ppp secret set [find name={name}] {set_kv}")
+            return {"ssh_rc": rc, "ssh_err": err.strip()}
+        path_obj = self._api.path("ppp/secret")
+        for row in list(path_obj):
+            if row.get("name") == name:
+                path_obj.update(**{".id": row[".id"],
+                                   **{k: v for k, v in params.items() if k != "name"}})
+                return {"updated": True, "id": row[".id"]}
+        path_obj.add(**params)
+        return {"added": True}
+
+    def delete_pppoe_secret(self, name: str) -> Dict:
+        cli = self._cli("ppp/secret", "remove", **{"where": f"name={name}"})
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            out, err, rc = self._ssh.exec(f"/ppp secret remove [find name={name}]")
+            return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+        path_obj = self._api.path("ppp/secret")
+        for row in list(path_obj):
+            if row.get("name") == name:
+                path_obj.remove(row[".id"])
+                return {"removed": True}
+        return {"not_found": True}
+
+
+    # ================================================================
+    # Multi-scenario: Hotspot & Static-IP per-customer provisioning
+    # (Session 19). FreeRADIUS already carries the authoritative per-
+    # user attributes (via isp-users). These router-side entries are
+    # for cases where RADIUS is down AND for DHCP static-lease bindings
+    # (pure-DHCP static IP without PPPoE).
+    # ================================================================
+    def create_hotspot_user(self, name: str, password: str = "",
+                            mac_address: str = "",
+                            rate_limit: str = "",
+                            profile: str = "default",
+                            comment: str = "") -> Dict:
+        """Add or update a /ip/hotspot/user entry. Works alongside the
+        hotspot RADIUS login — the local user is a fallback if RADIUS
+        ever goes down (real-ISP convention)."""
+        params = {"name": name, "profile": profile}
+        if password:
+            params["password"] = password
+        if mac_address:
+            params["mac-address"] = mac_address.upper()
+        if rate_limit:
+            params["rate-limit"] = rate_limit
+        if comment:
+            params["comment"] = comment
+
+        cli = self._cli("ip/hotspot/user", "add/set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            self._ssh.exec(f"/ip hotspot user add name={name}")
+            set_kv = " ".join(f'{k}={v}' for k, v in params.items() if k != "name")
+            out, err, rc = self._ssh.exec(
+                f"/ip hotspot user set [find name={name}] {set_kv}")
+            return {"ssh_rc": rc, "ssh_err": err.strip()}
+        path_obj = self._api.path("ip/hotspot/user")
+        for row in list(path_obj):
+            if row.get("name") == name:
+                path_obj.update(**{".id": row[".id"],
+                                   **{k: v for k, v in params.items() if k != "name"}})
+                return {"updated": True, "id": row[".id"]}
+        path_obj.add(**params)
+        return {"added": True}
+
+    def create_dhcp_lease(self, mac_address: str, address: str,
+                          server: str = "", comment: str = "") -> Dict:
+        """Add a STATIC DHCP reservation so a specific MAC always gets
+        the given IP. Used for the `static_ip` auth-type when the
+        customer is NOT on PPPoE (pure-DHCP static binding, common on
+        business leased-line customers).
+        """
+        mac = mac_address.upper().strip()
+        params = {
+            "mac-address": mac,
+            "address": address.strip(),
+            "lease-time": "0s",     # permanent
+        }
+        if server:
+            params["server"] = server
+        if comment:
+            params["comment"] = comment
+
+        cli = self._cli("ip/dhcp-server/lease", "add/set", **params)
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            self._ssh.exec(
+                f"/ip dhcp-server lease add mac-address={mac} address={address}")
+            set_kv = " ".join(f'{k}={v}' for k, v in params.items()
+                              if k != "mac-address")
+            out, err, rc = self._ssh.exec(
+                f"/ip dhcp-server lease set [find mac-address={mac}] {set_kv}")
+            return {"ssh_rc": rc, "ssh_err": err.strip()}
+        path_obj = self._api.path("ip/dhcp-server/lease")
+        for row in list(path_obj):
+            if (row.get("mac-address") or "").upper() == mac:
+                path_obj.update(**{".id": row[".id"],
+                                   **{k: v for k, v in params.items()
+                                      if k != "mac-address"}})
+                return {"updated": True, "id": row[".id"]}
+        path_obj.add(**params)
+        return {"added": True}
+
+    def delete_hotspot_user(self, name: str) -> Dict:
+        cli = self._cli("ip/hotspot/user", "remove", **{"where": f"name={name}"})
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            out, err, rc = self._ssh.exec(
+                f"/ip hotspot user remove [find name={name}]")
+            return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+        path_obj = self._api.path("ip/hotspot/user")
+        for row in list(path_obj):
+            if row.get("name") == name:
+                path_obj.remove(row[".id"])
+                return {"removed": True}
+        return {"not_found": True}
+
+
+    # __S38T_TRUE_STATIC_IP__ -------------------------------------------------
+    # True "Static IP" customers do NOT use PPPoE and do NOT use RADIUS.
+    # The customer's CPE is manually configured with the static IP +
+    # gateway + DNS. Mikrotik just:
+    #   (a) allows the IP through srcnat masquerade (MASQUERADE list)
+    #   (b) allows the IP through forward firewall           (ALLOW list)
+    #   (c) applies a per-IP simple queue with the plan's rate-limit
+    # When the customer is Suspended/Deleted we remove those entries so the
+    # IP stops forwarding + masquerading — i.e. loses internet.
+    def _ensure_static_blocked_rule(self) -> Dict:
+        """Idempotently create the firewall filter rule that drops ALL
+        traffic from sources in the `STATIC-BLOCKED` address-list.
+
+        We place it at the TOP of the forward chain via `place-before` so
+        disabled static-IP customers are blocked before any accept rules
+        can match them. Safe to call repeatedly — if the rule already
+        exists (matched by comment) we just re-confirm its position.
+        """
+        tag = "auto-isp-billing-static-blocked-drop"
+        try:
+            if self._ssh:
+                # SSH path — use CLI directly.
+                cli = (f"/ip firewall filter add chain=forward "
+                       f"src-address-list=STATIC-BLOCKED action=drop "
+                       f"comment={tag}")
+                self.commands.append(cli)
+                if self.dry_run:
+                    return {"dry_run": True, "cli": cli}
+                # Only add if no rule with this comment exists yet.
+                out, _, _ = self._ssh.exec(
+                    f"/ip firewall filter print count-only where comment={tag}")
+                if out.strip() in ("0", ""):
+                    self._ssh.exec(cli)
+                return {"ensured": True, "via": "ssh"}
+            # API path.
+            p = self._api.path("ip/firewall/filter")
+            existing = None
+            for row in p:
+                if row.get("comment") == tag:
+                    existing = row
+                    break
+            if existing:
+                return {"ensured": True, "existing_id": existing.get(".id")}
+            if self.dry_run:
+                return {"dry_run": True, "would_add": tag}
+            # Find the first rule in forward chain so we can `place-before` it
+            # (Mikrotik evaluates rules top-down; we want block FIRST).
+            target_id = None
+            for row in p:
+                if row.get("chain") == "forward":
+                    target_id = row.get(".id")
+                    break
+            params = {
+                "chain": "forward",
+                "src-address-list": "STATIC-BLOCKED",
+                "action": "drop",
+                "comment": tag,
+            }
+            if target_id:
+                params["place-before"] = target_id
+            p.add(**params)
+            return {"added": True}
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+
+    def flush_conntrack_for_ip(self, ip_address: str) -> Dict:
+        """Kill all live conntrack entries whose src OR dst matches `ip`
+        so any masqueraded sessions die immediately instead of lingering
+        until the TCP timeout expires."""
+        ip = (ip_address or "").strip()
+        if not ip:
+            return {"skipped": True}
+        try:
+            if self._ssh:
+                cli = (f"/ip firewall connection remove "
+                       f"[find src-address~\"{ip}:\" or dst-address~\"{ip}:\"]")
+                self.commands.append(cli)
+                if self.dry_run:
+                    return {"dry_run": True, "cli": cli}
+                self._ssh.exec(cli)
+                return {"via": "ssh"}
+            p = self._api.path("ip/firewall/connection")
+            removed = 0
+            for row in list(p):
+                sa = (row.get("src-address") or "").split(":")[0]
+                da = (row.get("dst-address") or "").split(":")[0]
+                if ip in (sa, da):
+                    try:
+                        p.remove(row[".id"])
+                        removed += 1
+                    except Exception:
+                        pass
+            return {"removed": removed}
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+
+    def _static_queue_name(self, username: str, ip_address: str) -> str:
+        """Build a deterministic simple-queue name so we can find+remove
+        it later. Falls back to the IP when the username is empty."""
+        key = (username or ip_address or "").strip()
+        for bad in ("/", " ", "\t", "\n"):
+            key = key.replace(bad, "-")
+        return f"static-{key}"
+
+    def create_static_ip_binding(self, ip_address: str, rate_limit: str = "",
+                                  username: str = "", comment: str = "") -> Dict:
+        """Add/refresh firewall address-list rows + simple queue so a
+        statically-addressed customer gets internet at the plan rate.
+
+        Idempotent — existing rows (matched by address/name) are updated in
+        place, never duplicated."""
+        ip = (ip_address or "").strip()
+        if not ip:
+            return {"success": False, "message": "ip_address required"}
+        note = comment or f"auto-isp-billing static {username or ip}".strip()
+        results = []
+        # (a) MASQUERADE (srcnat rule already exists, we just add this IP).
+        # Composite match on BOTH (list, address) so the same IP can live
+        # in MASQUERADE and ALLOW simultaneously — single-key `_do_add`
+        # would treat them as the same row and skip the second one.
+        results.append(self._do_add_composite(
+            "ip/firewall/address-list", ["list", "address"],
+            {"list": "MASQUERADE", "address": ip, "comment": note}))
+        # (b) ALLOW (forward accept rule already exists).
+        results.append(self._do_add_composite(
+            "ip/firewall/address-list", ["list", "address"],
+            {"list": "ALLOW", "address": ip, "comment": note}))
+        # (c) Simple queue — one per IP, named so we can find + delete it.
+        if rate_limit:
+            qname = self._static_queue_name(username, ip)
+            results.append(self._do_add("queue/simple", "name", {
+                "name": qname,
+                "target": f"{ip}/32",
+                "max-limit": rate_limit,
+                "comment": note,
+            }))
+        # Ensure the universal STATIC-BLOCKED drop rule exists, then REMOVE
+        # this IP from the blocklist (in case it was disabled previously).
+        results.append(self._ensure_static_blocked_rule())
+        try:
+            if self._ssh:
+                self._ssh.exec(
+                    f"/ip firewall address-list remove [find list=STATIC-BLOCKED address={ip}]")
+                results.append({"blocklist_removed": True, "via": "ssh"})
+            else:
+                p = self._api.path("ip/firewall/address-list")
+                removed = 0
+                for row in list(p):
+                    if (row.get("list") == "STATIC-BLOCKED"
+                            and row.get("address") == ip):
+                        p.remove(row[".id"])
+                        removed += 1
+                results.append({"blocklist_removed": removed})
+        except Exception as _e:
+            results.append({"blocklist_error": str(_e)})
+        return {"success": True, "ip": ip, "operations": results}
+
+    def delete_static_ip_binding(self, ip_address: str,
+                                  username: str = "") -> Dict:
+        """Remove the MASQUERADE + ALLOW + simple-queue rows for this IP so
+        the customer loses internet on the router side. Safe no-op if the
+        rows were never created."""
+        ip = (ip_address or "").strip()
+        if not ip:
+            return {"success": False, "message": "ip_address required"}
+        results = []
+        for lst in ("MASQUERADE", "ALLOW"):
+            cli = self._cli("ip/firewall/address-list", "remove",
+                            **{"where": f"list={lst} address={ip}"})
+            self.commands.append(cli)
+            if self.dry_run:
+                results.append({"dry_run": True, "cli": cli})
+                continue
+            if self._ssh:
+                out, err, rc = self._ssh.exec(
+                    f"/ip firewall address-list remove [find list={lst} address={ip}]")
+                results.append({"list": lst, "rc": rc,
+                                "stdout": out.strip(), "stderr": err.strip()})
+            else:
+                path_obj = self._api.path("ip/firewall/address-list")
+                removed = 0
+                for row in list(path_obj):
+                    if (row.get("list") == lst and row.get("address") == ip):
+                        path_obj.remove(row[".id"])
+                        removed += 1
+                results.append({"list": lst, "removed": removed})
+        # Simple queue by name (we always use static-<username-or-ip>).
+        qname = self._static_queue_name(username, ip)
+        cli = self._cli("queue/simple", "remove", **{"where": f"name={qname}"})
+        self.commands.append(cli)
+        if not self.dry_run:
+            if self._ssh:
+                out, err, rc = self._ssh.exec(
+                    f"/queue simple remove [find name={qname}]")
+                results.append({"queue": qname, "rc": rc,
+                                 "stdout": out.strip(), "stderr": err.strip()})
+            else:
+                path_obj = self._api.path("queue/simple")
+                removed = 0
+                for row in list(path_obj):
+                    if row.get("name") == qname:
+                        path_obj.remove(row[".id"])
+                        removed += 1
+                results.append({"queue": qname, "removed": removed})
+        # ACTIVELY block the IP: ensure drop rule + add IP to STATIC-BLOCKED
+        # + flush any live conntrack entries so existing TCP sessions die.
+        results.append(self._ensure_static_blocked_rule())
+        results.append(self._do_add_composite(
+            "ip/firewall/address-list", ["list", "address"],
+            {"list": "STATIC-BLOCKED", "address": ip,
+             "comment": f"auto-isp-billing blocked {username or ip}".strip()}))
+        results.append(self.flush_conntrack_for_ip(ip))
+        return {"success": True, "ip": ip, "operations": results}
+    # -------------------------------------------------------------- /S38T_TRUE_STATIC_IP
+
+    def delete_dhcp_lease(self, mac_address: str) -> Dict:
+        mac = (mac_address or "").upper().strip()
+        cli = self._cli("ip/dhcp-server/lease", "remove",
+                        **{"where": f"mac-address={mac}"})
+        self.commands.append(cli)
+        if self.dry_run:
+            return {"dry_run": True, "cli": cli}
+        if self._ssh:
+            out, err, rc = self._ssh.exec(
+                f"/ip dhcp-server lease remove [find mac-address={mac}]")
+            return {"rc": rc, "stdout": out.strip(), "stderr": err.strip()}
+        path_obj = self._api.path("ip/dhcp-server/lease")
+        for row in list(path_obj):
+            if (row.get("mac-address") or "").upper() == mac:
+                path_obj.remove(row[".id"])
+                return {"removed": True}
+        return {"not_found": True}
+
+
+# =============================================================================
+# Public helpers
+# =============================================================================
+def test_connection(nas) -> Dict:
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            return {"success": True, **c.test()}
+    except (socket.timeout, OSError, Exception) as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def auto_configure(nas, options: Dict[str, bool], ip_pools: List[Dict],
+                   plans: List[Dict], radius_server_ip: str, radius_secret: str,
+                   dry_run: bool = True,
+                   pppoe_interface: str = "ether2",
+                   hotspot_interface: str = "ether3",
+                   wan_interface: str = "ether1",
+                   enable_pppoe_server: bool = False,
+                   enable_hotspot: bool = False,
+                   pppoe_pool_name: str = "pppoe-pool",
+                   pppoe_pool_ranges: str = "192.168.100.10-192.168.100.250",
+                   pppoe_local_address: str = "192.168.100.1",
+                   dns_servers: str = "8.8.8.8,1.1.1.1",
+                   enable_ppp_use_radius: bool = False,
+                   lan_subnets: Optional[List[str]] = None,
+                   parking_pool_name: str = "parking-pool",
+                   parking_pool_ranges: str = "10.255.0.0/16",
+                   parking_landing_ip: str = "",
+                   management_sources: Optional[List[str]] = None,
+                   management_ports: Optional[List[int]] = None,
+                   with_wan_drop: bool = False,
+                   with_audit_log: bool = False,
+                   pppoe_service_name: str = "isp-pppoe",
+                   pppoe_vlan_id: int = 0) -> Dict:
+    """Run selected tasks and return commands + per-task results. Each task
+    runs in isolation — if one fails, the report captures the error and the
+    other tasks still execute. This matters because real routers have
+    existing config that can trip up a single task (e.g. a stale `/radius`
+    entry with a duplicate comment) without preventing the rest of the
+    auto-config from being useful."""
+    report: Dict[str, Any] = {"dry_run": dry_run, "tasks": {},
+                               "commands": [], "task_errors": {}}
+    c = None
+    try:
+        c = RouterOSClient(nas, dry_run=dry_run).__enter__()
+        if not dry_run:
+            try:
+                report["connection"] = c.test()
+            except Exception as e:  # noqa: BLE001
+                report["connection"] = {"error": str(e)}
+        report["transport"] = c.transport_used or ("simulated" if dry_run else "n/a")
+
+        def _run(task_name, fn, *args, **kwargs):
+            """Wrap one task so exceptions don't kill the whole run. Also
+            scan the task's return value for inline errors (e.g. RouterOS
+            'not enough permissions (9)' is returned as
+            {"error": "..."} by `_do_add` / `_do_set_single`, not raised)
+            and surface them as `task_errors[task_name]` so the permission
+            hint can trigger."""
+            try:
+                result = fn(*args, **kwargs)
+                report["tasks"][task_name] = result
+                inline_errs = []
+                rows = result if isinstance(result, list) else [result] if isinstance(result, dict) else []
+                for r in rows:
+                    if isinstance(r, dict) and r.get("error"):
+                        inline_errs.append(r["error"])
+                if inline_errs:
+                    # Dedupe while preserving order
+                    seen = set(); uniq = []
+                    for e in inline_errs:
+                        if e not in seen:
+                            seen.add(e); uniq.append(e)
+                    report["task_errors"][task_name] = "; ".join(uniq)
+            except Exception as e:  # noqa: BLE001
+                report["task_errors"][task_name] = str(e)
+                report["tasks"][task_name] = {"error": str(e)}
+
+        if options.get("queue_types"):
+            _run("queue_types", c.create_queue_types)
+        if options.get("ip_pools") and ip_pools:
+            _run("ip_pools", c.sync_ip_pools_to_router, ip_pools)
+        if options.get("pppoe_server"):
+            _run("pppoe_server", c.configure_pppoe_server,
+                 interface=pppoe_interface, local_address=pppoe_local_address,
+                 pool_name=pppoe_pool_name, pool_ranges=pppoe_pool_ranges,
+                 dns_servers=dns_servers, disabled=not enable_pppoe_server,
+                 service_name=pppoe_service_name,
+                 vlan_id=int(pppoe_vlan_id or 0))
+        if options.get("hotspot"):
+            _run("hotspot", c.configure_hotspot,
+                 interface=hotspot_interface, disabled=not enable_hotspot)
+        if options.get("simple_queues_from_plans") and plans:
+            _run("simple_queues", c.sync_plans_to_queues, plans)
+        if options.get("radius_client") and radius_server_ip:
+            _run("radius_client", c.setup_radius_client,
+                 radius_server_ip=radius_server_ip, secret=radius_secret,
+                 enable_ppp_use_radius=enable_ppp_use_radius)
+        if options.get("firewall_nat_baseline") and wan_interface:
+            _run("firewall_nat_baseline", c.configure_firewall_nat_baseline,
+                 wan_interface=wan_interface, lan_subnets=lan_subnets,
+                 management_sources=management_sources,
+                 management_ports=management_ports,
+                 with_wan_drop=with_wan_drop,
+                 with_audit_log=with_audit_log)
+        if options.get("parking_pool"):
+            _run("parking_pool", c.configure_parking_pool,
+                 parking_pool_name=parking_pool_name,
+                 parking_ranges=parking_pool_ranges,
+                 landing_page_ip=parking_landing_ip)
+
+        report["commands"] = list(c.commands)
+        report["transport"] = c.transport_used or ("simulated" if dry_run else "n/a")
+        report["unprovision_commands"] = c.unprovision_commands()
+        # Consider the whole run a success if at least one task executed
+        # without throwing — task_errors are surfaced separately so admin
+        # can see exactly which task(s) hit trouble on the router side.
+        report["success"] = len(report["tasks"]) > 0
+        if report["task_errors"]:
+            # Map common RouterOS permission errors to the policy the
+            # admin needs to grant their API user.
+            perm_hints = []
+            needs_policies = set()
+            policy_map = {
+                "radius_client":          {"write", "sensitive", "policy"},
+                "firewall_nat_baseline":  {"write", "policy"},
+                "parking_pool":           {"write", "policy"},
+                "pppoe_server":           {"write", "policy"},
+                "hotspot":                {"write", "policy"},
+                "simple_queues":          {"write"},
+                "ip_pools":               {"write"},
+                "queue_types":            {"write"},
+            }
+            for task_name, err in report["task_errors"].items():
+                if "not enough permissions" in err.lower() or "permission" in err.lower():
+                    policies = policy_map.get(task_name, {"write"})
+                    needs_policies |= policies
+                    perm_hints.append(f"{task_name}: needs policies {sorted(policies)}")
+            if needs_policies:
+                report["permission_hint"] = {
+                    "issue": "Your RouterOS API user doesn't have all required policies.",
+                    "missing_policies": sorted(needs_policies),
+                    "fix": ("On the Mikrotik: /user group add name=autoisp-full "
+                            "policy=api," + ",".join(sorted(needs_policies | {"read", "write",
+                                                                                "api", "sensitive"})) +
+                            ",!local,!telnet,!ssh,!winbox,!web,!ftp ; "
+                            "then /user set autoisp group=autoisp-full"),
+                    "per_task": perm_hints,
+                }
+            report["message"] = (f"{len(report['task_errors'])} task(s) reported errors — "
+                                 "see 'task_errors' / 'permission_hint' for details. "
+                                 "Other tasks completed.")
+    except Exception as e:  # noqa: BLE001
+        report["success"] = False
+        report["message"] = str(e)
+        if c is not None:
+            try:
+                report["commands"] = list(getattr(c, "commands", []))
+                report["transport"] = c.transport_used or ("simulated" if dry_run else "n/a")
+            except Exception:
+                pass
+    finally:
+        if c is not None:
+            try:
+                c.__exit__(None, None, None)
+            except Exception:
+                pass
+    return report
+
+
+def list_pppoe_secrets(nas) -> Dict:
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            return {"success": True, "secrets": c.list_pppoe_secrets(), "transport": c.transport_used}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e), "secrets": []}
+
+
+def create_pppoe_secret(nas, name: str, password: str, profile: str = "isp-default",
+                        remote_address: Optional[str] = None, dry_run: bool = False) -> Dict:
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.create_pppoe_secret(name, password, profile=profile, remote_address=remote_address)
+        return {"success": True, "result": res, "commands": c.commands}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def delete_pppoe_secret(nas, name: str, dry_run: bool = False) -> Dict:
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.delete_pppoe_secret(name)
+        return {"success": True, "result": res, "commands": c.commands}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def provision_customer_pppoe(nas, customer: Dict, plan: Dict, password: str,
+                             remote_address: Optional[str] = None,
+                             dry_run: bool = False,
+                             pool_name: Optional[str] = None) -> Dict:
+    """One-shot: ensure a plan-profile exists with correct rate-limit + pool
+    (for client IP handout), then create the customer's PPPoE secret on that
+    profile. On re-provision (secret already exists) the profile assignment
+    is updated so the new plan takes effect.
+
+    `pool_name` → /ip/pool to attach as profile `remote-address` (critical:
+    without this, customers connect but never get a framed IP).
+    """
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            profile_res = c.configure_plan_profile(plan, pool_name=pool_name)
+            profile_name = profile_res.get("profile_name")
+            secret_res = c.create_pppoe_secret(
+                name=customer["username"],
+                password=password,
+                profile=profile_name,
+                remote_address=remote_address,
+            )
+        return {
+            "success": True, "dry_run": dry_run,
+            "profile_name": profile_name,
+            "rate_limit": profile_res.get("rate_limit"),
+            "pool_name": (pool_name or plan.get("pool_name") or "pppoe-pool"),
+            "profile_result": profile_res,
+            "secret_result": secret_res,
+            "commands": c.commands,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def provision_customer_hotspot(nas, customer: Dict, plan: Dict,
+                               password: str = "",
+                               mac_address: str = "",
+                               dry_run: bool = False) -> Dict:
+    """Push a /ip/hotspot/user entry for the customer. RADIUS (FreeRADIUS)
+    still authoritatively serves the rate-limit + session-timeout via
+    Access-Accept; this local entry is a safety net when RADIUS is
+    unreachable. Returns success=True even if the router has no hotspot
+    configured yet — caller should ensure hotspot-server is up first.
+    """
+    plan_name = (plan.get("plan_name") or "default").strip() or "default"
+    dl = (plan.get("download_speed") or "").strip()
+    ul = (plan.get("upload_speed") or "").strip()
+    rate_limit = f"{ul or dl}/{dl or ul}" if (dl or ul) else ""
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.create_hotspot_user(
+                name=customer["username"],
+                password=password,
+                mac_address=mac_address,
+                rate_limit=rate_limit,
+                profile="default",
+                comment=f"plan={plan_name}",
+            )
+        return {
+            "success": True, "dry_run": dry_run,
+            "auth_type": "hotspot",
+            "rate_limit": rate_limit,
+            "user_result": res,
+            "commands": c.commands,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def provision_customer_static(nas, customer: Dict, plan: Dict, password: str,
+                              static_ip: str,
+                              dry_run: bool = False,
+                              pool_name: Optional[str] = None) -> Dict:
+    """__S38T_TRUE_STATIC_IP__ — True static-IP customer provisioning.
+
+    The customer's CPE is manually configured with `static_ip` + gateway
+    + DNS. Mikrotik just adds the IP to the MASQUERADE + ALLOW address
+    lists and attaches a per-IP simple queue at the plan's rate-limit.
+    NO PPPoE secret is created — the customer never dials PPPoE.
+
+    `password` and `pool_name` kwargs are accepted (and ignored) for
+    signature compatibility with the pre-__S38T__ call-sites.
+    """
+    ip = (static_ip or "").strip()
+    if not ip:
+        return {"success": False,
+                "message": "static_ip required for auth_type=static_ip"}
+    rate_limit = _rate_limit_from_plan(plan)
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.create_static_ip_binding(
+                ip_address=ip,
+                rate_limit=rate_limit,
+                username=(customer or {}).get("username", ""),
+                comment=f"user={(customer or {}).get('username','')} "
+                        f"plan={(plan or {}).get('plan_name','')}".strip(),
+            )
+        return {
+            "success": bool(res.get("success")), "dry_run": dry_run,
+            "auth_type": "static_ip",
+            "rate_limit": rate_limit,
+            "binding_result": res,
+            "commands": c.commands,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def _rate_limit_from_plan(plan: Dict) -> str:
+    """Build a RouterOS-compatible rate string "<upload>/<download>" from
+    a plan dict — reused for pure static-IP queues (same convention as
+    `_render_users_file` in freeradius_manager)."""
+    if not plan:
+        return ""
+    dl = str(plan.get("download_speed") or "").strip()
+    ul = str(plan.get("upload_speed") or "").strip()
+    if not dl and not ul:
+        return ""
+    def _norm(v):
+        v = v.strip()
+        if not v:
+            return "0"
+        # Accept "100", "100M", "100Mbps" — strip units, add M suffix.
+        import re as _re
+        m = _re.match(r"^([0-9]+(?:\.[0-9]+)?)\s*([kKmMgG]?)", v)
+        if not m:
+            return v
+        num, unit = m.group(1), (m.group(2) or "M").upper()
+        if unit == "K": unit = "k"
+        elif unit in ("", "M"): unit = "M"
+        elif unit == "G": unit = "G"
+        return f"{num}{unit}"
+    return f"{_norm(ul)}/{_norm(dl)}"
+
+
+def unprovision_customer_static(nas, customer: Dict,
+                                  static_ip: str,
+                                  dry_run: bool = False) -> Dict:
+    """__S38T_TRUE_STATIC_IP__ — Remove firewall + queue entries so the
+    customer loses internet. Called on suspend/terminate/delete."""
+    ip = (static_ip or "").strip()
+    if not ip:
+        return {"success": False, "message": "static_ip required"}
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.delete_static_ip_binding(
+                ip_address=ip,
+                username=(customer or {}).get("username", ""),
+            )
+        return {"success": bool(res.get("success")), "dry_run": dry_run,
+                "binding_result": res, "commands": c.commands}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def provision_customer_dhcp_static(nas, customer: Dict, plan: Dict,
+                                   static_ip: str, mac_address: str,
+                                   dry_run: bool = False,
+                                   dhcp_server: str = "") -> Dict:
+    """Pure-DHCP static reservation (no PPPoE). Binds customer's MAC to
+    the reserved IP so every DHCP lease request returns the same IP.
+    Queue-type rate-limit must be applied separately via a simple-queue
+    (we do NOT bind a queue here — keep the function small; operators
+    bind queues via the regular per-plan queue sync)."""
+    if not (static_ip or "").strip() or not (mac_address or "").strip():
+        return {"success": False,
+                "message": "static_ip and mac_address required for dhcp-static"}
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.create_dhcp_lease(
+                mac_address=mac_address, address=static_ip,
+                server=dhcp_server,
+                comment=f"user={customer.get('username','')} plan={plan.get('plan_name','')}",
+            )
+        return {
+            "success": True, "dry_run": dry_run,
+            "auth_type": "static_ip_dhcp",
+            "lease_result": res,
+            "commands": c.commands,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def provision_customer(nas, customer: Dict, plan: Dict, password: str = "",
+                       auth_type: str = "pppoe",
+                       static_ip: str = "",
+                       mac_address: str = "",
+                       dry_run: bool = False,
+                       pool_name: Optional[str] = None,
+                       remote_address: Optional[str] = None) -> Dict:
+    """Top-level dispatcher. Routes to the right per-customer provision
+    flow based on `auth_type` from the customers table:
+
+      • `pppoe`     → classic PPPoE secret + plan-profile.
+      • `static_ip` → PPPoE secret with fixed `remote-address` (when
+                       password given), else DHCP static lease (when
+                       only mac_address given).
+      • `hotspot`   → /ip/hotspot/user entry (router-local fallback).
+    """
+    at = (auth_type or "pppoe").strip().lower()
+    if at == "hotspot":
+        return provision_customer_hotspot(
+            nas=nas, customer=customer, plan=plan,
+            password=password, mac_address=mac_address, dry_run=dry_run,
+        )
+    if at in ("static_ip", "static-ip", "static"):
+        # __S38T_TRUE_STATIC_IP__ — auth_type=static_ip means the customer'''s
+        # CPE carries the static IP natively. NO PPPoE secret, NO RADIUS.
+        # Mikrotik just firewall-allow + simple-queue the IP at plan rate.
+        return provision_customer_static(
+            nas=nas, customer=customer, plan=plan, password=password,
+            static_ip=static_ip, dry_run=dry_run, pool_name=pool_name,
+        )
+    # Default: classic PPPoE.
+    return provision_customer_pppoe(
+        nas=nas, customer=customer, plan=plan, password=password,
+        remote_address=remote_address,
+        dry_run=dry_run, pool_name=pool_name,
+    )
+
+
+def ensure_pppoe_default_profile(nas, gateway: str = "192.168.100.1",
+                                  pool_name: str = "pppoe-pool",
+                                  dns_servers: str = "8.8.8.8,1.1.1.1",
+                                  profile_name: str = "isp-default") -> Dict:
+    """Public helper — force-sets the PPPoE server's default-profile to one
+    that has a valid `local-address`. Cures the "could not determine local
+    ip address" log error on RADIUS-authenticated sessions."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            report = c.ensure_pppoe_default_profile(
+                gateway=gateway, pool_name=pool_name,
+                dns_servers=dns_servers, profile_name=profile_name,
+            )
+        return {"success": True, "transport": c.transport_used, **report}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def sync_radius_secret(nas, radius_server_ip: str) -> Dict:
+    """Public helper — force-UPDATE the router's `/radius` entry secret to
+    match the NAS DB row's `secret` column. This fixes the classic
+    "router times out waiting for RADIUS reply" loop that happens when
+    the router's stored secret drifts from our clients.conf (reply is
+    signed with our secret; router can't validate signature; discards
+    reply; retries forever)."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            res = c.sync_radius_secret(
+                radius_server_ip=radius_server_ip,
+                secret=(nas.secret or "testing123"),
+            )
+        return {"success": True, "transport": c.transport_used, **res}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def list_interfaces(nas) -> Dict:
+    """Return /interface rows from the router. Used for per-pool interface
+    dropdowns in the Auto-Configure UI."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            rows = c.list_interfaces()
+        return {"success": True, "interfaces": rows, "transport": c.transport_used}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e), "interfaces": []}
+
+
+def get_router_status(nas) -> Dict:
+    """One-shot health snapshot — for the Router Status panel."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            return {"success": True, **c.get_status()}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def detect_wan(nas) -> Dict:
+    """Thin wrapper around RouterOSClient.detect_wan for the HTTP layer."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            res = c.detect_wan()
+        res["success"] = True
+        return res
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e),
+                "interface": None, "gateway": None,
+                "source": "error", "candidates": []}
+
+
+def list_router_ip_pools(nas) -> Dict:
+    """Fetch /ip/pool live from router (for conflict preview in UI)."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            return {"success": True, "pools": c.list_ip_pools(),
+                    "transport": c.transport_used}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e), "pools": []}
+
+
+def unprovision(nas, dry_run: bool = True) -> Dict:
+    """Run the recovery script remotely. `dry_run=True` returns the commands
+    without touching the router."""
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.run_unprovision()
+        res["success"] = True
+        res["transport"] = c.transport_used or ("simulated" if dry_run else "n/a")
+        return res
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def emergency_unblock(nas, dry_run: bool = False) -> Dict:
+    """Remove the WAN-drop filter rules via API — recovery path when
+    firewall rules lock you out from the public side. Works if you can
+    reach the router from LAN or via any other NAS that's still OK."""
+    try:
+        with RouterOSClient(nas, dry_run=dry_run) as c:
+            res = c.emergency_unblock()
+        res["transport"] = c.transport_used or ("simulated" if dry_run else "n/a")
+        return res
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e)}
+
+
+def generate_rsc_script(nas, options: Dict, plans: List[Dict],
+                         ip_pools: List[Dict], radius_server_ip: str,
+                         radius_secret: str,
+                         pppoe_interface: str = "ether2",
+                         hotspot_interface: str = "ether3",
+                         wan_interface: str = "ether1",
+                         pppoe_pool_name: str = "pppoe-pool",
+                         pppoe_pool_ranges: str = "192.168.100.10-192.168.100.250",
+                         pppoe_local_address: str = "192.168.100.1",
+                         dns_servers: str = "8.8.8.8,1.1.1.1",
+                         enable_ppp_use_radius: bool = False,
+                         enable_pppoe_server: bool = False,
+                         enable_hotspot: bool = False,
+                         parking_pool_name: str = "parking-pool",
+                         parking_pool_ranges: str = "10.255.0.0/16",
+                         parking_landing_ip: str = "",
+                         lan_subnets: Optional[List[str]] = None,
+                         management_sources: Optional[List[str]] = None,
+                         management_ports: Optional[List[int]] = None,
+                         api_username: str = "autoisp",
+                         with_wan_drop: bool = False,
+                         with_audit_log: bool = False) -> Dict:
+    """Render a full RouterOS `.rsc` import script — admin imports once
+    on the router with `/import file=autoisp-setup.rsc` and every piece
+    is wired (user group + permissions, API service, firewall with our
+    VPS whitelisted, RADIUS client + CoA listener, PPPoE server, parking
+    pool, queue types). ZERO terminal copy-paste dance.
+
+    Generated via dry-run against a simulated client so we reuse all the
+    existing per-task logic (no duplication) and just capture the CLI
+    commands."""
+    # Run a dry-run to collect commands
+    dry_report = auto_configure(
+        nas=nas, options=options, ip_pools=ip_pools, plans=plans,
+        radius_server_ip=radius_server_ip, radius_secret=radius_secret,
+        dry_run=True,
+        pppoe_interface=pppoe_interface, hotspot_interface=hotspot_interface,
+        wan_interface=wan_interface,
+        enable_pppoe_server=enable_pppoe_server, enable_hotspot=enable_hotspot,
+        pppoe_pool_name=pppoe_pool_name, pppoe_pool_ranges=pppoe_pool_ranges,
+        pppoe_local_address=pppoe_local_address,
+        dns_servers=dns_servers, enable_ppp_use_radius=enable_ppp_use_radius,
+        lan_subnets=lan_subnets,
+        parking_pool_name=parking_pool_name,
+        parking_pool_ranges=parking_pool_ranges,
+        parking_landing_ip=parking_landing_ip,
+        management_sources=management_sources,
+        management_ports=management_ports,
+        with_wan_drop=with_wan_drop,
+        with_audit_log=with_audit_log,
+    )
+
+    # Preamble: fix permissions + open API service restricted to our IP
+    allow_csv = ",".join(management_sources or ["0.0.0.0/0"])
+    preamble = [
+        "# ================================================================",
+        "# Auto ISP Billing — one-shot setup script",
+        f"# Generated at {datetime.datetime.utcnow().isoformat()}Z",
+        f"# Target NAS: {getattr(nas, 'name', '?')} ({getattr(nas, 'ip_address', '?')})",
+        "# Import with:  /import file=autoisp-setup.rsc",
+        "# ================================================================",
+        "",
+        "# 1. Ensure the API user has full policies (idempotent).",
+        f'/user group add name=autoisp-full policy=read,write,api,sensitive,policy,test,!local,!telnet,!ssh,!winbox,!web,!ftp,!reboot comment="auto-isp-billing"',
+        f'/user set [find name="{api_username}"] group=autoisp-full',
+        "",
+        "# 2. Lock the API service to our billing server only.",
+        f'/ip service set api address={allow_csv} disabled=no port=8728',
+        "",
+        "# 3. Apply the full auto-config:",
+        "",
+    ]
+
+    body = dry_report.get("commands", [])
+    footer = [
+        "",
+        "# 4. Done. On the router run:",
+        "#      /log print where topics~\"radius\"    to watch incoming auth",
+        "#      /ip firewall filter print            to confirm order (MANAGEMENT before WAN-drop!)",
+        "#      /radius print                        to confirm our billing server",
+    ]
+
+    script = "\n".join(preamble + body + footer) + "\n"
+    return {"success": True, "filename": "autoisp-setup.rsc",
+            "content": script, "line_count": len(script.splitlines())}
+
+def list_router_radius(nas) -> Dict:  # __S38G_SYNC_SECRET_FROM_ROUTER__
+    """Module-level wrapper around RouterOSClient.list_radius()."""
+    try:
+        with RouterOSClient(nas, dry_run=False) as c:
+            return {"success": True, "radius": c.list_radius(),
+                    "transport": c.transport_used}
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": str(e), "radius": []}
+

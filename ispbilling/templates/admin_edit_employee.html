@@ -1,0 +1,208 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Edit Employee - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Edit Employee
+        <small>Update employee details and permissions</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="/admin/employees">Employees</a></li>
+        <li class="active">Edit Employee</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="box box-primary">
+        <div class="box-header with-border">
+            <h3 class="box-title">Employee Information</h3>
+        </div>
+        <div class="box-body">
+            <form id="editEmployeeForm" method="POST">
+                <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                
+                <!-- Basic Information -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Employee Name *</label>
+                            <input type="text" class="form-control" name="name" value="{{ employee.name }}" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Employee Code</label>
+                            <input type="text" class="form-control" value="{{ employee.employee_code }}" readonly style="background-color: #f4f4f4;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Email *</label>
+                            <input type="email" class="form-control" name="email" value="{{ employee.email }}" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Mobile *</label>
+                            <input type="tel" class="form-control" name="mobile" value="{{ employee.mobile }}" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Status *</label>
+                            <select class="form-control" name="status" required>
+                                <option value="Active" {% if employee.status == 'Active' %}selected{% endif %}>Active</option>
+                                <option value="Inactive" {% if employee.status == 'Inactive' %}selected{% endif %}>Inactive</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" class="form-control" name="password" placeholder="Leave blank to keep current password">
+                            <p class="help-block">Only fill this if you want to change the password</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Permissions Section -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <h3 style="color: #00a65a; border-bottom: 2px solid #00a65a; padding-bottom: 10px; margin-bottom: 20px;">
+                            <i class="fa fa-lock"></i> Permissions
+                        </h3>
+                    </div>
+                </div>
+
+                <!-- Feature Permissions -->
+                {% if permissions.feature %}
+                <div class="row">
+                    <div class="col-md-12">
+                        <h4 style="color: #3c8dbc; margin-bottom: 15px;">Feature Permissions</h4>
+                    </div>
+                </div>
+                <div class="row">
+                    {% for perm in permissions.feature %}
+                    <div class="col-md-4">
+                        <div class="checkbox" style="margin: 8px 0;">
+                            <label>
+                                <input type="checkbox" name="permissions" value="{{ perm.id }}" {% if perm.assigned %}checked{% endif %}>
+                                {{ perm.label }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- App Permissions -->
+                {% if permissions.app %}
+                <div class="row" style="margin-top: 20px;">
+                    <div class="col-md-12">
+                        <h4 style="color: #3c8dbc; margin-bottom: 15px;">App Permissions</h4>
+                    </div>
+                </div>
+                <div class="row">
+                    {% for perm in permissions.app %}
+                    <div class="col-md-4">
+                        <div class="checkbox" style="margin: 8px 0;">
+                            <label>
+                                <input type="checkbox" name="permissions" value="{{ perm.id }}" {% if perm.assigned %}checked{% endif %}>
+                                {{ perm.label }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Report Permissions -->
+                {% if permissions.report %}
+                <div class="row" style="margin-top: 20px;">
+                    <div class="col-md-12">
+                        <h4 style="color: #3c8dbc; margin-bottom: 15px;">Report Permissions</h4>
+                    </div>
+                </div>
+                <div class="row">
+                    {% for perm in permissions.report %}
+                    <div class="col-md-4">
+                        <div class="checkbox" style="margin: 8px 0;">
+                            <label>
+                                <input type="checkbox" name="permissions" value="{{ perm.id }}" {% if perm.assigned %}checked{% endif %}>
+                                {{ perm.label }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Form Actions -->
+                <div class="row" style="margin-top: 30px;">
+                    <div class="col-md-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa fa-save"></i> Update Employee
+                        </button>
+                        <a href="/admin/employees" class="btn btn-default">
+                            <i class="fa fa-times"></i> Cancel
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+
+<script>
+$(document).ready(function() {
+    $('#editEmployeeForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var formData = {
+            employee_id: $('input[name="employee_id"]').val(),
+            name: $('input[name="name"]').val(),
+            email: $('input[name="email"]').val(),
+            mobile: $('input[name="mobile"]').val(),
+            status: $('select[name="status"]').val(),
+            password: $('input[name="password"]').val(),
+            permissions: []
+        };
+        
+        $('input[name="permissions"]:checked').each(function() {
+            formData.permissions.push(parseInt($(this).val()));
+        });
+        
+        $.ajax({
+            url: '/api/employees/' + formData.employee_id,
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.success) {
+                    alert('Employee updated successfully!');
+                    window.location.href = '/admin/employees';
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                var errorMsg = 'Failed to update employee';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                alert(errorMsg);
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

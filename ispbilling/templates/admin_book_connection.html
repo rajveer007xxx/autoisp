@@ -1,0 +1,114 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Book Connection - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Book Connection
+        <small>New connection booking</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Book New Connection</h3>
+        </div>
+        <div class="box-body">
+            <form id="bookConnectionForm" class="form-horizontal">
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Customer Name:</label>
+                    <div class="col-sm-4">
+                        <input type="text" class="form-control" placeholder="Enter name" required>
+                    </div>
+                    <label class="col-sm-2 control-label">Mobile:</label>
+                    <div class="col-sm-4">
+                        <input type="tel" class="form-control" placeholder="Enter mobile" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Email:</label>
+                    <div class="col-sm-4">
+                        <input type="email" class="form-control" placeholder="Enter email">
+                    </div>
+                    <label class="col-sm-2 control-label">Address:</label>
+                    <div class="col-sm-4">
+                        <input type="text" class="form-control" placeholder="Enter address" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Plan:</label>
+                    <div class="col-sm-4">
+                        <select class="form-control" required>
+                            <option value="">Select Plan</option>
+                        </select>
+                    </div>
+                    <label class="col-sm-2 control-label">Installation Date:</label>
+                    <div class="col-sm-4">
+                        <input type="date" class="form-control" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Installation Charge:</label>
+                    <div class="col-sm-4">
+                        <input type="number" class="form-control" placeholder="Enter amount" step="0.01">
+                    </div>
+                    <label class="col-sm-2 control-label">Advance Payment:</label>
+                    <div class="col-sm-4">
+                        <input type="number" class="form-control" placeholder="Enter amount" step="0.01">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Remarks:</label>
+                    <div class="col-sm-10">
+                        <textarea class="form-control" rows="3" placeholder="Enter remarks"></textarea>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-sm-offset-2 col-sm-10">
+                        <button type="submit" class="btn btn-primary">Book Connection</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Recent Bookings</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Booking ID</th>
+                            <th>Customer Name</th>
+                            <th>Mobile</th>
+                            <th>Plan</th>
+                            <th>Installation Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="7" class="text-center">No bookings found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+$(document).ready(function() {
+    $('#bookConnectionForm').submit(function(e) {
+        e.preventDefault();
+        alert('Connection booking functionality will be implemented with backend API');
+    });
+});
+</script>
+{% endblock %}

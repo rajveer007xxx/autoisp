@@ -1,0 +1,311 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Access Request Logs - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header { padding: 15px; background: #fff; border-bottom: 1px solid #d2d6de; }
+    .content-header h1 { margin: 0; font-size: 24px; font-weight: 500; }
+    .btn-clear { background: #dd4b39; color: #fff; border: none; padding: 8px 18px; border-radius: 3px; float: right; margin-top: -5px; margin-left: 8px; }
+    .btn-clear:hover { background: #c0392b; color: #fff; }
+    .btn-primary-add { background: #17a2b8; color: #fff; border: none; padding: 8px 18px; border-radius: 3px; float: right; margin-top: -5px; }
+    .btn-primary-add:hover { background: #138496; color: #fff; }
+    .data-table th, .data-table td { vertical-align: middle !important; text-align: center !important; font-size: 13px; }
+    .badge-accept { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-reject { background: #dd4b39; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .btn-action { padding: 3px 8px; font-size: 12px; margin: 0 2px; }
+    .modal-header { background: #3c8dbc; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-header .close { color: #fff; opacity: 1; }
+    .form-group label { font-weight: 600; color: #555; font-size: 12px; margin-bottom: 3px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Access Request Logs
+        <!-- _S39ARLBULK_UI -->
+        <button type="button" class="btn btn-clear" onclick="clearLogs()" data-testid="arl-clear-all">
+            <i class="fa fa-trash"></i> Clear All
+        </button>
+        <button type="button" class="btn btn-clear" id="arl-clear-selected-btn" onclick="clearSelectedLogs()" data-testid="arl-clear-selected" style="background:#f59e0b; display:none; margin-right:6px;">
+            <i class="fa fa-check-square"></i> Clear Selected (<span id="arl-sel-count">0</span>)
+        </button>
+        <button type="button" class="btn btn-primary-add" data-toggle="modal" data-target="#logModal">
+            <i class="fa fa-plus"></i> Add Log Entry
+        </button>
+    </h1>
+<!-- S30 bulk export toolbar -->
+<div id="s30ExportTools_access_logs" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+<script src="/static/js/bulk_export.js"></script>
+<script>
+(function(){
+  var tryMount = function(){
+    if (window.BulkExport && window.jQuery) {
+      BulkExport.mount('#s30ExportTools_access_logs', '/api/admin/access-logs/export-full', 'access_logs');
+    } else { setTimeout(tryMount, 80); }
+  };
+  tryMount();
+})();
+</script>
+
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-body data-table">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Date/Time (IST)</th><th>Username</th><th>MAC ID</th><th>NAS</th><th>Type</th><th>Result</th><th>Reason</th><th>Source</th><th>Action <input type="checkbox" id="arl-select-all" data-testid="arl-select-all" title="Select all rows" style="margin-left:8px; transform:scale(1.25); cursor:pointer;"></th>
+                    </tr>
+                </thead>
+                <tbody data-testid="arl-tbody">
+                {% for l in access_logs %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="mono" data-ts-utc="{{ l.ts.isoformat() if l.ts else '' }}">
+                            {{ l.ts.strftime('%Y-%m-%d %H:%M:%S') if l.ts else '' }}</td>
+                        <td>{{ l.username }}</td>
+                        <td class="mono">{{ l.mac or '-' }}</td>
+                        <td class="mono">{{ l.nas_ip or '-' }}</td>
+                        <td>{{ l.type }}</td>
+                        <td>
+                            {% if l.status == 'Accept' %}<span class="badge-accept">Accept</span>
+                            {% else %}<span class="badge-reject">Reject</span>{% endif %}
+                        </td>
+                        <td style="font-size:11px; color:#64748b; max-width:260px; word-break:break-word;" data-testid="arl-reason"><!-- _S39LOG_HUMANIZE --> {% set _r = (l.reason or '').strip() %}{% set _ru = _r.upper() %}{% if not _r %}-{% elif _ru in ['PASSWORD MISMATCH','INVALID-PASSWORD','INVALID_PASSWORD','BAD-PASSWORD','INVALID PASSWORD'] %}Password mismatch{% elif _ru in ['USER-NOT-FOUND','USER_NOT_FOUND','USER NOT FOUND','NO-SUCH-USER'] %}User not found{% elif _ru in ['PLAN-EXPIRED','PLAN_EXPIRED','EXPIRED'] %}Plan expired{% elif _ru in ['DISABLED','USER-DISABLED','ACCOUNT-DISABLED'] %}Account disabled{% elif _ru in ['DEACTIVATED','INACTIVE'] %}Deactivated{% elif _ru in ['PARKING','PARKED'] %}In parking pool (overdue){% elif _ru in ['NO-NAS','NAS-NOT-FOUND','UNKNOWN-CLIENT'] %}Unknown router/NAS{% elif _ru in ['AUTH-OK','ACCEPT'] %}Authenticated{% else %}{{ _r }}{% endif %}</td>
+                        <td>
+                            {% if l.source == 'radius' %}<span class="badge" style="background:#0ea5e9; color:#fff;">RADIUS</span>
+                            {% elif l.source == 'router' %}<span class="badge" style="background:#7c3aed; color:#fff;">Router</span>
+                            {% else %}<span class="badge" style="background:#64748b; color:#fff;">App</span>{% endif %}
+                        </td>
+                        <td style="white-space:nowrap;">
+                            {% if l.customer_pk %}
+                            <a class="btn btn-default btn-action" href="/admin/subscribers/{{ l.customer_pk }}"
+                               title="Open subscriber"><i class="fa fa-user"></i></a>
+                            {% else %}<span style="color:#94a3b8; font-size:11px;">(unknown user)</span>{% endif %}
+                            {% if l.row_key %}
+                            <input type="checkbox" class="arl-row-chk" data-key="{{ l.row_key }}"
+                                   data-testid="arl-row-chk-{{ l.row_key }}"
+                                   style="margin-left:8px; transform:scale(1.25); vertical-align:middle; cursor:pointer;"
+                                   title="Select for bulk-delete">
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<div class="modal fade" id="logModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Add Log Entry</h4>
+            </div>
+            <div class="modal-body">
+                <form id="logForm">
+                    <div class="form-group"><label>Username *</label><input type="text" class="form-control" id="log_username" required></div>
+                    <div class="form-group"><label>NAS IP</label><input type="text" class="form-control" id="log_nas_ip"></div>
+                    <div class="form-group"><label>Request Type</label>
+                        <select class="form-control" id="log_request_type">
+                            <option value="Auth">Auth</option>
+                            <option value="Accounting">Accounting</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Status</label>
+                        <select class="form-control" id="log_status">
+                            <option value="Accept">Accept</option>
+                            <option value="Reject">Reject</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Reason</label><input type="text" class="form-control" id="log_reason"></div>
+                    <div class="form-group"><label>Client IP</label><input type="text" class="form-control" id="log_ip"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveLog()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Password sync modal (reused for any user row) -->
+<div class="modal fade" id="pwdSyncModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" style="max-width:720px; width:95%;" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#0f172a; color:#fff;">
+        <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:1;">&times;</button>
+        <h4 class="modal-title">Password Sync - <span id="psmUser">—</span></h4>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex; gap:20px; margin-bottom:12px; align-items:center;">
+          <div title="Password in billing DB">Stored:
+            <strong class="mono" id="psmStored" style="color:#ca8a04;">—</strong></div>
+          <div title="Password live on the MikroTik router">Detected:
+            <strong class="mono" id="psmDetected" style="color:#059669;">fetching router...</strong>
+            <span id="psmNas" style="color:#94a3b8; font-size:11px;"></span></div>
+          <button class="btn btn-success" id="psmSaveBtn" disabled onclick="psmSave()" data-testid="arl-save-pwd-btn">
+            <i class="fa fa-save"></i> Save Detected Password</button>
+        </div>
+        <p style="color:#64748b; font-size:12px; margin-top:10px;">
+          <strong>Stored Password</strong> is what this billing portal's DB has recorded.
+          <strong>Detected Password</strong> is read live from the router's
+          <code>/ppp secret</code> table — this is what the subscriber must use to
+          authenticate. If they differ, click Save to align the DB to the router.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+function saveLog() {
+    const payload = {
+        username: document.getElementById('log_username').value,
+        nas_ip: document.getElementById('log_nas_ip').value,
+        request_type: document.getElementById('log_request_type').value,
+        status: document.getElementById('log_status').value,
+        reason: document.getElementById('log_reason').value,
+        ip_address: document.getElementById('log_ip').value
+    };
+    if (!payload.username) { alert('Username required'); return; }
+    fetch('/api/access-logs/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) { $('#logModal').modal('hide'); location.reload(); }
+            else alert(d.message || 'Error');
+        });
+}
+function deleteLog(id) {
+    if (!confirm('Delete this log?')) return;
+    fetch(`/api/access-logs/${id}/delete`, { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+function clearLogs() {
+    if (!confirm('Clear ALL access request logs? This cannot be undone.')) return;
+    fetch('/api/access-logs/clear', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message || 'Error'); });
+}
+
+// === Session 23.10 - password sync modal + IST formatter ===
+var _psmPk = null, _psmUser = null, _psmDetected = "";
+function openPwdModal(pk, uname) {
+    _psmPk = pk; _psmUser = uname;
+    document.getElementById("psmUser").innerText = uname;
+    document.getElementById("psmStored").innerText = "loading...";
+    document.getElementById("psmDetected").innerText = "fetching router...";
+    document.getElementById("psmDetected").style.color = "#94a3b8";
+    document.getElementById("psmNas").innerText = "";
+    document.getElementById("psmSaveBtn").disabled = true;
+    $("#pwdSyncModal").modal("show");
+    fetch("/api/subscribers/" + pk + "/access-logs")
+        .then(function(r){return r.json();}).then(function(d){
+            document.getElementById("psmStored").innerText = d.stored_password || "(none)";
+            fetch("/api/subscribers/" + pk + "/router-password")
+                .then(function(r2){return r2.json();}).then(function(d2){
+                    if (d2.success && d2.router_password) {
+                        document.getElementById("psmDetected").innerText = d2.router_password;
+                        document.getElementById("psmDetected").style.color = "#10b981";
+                        document.getElementById("psmNas").innerText = d2.router_name ? ("(from " + d2.router_name + ")") : "";
+                        _psmDetected = d2.router_password;
+                        var btn = document.getElementById("psmSaveBtn");
+                        if (d2.router_password === (d.stored_password || "")) {
+                            btn.innerText = "In Sync \u2713"; btn.disabled = true;
+                            btn.className = "btn btn-default";
+                        } else {
+                            btn.innerText = "Save Detected Password"; btn.disabled = false;
+                            btn.className = "btn btn-success";
+                        }
+                    } else {
+                        document.getElementById("psmDetected").innerText = "(" + (d2.message || "router unreachable") + ")";
+                        document.getElementById("psmDetected").style.color = "#dc2626";
+                    }
+                });
+        });
+}
+function psmSave() {
+    if (!_psmPk || !_psmDetected) return;
+    if (!confirm("Save detected router password as stored password for " + _psmUser + "?")) return;
+    fetch("/api/subscribers/" + _psmPk + "/save-detected-password", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({password: _psmDetected})
+    }).then(function(r){return r.json();}).then(function(d){
+        alert((d.success ? "OK " : "FAIL ") + (d.message || ""));
+        if (d.success) { $("#pwdSyncModal").modal("hide"); }
+    });
+}
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll("td[data-ts-utc]").forEach(function(td) {
+        var iso = td.getAttribute("data-ts-utc");
+        if (!iso) return;
+        try {
+            var d = new Date(iso.indexOf("Z") === -1 ? iso + "Z" : iso);
+            if (isNaN(d.getTime())) return;
+            var opts = { day: "2-digit", month: "2-digit", year: "numeric",
+                         hour: "2-digit", minute: "2-digit", second: "2-digit",
+                         hour12: false, timeZone: "Asia/Kolkata" };
+            var p = new Intl.DateTimeFormat("en-GB", opts).formatToParts(d);
+            var g = function(x){var f = p.find(function(y){return y.type === x;}); return f ? f.value : "";};
+            td.innerText = g("day")+"-"+g("month")+"-"+g("year")+" "+g("hour")+":"+g("minute")+":"+g("second")+" IST";
+        } catch (e) {}
+    });
+});
+
+</script>
+{% endblock %}
+
+<script>
+/* _S39ARLBULK_UI — bulk select & clear for Access Request Logs */
+function arlUpdateSelCount() {
+    var n = document.querySelectorAll('.arl-row-chk:checked').length;
+    var btn = document.getElementById('arl-clear-selected-btn');
+    var cnt = document.getElementById('arl-sel-count');
+    if (cnt) cnt.textContent = n;
+    if (btn) btn.style.display = n > 0 ? 'inline-block' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var all = document.getElementById('arl-select-all');
+    if (all) {
+        all.addEventListener('change', function() {
+            document.querySelectorAll('.arl-row-chk').forEach(function(cb) {
+                cb.checked = all.checked;
+            });
+            arlUpdateSelCount();
+        });
+    }
+    document.querySelectorAll('.arl-row-chk').forEach(function(cb) {
+        cb.addEventListener('change', arlUpdateSelCount);
+    });
+});
+function clearSelectedLogs() {
+    var keys = Array.from(document.querySelectorAll('.arl-row-chk:checked'))
+                    .map(function(cb) { return cb.getAttribute('data-key'); })
+                    .filter(Boolean);
+    if (!keys.length) { alert('No rows selected'); return; }
+    if (!confirm('Delete ' + keys.length + ' selected log(s)? This cannot be undone.')) return;
+    fetch('/api/access-logs/clear-selected', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keys: keys})
+    }).then(function(r){ return r.json(); }).then(function(d) {
+        if (d.success) {
+            alert('Deleted: ' + (d.app_deleted||0) + ' app, ' + (d.rad_deleted||0) + ' radius');
+            location.reload();
+        } else {
+            alert(d.message || 'Error');
+        }
+    }).catch(function(e){ alert('Network error: ' + e); });
+}
+</script>
+

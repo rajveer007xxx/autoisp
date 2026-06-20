@@ -1,0 +1,217 @@
+{% extends layout|default("base_admin.html") %}
+{% block title %}Unmapped ONUs - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.um-card{background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.um-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}
+.um-btn.gray{background:#475569;}
+.um-btn.green{background:#10b981;}
+.um-btn:disabled{opacity:.5;cursor:not-allowed;}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;position:sticky;top:0;}
+table td{padding:10px;border-bottom:1px solid #e2e8f0;font-size:13px;}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;}
+.tag.none{background:#fee2e2;color:#b91c1c;}
+.tag.address{background:#fef3c7;color:#a16207;}
+.tag.gps{background:#dcfce7;color:#15803d;}
+.tag.manual{background:#dbeafe;color:#1d4ed8;}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px;}
+.kpi-box{background:#fff;border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.kpi-num{font-size:30px;font-weight:800;color:#0b1120;}
+.kpi-lbl{font-size:12px;color:#64748b;text-transform:uppercase;font-weight:600;}
+</style>
+
+<section class="content-header">
+  <h1>Unmapped ONUs<small>Customers without precise GPS pins on the Network Map</small></h1>
+</section>
+
+<section class="content">
+  <div class="kpi">
+    <div class="kpi-box"><div class="kpi-num" id="kpiTotal">…</div><div class="kpi-lbl">Total Unmapped</div></div>
+    <div class="kpi-box"><div class="kpi-num" id="kpiAddr" style="color:#a16207">…</div><div class="kpi-lbl">Pending GPS Confirm</div></div>
+    <div class="kpi-box"><div class="kpi-num" id="kpiNone" style="color:#b91c1c">…</div><div class="kpi-lbl">No Pin At All</div></div>
+  </div>
+
+{% if (role|default("admin")) == "admin" %}
+  <div class="um-card">
+    <h3 style="margin:0 0 12px;display:flex;align-items:center;gap:10px;">
+      <i class="bi bi-geo-alt-fill" style="color:#6366f1;"></i> Bulk Auto-Geocode
+      <button class="um-btn green" style="margin-left:auto;" onclick="bulkGeocode(50)" data-testid="um-bulk-50">Geocode 50 customers</button>
+      <button class="um-btn" onclick="bulkGeocode(200)" data-testid="um-bulk-200">Geocode 200 customers</button>
+      <button class="um-btn gray" onclick="loadList()">Refresh</button>
+    </h3>
+    <p style="color:#64748b;font-size:13px;margin:0;">
+      Uses OpenStreetMap Nominatim (free). Rate-limited to 1 customer/sec — please refresh after a minute to see updated pins. ONUs with linked customers will inherit coords automatically.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="um-card">
+    <h3 style="margin:0 0 12px;">Unmapped ONUs</h3>
+    <div id="umList"><div class="empty">Loading…</div></div>
+  </div>
+</section>
+
+<script>window.UM_API="{{ api_prefix|default('/api/admin') }}";window.UM_ROLE="{{ role|default('admin') }}";</script>
+<script>
+async function loadList(){
+  const r=await fetch((window.UM_API||'/api/admin')+'/unmapped-onus',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){document.getElementById('umList').innerHTML='<div class="empty">Error</div>';return;}
+  let cAddr=0, cNone=0;
+  d.items.forEach(x=>{ if(x.has_pin) cAddr++; else cNone++; });
+  document.getElementById('kpiTotal').textContent = d.count;
+  document.getElementById('kpiAddr').textContent  = cAddr;
+  document.getElementById('kpiNone').textContent  = cNone;
+  if(d.items.length===0){document.getElementById('umList').innerHTML='<div class="empty">All ONUs have a pin 🎉</div>';return;}
+  document.getElementById('umList').innerHTML=`
+    <table><thead><tr><th>Serial</th><th>Customer</th><th>Address</th><th>OLT/PON</th><th>Source</th><th>Actions</th></tr></thead><tbody>
+    ${d.items.map(x=>`
+      <tr data-testid="um-row-${x.onu_id}">
+        <td><code>${x.serial||'-'}</code></td>
+        <td><b>${x.customer_name||'-'}</b><br><small>${x.customer_id||''}</small></td>
+        <td><small>${(x.address||'-').substring(0,50)}${x.locality?'<br>'+x.locality:''}</small></td>
+        <td>${x.olt_id?'OLT-'+x.olt_id+' / PON '+x.pon_port:'-'}</td>
+        <td><span class="tag ${x.has_pin?'address':'none'}">${x.has_pin?'Address':'None'}</span></td>
+        <td>
+          ${x.customer_id?`<button class="um-btn green" onclick="geocode('${x.customer_id}',this)" data-testid="um-geocode-${x.onu_id}">Auto-Geocode</button>`:''}
+          <button class="um-btn" style="background:linear-gradient(135deg,#10b981,#0ea5e9);color:#fff;" onclick="openQuickProvision(this)" data-onu-id="${x.onu_id}" data-onu-serial="${(x.serial||'').replace(/[\"'<>]/g,'')}" data-olt-label="${x.olt_id?('OLT-'+x.olt_id+' / PON '+(x.pon_port||'?')):''}" data-testid="um-quickprov-${x.onu_id}">⚡ Provision</button>
+          <a class="um-btn gray" style="text-decoration:none;display:inline-block;" href="/admin/network-map?focus_onu=${x.onu_id}" data-testid="um-locate-${x.onu_id}">Locate on Map</a> <!-- _S57C_QP_BTN_ -->
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function geocode(custId, btn){
+  btn.disabled=true; btn.textContent='Locating…';
+  const r=await fetch('/api/admin/customers/'+custId+'/geocode',{method:'POST',credentials:'include'});
+  const d=await r.json();
+  if(d.success){
+    btn.textContent='✓ Done'; btn.style.background='#10b981';
+    setTimeout(loadList, 800);
+  } else { btn.disabled=false; btn.textContent='Auto-Geocode'; alert(d.message||d.error); }
+}
+async function bulkGeocode(limit){
+  if(!confirm(`Auto-geocode up to ${limit} customers? This runs in background, ~${limit} seconds at 1 req/sec.`)) return;
+  const r=await fetch('/api/admin/customers/geocode-batch',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({limit})});
+  const d=await r.json();
+  alert(d.message||`Queued ${d.queued} customers`);
+  if(d.success && d.queued>0) setTimeout(loadList, 5000);
+}
+loadList();
+</script>
+
+<!-- _S57C_QUICK_PROV_  Phase 2 — Quick Provision wizard -->
+<div class="modal fade" id="quickProvModal" tabindex="-1" role="dialog" data-testid="quick-prov-modal">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#10b981,#0ea5e9);color:#fff;">
+        <h5 class="modal-title"><i class="bi bi-lightning-charge-fill"></i> Quick Provision (≤10 s)</h5>
+        <button type="button" class="close text-white" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info" style="font-size:13px;">
+          <i class="bi bi-info-circle"></i>
+          <strong>Zero-Touch Provisioning</strong> auto-pushes WAN + Wi-Fi + ACS URL
+          to the ONU via OLT CLI. Currently supported on
+          <strong>VSOL / Netlink / Syrotech / CDATA</strong> EPON family.
+        </div>
+        <input type="hidden" id="qp_onu_id" />
+        <div class="form-group">
+          <label>ONU Serial / MAC</label>
+          <input type="text" class="form-control" id="qp_onu_label" data-testid="qp-onu-label" readonly />
+        </div>
+        <div class="form-group">
+          <label>OLT</label>
+          <input type="text" class="form-control" id="qp_olt_label" data-testid="qp-olt-label" readonly />
+        </div>
+        <div class="form-group">
+          <label>Customer (optional — leave blank for trial)</label>
+          <input type="text" class="form-control" id="qp_customer_id"
+                 placeholder="Customer ID (or leave blank)" data-testid="qp-customer-id" />
+        </div>
+        <div class="form-group">
+          <label>Wi-Fi SSID</label>
+          <input type="text" class="form-control" id="qp_ssid"
+                 placeholder="FIBERNET-XXXX" data-testid="qp-ssid" />
+        </div>
+        <div class="form-group">
+          <label>Wi-Fi Password</label>
+          <input type="text" class="form-control" id="qp_password"
+                 placeholder="12345678" data-testid="qp-password" />
+        </div>
+        <pre id="qp_output" data-testid="qp-output" style="display:none;background:#0f172a;color:#a5f3fc;padding:10px;border-radius:6px;font-size:11px;max-height:240px;overflow:auto;"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" id="qp_submit_btn" data-testid="qp-submit" onclick="runQuickProvision()">
+          <i class="bi bi-lightning-charge-fill"></i> Provision Now
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+window.openQuickProvision = function(arg, label, oltLabel){
+  // _S57E_QP_FIX_  Accept either (onuId, label, oltLabel) OR (buttonEl).
+  let onuId = arg, _label = label, _olt = oltLabel;
+  if (arg && arg.tagName === 'BUTTON'){
+    onuId  = parseInt(arg.dataset.onuId, 10);
+    _label = arg.dataset.onuSerial || ('#'+onuId);
+    _olt   = arg.dataset.oltLabel || '';
+  }
+  label = _label; oltLabel = _olt;
+  $('#qp_onu_id').val(onuId);
+  $('#qp_onu_label').val(label || ('#' + onuId));
+  $('#qp_olt_label').val(oltLabel || '');
+  $('#qp_customer_id').val('');
+  $('#qp_ssid').val('');
+  $('#qp_password').val('');
+  $('#qp_output').hide().text('');
+  try { $('#quickProvModal').modal('show'); }
+  catch(e){
+    const el = document.getElementById('quickProvModal');
+    if (el && window.bootstrap && bootstrap.Modal){
+      bootstrap.Modal.getOrCreateInstance(el).show();
+    }
+  }
+};
+async function runQuickProvision(){
+  const id = $('#qp_onu_id').val();
+  const out = document.getElementById('qp_output');
+  const btn = document.getElementById('qp_submit_btn');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Provisioning…';
+  out.style.display = 'block'; out.textContent = 'Working…';
+  try {
+    const r = await fetch('/api/admin/olt/onus/' + id + '/zero-touch-provision', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        customer_id: ($('#qp_customer_id').val()||'').trim() || null,
+        wifi_ssid:   ($('#qp_ssid').val()||'').trim() || null,
+        wifi_password:($('#qp_password').val()||'').trim() || null,
+      })
+    });
+    const j = await r.json();
+    out.textContent = JSON.stringify(j, null, 2);
+    if (r.ok && (j.ok || j.success)){
+      out.style.color = '#a7f3d0';
+      btn.innerHTML = '<i class="bi bi-check-circle"></i> Provisioned';
+      setTimeout(()=>{ try { $('#quickProvModal').modal('hide'); } catch(e){} location.reload(); }, 1600);
+    } else {
+      out.style.color = '#fda4af';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
+    }
+  } catch(e){
+    out.textContent = 'Network error: ' + e.message;
+    out.style.color = '#fda4af';
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
+  }
+}
+</script>
+
+{% endblock %}
+

@@ -1,0 +1,1378 @@
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Index, LargeBinary, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from datetime import datetime
+from pathlib import Path
+import os
+
+DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+class Company(Base):
+    __tablename__ = "companies"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, unique=True, index=True)
+    company_name = Column(String)
+    company_email = Column(String)
+    company_phone = Column(String)
+    company_address = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    gst_number = Column(String, nullable=True)
+    bank_name = Column(String, nullable=True)
+    account_number = Column(String, nullable=True)
+    branch_code = Column(String, nullable=True)
+    branch_location = Column(String, nullable=True)
+    branch_ifsc = Column(String, nullable=True)
+    upi_id = Column(String, nullable=True)
+    logo_path = Column(String, nullable=True)
+    declaration = Column(String, nullable=True, default='')
+    terms_conditions = Column(String, nullable=True, default='')
+    smtp_server = Column(String, nullable=True)
+    smtp_port = Column(Integer, nullable=True)
+    smtp_username = Column(String, nullable=True)
+    smtp_password = Column(String, nullable=True)
+    bank_qr_code = Column(String, nullable=True)
+    package = Column(String, nullable=True, default='Trial')  # Trial/Regular
+    admin_type = Column(String, nullable=True, default='Trial')  # Trial/Regular
+    period_months = Column(Integer, nullable=True, default=1)  # 1-12 months (renewal period)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    status = Column(String, nullable=True, default='Active')  # Active/Deactive/Suspended
+    balance_amount = Column(Float, nullable=True, default=0.0)
+    auto_renew_enabled = Column(Integer, nullable=True, default=1)  # 1=enabled, 0=disabled
+    last_renewal_date = Column(DateTime, nullable=True)  # Last time admin was renewed
+    deleted_at = Column(DateTime, nullable=True)  # Soft delete timestamp
+    deleted_by = Column(String, nullable=True)  # Who deleted (superadmin username)
+    gst_invoice_needed = Column(Integer, nullable=True, default=1)  # 1=Yes (show GST), 0=No (hide GST)
+    # === S41Y-COMPANY-EMAIL-TOGGLES ===
+    # Per-company auto-email toggles (admin Settings page). When 0, the
+    # corresponding flow does not auto-send; admins can still trigger
+    # email manually from the per-row buttons.
+    auto_email_invoices = Column(Integer, nullable=True, default=1)   # 1=auto, 0=manual only
+    auto_email_receipts = Column(Integer, nullable=True, default=0)   # default OFF per operator request
+    # === S42B-COMPANY-WA-FLAG ===
+    # WhatsApp / MSG91 master toggle controlled by Superadmin per company.
+    # All MSG91-backed send endpoints (send-receipt-whatsapp, send-pay-link,
+    # send-invoice-whatsapp, etc.) gate on this. Until s42b this column
+    # existed in the DB but was NOT mapped on the ORM, so every getattr()
+    # returned 0 and admins were always redirected to wa.me — even after
+    # Superadmin enabled the feature.
+    enable_whatsapp_api = Column(Integer, nullable=True, default=0)
+    # __S43ZQ__ Per-company toggle for the Payment Gateway feature.
+    # Controlled by superadmin. When 0, the Admin profile UI hides the
+    # gateway-config section AND backend rejects gateway CRUD with 403.
+    payment_gateway_enabled = Column(Integer, nullable=True, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SuperAdminPackage(Base):
+    __tablename__ = "superadmin_packages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    package_name = Column(String, unique=True, index=True)
+    user_count = Column(Integer, default=0)
+    package_type = Column(String, default="without_whatsapp")  # "without_whatsapp" or "with_whatsapp"
+    package_price = Column(Float, default=0.0)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SuperAdmin(Base):
+    __tablename__ = "superadmins"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    superadmin_id = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    superadmin_name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    mobile = Column(String, nullable=True)
+    profile_image_path = Column(String, nullable=True)
+    logo_path = Column(String, nullable=True)  # Logo for marketing/index page and default admin logo
+    smtp_server = Column(String, nullable=True)  # SMTP server URL
+    smtp_port = Column(Integer, nullable=True)  # SMTP port
+    smtp_username = Column(String, nullable=True)  # SMTP username
+    smtp_password = Column(String, nullable=True)  # SMTP password
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SuperAdminSettings(Base):
+    __tablename__ = "superadmin_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    contact_number = Column(String, nullable=True)
+    contact_email = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    gst_number = Column(String, nullable=True)
+    bank_name = Column(String, nullable=True)
+    branch_code = Column(String, nullable=True)
+    account_no = Column(String, nullable=True)
+    branch_location = Column(String, nullable=True)
+    ifsc_code = Column(String, nullable=True)
+    upi_id = Column(String, nullable=True)
+    qr_code_path = Column(String, nullable=True)
+    declaration = Column(String, nullable=True)
+    terms_conditions = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Admin(Base):
+    __tablename__ = "admins"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    admin_name = Column(String)
+    admin_email = Column(String)
+    admin_mobile = Column(String, nullable=True)
+    company_id = Column(String, index=True)
+    profile_image_path = Column(String, nullable=True)
+    # _S39R5U_ — Per-admin seal & signature (transparent PNG). Rendered
+    # in the bottom-right "Authorised Signatory" block on every invoice
+    # PDF the company emits.
+    seal_signature_path = Column(String, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)  # Soft delete timestamp
+    deleted_by = Column(String, nullable=True)  # Who deleted (superadmin username)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Employee(Base):
+    __tablename__ = "employees"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True, nullable=False)
+    employee_code = Column(String, nullable=False)  # e.g., EMP-001
+    employee_name = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    mobile = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    profile_image_path = Column(String, nullable=True)
+    status = Column(String, default='Active')  # Active/Deactive
+    is_deleted = Column(Boolean, default=False)
+    last_latitude = Column(Float, nullable=True)
+    last_longitude = Column(Float, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # _S40z_  Added columns (already present in DB schema)
+    sub_lco_id = Column(Integer, nullable=True)
+    terms_conditions = Column(String, nullable=True)
+    declaration = Column(String, nullable=True)
+    inv_company_name = Column(String, nullable=True)
+    inv_company_gst = Column(String, nullable=True)
+    inv_company_phone = Column(String, nullable=True)
+    inv_company_email = Column(String, nullable=True)
+    inv_company_address = Column(String, nullable=True)
+    inv_bank_name = Column(String, nullable=True)
+    inv_account_number = Column(String, nullable=True)
+    inv_branch_ifsc = Column(String, nullable=True)
+    inv_branch_location = Column(String, nullable=True)
+    inv_upi_id = Column(String, nullable=True)
+    
+    __table_args__ = (
+        UniqueConstraint('company_id', 'employee_code', name='uq_company_employee_code'),
+        Index('idx_company_employee', 'company_id', 'employee_code'),
+        Index('idx_employee_status', 'company_id', 'status'),
+        Index('idx_employee_sub_lco', 'company_id', 'sub_lco_id'),
+    )
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, nullable=False)  # e.g., 'user_management'
+    label = Column(String, nullable=False)  # e.g., 'User Management'
+    category = Column(String, nullable=False)  # 'feature', 'app', 'report'
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_permission_category', 'category'),
+    )
+
+class EmployeePermission(Base):
+    __tablename__ = "employee_permissions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
+    permission_id = Column(Integer, ForeignKey('permissions.id'), nullable=False)
+    granted_at = Column(DateTime, default=datetime.utcnow)
+    granted_by = Column(String, nullable=True)
+    
+    __table_args__ = (
+        UniqueConstraint('employee_id', 'permission_id', name='uq_employee_permission'),
+        Index('idx_employee_permissions', 'employee_id'),
+    )
+
+class EmployeeSequence(Base):
+    __tablename__ = "employee_sequences"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, unique=True, index=True)
+    next_number = Column(Integer, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Customer(Base):
+    __tablename__ = "customers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    registration_type = Column(String, default='New Customer')
+    service_type = Column(String)
+    username = Column(String)
+    customer_name = Column(String)
+    nickname = Column(String, nullable=True)
+    customer_email = Column(String, nullable=True)
+    customer_phone = Column(String)
+    alt_mobile = Column(String, nullable=True)
+    gst_invoice_needed = Column(String)
+    customer_gst_no = Column(String, nullable=True)
+    id_proof = Column(String, nullable=True)
+    id_proof_no = Column(String, nullable=True)
+    installation_date = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    locality = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    plan_id = Column(Integer, nullable=True)
+    monthly_amount = Column(Float, nullable=True)
+    auto_renew = Column(String)
+    customer_type = Column(String, default='Postpaid')
+    caf_no = Column(String, nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    vendor = Column(String, nullable=True)
+    modem_no = Column(String, nullable=True)
+    start_date = Column(String, nullable=True)
+    period = Column(Integer, nullable=True)
+    end_date = Column(String, nullable=True)
+    bill_amount = Column(Float, nullable=True)
+    cgst_tax = Column(Float, nullable=True)
+    sgst_tax = Column(Float, nullable=True)
+    igst_tax = Column(Float, nullable=True)
+    total_bill_amount = Column(Float, nullable=True)
+    payment_mode = Column(String, nullable=True)
+    received_amount = Column(Float, nullable=True)
+    security_deposit = Column(Float, nullable=True)
+    installation_charges = Column(Float, nullable=True)
+    router_charges = Column(Float, nullable=True)
+    transaction_id = Column(String, nullable=True)
+    payment_notes = Column(String, nullable=True)
+    discount_credit = Column(Float, default=0.0)
+    status = Column(String, default='Active')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    caf_pdf = Column(LargeBinary, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # _S40d_ — Backfill every column the DB already has (added via raw
+    # ALTER TABLE over the previous sessions). Without these the model
+    # crashes on .photograph_path / .latitude / .pppoe_password access
+    # and rejects them as kwargs in Customer(...) constructors.
+    location_id = Column(Integer, nullable=True)
+    billing_address = Column(String, nullable=True)
+    billing_locality = Column(String, nullable=True)
+    billing_city = Column(String, nullable=True)
+    billing_state = Column(String, nullable=True)
+    billing_pincode = Column(String, nullable=True)
+    photograph_path = Column(String, nullable=True)
+    address_proof_path = Column(String, nullable=True)
+    id_proof_doc_path = Column(String, nullable=True)
+    provisioned_nas_id = Column(Integer, nullable=True)
+    pppoe_password = Column(String, nullable=True)
+    auth_type = Column(String, nullable=True)
+    static_ip_address = Column(String, nullable=True)
+    static_netmask = Column(String, nullable=True)
+    hotspot_session_timeout = Column(Integer, nullable=True)
+    hotspot_idle_timeout = Column(Integer, nullable=True)
+    zone = Column(String, nullable=True)
+    node = Column(String, nullable=True)
+    distance_from_node = Column(String, nullable=True)
+    fix_ip_address = Column(String, nullable=True)
+    bind_mac_address = Column(String, nullable=True)
+    allow_devices = Column(Integer, nullable=True)
+    reset_mac_flag = Column(String, nullable=True)
+    leased_line_subscriber = Column(String, nullable=True)
+    do_not_send_sms = Column(String, nullable=True)
+    do_not_send_whatsapp = Column(String, nullable=True)
+    do_not_send_email = Column(String, nullable=True)
+    custom_rate_limit = Column(String, nullable=True)
+    sub_lco_id = Column(Integer, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    created_by_employee_id = Column(Integer, nullable=True)
+    # S42T-AUDIT-CREATOR: stamp the real creator name + role at create
+    # time so the audit trail never has to guess.
+    created_by = Column(String, nullable=True)
+    created_by_role = Column(String, nullable=True)
+    created_by_sub_lco_id = Column(Integer, nullable=True)
+    # __S43V_SHOW_USAGE__
+    show_data_usage = Column(Integer, nullable=False, default=0, server_default="0")
+    # _phase26_ geocoding metadata (columns already in SQLite schema)
+    lat = Column(Float, nullable=True)
+    lng = Column(Float, nullable=True)
+    location_source = Column(String, nullable=True)
+    geocoded_at = Column(DateTime, nullable=True)
+    geocode_confidence = Column(Float, nullable=True)
+    # _S40zP_dns_  per-customer DNS content-filter profile
+    dns_profile_id = Column(Integer, nullable=True)
+
+class Plan(Base):
+    __tablename__ = "plans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    service = Column(String)  # Cable or Broadband
+    plan_name = Column(String)
+    speed = Column(String)
+    validity = Column(Integer)  # in days
+    base_amount = Column(Float)
+    cgst_tax = Column(Float)
+    sgst_tax = Column(Float)
+    igst_tax = Column(Float)
+    after_tax_amount = Column(Float)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # _S40z_  Added columns (already present in DB schema)
+    download_speed = Column(String, nullable=True)
+    upload_speed = Column(String, nullable=True)
+    validity_unit = Column(String, default='days')
+    fup_enabled = Column(Integer, default=0)
+    fup_limit_gb = Column(Float, default=0.0)
+    fup_post_download = Column(String, nullable=True)
+    fup_post_upload = Column(String, nullable=True)
+    night_boost_enabled = Column(Integer, default=0)
+    night_boost_start = Column(String, nullable=True)
+    night_boost_end = Column(String, nullable=True)
+    night_boost_download = Column(String, nullable=True)
+    night_boost_upload = Column(String, nullable=True)
+    burst_enabled = Column(Integer, default=0)
+    burst_limit_down = Column(String, nullable=True)
+    burst_limit_up = Column(String, nullable=True)
+    burst_threshold_down = Column(String, nullable=True)
+    burst_threshold_up = Column(String, nullable=True)
+    burst_time_down = Column(Integer, default=0)
+    burst_time_up = Column(Integer, default=0)
+    priority = Column(Integer, default=8)
+    queue_type = Column(String, default='default')
+    # _S40zP_dns_  per-plan DNS content-filter profile
+    dns_profile_id = Column(Integer, nullable=True)
+
+class Payment(Base):
+    __tablename__ = "payments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, index=True)
+    employee_id = Column(String, nullable=True)
+    amount = Column(Float)  # Actual money received
+    discount = Column(Float, default=0.0)  # Credit applied (reduces due but not counted as received)
+    payment_mode = Column(String)
+    transaction_no = Column(String, unique=True)  # Unique globally
+    paid_at = Column(DateTime)
+    remarks = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_company_customer', 'company_id', 'customer_id'),
+    )
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, index=True)
+    invoice_no = Column(String, unique=True, index=True)
+    issue_date = Column(String)
+    due_date = Column(String)
+    start_date = Column(String)
+    end_date = Column(String)
+    period_months = Column(Integer)
+    plan_id = Column(Integer, nullable=True)
+    plan_name = Column(String, nullable=True)
+    base_amount = Column(Float)
+    cgst_tax = Column(Float, default=0.0)
+    sgst_tax = Column(Float, default=0.0)
+    igst_tax = Column(Float, default=0.0)
+    total_amount = Column(Float)
+    pdf_path = Column(String, nullable=True)
+    status = Column(String, default='generated')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    has_gst_no = Column(Integer, nullable=True)
+    due_at_issue = Column(Float, nullable=True)
+    manual_customer_name = Column(String, nullable=True)
+    manual_customer_email = Column(String, nullable=True)
+    manual_customer_phone = Column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_company_invoice', 'company_id', 'invoice_no'),
+    )
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, index=True)
+    transaction_type = Column(String)  # 'renewal', 'payment', etc.
+    amount = Column(Float)
+    invoice_id = Column(Integer, nullable=True)
+    start_date = Column(String, nullable=True)
+    end_date = Column(String, nullable=True)
+    period_months = Column(Integer, nullable=True)
+    remarks = Column(String, nullable=True)
+    payment_method = Column(String, nullable=True)
+    reference_no = Column(String, nullable=True)
+    note = Column(String, nullable=True)
+    transaction_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_company_customer_trans', 'company_id', 'customer_id'),
+    )
+
+class InvoiceSequence(Base):
+    __tablename__ = "invoice_sequences"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, unique=True, index=True)
+    next_number = Column(Integer, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Location(Base):
+    __tablename__ = "locations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    name = Column(String)  # Area/Locality name
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    status = Column(String, default='Active')  # Active/Inactive
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_company_location', 'company_id'),
+    )
+
+class ReceivedTracker(Base):
+    __tablename__ = "received_tracker"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, index=True)
+    received_since_reset = Column(Float, default=0.0)
+    last_reset_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_received_tracker_customer', 'company_id', 'customer_id'),
+    )
+
+class Complaint(Base):
+    __tablename__ = "complaints"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, index=True, nullable=True)
+    ticket_no = Column(String, unique=True, index=True, nullable=False)
+    complaint_type = Column(String, nullable=False)  # Technical, Billing, Service, Other
+    priority = Column(String, default='Medium')  # Low, Medium, High, Critical
+    subject = Column(String, nullable=True)
+    description = Column(String, nullable=False)
+    status = Column(String, default='Open')  # Open, In Progress, Resolved, Closed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String, nullable=True)
+    # _S40z_  Added columns (already present in DB schema)
+    kind = Column(String, default='Complaint')
+    source = Column(String, default='admin')
+    target_role = Column(String, default='admin')
+    
+    __table_args__ = (
+        Index('idx_complaint_company', 'company_id'),
+        Index('idx_complaint_status', 'company_id', 'status'),
+        Index('idx_complaint_target', 'company_id', 'target_role'),
+    )
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True, nullable=False)
+    admin_id = Column(String, index=True, nullable=True)
+    ticket_no = Column(String, unique=True, index=True, nullable=False)
+    category = Column(String, nullable=False)  # Technical, Account, Billing, Feature Request, Other
+    priority = Column(String, default='Medium')  # Low, Medium, High, Critical
+    subject = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    status = Column(String, default='Open')  # Open, In Progress, Resolved, Closed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String, nullable=True)
+    last_response_at = Column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_support_company', 'company_id'),
+        Index('idx_support_status', 'company_id', 'status'),
+    )
+
+class ComplaintResponse(Base):
+    __tablename__ = "complaint_responses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    complaint_id = Column(Integer, ForeignKey('complaints.id'), nullable=False)
+    responder_role = Column(String, nullable=False)  # admin, superadmin
+    responder_id = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_complaint_response', 'complaint_id'),
+    )
+
+class SupportResponse(Base):
+    __tablename__ = "support_responses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey('support_tickets.id'), nullable=False)
+    responder_role = Column(String, nullable=False)  # admin, superadmin
+    responder_id = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_support_response', 'ticket_id'),
+    )
+
+class PaymentReminder(Base):
+    __tablename__ = "payment_reminders"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True)
+    customer_id = Column(String, index=True)
+    last_reminder_sent = Column(DateTime, default=datetime.utcnow)
+    reminder_count = Column(Integer, default=0)
+    
+    __table_args__ = (
+        Index('idx_payment_reminder_customer', 'company_id', 'customer_id'),
+    )
+
+class RenewalLog(Base):
+    __tablename__ = "renewal_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True, nullable=False)
+    months = Column(Integer, nullable=False)  # Number of months renewed
+    invoice_id = Column(Integer, nullable=True)  # Reference to Invoice.id
+    amount = Column(Float, nullable=False)  # Amount charged
+    method = Column(String, nullable=False)  # 'auto' or 'manual'
+    period_start = Column(DateTime, nullable=False)  # Start of renewal period
+    period_end = Column(DateTime, nullable=False)  # End of renewal period
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_renewal_log_company', 'company_id'),
+        Index('idx_renewal_log_unique', 'company_id', 'period_start', 'period_end', 'method', unique=True),
+    )
+
+class EmployeeLocalityAssignment(Base):
+    __tablename__ = "employee_locality_assignments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, index=True, nullable=False)
+    employee_id = Column(Integer, ForeignKey('employees.id'), nullable=False)
+    location_id = Column(Integer, ForeignKey('locations.id'), nullable=False)
+    connection_type = Column(String, nullable=False)  # 'Cable' or 'Broadband'
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    
+    __table_args__ = (
+        UniqueConstraint('company_id', 'employee_id', 'location_id', 'connection_type', name='uq_employee_location_type'),
+        Index('idx_employee_locality', 'company_id', 'employee_id', 'connection_type'),
+        Index('idx_location_assignment', 'company_id', 'location_id'),
+    )
+
+class WhatsAppConfig(Base):
+    __tablename__ = "whatsapp_config"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, default='meta')
+    business_account_id = Column(String, nullable=True)
+    phone_number_id = Column(String, nullable=True)
+    sender_phone = Column(String, nullable=True)
+    access_token = Column(String, nullable=True)
+    webhook_verify_token = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class WhatsAppTemplate(Base):
+    __tablename__ = "whatsapp_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    language = Column(String, default='en_US')
+    category = Column(String)
+    header_type = Column(String, nullable=True)
+    header_text = Column(String, nullable=True)
+    body_text = Column(String)
+    footer_text = Column(String, nullable=True)
+    buttons_json = Column(String, nullable=True)
+    variables_json = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+
+class WhatsAppCampaign(Base):
+    __tablename__ = "whatsapp_campaigns"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    template_id = Column(Integer, ForeignKey('whatsapp_templates.id'))
+    target_type = Column(String)
+    target_ids = Column(String, nullable=True)
+    status = Column(String, default='draft')
+    scheduled_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    total_recipients = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    
+    template = relationship("WhatsAppTemplate")
+
+class WhatsAppMessageLog(Base):
+    __tablename__ = "whatsapp_message_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey('whatsapp_campaigns.id'), nullable=True)
+    recipient_type = Column(String)
+    recipient_id = Column(String)
+    recipient_phone = Column(String)
+    template_name = Column(String)
+    message_content = Column(String)
+    status = Column(String)
+    error_message = Column(String, nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    delivered_at = Column(DateTime, nullable=True)
+    read_at = Column(DateTime, nullable=True)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String)
+    message = Column(String)
+    notification_type = Column(String)
+    related_entity_type = Column(String, nullable=True)
+    related_entity_id = Column(String, nullable=True)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    read_at = Column(DateTime, nullable=True)
+
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    user_type = Column(String, nullable=False)  # admin, employee, customer
+    otp_code = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+def migrate_db():
+    """Run database migrations for schema changes"""
+    import sqlite3
+    from datetime import datetime
+    
+    Base.metadata.create_all(bind=engine)
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("PRAGMA table_info(customers)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'discount_credit' not in columns:
+            print("Adding discount_credit column to customers table...")
+            cursor.execute("ALTER TABLE customers ADD COLUMN discount_credit REAL DEFAULT 0.0")
+            conn.commit()
+            print("✓ discount_credit column added successfully")
+        else:
+            print("✓ discount_credit column already exists")
+        
+        if 'registration_type' not in columns:
+            print("Adding registration_type column to customers table...")
+            cursor.execute("ALTER TABLE customers ADD COLUMN registration_type TEXT DEFAULT 'New Customer'")
+            conn.commit()
+            print("✓ registration_type column added successfully")
+            print("Backfilling registration_type for existing customers...")
+            cursor.execute("UPDATE customers SET registration_type = 'New Customer' WHERE registration_type IS NULL OR registration_type = ''")
+            conn.commit()
+            print("✓ registration_type backfilled successfully")
+        else:
+            print("✓ registration_type column already exists")
+        
+        cursor.execute("PRAGMA table_info(companies)")
+        company_columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'declaration' not in company_columns:
+            print("Adding declaration column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN declaration TEXT DEFAULT ''")
+            conn.commit()
+            print("✓ declaration column added successfully")
+        else:
+            print("✓ declaration column already exists")
+        
+        if 'terms_conditions' not in company_columns:
+            print("Adding terms_conditions column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN terms_conditions TEXT DEFAULT ''")
+            conn.commit()
+            print("✓ terms_conditions column added successfully")
+        else:
+            print("✓ terms_conditions column already exists")
+        
+        cursor.execute("PRAGMA index_list(invoices)")
+        indexes = [row[1] for row in cursor.fetchall()]
+        if 'idx_company_invoice_unique' not in indexes:
+            print("Adding unique constraint on invoices (company_id, invoice_no)...")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_company_invoice_unique ON invoices(company_id, invoice_no)")
+            conn.commit()
+            print("✓ Unique constraint added successfully")
+        else:
+            print("✓ Unique constraint already exists")
+        
+        cursor.execute("PRAGMA table_info(locations)")
+        location_columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'name' not in location_columns:
+            print("Adding name column to locations table...")
+            cursor.execute("ALTER TABLE locations ADD COLUMN name TEXT")
+            conn.commit()
+            print("✓ name column added successfully")
+            if 'location_name' in location_columns:
+                print("Backfilling name from location_name...")
+                cursor.execute("UPDATE locations SET name = location_name WHERE (name IS NULL OR name = '') AND location_name IS NOT NULL")
+                conn.commit()
+                print("✓ name backfilled successfully")
+        else:
+            print("✓ name column already exists")
+        
+        if 'city' not in location_columns:
+            print("Adding city column to locations table...")
+            cursor.execute("ALTER TABLE locations ADD COLUMN city TEXT")
+            conn.commit()
+            print("✓ city column added successfully")
+        else:
+            print("✓ city column already exists")
+        
+        if 'state' not in location_columns:
+            print("Adding state column to locations table...")
+            cursor.execute("ALTER TABLE locations ADD COLUMN state TEXT")
+            conn.commit()
+            print("✓ state column added successfully")
+        else:
+            print("✓ state column already exists")
+        
+        if 'pincode' not in location_columns:
+            print("Adding pincode column to locations table...")
+            cursor.execute("ALTER TABLE locations ADD COLUMN pincode TEXT")
+            conn.commit()
+            print("✓ pincode column added successfully")
+        else:
+            print("✓ pincode column already exists")
+        
+        if 'status' not in location_columns:
+            print("Adding status column to locations table...")
+            cursor.execute("ALTER TABLE locations ADD COLUMN status TEXT DEFAULT 'Active'")
+            conn.commit()
+            print("✓ status column added successfully")
+            print("Setting default status for existing locations...")
+            cursor.execute("UPDATE locations SET status = 'Active' WHERE status IS NULL OR status = ''")
+            conn.commit()
+            print("✓ status set successfully")
+        else:
+            print("✓ status column already exists")
+        
+        if 'gst_invoice_needed' not in company_columns:
+            print("Adding gst_invoice_needed column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN gst_invoice_needed INTEGER DEFAULT 1")
+            conn.commit()
+            print("✓ gst_invoice_needed column added successfully")
+            print("Setting default gst_invoice_needed for existing companies...")
+            cursor.execute("UPDATE companies SET gst_invoice_needed = 1 WHERE gst_invoice_needed IS NULL")
+            conn.commit()
+            print("✓ gst_invoice_needed set successfully")
+        else:
+            print("✓ gst_invoice_needed column already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='received_tracker'")
+        if not cursor.fetchone():
+            print("Creating received_tracker table...")
+            cursor.execute("""
+                CREATE TABLE received_tracker (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    customer_id TEXT NOT NULL,
+                    received_since_reset REAL DEFAULT 0.0,
+                    last_reset_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_received_tracker_customer ON received_tracker(company_id, customer_id)")
+            conn.commit()
+            print("✓ received_tracker table created successfully")
+        else:
+            print("✓ received_tracker table already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='payment_reminders'")
+        if not cursor.fetchone():
+            print("Creating payment_reminders table...")
+            cursor.execute("""
+                CREATE TABLE payment_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    customer_id TEXT NOT NULL,
+                    last_reminder_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reminder_count INTEGER DEFAULT 0
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_payment_reminder_customer ON payment_reminders(company_id, customer_id)")
+            conn.commit()
+            print("✓ payment_reminders table created successfully")
+        else:
+            print("✓ payment_reminders table already exists")
+        
+        cursor.execute("PRAGMA table_info(companies)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'bank_qr_code' not in columns:
+            print("Adding bank_qr_code column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN bank_qr_code TEXT")
+            conn.commit()
+            print("✓ bank_qr_code column added successfully")
+        else:
+            print("✓ bank_qr_code column already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employees'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(employees)")
+            employee_columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'employee_code' not in employee_columns:
+                print("Migrating employees table to new schema...")
+                cursor.execute("ALTER TABLE employees RENAME TO employees_old")
+                cursor.execute("""
+                    CREATE TABLE employees (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        company_id TEXT NOT NULL,
+                        employee_code TEXT NOT NULL,
+                        employee_name TEXT NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        mobile TEXT NOT NULL,
+                        email TEXT,
+                        address TEXT,
+                        profile_image_path TEXT,
+                        status TEXT DEFAULT 'Active',
+                        is_deleted INTEGER DEFAULT 0,
+                        last_latitude REAL,
+                        last_longitude REAL,
+                        last_seen_at TIMESTAMP,
+                        created_by TEXT,
+                        updated_by TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE UNIQUE INDEX uq_company_employee_code ON employees(company_id, employee_code)")
+                cursor.execute("CREATE INDEX idx_company_employee ON employees(company_id, employee_code)")
+                cursor.execute("CREATE INDEX idx_employee_status ON employees(company_id, status)")
+                cursor.execute("SELECT COUNT(*) FROM employees_old")
+                if cursor.fetchone()[0] > 0:
+                    print("Migrating existing employee data...")
+                    cursor.execute("""
+                        INSERT INTO employees (id, company_id, employee_code, employee_name, password_hash, mobile, email, created_at)
+                        SELECT id, company_id, 
+                               COALESCE(employee_id, 'EMP-' || id),
+                               employee_name, 
+                               password_hash,
+                               COALESCE(employee_email, 'employee' || id || '@temp.com'),
+                               employee_email,
+                               CURRENT_TIMESTAMP
+                        FROM employees_old
+                    """)
+                cursor.execute("DROP TABLE employees_old")
+                conn.commit()
+                print("✓ employees table migrated successfully")
+            else:
+                print("✓ employees table already has new schema")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='permissions'")
+        if not cursor.fetchone():
+            print("Creating permissions table...")
+            cursor.execute("""
+                CREATE TABLE permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    label TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_permission_category ON permissions(category)")
+            conn.commit()
+            print("✓ permissions table created successfully")
+            
+            print("Seeding permissions data...")
+            permissions_data = [
+                ('user_management', 'User Management', 'feature', 'Access to manage customers/users'),
+                ('complaints', 'Complaints', 'feature', 'Access to view and manage complaints'),
+                ('bill_dues', 'Bill Dues', 'feature', 'Access to view bill dues'),
+                ('reports', 'Report', 'feature', 'Access to view reports'),
+                ('show_renew_button_on_app_permission', 'Renew button', 'feature', 'Show renew button on mobile app'),
+                ('send_coupon', 'Send Coupon', 'feature', 'Permission to send coupons'),
+                ('transaction_history', 'Transaction History', 'feature', 'Access to view transaction history'),
+                ('my_support', 'My Support List', 'feature', 'Access to support tickets'),
+                ('employee_edit_permission', 'Global Edit Permission', 'feature', 'Permission to edit all records'),
+                ('revenue', 'Revenue List', 'feature', 'Access to revenue reports'),
+                ('invoice', 'Invoice', 'feature', 'Access to generate and manage invoices'),
+                ('get_paid', 'Get Paid', 'feature', 'Access to payment collection'),
+                ('stop_connection_permission', 'Stop Connection Permission', 'feature', 'Permission to stop customer connections'),
+                ('data_management', 'Data Management', 'feature', 'Access to data management'),
+                ('notification', 'Notification', 'feature', 'Access to send notifications'),
+                
+                ('app_subscriber', 'Subscriber', 'app', 'View subscribers in mobile app'),
+                ('app_bill_due', 'Bill Due', 'app', 'View bill dues in mobile app'),
+                ('app_get_paid', 'Get Paid', 'app', 'Collect payments in mobile app'),
+                ('app_transaction', 'Transaction', 'app', 'View transactions in mobile app'),
+                ('app_complaint', 'Complaint', 'app', 'Manage complaints in mobile app'),
+                ('app_report', 'Report', 'app', 'View reports in mobile app'),
+                
+                ('report_access_collection', 'Collection', 'report', 'Access to collection reports'),
+                ('report_access_amount_dues', 'Amount Dues', 'report', 'Access to amount dues reports'),
+                ('report_access_complaint', 'Complaint', 'report', 'Access to complaint reports'),
+                ('report_access_total_subscriber', 'Total Subscriber', 'report', 'Access to subscriber count reports'),
+                ('report_access_enrolment', 'Enrolment', 'report', 'Access to enrollment reports'),
+                ('report_access_churn', 'Churn/Opt-out', 'report', 'Access to churn/opt-out reports'),
+                ('report_access_subscriber_transaction', 'Subscriber Transaction History', 'report', 'Access to subscriber transaction history'),
+                ('report_access_general_ledger', 'General Ledger', 'report', 'Access to general ledger'),
+                ('report_access_near_by_expiry', 'Near By Expiry', 'report', 'Access to near expiry reports'),
+                ('report_access_recharges', 'Recharges', 'report', 'Access to recharge reports'),
+            ]
+            
+            cursor.executemany(
+                "INSERT INTO permissions (key, label, category, description) VALUES (?, ?, ?, ?)",
+                permissions_data
+            )
+            conn.commit()
+            print(f"✓ Seeded {len(permissions_data)} permissions successfully")
+        else:
+            print("✓ permissions table already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_permissions'")
+        if not cursor.fetchone():
+            print("Creating employee_permissions table...")
+            cursor.execute("""
+                CREATE TABLE employee_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    employee_id INTEGER NOT NULL,
+                    permission_id INTEGER NOT NULL,
+                    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    granted_by TEXT,
+                    FOREIGN KEY (employee_id) REFERENCES employees(id),
+                    FOREIGN KEY (permission_id) REFERENCES permissions(id)
+                )
+            """)
+            cursor.execute("CREATE UNIQUE INDEX uq_employee_permission ON employee_permissions(employee_id, permission_id)")
+            cursor.execute("CREATE INDEX idx_employee_permissions ON employee_permissions(employee_id)")
+            conn.commit()
+            print("✓ employee_permissions table created successfully")
+        else:
+            print("✓ employee_permissions table already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_sequences'")
+        if not cursor.fetchone():
+            print("Creating employee_sequences table...")
+            cursor.execute("""
+                CREATE TABLE employee_sequences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT UNIQUE NOT NULL,
+                    next_number INTEGER DEFAULT 1,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_employee_seq_company ON employee_sequences(company_id)")
+            conn.commit()
+            print("✓ employee_sequences table created successfully")
+        else:
+            print("✓ employee_sequences table already exists")
+        
+        cursor.execute("PRAGMA table_info(customers)")
+        customer_columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'location_id' not in customer_columns:
+            print("Adding location_id column to customers table...")
+            cursor.execute("ALTER TABLE customers ADD COLUMN location_id INTEGER")
+            conn.commit()
+            print("✓ location_id column added successfully")
+            
+            print("Backfilling location_id from locality field...")
+            cursor.execute("""
+                UPDATE customers 
+                SET location_id = (
+                    SELECT l.id 
+                    FROM locations l 
+                    WHERE l.company_id = customers.company_id 
+                    AND LOWER(TRIM(l.name)) = LOWER(TRIM(customers.locality))
+                    LIMIT 1
+                )
+                WHERE customers.locality IS NOT NULL 
+                AND customers.locality != ''
+            """)
+            rows_updated = cursor.rowcount
+            conn.commit()
+            print(f"✓ Backfilled location_id for {rows_updated} customers")
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM customers 
+                WHERE location_id IS NULL 
+                AND locality IS NOT NULL 
+                AND locality != ''
+            """)
+            unmapped_count = cursor.fetchone()[0]
+            if unmapped_count > 0:
+                print(f"⚠ Warning: {unmapped_count} customers have locality values that don't match any location")
+        else:
+            print("✓ location_id column already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee_locality_assignments'")
+        if not cursor.fetchone():
+            print("Creating employee_locality_assignments table...")
+            cursor.execute("""
+                CREATE TABLE employee_locality_assignments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    employee_id INTEGER NOT NULL,
+                    location_id INTEGER NOT NULL,
+                    connection_type TEXT NOT NULL,
+                    active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by TEXT,
+                    updated_by TEXT,
+                    FOREIGN KEY (employee_id) REFERENCES employees(id),
+                    FOREIGN KEY (location_id) REFERENCES locations(id)
+                )
+            """)
+            cursor.execute("CREATE UNIQUE INDEX uq_employee_location_type ON employee_locality_assignments(company_id, employee_id, location_id, connection_type)")
+            cursor.execute("CREATE INDEX idx_employee_locality ON employee_locality_assignments(company_id, employee_id, connection_type)")
+            cursor.execute("CREATE INDEX idx_location_assignment ON employee_locality_assignments(company_id, location_id)")
+            conn.commit()
+            print("✓ employee_locality_assignments table created successfully")
+        else:
+            print("✓ employee_locality_assignments table already exists")
+        
+        cursor.execute("PRAGMA table_info(companies)")
+        company_columns = [row[1] for row in cursor.fetchall()]
+        
+        subscription_fields = [
+            ('package', 'TEXT DEFAULT "Trial"'),
+            ('admin_type', 'TEXT DEFAULT "Trial"'),
+            ('period_months', 'INTEGER DEFAULT 1'),
+            ('start_date', 'TIMESTAMP'),
+            ('end_date', 'TIMESTAMP'),
+            ('status', 'TEXT DEFAULT "Active"'),
+            ('balance_amount', 'REAL DEFAULT 0.0')
+        ]
+        
+        if 'created_at' not in company_columns:
+            subscription_fields.append(('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'))
+        if 'updated_at' not in company_columns:
+            subscription_fields.append(('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'))
+        
+        for field_name, field_type in subscription_fields:
+            if field_name not in company_columns:
+                print(f"Adding {field_name} column to companies table...")
+                cursor.execute(f"ALTER TABLE companies ADD COLUMN {field_name} {field_type}")
+                conn.commit()
+                print(f"✓ {field_name} column added successfully")
+        
+        if 'auto_renew_enabled' not in company_columns:
+            print("Adding auto_renew_enabled column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN auto_renew_enabled INTEGER DEFAULT 1")
+            conn.commit()
+            print("✓ auto_renew_enabled column added successfully")
+        else:
+            print("✓ auto_renew_enabled column already exists")
+        
+        if 'last_renewal_date' not in company_columns:
+            print("Adding last_renewal_date column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN last_renewal_date TIMESTAMP")
+            conn.commit()
+            print("✓ last_renewal_date column added successfully")
+        else:
+            print("✓ last_renewal_date column already exists")
+        
+        if 'deleted_at' not in company_columns:
+            print("Adding deleted_at column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN deleted_at TIMESTAMP")
+            conn.commit()
+            print("✓ deleted_at column added successfully")
+        else:
+            print("✓ deleted_at column already exists")
+        
+        if 'deleted_by' not in company_columns:
+            print("Adding deleted_by column to companies table...")
+            cursor.execute("ALTER TABLE companies ADD COLUMN deleted_by TEXT")
+            conn.commit()
+            print("✓ deleted_by column added successfully")
+        else:
+            print("✓ deleted_by column already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='renewal_logs'")
+        if not cursor.fetchone():
+            print("Creating renewal_logs table...")
+            cursor.execute("""
+                CREATE TABLE renewal_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    months INTEGER NOT NULL,
+                    invoice_id INTEGER,
+                    amount REAL NOT NULL,
+                    method TEXT NOT NULL,
+                    period_start TIMESTAMP NOT NULL,
+                    period_end TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_renewal_log_company ON renewal_logs(company_id)")
+            cursor.execute("CREATE UNIQUE INDEX idx_renewal_log_unique ON renewal_logs(company_id, period_start, period_end, method)")
+            conn.commit()
+            print("✓ renewal_logs table created successfully")
+        else:
+            print("✓ renewal_logs table already exists")
+        
+        cursor.execute("PRAGMA table_info(admins)")
+        admin_columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'created_at' not in admin_columns:
+            print("Adding created_at column to admins table...")
+            cursor.execute("ALTER TABLE admins ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            conn.commit()
+            print("✓ created_at column added successfully")
+        
+        if 'updated_at' not in admin_columns:
+            print("Adding updated_at column to admins table...")
+            cursor.execute("ALTER TABLE admins ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            conn.commit()
+            print("✓ updated_at column added successfully")
+        
+        if 'deleted_at' not in admin_columns:
+            print("Adding deleted_at column to admins table...")
+            cursor.execute("ALTER TABLE admins ADD COLUMN deleted_at TIMESTAMP")
+            conn.commit()
+            print("✓ deleted_at column added successfully")
+        else:
+            print("✓ deleted_at column already exists")
+        
+        if 'deleted_by' not in admin_columns:
+            print("Adding deleted_by column to admins table...")
+            cursor.execute("ALTER TABLE admins ADD COLUMN deleted_by TEXT")
+            conn.commit()
+            print("✓ deleted_by column added successfully")
+        else:
+            print("✓ deleted_by column already exists")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='superadmins'")
+        if not cursor.fetchone():
+            print("Creating superadmins table...")
+            cursor.execute("""
+                CREATE TABLE superadmins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    superadmin_id TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    superadmin_name TEXT,
+                    email TEXT,
+                    mobile TEXT,
+                    profile_image_path TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE UNIQUE INDEX idx_superadmin_id ON superadmins(superadmin_id)")
+            conn.commit()
+            print("✓ superadmins table created successfully")
+            
+            from passlib.context import CryptContext
+            pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            hashed_password = pwd_context.hash("Pa$$word@123")
+            
+            cursor.execute("""
+                INSERT INTO superadmins (superadmin_id, password_hash, superadmin_name, email)
+                VALUES (?, ?, ?, ?)
+            """, ("rajveersuper007@", hashed_password, "Super Administrator", "superadmin@autoispbilling.com"))
+            conn.commit()
+            print("✓ Superadmin user seeded successfully (ID: rajveersuper007@)")
+        else:
+            print("✓ superadmins table already exists")
+            
+    except Exception as e:
+        print(f"Migration error: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+    migrate_db()
+    seed_superadmin_packages()
+
+def seed_superadmin_packages():
+    """Seed default superadmin packages if they don't exist"""
+    import sqlite3
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT COUNT(*) FROM superadmin_packages")
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            print("Seeding default superadmin packages...")
+            default_packages = [
+                ('Trial', 0.0, '7 days trial package'),
+                ('Basic', 999.0, 'Basic monthly package'),
+                ('Standard', 1999.0, 'Standard monthly package'),
+                ('Premium', 2999.0, 'Premium monthly package'),
+                ('Enterprise', 4999.0, 'Enterprise monthly package')
+            ]
+            
+            for pkg_name, pkg_price, pkg_desc in default_packages:
+                cursor.execute(
+                    "INSERT INTO superadmin_packages (package_name, package_price, description, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))",
+                    (pkg_name, pkg_price, pkg_desc)
+                )
+            
+            conn.commit()
+            print(f"✓ Seeded {len(default_packages)} default packages")
+        else:
+            print(f"✓ SuperAdmin packages already exist ({count} packages)")
+    
+    except Exception as e:
+        print(f"Error seeding packages: {e}")
+    finally:
+        conn.close()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ═══ _S40z_  Models for tables that already exist in the DB schema ═════
+class VoucherRedemption(Base):
+    __tablename__ = "voucher_redemptions"
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, nullable=False, index=True)
+    voucher_id = Column(Integer, nullable=True)
+    batch_id = Column(String, nullable=True)
+    code = Column(String, nullable=False)
+    used_by = Column(String, nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    duration_minutes = Column(Integer, default=0)
+    data_cap_mb = Column(Integer, default=0)
+    plan_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AdminActivityLog(Base):
+    __tablename__ = "admin_activity_log"
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, nullable=False, index=True)
+    actor_id = Column(String, nullable=True)
+    actor_name = Column(String, nullable=True)
+    actor_type = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=False)
+    target_id = Column(String, nullable=True)
+    summary = Column(String, nullable=True)
+    payload_json = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# ═══ _S40za_  More models for tables that already exist in DB ═══════════
+class HotspotVoucher(Base):
+    __tablename__ = "hotspot_vouchers"
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, nullable=False)
+    batch_id = Column(String, nullable=False)
+    code = Column(String, unique=True, nullable=False)
+    plan_id = Column(Integer, nullable=True)
+    plan_name = Column(String, nullable=True)
+    duration_minutes = Column(Integer, default=0)
+    data_cap_mb = Column(Integer, default=0)
+    status = Column(String, default='unused')
+    used_by = Column(String, nullable=True)
+    used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+
+
+class CaptivePortalSettings(Base):
+    __tablename__ = "captive_portal_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(String, unique=True, nullable=False)
+    title = Column(String, nullable=True)
+    welcome_text = Column(String, nullable=True)
+    terms_text = Column(String, nullable=True)
+    primary_color = Column(String, default='#7c3aed')
+    accent_color = Column(String, default='#06b6d4')
+    logo_path = Column(String, nullable=True)
+    background_path = Column(String, nullable=True)
+    login_mode = Column(String, default='voucher')
+    whatsapp_otp_enabled = Column(Integer, default=0)
+    footer_text = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    post_login_redirect_url = Column(String, default='')
+    hotspot_portal_url = Column(String, default='')
+    walled_garden_hosts = Column(String, default='')
+    voucher_webhook_url = Column(String, default='')

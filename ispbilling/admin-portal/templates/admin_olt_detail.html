@@ -1,0 +1,543 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}{{ olt.name }} · OLT Detail · AutoISP Billing
+{% endblock %}
+
+{% block content %}
+<!-- _S49C_REFRESH_NOW — manual force-poll button -->
+<div style="margin:8px 0 14px;display:flex;justify-content:flex-end;gap:8px;">
+  <button id="btn_refresh_olt" data-testid="olt-refresh-now"
+          onclick="oltRefreshNow({{ olt.id }})"
+          style="background:linear-gradient(135deg,#00E5FF,#7C5CFF);
+                 color:#0B0F1A;border:none;padding:8px 16px;border-radius:8px;
+                 font-weight:700;cursor:pointer;font-size:12.5px;">
+    <i class="bi bi-arrow-clockwise"></i> Refresh Now
+  </button>
+  <span id="refresh_status" style="color:#94a3b8;font-size:12px;align-self:center;"></span>
+</div>
+<script>
+async function oltRefreshNow(id){
+  const btn = document.getElementById('btn_refresh_olt');
+  const st  = document.getElementById('refresh_status');
+  if (btn) btn.disabled = true;
+  if (st)  st.textContent = 'Polling…';
+  try {
+    const r = await fetch('/api/admin/olt/olts/' + id + '/poll-now', {method:'POST'});
+    const j = await r.json();
+    if (j.ok){
+      if (st) st.textContent = '✓ ' + (j.total_onus||0) + ' ONUs, ' + (j.online_onus||0) + ' online · temp ' + (j.temp_c||'—') + '°C';
+      setTimeout(()=>location.reload(), 1500);
+    } else {
+      if (st) st.textContent = '✗ ' + (j.error || 'poll failed');
+    }
+  } catch(e){
+    if (st) st.textContent = '✗ ' + e;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+</script>
+
+<style>
+  :root {
+    --olt-bg:#0B0F1A; --olt-card:#161D2E; --olt-line:#1F2940;
+    --olt-fg:#E7ECF5; --olt-mute:#8A93A6; --olt-cyan:#00E5FF;
+    --olt-violet:#7C5CFF; --olt-green:#22C55E; --olt-amber:#F59E0B;
+    --olt-red:#EF4444;
+  }
+  .od-shell{color:var(--olt-fg);padding:18px 6px 60px;}
+  .od-head{display:flex;align-items:flex-start;justify-content:space-between;
+    margin-bottom:18px;gap:14px;flex-wrap:wrap;}
+  .od-title{font-size:24px;font-weight:800;margin:0;letter-spacing:-.4px;}
+  .od-sub{color:var(--olt-mute);font-size:13px;margin-top:4px;}
+  .od-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;
+    border-radius:99px;font-size:11px;font-weight:700;letter-spacing:.4px;}
+  .od-pill.online{background:rgba(34,197,94,.15);color:#34D399;}
+  .od-pill.offline{background:rgba(239,68,68,.18);color:#F87171;}
+  .od-pill.unknown,.od-pill.error{background:rgba(245,158,11,.15);color:#FBBF24;}
+  .od-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+  .od-kpi{background:var(--olt-card);border:1px solid var(--olt-line);
+    border-radius:18px;padding:18px;position:relative;overflow:hidden;}
+  .od-kpi::after{content:'';position:absolute;right:-30px;top:-30px;
+    width:80px;height:80px;border-radius:50%;
+    background:radial-gradient(circle,rgba(0,229,255,.12),transparent 70%);}
+  .od-kpi-l{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
+    color:var(--olt-mute);}
+  .od-kpi-v{font-size:34px;font-weight:800;margin-top:6px;}
+  .od-kpi-d{font-size:12px;color:var(--olt-mute);margin-top:4px;}
+  .od-kpi.green .od-kpi-v{color:var(--olt-green);}
+  .od-kpi.red .od-kpi-v{color:var(--olt-red);}
+  .od-kpi.amber .od-kpi-v{color:var(--olt-amber);}
+  .od-kpi.cyan .od-kpi-v{color:var(--olt-cyan);}
+  .od-row{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-top:18px;}
+  @media(max-width:900px){.od-row{grid-template-columns:1fr;}}
+  .od-panel{background:var(--olt-card);border:1px solid var(--olt-line);
+    border-radius:18px;padding:18px;}
+  .od-panel h3{font-size:13px;letter-spacing:1.2px;text-transform:uppercase;
+    color:var(--olt-mute);margin:0 0 14px;}
+  .env-grid{display:grid;gap:12px;grid-template-columns:1fr 1fr 1fr;}
+  .env-box{background:var(--olt-bg);border:1px solid var(--olt-line);
+    border-radius:12px;padding:14px;text-align:center;}
+  .env-l{font-size:10px;letter-spacing:1px;text-transform:uppercase;
+    color:var(--olt-mute);}
+  .env-v{font-size:24px;font-weight:800;margin-top:4px;}
+  .env-v.green{color:var(--olt-green);}.env-v.amber{color:var(--olt-amber);}
+  .env-v.red{color:var(--olt-red);}
+  .pon-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));}
+  .pon-card{background:var(--olt-bg);border:1px solid var(--olt-line);
+    border-radius:12px;padding:12px;}
+  .pon-card.online{border-color:rgba(34,197,94,.4);}
+  .pon-card.warn{border-color:rgba(245,158,11,.4);}
+  .pon-card.critical{border-color:rgba(239,68,68,.4);}
+  .pon-card.idle{opacity:.6;}
+  .pon-h{display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:8px;}
+  .pon-t{font-size:13px;font-weight:700;}
+  .pon-s{font-size:9px;padding:2px 8px;border-radius:99px;
+    text-transform:uppercase;font-weight:700;letter-spacing:.5px;}
+  .pon-s.online{background:rgba(34,197,94,.15);color:#34D399;}
+  .pon-s.warn{background:rgba(245,158,11,.15);color:#FBBF24;}
+  .pon-s.critical{background:rgba(239,68,68,.18);color:#F87171;}
+  .pon-s.idle{background:rgba(138,147,166,.15);color:var(--olt-mute);}
+
+  /* __s56_badges_glow__ : bright glowing badges, white bold text */
+  .pon-s, .od-pill {
+    font-weight:900 !important; font-size:11px !important;
+    letter-spacing:.6px !important; text-transform:uppercase;
+    padding:4px 11px !important; border-radius:99px !important;
+    color:#FFFFFF !important;
+    text-shadow:0 0 5px rgba(0,0,0,.45), 0 1px 0 rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.20);
+    display:inline-flex; align-items:center; gap:5px;
+  }
+  .pon-s.up,    .pon-s.UP,    .pon-s.online,
+  .od-pill.up,  .od-pill.online {
+    background:#16A34A !important;
+    border-color:#4ADE80 !important;
+    box-shadow:0 0 0 1px rgba(74,222,128,.45), 0 0 12px rgba(34,197,94,.55);
+  }
+  .pon-s.down,  .pon-s.DOWN,  .pon-s.offline,
+  .od-pill.down,.od-pill.offline {
+    background:#DC2626 !important;
+    border-color:#FCA5A5 !important;
+    box-shadow:0 0 0 1px rgba(252,165,165,.45), 0 0 12px rgba(220,38,38,.55);
+  }
+  .pon-s.warn,  .od-pill.warn,
+  .pon-s.unknown, .od-pill.unknown, .od-pill.error {
+    background:#D97706 !important;
+    border-color:#FCD34D !important;
+    box-shadow:0 0 0 1px rgba(252,211,77,.45), 0 0 10px rgba(217,119,6,.50);
+  }
+  .pon-s.idle,  .od-pill.idle, .pon-s.critical {
+    background:#475569 !important;
+    border-color:#CBD5E1 !important;
+    box-shadow:0 0 0 1px rgba(203,213,225,.30), 0 0 8px rgba(71,85,105,.55);
+  }
+  .pon-s.critical { background:#B91C1C !important; }
+  .pon-card.up    { border-color:rgba(74,222,128,.55) !important; }
+  .pon-card.down  { border-color:rgba(252,165,165,.55) !important; }
+.pon-stat{display:flex;justify-content:space-between;font-size:11px;
+    margin:4px 0;}
+  .pon-stat span:first-child{color:var(--olt-mute);}
+  .pon-stat span:last-child{color:var(--olt-fg);font-weight:600;}
+  table.od{width:100%;border-collapse:collapse;}
+  table.od th,table.od td{padding:9px 8px;border-bottom:1px solid var(--olt-line);
+    font-size:12.5px;text-align:left;}
+  table.od th{color:var(--olt-mute);font-size:10px;letter-spacing:.8px;
+    text-transform:uppercase;font-weight:600;}
+  .uplink-row{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 12px;background:var(--olt-bg);border:1px solid var(--olt-line);
+    border-radius:10px;margin-bottom:6px;}
+  .uplink-l{font-size:13px;font-weight:700;}
+  .uplink-up{color:#34D399;}.uplink-down{color:#F87171;}
+  .od-back{display:inline-flex;align-items:center;gap:6px;color:var(--olt-mute);
+    text-decoration:none;font-size:12px;margin-bottom:14px;}
+  .od-back:hover{color:var(--olt-cyan);}
+  .rx-bad{color:#F87171;font-weight:700;}.rx-warn{color:#FBBF24;font-weight:700;}
+  .rx-good{color:#34D399;font-weight:700;}
+  .empty{text-align:center;padding:24px 10px;color:var(--olt-mute);font-size:12px;}
+</style>
+
+<section class="od-shell" data-testid="olt-detail-page">
+  <a class="od-back" href="{{ olt_url_prefix or '/admin/olt' }}/dashboard"
+     data-testid="olt-detail-back">
+    <i class="bi bi-arrow-left"></i> Back to Fleet
+  </a>
+
+  <div class="od-head">
+    <div>
+      <h1 class="od-title" data-testid="olt-detail-name">{{ olt.name }}</h1>
+      <div class="od-sub">
+        <code>{{ olt.host }}</code> · {{ olt.vendor|capitalize }} {{ olt.model or '' }}
+        · {{ olt.olt_tech }} · {{ olt.location or 'no location' }}
+        · last poll <span data-testid="olt-detail-last-poll">{{ olt.last_polled or 'never' }}</span>
+      </div>
+    </div>
+    <div>
+      <span class="od-pill {{ olt.status }}" data-testid="olt-detail-status">
+        <i class="bi bi-{{ 'check-circle' if olt.status=='online' else 'x-circle' }}"></i>
+        {{ olt.status|upper }}
+      </span>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;" data-testid="_S58G_BULK_ZTP_BTN_">
+        <button class="btn btn-primary btn-sm" data-testid="btn-bulk-ztp"
+                onclick="openBulkZtpModal({{ olt.id }})">
+          <i class="bi bi-magic"></i> Bulk ZTP — push TR-069 to all online ONUs
+        </button>
+        <button class="btn btn-outline-info btn-sm" data-testid="btn-bulk-ztp-report"
+                onclick="loadBulkZtpReport({{ olt.id }})">
+          <i class="bi bi-clipboard-data"></i> Last ZTP Report
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- KPI tiles -->
+  <div class="od-grid">
+    <div class="od-kpi cyan" data-testid="kpi-total-onu">
+      <div class="od-kpi-l">Total ONUs</div>
+      <div class="od-kpi-v">{{ kpis.total_onu }}</div>
+      <div class="od-kpi-d">provisioned on this OLT</div>
+    </div>
+    <div class="od-kpi green" data-testid="kpi-online-onu">
+      <div class="od-kpi-l">ONUs Online</div>
+      <div class="od-kpi-v">{{ kpis.online_onu }}</div>
+      <div class="od-kpi-d">
+        {{ ((kpis.online_onu / kpis.total_onu * 100)|round(0)|int) if kpis.total_onu else 0 }}% uptime
+      </div>
+    </div>
+    <div class="od-kpi red" data-testid="kpi-offline-onu">
+      <div class="od-kpi-l">ONUs Offline</div>
+      <div class="od-kpi-v">{{ kpis.offline_onu }}</div>
+      <div class="od-kpi-d">last poll cycle</div>
+    </div>
+    <div class="od-kpi amber" data-testid="kpi-crit-alerts">
+      <div class="od-kpi-l">Critical Alerts</div>
+      <div class="od-kpi-v">{{ kpis.crit_alerts }}</div>
+      <div class="od-kpi-d">unresolved</div>
+    </div>
+  </div>
+
+  <!-- OLT Environment + Optical Budget Health -->
+  <div class="od-row">
+    <div class="od-panel">
+      <h3><i class="bi bi-cpu"></i> OLT Environment</h3>
+      <div class="env-grid">
+        <div class="env-box">
+          <div class="env-l">Temperature</div>
+          <div class="env-v {% if olt.temp_c > 65 %}red{% elif olt.temp_c > 55 %}amber{% else %}green{% endif %}"
+               data-testid="env-temp">{% if olt.temp_c and olt.temp_c > 0 %}{{ '%.1f'|format(olt.temp_c) }}°C{% else %}<span style="color:#94a3b8;font-size:.6em;">N/A</span>{% endif %}</div>
+        </div>
+        <div class="env-box">
+          <div class="env-l">CPU Load</div>
+          <div class="env-v {% if olt.cpu_pct > 80 %}red{% elif olt.cpu_pct > 60 %}amber{% else %}green{% endif %}"
+               data-testid="env-cpu">{% if olt.cpu_pct and olt.cpu_pct > 0 %}{{ '%.1f'|format(olt.cpu_pct) }}%{% else %}<span style="color:#94a3b8;font-size:.6em;">N/A</span>{% endif %}</div>
+        </div>
+        <div class="env-box">
+          <div class="env-l">Status</div>
+          <div class="env-v {% if olt.status=='online' %}green{% else %}red{% endif %}"
+               data-testid="env-status">{{ olt.status|upper }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="od-panel">
+      <h3><i class="bi bi-lightbulb"></i> Optical Budget Health</h3>
+      {% if avg_rx %}
+      <div class="env-grid">
+        <div class="env-box">
+          <div class="env-l">Avg RX Power</div>
+          <div class="env-v {% if avg_rx<=-25 %}amber{% elif avg_rx<=-28 %}red{% else %}green{% endif %}"
+               data-testid="opt-avg-rx">{{ '%.1f'|format(avg_rx) }} dBm</div>
+        </div>
+        <div class="env-box">
+          <div class="env-l">Worst RX</div>
+          <div class="env-v {% if worst_rx<=-28 %}red{% elif worst_rx<=-25 %}amber{% else %}green{% endif %}"
+               data-testid="opt-worst-rx">{{ '%.1f'|format(worst_rx) }} dBm</div>
+        </div>
+        <div class="env-box">
+          <div class="env-l">Margin</div>
+          <div class="env-v {% if (worst_rx+28) < 0 %}red{% elif (worst_rx+28) < 3 %}amber{% else %}green{% endif %}"
+               data-testid="opt-margin">{{ '%.1f'|format(worst_rx + 28) }} dB</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">No optical readings yet — poll the OLT to collect data.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Backbone Uplinks + PON Port Status -->
+  <div class="od-row" style="grid-template-columns:1fr 2fr;">
+    <div class="od-panel">
+      <h3><i class="bi bi-arrow-up-right-circle"></i> Backbone Uplinks</h3>
+      {% for u in uplink_ports %}
+      <div class="uplink-row" data-testid="uplink-{{ u.index }}">
+        <div style="flex:1">
+          <div class="uplink-l">{{ u.label }}</div>
+          {% if u.alias %}
+          <div style="color:#cbd5e1;font-size:11px;font-weight:500;margin-top:1px">{{ u.alias }}</div>
+          {% endif %}
+          <div style="color:var(--olt-mute);font-size:11px;margin-top:2px;">
+            {{ u.speed or '1G' }}
+            {% if u.status == 'up' %} · Full Duplex{% endif %}
+          </div>
+        </div>
+        <span class="od-pill {{ 'online' if u.status=='up' else 'offline' if u.status=='down' else 'idle' }}">
+          {{ u.status|upper }}
+        </span>
+      </div>
+      {% else %}
+      <div class="empty">No uplink ports configured.</div>
+      {% endfor %}
+    </div>
+
+    <div class="od-panel">
+      <h3><i class="bi bi-broadcast"></i> PON Port Status</h3>
+      <div class="pon-grid">
+        {% for p in pon_ports %}
+      <div class="pon-card {{p.status}}" data-testid="pon-card-{{p.index}}">
+        <div class="pon-h">
+          <div class="pon-l">{{p.name or ("EPONO/" ~ p.index)}}</div>
+          <span class="pon-s {{p.status}}">{{p.status|upper}}</span>
+        </div>
+        <div class="pon-stat"><span>ONUs</span><b>{{p.n_onus}}</b></div>
+        <div class="pon-stat"><span>TX</span><b>{% if p.olt_tx is not none %}{{ "%.2f dBm"|format(p.olt_tx) }}{% elif p.avg_tx is not none %}{{ "%.2f dBm"|format(p.avg_tx) }}{% else %}—{% endif %}</b></div>
+        <div class="pon-stat"><span>RX</span><b>{% if p.avg_rx is not none %}{{ "%.1f dBm"|format(p.avg_rx) }}{% else %}—{% endif %}</b></div>
+        {% if p.temp_c is not none or p.voltage_v is not none or p.bias_ma is not none %}
+        <div style="border-top:1px solid #1f2937;margin-top:6px;padding-top:6px">
+          {% if p.temp_c is not none %}
+          <div class="pon-stat"><span>Temp</span><b style="color:{% if p.temp_c >= 70 %}#f87171{% elif p.temp_c >= 60 %}#fbbf24{% else %}#34d399{% endif %}">{{ "%.1f°C"|format(p.temp_c) }}</b></div>
+          {% endif %}
+          {% if p.voltage_v is not none %}
+          <div class="pon-stat"><span>Volt</span><b>{{ "%.2f V"|format(p.voltage_v) }}</b></div>
+          {% endif %}
+          {% if p.bias_ma is not none %}
+          <div class="pon-stat"><span>Bias</span><b>{{ "%.1f mA"|format(p.bias_ma) }}</b></div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- _S47D_  Critical Alerts (full-width, with PON/Idx + ONU name) -->
+  <div class="od-row" style="grid-template-columns:1fr;">
+    <div class="od-panel">
+      <h3><i class="bi bi-exclamation-triangle"></i> Critical Alerts
+        <span style="float:right;font-size:12px;color:var(--olt-mute);font-weight:normal">
+          {{ alerts|length }} open
+        </span>
+      </h3>
+      {% if alerts %}
+      <table class="od">
+        <thead><tr>
+          <th style="width:90px">Lvl</th>
+          <th style="width:90px">PON/Idx</th>
+          <th>ONU</th>
+          <th>Alert</th>
+          <th style="width:150px">When</th>
+        </tr></thead>
+        <tbody>
+          {% for a in alerts %}
+          <tr data-testid="alert-row">
+            <td><span class="od-pill {{ a.level }}">{{ a.level }}</span></td>
+            <td style="font-family:ui-monospace,monospace;font-size:12px">
+              {% if a.pon is not none and a.idx is not none %}
+              PON{{ a.pon }}/{{ a.idx }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if a.onu_name %}<b>{{ a.onu_name }}</b><br>{% endif %}
+              <code style="font-size:11px;color:#94a3b8">{{ a.onu_serial or '' }}</code>
+            </td>
+            <td>{{ a.title }}</td>
+            <td style="color:var(--olt-mute);font-size:11px;">{{ a.when }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">No open alerts. 🎉</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<script>
+// _S52_TILES_CLICKABLE — make Total/Online/Offline/Critical Alerts tiles
+// link to /admin/olt/onus?olt=<id>&status=<status> on click.
+(function(){
+  const oltId = {{ olt.id }};
+  const map = {
+    'TOTAL ONUS':       '?olt=' + oltId,
+    'ONUS ONLINE':      '?olt=' + oltId + '&status=online',
+    'ONUS OFFLINE':     '?olt=' + oltId + '&status=offline',
+    'CRITICAL ALERTS':  null  // routed to alerts page
+  };
+  document.querySelectorAll('h3, .tile-label, .kpi-label').forEach(h => {
+    const k = (h.textContent || '').trim().toUpperCase();
+    const target = map[k];
+    if (target === undefined) return;
+    // Find the closest tile card ancestor (looks like a .kpi or .stat
+    // wrapper). We default to the parent div.
+    const card = h.closest('div');
+    if (!card) return;
+    card.style.cursor = 'pointer';
+    card.title = 'Open ONU list (' + k + ')';
+    card.addEventListener('click', () => {
+      if (k === 'CRITICAL ALERTS') {
+        location.href = '/admin/olt/alerts?olt=' + oltId + '&severity=critical';
+      } else if (target) {
+        location.href = '/admin/olt/onus' + target;
+      }
+    });
+  });
+})();
+</script>
+
+
+{# _S58G_BULK_ZTP_BTN_  Bulk ZTP wizard modal #}
+<div class="modal fade" id="bulkZtpModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;">
+      <div class="modal-header" style="border-bottom:1px solid #334155;">
+        <h5 class="modal-title">
+          <i class="bi bi-magic"></i> Bulk Zero-Touch Provision
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="bzStage" style="padding:14px;background:#020617;border-radius:8px;border:1px solid #1e293b;color:#a5f3fc;">
+          Loading…
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid #334155;">
+        <button id="bzRunBtn"   class="btn btn-success" data-testid="btn-bzrun"   style="display:none;">Run on <span id="bzCount"></span> ONUs</button>
+        <button id="bzCheckBtn" class="btn btn-info"    data-testid="btn-bzcheck" style="display:none;">Refresh ACS Re-check (90 s)</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// _S58G_BULK_ZTP_BTN_
+let _bzOltId = null;
+
+async function openBulkZtpModal(olt_id){
+  _bzOltId = olt_id;
+  const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('bulkZtpModal'));
+  document.getElementById('bzStage').innerHTML = '<div class="spinner-border text-info"></div> Running dry-run…';
+  document.getElementById('bzRunBtn').style.display = 'none';
+  document.getElementById('bzCheckBtn').style.display = 'none';
+  m.show();
+  try {
+    const r = await fetch(`/api/admin/olt/${olt_id}/bulk-ztp`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dry_run:true, target:'online'}),
+    });
+    const j = await r.json();
+    const n = j.would_attempt || 0;
+    document.getElementById('bzStage').innerHTML =
+      `<div style="font-size:15px;line-height:1.6;">
+         <i class="bi bi-info-circle text-info"></i>
+         This OLT has <strong style="color:#a7f3d0;">${n}</strong> online ONUs.<br>
+         Clicking <strong>Run</strong> will push:<br>
+         &nbsp;&nbsp;1) WAN config  &nbsp;2) Wi-Fi config  &nbsp;3) TR-069 ACS URL<br>
+         via the OLT CLI to every one of them. It is <strong>safe</strong> (no factory-reset)
+         but may take ~10 s per ONU. The wizard will then automatically poll GenieACS
+         after 90 s and tell you which ONUs are reporting.
+       </div>`;
+    document.getElementById('bzCount').textContent = n;
+    document.getElementById('bzRunBtn').style.display = n ? 'inline-block' : 'none';
+  } catch(e) {
+    document.getElementById('bzStage').innerHTML =
+      `<span style="color:#fda4af;">Dry-run failed: ${e.message}</span>`;
+  }
+}
+
+async function runBulkZtp(){
+  if (!_bzOltId) return;
+  document.getElementById('bzRunBtn').disabled = true;
+  document.getElementById('bzStage').innerHTML =
+    '<div class="spinner-border text-info"></div> Running bulk ZTP — may take several minutes…';
+  try {
+    const r = await fetch(`/api/admin/olt/${_bzOltId}/bulk-ztp`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dry_run:false, target:'online'}),
+    });
+    const j = await r.json();
+    _renderBulkZtpReport(j);
+    document.getElementById('bzCheckBtn').style.display = 'inline-block';
+  } catch(e) {
+    document.getElementById('bzStage').innerHTML =
+      `<span style="color:#fda4af;">Bulk ZTP failed: ${e.message}</span>`;
+  }
+  document.getElementById('bzRunBtn').disabled = false;
+}
+document.getElementById('bzRunBtn')?.addEventListener('click', runBulkZtp);
+
+async function loadBulkZtpReport(olt_id){
+  _bzOltId = olt_id;
+  const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('bulkZtpModal'));
+  document.getElementById('bzStage').innerHTML = '<div class="spinner-border text-info"></div> Loading last report…';
+  document.getElementById('bzRunBtn').style.display = 'none';
+  document.getElementById('bzCheckBtn').style.display = 'inline-block';
+  m.show();
+  const r = await fetch(`/api/admin/olt/${olt_id}/bulk-ztp/report`, {credentials:'same-origin'});
+  const j = await r.json();
+  if (!j || j.error){
+    document.getElementById('bzStage').innerHTML = `<span style="color:#94a3b8;">${j.error || 'no report yet'}</span>`;
+    return;
+  }
+  _renderBulkZtpReport(j);
+}
+document.getElementById('bzCheckBtn')?.addEventListener('click', ()=>loadBulkZtpReport(_bzOltId));
+
+function _renderBulkZtpReport(j){
+  const head =
+    `<div style="font-size:13px;color:#a5f3fc;margin-bottom:8px;">
+       Total <strong>${j.total||0}</strong> ·
+       OK <strong style="color:#a7f3d0;">${j.succeeded||0}</strong> ·
+       Failed <strong style="color:#fda4af;">${j.failed||0}</strong> ·
+       Elapsed ${j.elapsed_s||0}s
+     </div>`;
+  const rows = (j.results||[]).map(r =>
+    `<tr>
+       <td>${r.onu_id}</td>
+       <td>${r.serial||''}</td>
+       <td>${r.mac||''}</td>
+       <td>${r.ok ? '<span style="color:#a7f3d0;">✅</span>' : '<span style="color:#fda4af;">⚠</span>'}</td>
+       <td>${r.tr069_ok===null||r.tr069_ok===undefined ? '—' : r.tr069_ok ? '✅' : '⚠'}</td>
+       <td>${r.wan_ok===null||r.wan_ok===undefined ? '—' : r.wan_ok ? '✅' : '⚠'}</td>
+       <td>${r.wifi_ok===null||r.wifi_ok===undefined ? '—' : r.wifi_ok ? '✅' : '⚠'}</td>
+       <td style="font-size:11px;color:#fda4af;">${(r.error||'').slice(0,80)}</td>
+     </tr>`).join('');
+  const acs = j.acs_recheck
+    ? `<div style="margin-top:14px;padding:10px;background:rgba(34,211,238,.08);border-radius:8px;border:1px solid rgba(34,211,238,.25);">
+         <strong>ACS Re-check (90 s after ZTP)</strong> — ran ${j.acs_recheck.ran_at}<br>
+         Seen in GenieACS: <strong style="color:#a7f3d0;">${j.acs_recheck.seen_in_acs||0}</strong> ·
+         Still missing: <strong style="color:#fbbf24;">${(j.acs_recheck.still_missing||[]).length}</strong>
+         ${(j.acs_recheck.still_missing||[]).length
+            ? '<br><small>If the same ONUs stay missing for &gt; 5 min, power-cycle them once — many cheap EPON CPEs only start their TR-069 daemon at boot.</small>'
+            : ''}
+       </div>`
+    : `<div style="margin-top:14px;color:#94a3b8;font-size:12px;">
+         The 90-second GenieACS re-check is running in the background.
+         Click <em>"Refresh ACS Re-check"</em> after ~90 s to see who showed up.
+       </div>`;
+  document.getElementById('bzStage').innerHTML = head +
+    `<div style="max-height:340px;overflow:auto;">
+       <table class="table table-sm table-dark" style="font-size:12px;">
+         <thead><tr><th>ONU</th><th>Serial</th><th>MAC</th><th>OK</th><th>TR-069</th><th>WAN</th><th>Wi-Fi</th><th>Error</th></tr></thead>
+         <tbody>${rows}</tbody>
+       </table>
+     </div>` + acs;
+}
+</script>
+
+{% endblock %}

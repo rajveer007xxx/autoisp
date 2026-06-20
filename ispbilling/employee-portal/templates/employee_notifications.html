@@ -1,0 +1,81 @@
+{% extends "base_employee.html" %}
+
+{% block title %}Notifications - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Notifications
+        <small>System notifications and alerts</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-aqua"><i class="fa fa-bell"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Unread</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-green"><i class="fa fa-check"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Read</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-yellow"><i class="fa fa-exclamation"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Alerts</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-red"><i class="fa fa-warning"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Critical</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Notifications</h3>
+            <div class="box-tools">
+                <button type="button" class="btn btn-sm btn-default">Mark All as Read</button>
+            </div>
+        </div>
+        <div class="box-body">
+            <div class="list-group">
+                <a href="#" class="list-group-item">
+                    <h4 class="list-group-item-heading"><i class="fa fa-info-circle text-blue"></i> System Update</h4>
+                    <p class="list-group-item-text">System maintenance scheduled for tonight at 2:00 AM</p>
+                    <small class="text-muted">2 hours ago</small>
+                </a>
+                <a href="#" class="list-group-item">
+                    <h4 class="list-group-item-heading"><i class="fa fa-user text-green"></i> New Customer</h4>
+                    <p class="list-group-item-text">New customer registration: John Doe</p>
+                    <small class="text-muted">5 hours ago</small>
+                </a>
+                <a href="#" class="list-group-item">
+                    <h4 class="list-group-item-heading"><i class="fa fa-money text-yellow"></i> Payment Received</h4>
+                    <p class="list-group-item-text">Payment of ₹1,500 received from Customer ID: CUST001</p>
+                    <small class="text-muted">1 day ago</small>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

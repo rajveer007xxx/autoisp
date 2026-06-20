@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Auto ISP Billing</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/login.css">
+    <style>
+        :root { --site-scale: 0.9; }
+        @supports (zoom: 1) { body { zoom: var(--site-scale); } }
+        @supports not (zoom: 1) { html { font-size: calc(16px * var(--site-scale)); } }
+        @media print { body { zoom: 1 !important; } }
+        .modal-content { border-radius: 8px; }
+        .modal-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px 8px 0 0; }
+        .modal-header .close { color: white; opacity: 0.8; }
+        .modal-body { padding: 30px; }
+        .alert-icon { font-size: 48px; margin-bottom: 20px; }
+        .contact-info { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 15px; }
+        .contact-info p { margin: 5px 0; }
+        .qr-code-container { text-align: center; margin: 20px 0; }
+        .qr-code-container img { max-width: 200px; border: 2px solid #ddd; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-left">
+            <div class="login-left-content">
+                <div class="logo-section">
+                    <h1><strong>Auto ISP</strong> Billing</h1>
+                    <p>Complete ISP Management Solution</p>
+                </div>
+                <div class="features-list">
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>Automated Billing & Invoicing</span></div>
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>Integrated Payment Gateway</span></div>
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>SMS & WhatsApp Notifications</span></div>
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>Customer Self-Service Portal</span></div>
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>MikroTik & RADIUS Integration</span></div>
+                    <div class="feature-item"><i class="fa fa-check-circle"></i><span>Advanced Reports & Analytics</span></div>
+                </div>
+                <div class="integration-badges">
+                    <div class="badge-item">MikroTik</div>
+                    <div class="badge-item">Cisco</div>
+                    <div class="badge-item">Ubiquiti</div>
+                    <div class="badge-item">RADIUS</div>
+                    <div class="badge-item">pfSense</div>
+                </div>
+            </div>
+        </div>
+        <div class="login-right">
+            <div class="login-form-container">
+                <div class="back-home"><a href="/"><i class="fa fa-home"></i> Back to Home</a></div>
+                <h2>Sign in to start your session</h2>
+                <div class="user-type-selector">
+                    <div class="user-type-option active" data-type="superadmin"><i class="fa fa-user-secret"></i><span>Superadmin</span></div>
+                    <div class="user-type-option" data-type="admin"><i class="fa fa-user-circle"></i><span>Admin</span></div>
+                    <div class="user-type-option" data-type="employee"><i class="fa fa-user"></i><span>Employee</span></div>
+                    <div class="user-type-option" data-type="customer"><i class="fa fa-users"></i><span>Customer</span></div>
+                </div>
+                <form id="loginForm" class="login-form">
+                    <input type="hidden" id="userType" name="userType" value="superadmin">
+                    <div class="form-group" id="companyIdGroup" style="display: none;">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-building"></i></span>
+                            <input type="text" class="form-control" id="companyId" name="companyId" placeholder="Company ID">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-user"></i></span>
+                            <input type="text" class="form-control" id="userId" name="userId" placeholder="User ID" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-lock"></i></span>
+                            <input type="password" class="form-control" id="password" name="password" placeholder="Password" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-inline">
+                            <input type="checkbox" id="rememberMe" name="rememberMe"> Remember Me
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block btn-lg">Sign In</button>
+                    <div class="form-footer">
+                        <a href="#" class="forgot-password" id="forgotPasswordLink">I forgot my password</a>
+                        <a href="https://autoispbilling.com/#demo" class="request-demo" target="_blank">Request a Demo</a>
+                    </div>
+                </form>
+                <div class="security-badge"><i class="fa fa-lock"></i> Secured with 256-bit SSL Encryption</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Due Balance Modal -->
+    <div class="modal fade" id="dueBalanceModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title"><i class="fa fa-exclamation-triangle"></i> Payment Due</h4>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="alert-icon text-warning"><i class="fa fa-credit-card"></i></div>
+                    <h4>Your account has a pending balance</h4>
+                    <p>Due Amount: <strong id="dueAmount" style="font-size: 24px; color: #d9534f;">₹0</strong></p>
+                    <p>Please clear your dues to continue using the service.</p>
+                    <div id="qrCodeSection" class="qr-code-container" style="display: none;">
+                        <h5>Scan QR Code to Pay</h5>
+                        <img id="qrCodeImage" src="" alt="Payment QR Code">
+                    </div>
+                    <div class="contact-info">
+                        <p><strong>Contact Support:</strong></p>
+                        <p id="dueContactEmail"><i class="fa fa-envelope"></i> <span></span></p>
+                        <p id="dueContactPhone"><i class="fa fa-phone"></i> <span></span></p>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Close</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Limit Exceeded Modal -->
+    <div class="modal fade" id="limitExceededModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title"><i class="fa fa-warning"></i> Customer Limit Exceeded</h4>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="alert-icon text-danger"><i class="fa fa-users"></i></div>
+                    <h4>Customer Creation Limit Reached</h4>
+                    <p>Current Customers: <strong id="currentCount">0</strong></p>
+                    <p>Package Limit: <strong id="packageLimit">0</strong></p>
+                    <p>Package: <strong id="packageName"></strong></p>
+                    <p class="text-muted">You have reached the maximum number of customers allowed in your current package.</p>
+                    <p><strong>Please upgrade your package to add more customers.</strong></p>
+                    <div class="contact-info">
+                        <p><strong>Contact Auto ISP Billing:</strong></p>
+                        <p id="limitContactEmail"><i class="fa fa-envelope"></i> <span></span></p>
+                        <p id="limitContactPhone"><i class="fa fa-phone"></i> <span></span></p>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Close</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Account Suspended/Deleted Modal -->
+    <div class="modal fade" id="accountSuspendedModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title"><i class="fa fa-ban"></i> Account Suspended</h4>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="alert-icon text-danger"><i class="fa fa-exclamation-circle"></i></div>
+                    <h4 id="suspendedMessage">Your account has been suspended</h4>
+                    <p class="text-muted">Please contact support to restore your account.</p>
+                    <div class="contact-info">
+                        <p><strong>Contact Support:</strong></p>
+                        <p id="suspendedContactEmail"><i class="fa fa-envelope"></i> <span></span></p>
+                        <p id="suspendedContactPhone"><i class="fa fa-phone"></i> <span></span></p>
+                    </div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Close</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Forgot Password Modal -->
+    <div class="modal fade" id="forgotPasswordModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title"><i class="fa fa-key"></i> Reset Password</h4>
+                </div>
+                <div class="modal-body">
+                    <div id="otpRequestStep">
+                        <p>Enter your registered email address to receive an OTP for password reset.</p>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" class="form-control" id="resetEmail" placeholder="your@email.com" required>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block" id="sendOtpBtn"><i class="fa fa-envelope"></i> Send OTP</button>
+                    </div>
+                    <div id="otpVerifyStep" style="display: none;">
+                        <p>Enter the 6-digit OTP sent to your email.</p>
+                        <div class="form-group">
+                            <label>OTP Code</label>
+                            <input type="text" class="form-control" id="otpCode" placeholder="000000" maxlength="6" required>
+                        </div>
+                        <button type="button" class="btn btn-success btn-block" id="verifyOtpBtn"><i class="fa fa-check"></i> Verify OTP</button>
+                        <button type="button" class="btn btn-link btn-block" id="backToEmailBtn"><i class="fa fa-arrow-left"></i> Back</button>
+                    </div>
+                    <div id="otpSuccessStep" style="display: none;">
+                        <div class="text-center">
+                            <div class="alert-icon text-success"><i class="fa fa-check-circle"></i></div>
+                            <h4>Password Reset Successful!</h4>
+                            <p>A temporary password has been sent to your email.</p>
+                            <p class="text-muted">Please check your inbox and use the temporary password to login.</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('.user-type-option').click(function() {
+                $('.user-type-option').removeClass('active');
+                $(this).addClass('active');
+                var userType = $(this).data('type');
+                $('#userType').val(userType);
+                if (userType === 'admin' || userType === 'employee') {
+                    $('#companyIdGroup').slideDown();
+                    $('#companyId').prop('required', true);
+                } else {
+                    $('#companyIdGroup').slideUp();
+                    $('#companyId').prop('required', false);
+                }
+                if (userType === 'customer') {
+                    $('#userId').attr('placeholder', 'Customer ID');
+                } else if (userType === 'employee') {
+                    $('#userId').attr('placeholder', 'Employee ID');
+                } else if (userType === 'admin') {
+                    $('#userId').attr('placeholder', 'Admin ID');
+                } else {
+                    $('#userId').attr('placeholder', 'Superadmin ID');
+                }
+            });
+            
+            $('#loginForm').submit(function(e) {
+                e.preventDefault();
+                var userType = $('#userType').val();
+                var userId = $('#userId').val();
+                var password = $('#password').val();
+                var companyId = $('#companyId').val();
+                var rememberMe = $('#rememberMe').is(':checked');
+                if (!userId || !password) {
+                    alert('Please enter User ID and Password');
+                    return;
+                }
+                if ((userType === 'admin' || userType === 'employee') && !companyId) {
+                    alert('Please enter Company ID');
+                    return;
+                }
+                $('button[type="submit"]').html('<i class="fa fa-spinner fa-spin"></i> Signing In...').prop('disabled', true);
+                var formData = new FormData();
+                formData.append('userType', userType);
+                formData.append('userId', userId);
+                formData.append('password', password);
+                formData.append('rememberMe', rememberMe);
+                if (companyId) {
+                    formData.append('companyId', companyId);
+                }
+                $.ajax({
+                    url: '/api/auth/login',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.ok) {
+                            window.location.href = response.redirect;
+                        } else {
+                            handleLoginError(response);
+                            $('button[type="submit"]').html('Sign In').prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr) {
+                        if (xhr.responseJSON) {
+                            handleLoginError(xhr.responseJSON);
+                        } else {
+                            alert('Login failed. Please try again.');
+                        }
+                        $('button[type="submit"]').html('Sign In').prop('disabled', false);
+                    }
+                });
+            });
+            
+            function handleLoginError(response) {
+                var code = response.code;
+                var data = response.data || {};
+                if (code === 'ADMIN_DUE_BALANCE') {
+                    $('#dueAmount').text('₹' + data.due_amount);
+                    if (data.qr_code_path) {
+                        $('#qrCodeImage').attr('src', data.qr_code_path);
+                        $('#qrCodeSection').show();
+                    } else {
+                        $('#qrCodeSection').hide();
+                    }
+                    $('#dueContactEmail span').text(data.contact_email || 'N/A');
+                    $('#dueContactPhone span').text(data.contact_phone || 'N/A');
+                    $('#dueBalanceModal').modal('show');
+                } else if (code === 'ADMIN_LIMIT_EXCEEDED') {
+                    $('#currentCount').text(data.current_count);
+                    $('#packageLimit').text(data.limit);
+                    $('#packageName').text(data.package);
+                    $('#limitContactEmail span').text(data.contact_email || 'N/A');
+                    $('#limitContactPhone span').text(data.contact_phone || 'N/A');
+                    $('#limitExceededModal').modal('show');
+                } else if (code === 'ADMIN_DELETED' || code === 'ADMIN_SUSPENDED' || code === 'EMPLOYEE_DELETED' || code === 'EMPLOYEE_INACTIVE' || code === 'CUSTOMER_SUSPENDED') {
+                    $('#suspendedMessage').text(data.message || 'Your account has been suspended');
+                    var email = data.contact_email || data.admin_email || 'N/A';
+                    var phone = data.contact_phone || data.admin_phone || 'N/A';
+                    $('#suspendedContactEmail span').text(email);
+                    $('#suspendedContactPhone span').text(phone);
+                    $('#accountSuspendedModal').modal('show');
+                } else {
+                    alert(response.message || 'Login failed');
+                }
+            }
+            
+            $('#forgotPasswordLink').click(function(e) {
+                e.preventDefault();
+                $('#otpRequestStep').show();
+                $('#otpVerifyStep').hide();
+                $('#otpSuccessStep').hide();
+                $('#forgotPasswordModal').modal('show');
+            });
+            
+            $('#sendOtpBtn').click(function() {
+                var email = $('#resetEmail').val();
+                var userType = $('#userType').val();
+                var companyId = $('#companyId').val();
+                var userId = $('#userId').val();
+                if (!email) {
+                    alert('Please enter your email address');
+                    return;
+                }
+                if (userType === 'admin' && (!companyId || !userId)) {
+                    alert('Please enter Company ID and Admin ID in the login form before requesting password reset');
+                    return;
+                }
+                $(this).html('<i class="fa fa-spinner fa-spin"></i> Sending...').prop('disabled', true);
+                var formData = new FormData();
+                formData.append('email', email);
+                formData.append('userType', userType);
+                if (userType === 'admin' && companyId && userId) {
+                    formData.append('companyId', companyId);
+                    formData.append('adminId', userId);
+                }
+                $.ajax({
+                    url: '/api/auth/request-otp',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.ok) {
+                            $('#otpRequestStep').hide();
+                            $('#otpVerifyStep').show();
+                        } else {
+                            alert(response.message || 'Failed to send OTP');
+                        }
+                        $('#sendOtpBtn').html('<i class="fa fa-envelope"></i> Send OTP').prop('disabled', false);
+                    },
+                    error: function() {
+                        alert('Failed to send OTP. Please try again.');
+                        $('#sendOtpBtn').html('<i class="fa fa-envelope"></i> Send OTP').prop('disabled', false);
+                    }
+                });
+            });
+            
+            $('#verifyOtpBtn').click(function() {
+                var email = $('#resetEmail').val();
+                var otpCode = $('#otpCode').val();
+                var userType = $('#userType').val();
+                var companyId = $('#companyId').val();
+                var userId = $('#userId').val();
+                if (!otpCode || otpCode.length !== 6) {
+                    alert('Please enter a valid 6-digit OTP');
+                    return;
+                }
+                $(this).html('<i class="fa fa-spinner fa-spin"></i> Verifying...').prop('disabled', true);
+                var formData = new FormData();
+                formData.append('email', email);
+                formData.append('otp_code', otpCode);
+                formData.append('userType', userType);
+                if (userType === 'admin' && companyId && userId) {
+                    formData.append('companyId', companyId);
+                    formData.append('adminId', userId);
+                }
+                $.ajax({
+                    url: '/api/auth/verify-otp-reset',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.ok) {
+                            $('#otpVerifyStep').hide();
+                            $('#otpSuccessStep').show();
+                        } else {
+                            alert(response.message || 'Invalid OTP');
+                            $('#verifyOtpBtn').html('<i class="fa fa-check"></i> Verify OTP').prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr) {
+                        var message = 'Failed to verify OTP';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            message = xhr.responseJSON.message;
+                        }
+                        alert(message);
+                        $('#verifyOtpBtn').html('<i class="fa fa-check"></i> Verify OTP').prop('disabled', false);
+                    }
+                });
+            });
+            
+            $('#backToEmailBtn').click(function() {
+                $('#otpVerifyStep').hide();
+                $('#otpRequestStep').show();
+                $('#otpCode').val('');
+            });
+        });
+    </script>
+</body>
+</html>

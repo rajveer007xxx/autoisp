@@ -1,0 +1,529 @@
+"""S43ZR — Central per-tenant payment routes:
+  POST /api/pay/{gateway}/{customer_id}/create-order
+  POST /api/pay/{gateway}/verify   (frontend redirect/callback)
+  POST /api/webhooks/{gateway}     (gateway-server-to-server)
+  POST /api/admin/payment-gateway/refund  (admin-initiated)
+
+Each route loads the right tenant credentials, dispatches to the adapter,
+records a Payment row, and—on success—fires the existing reactivation chain
+(_enforce_user_state), receipt e-mail/WA, idempotency via webhook_log.
+"""
+from __future__ import annotations
+import json, time
+from datetime import datetime
+from typing import Optional
+
+from fastapi import Request, Depends
+from fastapi.responses import JSONResponse, HTMLResponse
+from sqlalchemy import text as sa_text
+from sqlalchemy.orm import Session
+
+from . import crypto
+from .registry import GATEWAYS
+from .adapters import make as make_adapter
+from .routes_admin import get_company_credentials, _company_gateway_enabled
+
+
+# ── helpers ──────────────────────────────────────────────────────────────
+
+def _record_payment(db, *, customer, amount_inr: float, gateway_name: str,
+                    payment_id: str, order_id: str, raw_response: dict | None = None,
+                    mode_hint: str = ""):
+    """Insert Payment row (idempotent on reference=payment_id). Returns
+    (created, payment_row)."""
+    from database import Payment
+    if not payment_id:
+        return False, None
+    existing = db.query(Payment).filter(Payment.transaction_no == payment_id).first()
+    if existing:
+        return False, existing
+    row = Payment(
+        customer_id=customer.customer_id,
+        company_id=customer.company_id,
+        amount=float(amount_inr or 0),
+        payment_mode=mode_hint or gateway_name.capitalize(),
+        transaction_no=payment_id,
+        paid_at=datetime.utcnow(),
+        remarks=f"{gateway_name} order {order_id}",
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.commit()
+    return True, row
+
+
+def _post_success_chain(db, customer, enforce_state_fn=None,
+                         amount_paid: float | None = None) -> None:
+    """Flip status → Active, reset is_suspended, kick parking session, reload
+    FreeRADIUS. Re-uses main.py's _enforce_user_state when passed in.
+
+    __S44A__: Also applies any pending plan_change_orders row for this
+    customer (matched by amount if provided), so upgrades initiated from
+    /customer/upgrade/{oid}/checkout — paid via PayU/CCAvenue/Cashfree/
+    PhonePe/Stripe — get applied on the same success path."""
+    try:
+        changed = False
+        if (customer.status or "") != "Active":
+            customer.status = "Active"; changed = True
+        if getattr(customer, "is_suspended", False):
+            customer.is_suspended = False; changed = True
+        if changed:
+            db.commit()
+    except Exception:
+        db.rollback()
+    # __S44A__ apply pending upgrade
+    try:
+        from phase27_upgrade_pay import apply_pending_upgrade_for_customer
+        apply_pending_upgrade_for_customer(
+            db, customer.company_id, customer.customer_id, amount_paid)
+    except Exception as e:
+        print(f"[warn] _post_success_chain upgrade-apply: {e}")
+    if enforce_state_fn:
+        try:
+            enforce_state_fn(db, customer)
+        except Exception as e:
+            print(f"[warn] _post_success_chain enforce: {e}")
+
+
+def _log_webhook(db, *, company_id: str, gateway_name: str, event_id: str,
+                 event_type: str, signature: str, signature_valid: bool,
+                 payload_json: str, http_status: int, payment_id: str | None):
+    """Idempotent insert into webhook_log. Uses INSERT OR IGNORE
+    (UNIQUE on gateway_name+event_id). Returns True when this is a NEW row."""
+    try:
+        r = db.execute(sa_text(
+            "INSERT OR IGNORE INTO webhook_log "
+            "(company_id, gateway_name, event_id, event_type, signature, "
+            " signature_valid, payload_json, http_status, processed_payment_id, received_at) "
+            "VALUES (:cid, :g, :eid, :et, :sig, :sv, :pj, :hs, :pid, :rt)"
+        ), {"cid": company_id, "g": gateway_name, "eid": (event_id or "")[:120],
+            "et": (event_type or "")[:64], "sig": (signature or "")[:512],
+            "sv": 1 if signature_valid else 0, "pj": (payload_json or "")[:80000],
+            "hs": int(http_status), "pid": (payment_id or "")[:64],
+            "rt": datetime.utcnow()})
+        db.commit()
+        return getattr(r, "rowcount", 0) > 0
+    except Exception:
+        try: db.rollback()
+        except: pass
+        return False
+
+
+# ── registration ─────────────────────────────────────────────────────────
+
+def register(app, get_db, require_auth, enforce_state_fn=None):
+    """Wire all gateway-pay routes. `enforce_state_fn` is `main._enforce_user_state`
+    passed in from main.py so we can reactivate after success."""
+
+    @app.post("/api/pay/{gateway}/{customer_id}/create-order")
+    async def pay_create_order(gateway: str, customer_id: str, request: Request,
+                                db: Session = Depends(get_db)):
+        from database import Customer
+        gateway = (gateway or "").lower()
+        cust = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+        if not cust:
+            return JSONResponse({"success": False, "message": "Customer not found."},
+                                 status_code=404)
+        creds = get_company_credentials(db, cust.company_id, gateway)
+        if not creds:
+            return JSONResponse({"success": False,
+                                 "message": f"This provider has not configured {gateway} yet."},
+                                 status_code=400)
+        adapter = make_adapter(gateway, creds)
+        if not adapter:
+            return JSONResponse({"success": False, "message": "Unknown gateway."},
+                                 status_code=400)
+        from main import compute_customer_balance
+        amt = float(compute_customer_balance(cust.customer_id, cust.company_id, db) or 0)
+        if amt <= 0:
+            return JSONResponse({"success": False,
+                                 "message": "No outstanding balance."},
+                                 status_code=400)
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        notes = {
+            "customer_id": cust.customer_id, "company_id": cust.company_id,
+            "firstname": (cust.customer_name or "Customer")[:60],
+            "email": (cust.customer_email or "noreply@autoispbilling.com")[:80],
+            "productinfo": body.get("productinfo") or "ISP Bill",
+        }
+        try:
+            out = adapter.create_order(amount_inr=amt,
+                                        customer_id=cust.customer_id,
+                                        company_id=cust.company_id,
+                                        notes=notes)
+        except Exception as e:
+            return JSONResponse({"success": False, "message": str(e)[:240]},
+                                 status_code=500)
+        # PayU surl/furl needs absolute URLs based on request host
+        if gateway == "payu" and out.get("ok"):
+            base = f"{request.url.scheme}://{request.url.netloc}"
+            out["fields"]["surl"] = f"{base}/api/pay/payu/return?status=success"
+            out["fields"]["furl"] = f"{base}/api/pay/payu/return?status=failure"
+        return {"success": bool(out.get("ok")), **out}
+
+    @app.post("/api/pay/payu/return")
+    async def pay_payu_return(request: Request, db: Session = Depends(get_db)):
+        """PayU posts the return form to surl/furl. We verify hash, record
+        the payment, fire success chain, then redirect to /pay/success/{cid}."""
+        form = dict((await request.form()).items())
+        cust_id = form.get("udf1") or ""
+        company_id = form.get("udf2") or ""
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id).first()
+        if not cust:
+            return HTMLResponse("Customer not found.", status_code=404)
+        creds = get_company_credentials(db, cust.company_id, "payu") or {}
+        adapter = make_adapter("payu", creds)
+        verif = adapter.verify_callback(form) if adapter else {"ok": False}
+        if not verif.get("ok"):
+            return HTMLResponse(
+                f"<script>window.location='/pay/failed/{cust_id}?gw=payu';</script>"
+                f"PayU verification failed: {verif.get('message','')}",
+                status_code=200)
+        pid = verif.get("payment_id") or form.get("mihpayid") or ""
+        _record_payment(db, customer=cust, amount_inr=float(verif["amount"]),
+                         gateway_name="payu", payment_id=pid,
+                         order_id=verif.get("order_id", ""),
+                         mode_hint="PayU")
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif["amount"]))
+        return HTMLResponse(
+            f"<script>window.location='/pay/success/{cust_id}?gw=payu&payment_id={pid}';</script>"
+            f"Redirecting…", status_code=200)
+
+
+    # __S43ZT__ ─── Cashfree return ─────────────────────────────────────
+    @app.api_route("/api/pay/cashfree/return", methods=["GET", "POST"])
+    async def pay_cashfree_return(request: Request, db: Session = Depends(get_db)):
+        # Cashfree appends ?order_id=… (and may POST)
+        try:
+            qs = dict(request.query_params)
+        except Exception:
+            qs = {}
+        try:
+            form = dict((await request.form()).items())
+        except Exception:
+            form = {}
+        merged = {**form, **qs}
+        order_id = merged.get("order_id") or ""
+        # We need company_id to load creds. The order_id contains customer_id:
+        # `order_{customer_id}_<hex>`. We can fetch from order via Cashfree
+        # API but require creds first → look up by recent webhook_log entry.
+        # Simpler: extract customer_id from order_id prefix.
+        cust_id = ""
+        if order_id.startswith("order_"):
+            parts = order_id.split("_", 2)
+            if len(parts) >= 2: cust_id = parts[1]
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id).first() if cust_id else None
+        if not cust:
+            return HTMLResponse("Customer not found.", status_code=404)
+        creds = get_company_credentials(db, cust.company_id, "cashfree") or {}
+        adapter = make_adapter("cashfree", creds)
+        verif = adapter.verify_callback(merged) if adapter else {"ok": False}
+        if not verif.get("ok"):
+            return HTMLResponse(
+                f"<script>window.location='/pay/failed/{cust_id}?gw=cashfree';</script>",
+                status_code=200)
+        pid = verif.get("payment_id") or order_id
+        _record_payment(db, customer=cust, amount_inr=float(verif["amount"]),
+                         gateway_name="cashfree", payment_id=pid,
+                         order_id=order_id, mode_hint="Cashfree")
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif["amount"]))
+        return HTMLResponse(
+            f"<script>window.location='/pay/success/{cust_id}?gw=cashfree&payment_id={pid}';</script>"
+            f"Redirecting…", status_code=200)
+
+    # __S43ZT__ ─── PhonePe return ─────────────────────────────────────
+    @app.api_route("/api/pay/phonepe/return", methods=["GET", "POST"])
+    async def pay_phonepe_return(request: Request, db: Session = Depends(get_db)):
+        try:
+            qs = dict(request.query_params)
+        except Exception:
+            qs = {}
+        try:
+            form = dict((await request.form()).items())
+        except Exception:
+            form = {}
+        merged = {**form, **qs}
+        txn_id = merged.get("transactionId") or merged.get("txnid") or merged.get("merchantTransactionId") or ""
+        # Recover tenant via our pre-link cache (stored on create_order)
+        from sqlalchemy import text as _t
+        row = db.execute(_t(
+            "SELECT payload_json FROM webhook_log "
+            "WHERE gateway_name='phonepe' AND event_id=:e"
+        ), {"e": f"prelink_{txn_id}"}).fetchone()
+        import json as _j
+        cust_id = comp_id = ""
+        if row:
+            try:
+                _meta = _j.loads(row[0] or "{}")
+                cust_id = _meta.get("customer_id") or ""
+                comp_id = _meta.get("company_id") or ""
+            except Exception:
+                pass
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id).first() if cust_id else None
+        if not cust:
+            return HTMLResponse("Customer not found.", status_code=404)
+        creds = get_company_credentials(db, cust.company_id, "phonepe") or {}
+        adapter = make_adapter("phonepe", creds)
+        verif = adapter.verify_callback(merged) if adapter else {"ok": False}
+        if not verif.get("ok"):
+            return HTMLResponse(
+                f"<script>window.location='/pay/failed/{cust_id}?gw=phonepe';</script>",
+                status_code=200)
+        pid = verif.get("payment_id") or txn_id
+        _record_payment(db, customer=cust, amount_inr=float(verif["amount"]),
+                         gateway_name="phonepe", payment_id=pid,
+                         order_id=txn_id, mode_hint="PhonePe")
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif["amount"]))
+        return HTMLResponse(
+            f"<script>window.location='/pay/success/{cust_id}?gw=phonepe&payment_id={pid}';</script>"
+            f"Redirecting…", status_code=200)
+
+    # __S43ZT__ ─── CCAvenue return ─────────────────────────────────────
+    @app.api_route("/api/pay/ccavenue/return", methods=["GET", "POST"])
+    async def pay_ccavenue_return(request: Request, db: Session = Depends(get_db)):
+        try:
+            form = dict((await request.form()).items())
+        except Exception:
+            form = {}
+        # CCAvenue posts encResp; verify_callback uses merchant_param1/2 → cust/company.
+        # Quick & safe: probe every active tenant's working_key to find the right one.
+        enc = form.get("encResp") or ""
+        if not enc:
+            return HTMLResponse("Missing encResp.", status_code=400)
+        # Walk all active ccavenue tenants and try to decrypt.
+        from sqlalchemy import text as _t
+        rows = db.execute(_t(
+            "SELECT company_id FROM payment_gateways "
+            "WHERE gateway_name='ccavenue' AND status='Active'"
+        )).fetchall()
+        cust_id = ""; verif = None; tried = []
+        for r in rows:
+            cid = r[0]
+            creds = get_company_credentials(db, cid, "ccavenue") or {}
+            if not creds.get("key_secret"):
+                continue
+            ad = make_adapter("ccavenue", creds)
+            try:
+                v = ad.verify_callback({"encResp": enc})
+            except Exception:
+                v = {"ok": False}
+            if v.get("ok"):
+                verif = v; break
+            tried.append(cid)
+        if not verif:
+            return HTMLResponse(
+                f"<script>window.location='/pay/failed/UNKNOWN?gw=ccavenue';</script>",
+                status_code=200)
+        cust_id = (verif.get("notes") or {}).get("customer_id") or ""
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id).first()
+        if not cust:
+            return HTMLResponse("Customer not found after callback.", status_code=404)
+        pid = verif.get("payment_id") or verif.get("order_id") or ""
+        _record_payment(db, customer=cust, amount_inr=float(verif["amount"]),
+                         gateway_name="ccavenue", payment_id=pid,
+                         order_id=verif.get("order_id") or "",
+                         mode_hint="CCAvenue")
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif["amount"]))
+        return HTMLResponse(
+            f"<script>window.location='/pay/success/{cust_id}?gw=ccavenue&payment_id={pid}';</script>"
+            f"Redirecting…", status_code=200)
+
+    # __S43ZT__ ─── Stripe return ─────────────────────────────────────
+    # Stripe's success_url already points at /pay/success/{cust}?gw=stripe&session_id=…
+    # We add a SECOND helper that records the payment server-side
+    # (Stripe's checkout success_url doesn't auto-record — we rely on webhook
+    # OR the success page calling this to confirm).
+    @app.get("/api/pay/stripe/confirm/{customer_id}")
+    async def pay_stripe_confirm(customer_id: str, request: Request,
+                                   db: Session = Depends(get_db)):
+        session_id = request.query_params.get("session_id") or ""
+        if not session_id:
+            return JSONResponse({"success": False, "message": "missing session_id"},
+                                 status_code=400)
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+        if not cust:
+            return JSONResponse({"success": False, "message": "customer not found"},
+                                 status_code=404)
+        creds = get_company_credentials(db, cust.company_id, "stripe") or {}
+        adapter = make_adapter("stripe", creds)
+        if not adapter:
+            return JSONResponse({"success": False, "message": "no creds"},
+                                 status_code=400)
+        verif = adapter.verify_callback({"session_id": session_id})
+        if not verif.get("ok"):
+            return JSONResponse({"success": False,
+                                 "message": verif.get("message", "verify failed")},
+                                 status_code=400)
+        pid = verif.get("payment_id") or session_id
+        _record_payment(db, customer=cust, amount_inr=float(verif["amount"]),
+                         gateway_name="stripe", payment_id=pid,
+                         order_id=session_id, mode_hint="Stripe")
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif["amount"]))
+        return {"success": True, "amount": verif["amount"]}
+
+    @app.post("/api/webhooks/{gateway}")
+    async def central_webhook(gateway: str, request: Request,
+                               db: Session = Depends(get_db)):
+        """Central webhook endpoint. Determines tenant via:
+              * Razorpay  → JSON `payload.payment.entity.notes.company_id`
+              * PayU      → form `udf2` (company_id) OR JSON `data.udf2`
+              * Stripe    → JSON `data.object.metadata.company_id`
+        """
+        gateway = (gateway or "").lower()
+        if gateway not in GATEWAYS:
+            return JSONResponse({"success": False, "message": "Unknown gateway."},
+                                 status_code=400)
+        raw = await request.body()
+        sig = (request.headers.get("x-razorpay-signature") or
+               request.headers.get("x-payu-signature") or
+               request.headers.get("x-stripe-signature") or
+               request.headers.get("x-webhook-signature") or "")
+        # Parse → company_id detection
+        try:
+            payload = json.loads(raw.decode() or "{}")
+        except Exception:
+            payload = {}
+        company_id = ""
+        if gateway == "razorpay":
+            pe = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+            company_id = (pe.get("notes") or {}).get("company_id") or ""
+        elif gateway == "payu":
+            data = payload.get("data") or payload
+            company_id = data.get("udf2") or ""
+        elif gateway == "stripe":
+            obj = ((payload.get("data") or {}).get("object") or {})
+            company_id = (obj.get("metadata") or {}).get("company_id") or ""
+        creds = get_company_credentials(db, company_id, gateway) if company_id else None
+        if not creds:
+            _log_webhook(db, company_id=company_id, gateway_name=gateway,
+                          event_id=str(payload.get("event_id") or payload.get("id") or "")[:120],
+                          event_type=str(payload.get("event") or "")[:64],
+                          signature=sig, signature_valid=False,
+                          payload_json=raw.decode("utf-8", "ignore")[:5000],
+                          http_status=400, payment_id=None)
+            return JSONResponse({"success": False,
+                                 "message": "tenant unresolved or feature disabled"},
+                                 status_code=400)
+        adapter = make_adapter(gateway, creds)
+        if hasattr(adapter, "verify_webhook"):
+            try:
+                if gateway == "razorpay":
+                    verif = adapter.verify_webhook(raw, sig)
+                else:
+                    verif = adapter.verify_webhook(raw, sig)
+            except Exception as e:
+                verif = {"ok": False, "message": str(e)}
+        else:
+            verif = {"ok": False, "message": "no webhook handler"}
+        # Idempotency
+        new = _log_webhook(db, company_id=company_id, gateway_name=gateway,
+                            event_id=str(verif.get("event_id") or "")[:120],
+                            event_type=str(verif.get("event_type") or "")[:64],
+                            signature=sig, signature_valid=bool(verif.get("ok")),
+                            payload_json=raw.decode("utf-8", "ignore")[:5000],
+                            http_status=200 if verif.get("ok") else 400,
+                            payment_id=str(verif.get("payment_id") or "")[:64])
+        if not verif.get("ok"):
+            return JSONResponse({"success": False,
+                                 "message": verif.get("message", "verify failed")},
+                                 status_code=400)
+        if not new:
+            return {"success": True, "duplicate": True}
+        # Process payment
+        cust_id = (verif.get("notes") or {}).get("customer_id") or ""
+        if not cust_id:
+            return JSONResponse({"success": False,
+                                 "message": "customer_id missing in payload"},
+                                 status_code=400)
+        from database import Customer
+        cust = db.query(Customer).filter(Customer.customer_id == cust_id).first()
+        if not cust:
+            return JSONResponse({"success": False, "message": "customer not found"},
+                                 status_code=404)
+        _record_payment(db, customer=cust, amount_inr=float(verif.get("amount") or 0),
+                         gateway_name=gateway, payment_id=verif.get("payment_id") or "",
+                         order_id=verif.get("order_id") or "",
+                         mode_hint=gateway.capitalize())
+        _post_success_chain(db, cust, enforce_state_fn,
+                              amount_paid=float(verif.get("amount") or 0))
+        return {"success": True}
+
+    @app.post("/api/admin/payment-gateway/refund")
+    async def api_admin_pg_refund(request: Request, db: Session = Depends(get_db)):
+        """Admin-initiated refund. Body: {payment_id, amount?, reason?}.
+        Looks up the original Payment row to determine which gateway."""
+        if require_auth(request):
+            return JSONResponse({"success": False, "message": "Unauthorized"},
+                                 status_code=401)
+        if (request.session.get("user_type") or "").lower() not in ("admin", "superadmin"):
+            return JSONResponse({"success": False, "message": "Admins only."},
+                                 status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        pid = (body.get("payment_id") or "").strip()
+        if not pid:
+            return JSONResponse({"success": False, "message": "payment_id required"},
+                                 status_code=400)
+        amount = body.get("amount")
+        reason = (body.get("reason") or "")[:200]
+        from database import Payment
+        pay = db.query(Payment).filter(Payment.transaction_no == pid).first()
+        if not pay:
+            return JSONResponse({"success": False, "message": "Payment not found."},
+                                 status_code=404)
+        if (pay.company_id or "") != (request.session.get("company_id") or ""):
+            return JSONResponse({"success": False, "message": "Tenant mismatch."},
+                                 status_code=403)
+        gateway = (pay.payment_mode or "").lower()
+        # Map mode label → registry key
+        gw_alias = {"razorpay": "razorpay", "payu": "payu", "cashfree": "cashfree",
+                    "phonepe": "phonepe", "ccavenue": "ccavenue", "stripe": "stripe"}
+        gateway = gw_alias.get(gateway, gateway)
+        creds = get_company_credentials(db, pay.company_id, gateway)
+        if not creds:
+            return JSONResponse({"success": False,
+                                 "message": f"No active {gateway} credentials."},
+                                 status_code=400)
+        adapter = make_adapter(gateway, creds)
+        if not adapter:
+            return JSONResponse({"success": False, "message": "Unknown gateway."},
+                                 status_code=400)
+        try:
+            out = adapter.refund(pid, amount_inr=float(amount) if amount else None,
+                                  reason=reason)
+        except Exception as e:
+            return JSONResponse({"success": False, "message": str(e)[:240]},
+                                 status_code=500)
+        if out.get("ok"):
+            # Record a negative-amount Payment row referencing the original
+            try:
+                neg = Payment(
+                    customer_id=pay.customer_id,
+                    company_id=pay.company_id,
+                    amount=-float(out.get("amount") or amount or pay.amount),
+                    payment_mode=f"{gateway.capitalize()} Refund",
+                    transaction_no=str(out.get("refund_id") or f"refund_{int(time.time())}"),
+                    paid_at=datetime.utcnow(),
+                    remarks=f"Refund of {pid}: {reason}"[:180],
+                    created_at=datetime.utcnow(),
+                )
+                db.add(neg); db.commit()
+            except Exception:
+                db.rollback()
+        return out

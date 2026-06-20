@@ -1,0 +1,55 @@
+{% extends "base_user.html" %}
+{% block title %}Payments — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title"><div><h1>Payment History</h1><p>Every payment received against your account.</p></div></div>
+<div class="card">
+<table>
+<thead><tr><th>Date</th><th>Renewal Period</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Note</th><th style="text-align:right;">Actions</th></tr></thead>
+<tbody>
+{% for p in payments|default([]) %}
+<tr>
+  <td>{{ p.paid_at }}</td>
+  <td data-testid="payment-renewal-period-{{ p.id }}" style="color:var(--text-lo);">{{ p.renewal_period|default('—') }}</td>
+  <td class="amount">₹ {{ '{:,.0f}'.format(p.amount or 0) }}</td>
+  <td>{{ p.payment_mode }}</td>
+  <td>{{ p.transaction_no|default('—') }}</td>
+  <td style="color:var(--text-lo);">{{ p.remarks|default('') }}</td>
+  <td style="text-align:right;white-space:nowrap;">
+    <a class="btn" style="padding:6px 10px;font-size:12px;" href="/api/customer/me/payment/{{ p.id }}/receipt" title="Download receipt" data-testid="payment-download-btn"><i class="bi bi-download"></i></a>
+    <a class="btn" style="padding:6px 10px;font-size:12px;" href="javascript:void(0)" onclick="printDoc('/api/customer/me/payment/{{ p.id }}/receipt?inline=1')" title="Print" data-testid="payment-print-btn"><i class="bi bi-printer"></i></a>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="7" style="text-align:center;color:var(--text-lo);padding:40px;">No payments yet.</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function printDoc(url){
+  let f = document.getElementById('printFrame');
+  if(!f){
+    f = document.createElement('iframe');
+    f.id = 'printFrame';
+    f.style.position = 'fixed';
+    f.style.right = '0'; f.style.bottom = '0';
+    f.style.width = '0'; f.style.height = '0';
+    f.style.border = '0';
+    document.body.appendChild(f);
+  }
+  f.onload = function(){
+    setTimeout(() => {
+      try {
+        f.contentWindow.focus();
+        f.contentWindow.print();
+      } catch(e){
+        console.error('print failed', e);
+        window.open(url, '_blank');
+      }
+    }, 600);
+  };
+  f.src = url;
+}
+</script>
+{% endblock %}

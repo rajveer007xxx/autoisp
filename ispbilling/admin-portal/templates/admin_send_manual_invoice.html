@@ -1,0 +1,568 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Send Manual Invoice — Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* _S39R5T_ — Match site grey theme (base_admin.html palette). */
+  .smi-hero{
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    color:#0f172a;
+    padding:22px 26px; border-radius:12px; margin-bottom:18px;
+    box-shadow:0 1px 2px rgba(15,23,42,.04);
+    position:relative; overflow:hidden;
+  }
+  .smi-hero::before{
+    content:''; position:absolute; right:-80px; top:-80px;
+    width:240px; height:240px; border-radius:50%; background:rgba(79,70,229,.05);
+  }
+  .smi-hero h2{ margin:0 0 6px; font-weight:800; font-size:22px; color:#0f172a;}
+  .smi-hero h2 i{ color:#4f46e5; margin-right:4px;}
+  .smi-hero p{ margin:0; color:#64748b; font-size:13px;}
+
+  .smi-card{
+    background:#ffffff; border:1px solid #e5e7eb; border-radius:10px;
+    padding:18px 22px; box-shadow:0 1px 2px rgba(15,23,42,.04); margin-bottom:16px;
+  }
+  .smi-card h4{
+    margin:0 0 14px; color:#334155; font-weight:700; font-size:13px;
+    text-transform:uppercase; letter-spacing:.6px;
+    padding-bottom:8px; border-bottom:1px solid #e5e7eb;
+  }
+  .smi-card h5{ color:#475569; }
+
+  .smi-toggle .btn-group{ display:flex; flex-wrap:wrap; gap:8px; }
+  .smi-toggle .btn{
+    flex:1; min-width:170px; border-radius:8px !important; padding:10px 14px;
+    border:1px solid #e5e7eb !important; background:#f8fafc !important;
+    color:#475569 !important; font-weight:600;
+    transition:all .15s ease;
+  }
+  .smi-toggle .btn:hover{ background:#f1f5f9 !important; border-color:#cbd5e1 !important; }
+  .smi-toggle .btn.active{
+    background:#4f46e5 !important; color:#fff !important; border-color:#4f46e5 !important;
+    box-shadow:0 2px 6px rgba(79,70,229,.25);
+  }
+
+  .smi-line-item{
+    display:grid; grid-template-columns: 1fr 90px 80px 110px 80px 80px 110px 36px;
+    gap:8px; align-items:end; padding:10px;
+    border:1px solid #e5e7eb; border-radius:8px; margin-bottom:8px; background:#f8fafc;
+  }
+  .smi-line-item.no-gst{ grid-template-columns: 1fr 90px 110px 110px 36px; }
+  .smi-line-item label{
+    font-size:11px; color:#64748b; margin-bottom:2px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.4px;
+  }
+  .smi-line-item input{ height:34px; }
+  .smi-line-item .li-rm{
+    background:#fff; color:#ef4444; border:1px solid #fecaca;
+    height:34px; border-radius:6px;
+  }
+  .smi-line-item .li-rm:hover{ background:#fef2f2; border-color:#fca5a5; }
+  .smi-line-item .li-amt{
+    background:#fff; padding:6px 8px; border-radius:6px; border:1px solid #e5e7eb;
+    font-weight:700; color:#0f172a; text-align:right; height:34px; line-height:22px;
+  }
+
+  .smi-totals{
+    background:#f1f5f9; color:#0f172a;
+    border:1px solid #e5e7eb; border-radius:10px;
+    padding:14px 22px; margin-top:14px;
+  }
+  .smi-totals table{ width:100%; }
+  .smi-totals td{ padding:6px 0; font-size:13px; color:#475569;}
+  .smi-totals td:last-child{ color:#0f172a; font-weight:600;}
+  .smi-totals .grand td{
+    font-size:18px; font-weight:800; padding-top:10px;
+    border-top:1px solid #cbd5e1; color:#0f172a !important;
+  }
+
+  .smi-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .smi-actions .btn{ min-width:170px; padding:11px 18px; border-radius:8px; font-weight:700;}
+  .smi-actions .btn-primary{ background:#4f46e5; border-color:#4f46e5;}
+  .smi-actions .btn-primary:hover{ background:#4338ca; border-color:#4338ca;}
+  .smi-actions .btn-success{ background:#10b981; border-color:#10b981;}
+  .smi-actions .btn-success:hover{ background:#059669; border-color:#059669;}
+  .smi-actions .btn-default{
+    background:#fff; color:#475569; border:1px solid #cbd5e1;
+  }
+  .smi-actions .btn-default:hover{ background:#f8fafc; border-color:#94a3b8; }
+
+  .smi-sender{
+    background:#f8fafc; border:1px solid #e5e7eb;
+    border-left:3px solid #4f46e5;
+    padding:12px 16px; border-radius:6px; font-size:12.5px; color:#334155;
+  }
+  .smi-sender b{ color:#0f172a; }
+
+  .smi-hidden{ display:none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content">
+  <div class="smi-hero">
+    <h2><i class="bi bi-envelope-paper"></i> Send Manual Invoice</h2>
+    <p>Compose a one-off invoice and deliver it via Email or WhatsApp.</p>
+  </div>
+
+  <form id="smiForm">
+    <!-- Sender -->
+    <div class="smi-card">
+      <h4>Sender</h4>
+      <div class="smi-sender" id="smiSenderBox">Loading sender info…</div>
+    </div>
+
+    <!-- Sender Branding (only for sub-LCO / employee) -->
+    <div class="smi-card" id="brandingCard" style="display:none">
+      <h4>Your Invoice Branding</h4>
+      <p style="color:#64748b;font-size:12px;margin-top:-6px;margin-bottom:12px;">
+        Fill the company name, GST# and contact details that should appear on YOUR invoices. Leave blank if you don't want them shown. Click <b>Save as my defaults</b> below to persist (these are private to your account and don't replace the operator's company on other invoices).
+      </p>
+      <div class="row">
+        <div class="col-md-6"><div class="form-group"><label>Company Name</label><input type="text" class="form-control" id="brCoName" placeholder="e.g., Ravi Networks"></div></div>
+        <div class="col-md-6"><div class="form-group"><label>GST Number</label><input type="text" class="form-control" id="brCoGst" placeholder="15-digit GSTIN, blank if none" maxlength="15"></div></div>
+      </div>
+      <div class="row">
+        <div class="col-md-4"><div class="form-group"><label>Phone</label><input type="text" class="form-control" id="brCoPhone"></div></div>
+        <div class="col-md-4"><div class="form-group"><label>Email</label><input type="email" class="form-control" id="brCoEmail"></div></div>
+        <div class="col-md-4"><div class="form-group"><label>Address</label><textarea class="form-control" id="brCoAddr" rows="1"></textarea></div></div>
+      </div>
+      <h5 style="color:#475569;margin-top:6px;">Bank Details (optional)</h5>
+      <div class="row">
+        <div class="col-md-3"><div class="form-group"><label>Bank</label><input type="text" class="form-control" id="brBank"></div></div>
+        <div class="col-md-3"><div class="form-group"><label>A/C No.</label><input type="text" class="form-control" id="brAcc"></div></div>
+        <div class="col-md-2"><div class="form-group"><label>IFSC</label><input type="text" class="form-control" id="brIfsc"></div></div>
+        <div class="col-md-2"><div class="form-group"><label>Branch</label><input type="text" class="form-control" id="brBranch"></div></div>
+        <div class="col-md-2"><div class="form-group"><label>UPI ID</label><input type="text" class="form-control" id="brUpi"></div></div>
+      </div>
+    </div>
+
+    <!-- Recipient -->
+    <div class="smi-card">
+      <h4>Recipient</h4>
+      <div class="smi-toggle" data-testid="smi-mode">
+        <div class="btn-group" role="group">
+          <button type="button" class="btn active" data-mode="existing" data-testid="smi-mode-existing"><i class="fa fa-users"></i> Send to Existing Customer</button>
+          <button type="button" class="btn" data-mode="new" data-testid="smi-mode-new"><i class="fa fa-user-plus"></i> Send to New Recipient</button>
+        </div>
+      </div>
+
+      <!-- Existing -->
+      <div id="rcpExisting" style="margin-top:14px;">
+        <label style="font-weight:600;color:#475569;">Choose Customer</label>
+        <select class="form-control" id="rcpCustomer" data-testid="smi-customer">
+          <option value="">— Loading customers —</option>
+        </select>
+        <small class="text-muted">Recipient name, address, phone, email and GST# will auto-fill from the chosen customer.</small>
+      </div>
+
+      <!-- New -->
+      <div id="rcpNew" style="display:none; margin-top:14px;">
+        <div class="row">
+          <div class="col-md-6"><div class="form-group"><label>Recipient Name *</label><input type="text" class="form-control" id="rcpName"></div></div>
+          <div class="col-md-3"><div class="form-group"><label>Phone *</label><input type="text" class="form-control" id="rcpPhone"></div></div>
+          <div class="col-md-3"><div class="form-group"><label>Email *</label><input type="email" class="form-control" id="rcpEmail"></div></div>
+        </div>
+        <div class="row">
+          <div class="col-md-6"><div class="form-group"><label>Address</label><textarea class="form-control" id="rcpAddress" rows="2"></textarea></div></div>
+          <div class="col-md-3"><div class="form-group"><label>City</label><input type="text" class="form-control" id="rcpCity"></div></div>
+          <div class="col-md-3"><div class="form-group"><label>State</label><input type="text" class="form-control" id="rcpState"></div></div>
+        </div>
+        <div class="row">
+          <div class="col-md-3"><div class="form-group"><label>PIN Code</label><input type="text" class="form-control" id="rcpPincode"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Invoice Type -->
+    <div class="smi-card">
+      <h4>Invoice Type</h4>
+      <div class="smi-toggle">
+        <div class="btn-group" role="group">
+          <button type="button" class="btn" data-gst="0" data-testid="smi-non-gst"><i class="fa fa-file-text-o"></i> Non-GST Invoice</button>
+          <button type="button" class="btn active" data-gst="1" data-testid="smi-gst"><i class="fa fa-shield"></i> GST Tax Invoice</button>
+        </div>
+      </div>
+      <div id="gstFields" style="margin-top:14px;">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="form-group"><label>Recipient GSTIN (optional)</label>
+              <input type="text" class="form-control" id="rcpGstNo" placeholder="e.g., 27AABCU9603R1ZX" maxlength="15">
+            </div>
+          </div>
+          <div class="col-md-3"><div class="form-group"><label>Default CGST %</label><input type="number" class="form-control" id="defCgst" value="9" step="0.01" min="0"></div></div>
+          <div class="col-md-3"><div class="form-group"><label>Default SGST %</label><input type="number" class="form-control" id="defSgst" value="9" step="0.01" min="0"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Invoice Meta -->
+    <div class="smi-card">
+      <h4>Invoice Details</h4>
+      <div class="row">
+        <div class="col-md-3"><div class="form-group"><label>Issue Date *</label><input type="date" class="form-control" id="issueDate"></div></div>
+        <div class="col-md-3"><div class="form-group"><label>Due Date *</label><input type="date" class="form-control" id="dueDate"></div></div>
+        <div class="col-md-6"><div class="form-group"><label>Notes (optional)</label><input type="text" class="form-control" id="invNotes" placeholder="e.g., Setup fee for additional router"></div></div>
+      </div>
+    </div>
+
+    <!-- Line Items -->
+    <div class="smi-card">
+      <h4>Line Items</h4>
+      <div id="lineItems"></div>
+      <button type="button" class="btn btn-default btn-sm" id="addLineItem" data-testid="smi-add-line"><i class="fa fa-plus"></i> Add Line</button>
+
+      <div class="smi-totals">
+        <table>
+          <tr><td>Subtotal</td><td class="text-right" id="totSub">₹ 0.00</td></tr>
+          <tr class="gst-row"><td>CGST</td><td class="text-right" id="totCgst">₹ 0.00</td></tr>
+          <tr class="gst-row"><td>SGST</td><td class="text-right" id="totSgst">₹ 0.00</td></tr>
+          <tr class="grand"><td>Grand Total</td><td class="text-right" id="totGrand">₹ 0.00</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- T&C and Declaration (per-role defaults) -->
+    <div class="smi-card">
+      <h4>Terms &amp; Conditions and Declaration</h4>
+      <p style="color:#64748b;font-size:12px;margin-top:-6px;margin-bottom:12px;">
+        Edit the text below if you want to override your saved defaults for this invoice. Click <b>Save as my defaults</b> to persist for future invoices (per-actor).
+      </p>
+      <div class="row">
+        <div class="col-md-6">
+          <div class="form-group">
+            <label>Terms &amp; Conditions</label>
+            <textarea class="form-control" id="invTerms" rows="5" placeholder="One per line, e.g.&#10;Payment due within 7 days...&#10;Service interruption is the customer's responsibility..."></textarea>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="form-group">
+            <label>Declaration</label>
+            <textarea class="form-control" id="invDeclaration" rows="5" placeholder="e.g., We declare that this invoice shows the actual price of the services provided and all particulars are true and correct."></textarea>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-default btn-sm" id="btnSaveDefaults" data-testid="smi-save-defaults">
+        <i class="fa fa-save"></i> Save as my defaults
+      </button>
+      <small class="text-muted" id="defaultsScopeHint" style="margin-left:8px;"></small>
+    </div>
+
+    <!-- Delivery + Submit -->
+    <div class="smi-card">
+      <h4>Delivery</h4>
+      <div class="row">
+        <div class="col-md-12">
+          <label class="checkbox-inline" style="margin-right:18px;"><input type="checkbox" id="dlvEmail" checked> Send Email</label>
+          <label class="checkbox-inline" style="margin-right:18px;"><input type="checkbox" id="dlvWhatsapp"> Send WhatsApp</label>
+          <label class="checkbox-inline"><input type="checkbox" id="dlvDownload" checked> Download PDF</label>
+        </div>
+      </div>
+      <div class="smi-actions">
+        <button type="submit" class="btn btn-primary" data-testid="smi-submit"><i class="fa fa-paper-plane"></i> Generate &amp; Send Invoice</button>
+        <button type="button" class="btn btn-default" id="btnPreview" data-testid="smi-preview"><i class="fa fa-eye"></i> Preview PDF</button>
+      </div>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let mode = 'existing';
+let isGst = true;
+let cusList = [];
+let liCounter = 0;
+
+function fmt(n){ return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function renderLineItem(initial){
+  const id = ++liCounter;
+  const cgst = $('#defCgst').val() || 9;
+  const sgst = $('#defSgst').val() || 9;
+  const html = isGst ? `
+    <div class="smi-line-item li-row" data-id="${id}">
+      <div><label>Description *</label><input type="text" class="form-control li-desc" placeholder="Service or product"></div>
+      <div><label>HSN/SAC</label><input type="text" class="form-control li-hsn" placeholder="998422"></div>
+      <div><label>Qty *</label><input type="number" class="form-control li-qty" value="1" min="1" step="1"></div>
+      <div><label>Rate *</label><input type="number" class="form-control li-rate" value="0" step="0.01" min="0"></div>
+      <div><label>CGST %</label><input type="number" class="form-control li-cgst" value="${cgst}" step="0.01" min="0"></div>
+      <div><label>SGST %</label><input type="number" class="form-control li-sgst" value="${sgst}" step="0.01" min="0"></div>
+      <div><label>Amount</label><div class="li-amt">₹ 0.00</div></div>
+      <div><label>&nbsp;</label><button type="button" class="li-rm" title="Remove">&times;</button></div>
+    </div>` : `
+    <div class="smi-line-item no-gst li-row" data-id="${id}">
+      <div><label>Description *</label><input type="text" class="form-control li-desc" placeholder="Service or product"></div>
+      <div><label>Qty *</label><input type="number" class="form-control li-qty" value="1" min="1" step="1"></div>
+      <div><label>Rate *</label><input type="number" class="form-control li-rate" value="0" step="0.01" min="0"></div>
+      <div><label>Amount</label><div class="li-amt">₹ 0.00</div></div>
+      <div><label>&nbsp;</label><button type="button" class="li-rm" title="Remove">&times;</button></div>
+    </div>`;
+  $('#lineItems').append(html);
+  if (initial){
+    const $r = $('#lineItems .li-row').last();
+    $r.find('.li-desc').val(initial.description || '');
+    $r.find('.li-rate').val(initial.rate || 0);
+    $r.find('.li-qty').val(initial.qty || 1);
+  }
+  recalc();
+}
+
+function readLineItems(){
+  const out = [];
+  $('#lineItems .li-row').each(function(){
+    const desc = $(this).find('.li-desc').val();
+    if (!desc) return;
+    out.push({
+      description: desc,
+      hsn: $(this).find('.li-hsn').val() || '',
+      qty: parseFloat($(this).find('.li-qty').val()) || 0,
+      rate: parseFloat($(this).find('.li-rate').val()) || 0,
+      cgst_pct: parseFloat($(this).find('.li-cgst').val()) || 0,
+      sgst_pct: parseFloat($(this).find('.li-sgst').val()) || 0,
+    });
+  });
+  return out;
+}
+
+function recalc(){
+  let sub=0, cg=0, sg=0;
+  $('#lineItems .li-row').each(function(){
+    const q = parseFloat($(this).find('.li-qty').val()) || 0;
+    const r = parseFloat($(this).find('.li-rate').val()) || 0;
+    const amt = q*r;
+    sub += amt;
+    if (isGst){
+      const c = parseFloat($(this).find('.li-cgst').val()) || 0;
+      const s = parseFloat($(this).find('.li-sgst').val()) || 0;
+      cg += amt * c / 100;
+      sg += amt * s / 100;
+    }
+    $(this).find('.li-amt').text('₹ ' + fmt(amt));
+  });
+  $('#totSub').text('₹ ' + fmt(sub));
+  $('#totCgst').text('₹ ' + fmt(cg));
+  $('#totSgst').text('₹ ' + fmt(sg));
+  $('#totGrand').text('₹ ' + fmt(sub+cg+sg));
+}
+
+function applyGstUI(){
+  $('#gstFields').toggle(isGst);
+  $('.gst-row').toggle(isGst);
+  // Re-render line items with the new layout
+  $('#lineItems').empty();
+  liCounter = 0;
+  renderLineItem({ description: '', qty: 1, rate: 0 });
+}
+
+function applyModeUI(){
+  $('#rcpExisting').toggle(mode === 'existing');
+  $('#rcpNew').toggle(mode === 'new');
+}
+
+$(function(){
+  // Sender info
+  $.get('/api/manual-invoice/sender-info', function(r){
+    if (!r.success) { $('#smiSenderBox').text('Sender info unavailable.'); return; }
+    // __S38U10__ pre-fill T&C + declaration; show scope hint.
+    $('#invTerms').val(r.sender.terms_conditions || '');
+    $('#invDeclaration').val(r.sender.declaration || '');
+    // __S38U11__ Branding card visible only to sub-lco / employee.
+    if (r.sender.user_type === 'sub_lco' || r.sender.user_type === 'employee') {
+      $('#brandingCard').show();
+      var b = r.sender.branding || {};
+      $('#brCoName').val(b.inv_company_name || '');
+      $('#brCoGst').val(b.inv_company_gst || '');
+      $('#brCoPhone').val(b.inv_company_phone || '');
+      $('#brCoEmail').val(b.inv_company_email || '');
+      $('#brCoAddr').val(b.inv_company_address || '');
+      $('#brBank').val(b.inv_bank_name || '');
+      $('#brAcc').val(b.inv_account_number || '');
+      $('#brIfsc').val(b.inv_branch_ifsc || '');
+      $('#brBranch').val(b.inv_branch_location || '');
+      $('#brUpi').val(b.inv_upi_id || '');
+    }
+    var scope = (r.sender.user_type === 'sub_lco') ? 'Sub-LCO defaults are per-account.' :
+                (r.sender.user_type === 'employee') ? 'Employee defaults are per-account.' :
+                'Admin defaults apply company-wide.';
+    $('#defaultsScopeHint').text(scope);
+    const s = r.sender, c = r.company;
+    let html = `<b>${s.label}</b>`;
+    if (s.role) html += ` &nbsp;·&nbsp; <span style="opacity:.8">${s.role}</span>`;
+    if (s.phone) html += ` &nbsp;·&nbsp; ${s.phone}`;
+    if (s.email) html += ` &nbsp;·&nbsp; ${s.email}`;
+    if (s.address) html += `<br><span style="color:#475569"><i class="fa fa-map-marker"></i> ${s.address}</span>`;
+    html += '<br>';
+    html += `<i class="fa fa-building"></i> <b>${c.company_name||'—'}</b>`;
+    if (s.gst_no || c.gst_number) html += `  &nbsp;·&nbsp; GSTIN <b>${s.gst_no || c.gst_number}</b>`;
+    if (c.company_phone && c.company_phone !== s.phone) html += `  &nbsp;·&nbsp; ${c.company_phone}`;
+    if (c.company_email && c.company_email !== s.email) html += `  &nbsp;·&nbsp; ${c.company_email}`;
+    if (c.company_address && c.company_address !== s.address) html += `<br><span style="color:#475569">${c.company_address}</span>`;
+    $('#smiSenderBox').html(html);
+
+    // Default GST mode based on company.gst_invoice_needed
+    isGst = !!c.gst_invoice_needed;
+    $('button[data-gst="1"]').toggleClass('active', isGst);
+    $('button[data-gst="0"]').toggleClass('active', !isGst);
+    applyGstUI();
+  }).fail(function(){ $('#smiSenderBox').text('Sender info unavailable.'); });
+
+  // Customers list
+  $.get('/api/manual-invoice/customers', function(r){
+    if (!r.success) return;
+    cusList = r.items || [];
+    const $sel = $('#rcpCustomer').empty().append('<option value="">— Select a customer —</option>');
+    cusList.forEach(c => {
+      $sel.append(`<option value="${c.customer_id}">${c.customer_name} — ${c.customer_id} ${c.customer_phone? '· '+c.customer_phone:''}</option>`);
+    });
+  });
+
+  // Mode switch
+  $('.smi-toggle [data-mode]').on('click', function(){
+    mode = $(this).data('mode');
+    $('.smi-toggle [data-mode]').removeClass('active');
+    $(this).addClass('active');
+    applyModeUI();
+  });
+  // GST switch
+  $('.smi-toggle [data-gst]').on('click', function(){
+    isGst = String($(this).data('gst')) === '1';
+    $('.smi-toggle [data-gst]').removeClass('active');
+    $(this).addClass('active');
+    applyGstUI();
+  });
+
+  // Save Defaults handler
+  $('#btnSaveDefaults').on('click', function(){
+    const $btn = $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+    $.ajax({
+      url:'/api/manual-invoice/save-defaults', method:'POST', contentType:'application/json',
+      data: JSON.stringify({
+        terms_conditions: $('#invTerms').val(),
+        declaration: $('#invDeclaration').val(),
+        branding: {
+          inv_company_name: $('#brCoName').val(),
+          inv_company_gst: $('#brCoGst').val(),
+          inv_company_phone: $('#brCoPhone').val(),
+          inv_company_email: $('#brCoEmail').val(),
+          inv_company_address: $('#brCoAddr').val(),
+          inv_bank_name: $('#brBank').val(),
+          inv_account_number: $('#brAcc').val(),
+          inv_branch_ifsc: $('#brIfsc').val(),
+          inv_branch_location: $('#brBranch').val(),
+          inv_upi_id: $('#brUpi').val(),
+        },
+      }),
+      success: function(r){ alert(r.message || (r.success ? 'Saved.' : 'Failed.')); },
+      error: function(x){ alert((x.responseJSON && x.responseJSON.message) || 'Save failed'); },
+      complete: function(){ $btn.prop('disabled', false).html('<i class="fa fa-save"></i> Save as my defaults'); }
+    });
+  });
+
+  // Defaults
+  const today = new Date().toISOString().slice(0,10);
+  const due = new Date(Date.now() + 7*86400e3).toISOString().slice(0,10);
+  $('#issueDate').val(today);
+  $('#dueDate').val(due);
+  applyModeUI();
+
+  // Line items
+  $('#addLineItem').on('click', () => renderLineItem({}));
+  $(document).on('click', '.li-rm', function(){
+    if ($('#lineItems .li-row').length <= 1) { alert('At least one line item is required.'); return; }
+    $(this).closest('.li-row').remove();
+    recalc();
+  });
+  $(document).on('input change', '.li-qty,.li-rate,.li-cgst,.li-sgst', recalc);
+
+  function buildPayload(){
+    const items = readLineItems();
+    if (!items.length) { alert('Add at least one line item with a description.'); return null; }
+    let recipient;
+    if (mode === 'existing') {
+      const cid = $('#rcpCustomer').val();
+      if (!cid) { alert('Please select a customer.'); return null; }
+      const c = cusList.find(x => x.customer_id === cid);
+      recipient = {
+        mode: 'existing', customer_id: cid,
+        name: c.customer_name, email: c.customer_email, phone: c.customer_phone,
+        address: c.address, city: c.city, state: c.state, pincode: c.pincode,
+        gst_no: c.customer_gst_no || '',
+      };
+    } else {
+      const name = $('#rcpName').val().trim();
+      if (!name) { alert('Recipient name is required.'); return null; }
+      recipient = {
+        mode: 'new', customer_id: '',
+        name, email: $('#rcpEmail').val().trim(), phone: $('#rcpPhone').val().trim(),
+        address: $('#rcpAddress').val().trim(), city: $('#rcpCity').val().trim(),
+        state: $('#rcpState').val().trim(), pincode: $('#rcpPincode').val().trim(),
+        gst_no: isGst ? $('#rcpGstNo').val().trim() : '',
+      };
+    }
+    return {
+      recipient, is_gst: isGst,
+      issue_date: $('#issueDate').val(),
+      due_date: $('#dueDate').val(),
+      notes: $('#invNotes').val(),
+      line_items: items,
+      // __S38U10__ per-invoice overrides
+      terms_conditions: $('#invTerms').val(),
+      declaration: $('#invDeclaration').val(),
+      delivery: {
+        email: $('#dlvEmail').is(':checked'),
+        whatsapp: $('#dlvWhatsapp').is(':checked'),
+        download: $('#dlvDownload').is(':checked'),
+      },
+    };
+  }
+
+  // Preview = generate-only
+  $('#btnPreview').on('click', function(){
+    const p = buildPayload(); if (!p) return;
+    p.preview_only = true;
+    const $btn = $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Generating...');
+    fetch('/api/manual-invoice/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(p) })
+      .then(r => r.ok ? r.blob() : r.json().then(j => { throw new Error(j.message||'Preview failed'); }))
+      .then(b => {
+        if (b instanceof Blob){
+          const url = URL.createObjectURL(b);
+          window.open(url, '_blank');
+        }
+      })
+      .catch(e => alert(e.message))
+      .finally(() => $btn.prop('disabled', false).html('<i class="fa fa-eye"></i> Preview PDF'));
+  });
+
+  // Submit
+  $('#smiForm').on('submit', function(e){
+    e.preventDefault();
+    const p = buildPayload(); if (!p) return;
+    if (!p.delivery.email && !p.delivery.whatsapp && !p.delivery.download){
+      if (!confirm('No delivery channel selected. Save the invoice and continue without sending?')) return;
+    }
+    const $btn = $('button[data-testid="smi-submit"]').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Sending...');
+    fetch('/api/manual-invoice/send', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(p) })
+      .then(r => r.json())
+      .then(r => {
+        if (r.success){
+          alert('Invoice ' + r.invoice_no + ' generated successfully!\n\n' + (r.delivery_summary||''));
+          if (p.delivery.download && r.download_url){
+            window.open(r.download_url, '_blank');
+          }
+          var pp = window.location.pathname.startsWith('/sub-lco/') ? '/sub-lco' :
+                   window.location.pathname.startsWith('/employee/') ? '/employee' : '/admin';
+          window.location.href = pp + '/sent-invoices';
+        } else {
+          alert(r.message || 'Failed to send invoice.');
+        }
+      })
+      .catch(e => alert('Error: ' + e.message))
+      .finally(() => $btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Generate &amp; Send Invoice'));
+  });
+});
+</script>
+{% endblock %}

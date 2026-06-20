@@ -1,0 +1,1365 @@
+{% extends "base_superadmin.html" %}
+{% block title %}Help / FAQ — SuperAdmin{% endblock %}
+{% block content %}
+
+<style>
+  /* Theme-neutral surface palette: uses each shell's CSS variables but
+     falls back to neutral light values so the FAQ looks correct in admin
+     (dark), employee (light) and sub-lco (light) layouts alike. */
+  .faq-wrap { max-width: 900px; margin: 24px auto 48px;
+              padding: 16px 16px 0;
+              color: var(--text-1, #1F2937); }
+  .faq-title   { font-size: 24px; font-weight: 700; margin: 0 0 8px;
+                 color: var(--text-1, #111827); }
+  .faq-subtitle{ font-size: 14px; margin: 0 0 16px;
+                 color: var(--text-muted, #6B7280); }
+  .faq-section-title { color: var(--brand-2, #2563EB);
+                       font-size: 13px; text-transform: uppercase;
+                       letter-spacing: 0.8px; margin: 22px 0 10px;
+                       font-weight: 600; }
+  .faq-card { background: var(--card-bg, #FFFFFF);
+              border: 1px solid var(--border-1, #E5E7EB);
+              border-radius: 14px; padding: 18px 20px; margin-bottom: 16px;
+              color: var(--text-1, #1F2937);
+              box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .faq-q    { font-size: 16px; font-weight: 700;
+              color: var(--text-1, #111827); margin: 0; cursor: pointer;
+              display: flex; align-items: center;
+              justify-content: space-between; gap: 12px; }
+  .faq-q::after { content: "+"; color: var(--brand-2, #2563EB);
+                  font-weight: 700; font-size: 22px; line-height: 1; }
+  .faq-card.open .faq-q::after { content: "\2212"; }
+  .faq-card.open .faq-q { margin-bottom: 12px;
+                          padding-bottom: 12px;
+                          border-bottom: 1px solid var(--border-1, #E5E7EB); }
+  .faq-a    { display: none; font-size: 14px; line-height: 1.6;
+              color: var(--text-2, #374151); }
+  .faq-card.open .faq-a { display: block; }
+  .faq-a h4 { margin: 14px 0 6px; color: var(--text-1, #111827);
+              font-size: 14px; font-weight: 700; }
+  .faq-a code { background: var(--code-bg, #F3F4F6);
+                color: var(--code-fg, #B45309);
+                padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .faq-a pre  { background: var(--code-bg, #0B1226);
+                color: var(--code-pre-fg, #E5E7EB);
+                padding: 12px; border-radius: 8px; overflow-x: auto;
+                font-size: 13px; margin: 8px 0; }
+  .faq-a ol, .faq-a ul { padding-left: 22px; margin: 6px 0; }
+  .faq-a li { margin-bottom: 4px; }
+  /* When rendered inside the admin (dark) shell, use the dark palette. */
+  body.dark-mode .faq-wrap,
+  [data-bs-theme="dark"] .faq-wrap,
+  .admin-portal .faq-wrap {
+      --card-bg: #161D2E;
+      --border-1: #1F2940;
+      --text-1: #FFFFFF;
+      --text-2: #cbd5e1;
+      --text-muted: #9aa9c7;
+      --code-bg: #0B1226;
+      --code-fg: #FFD479;
+      --code-pre-fg: #cbd5e1;
+      --brand-2: #7AB8FF;
+  }
+
+  .faq-note { margin-top: 14px; font-size: 13px;
+              color: var(--text-muted, #6B7280); }
+
+  .faq-callout      { background: var(--callout-bg, #EFF6FF);
+                      border: 1px solid var(--callout-border, #BFDBFE);
+                      border-left: 4px solid var(--brand-2, #2563EB);
+                      padding: 12px 14px; border-radius: 10px;
+                      margin: 12px 0; font-size: 13px;
+                      color: var(--text-2, #1F2937);
+                      display: flex; flex-direction: column; gap: 4px; }
+  .faq-callout span { display: block; }
+  .faq-callout-warn { background: var(--warn-bg, #FFFBEB);
+                      border: 1px solid var(--warn-border, #FCD34D);
+                      border-left: 4px solid #D97706;
+                      padding: 10px 14px; border-radius: 10px;
+                      margin: 12px 0; font-size: 13px;
+                      color: var(--text-2, #1F2937); }
+  body.dark-mode .faq-wrap,
+  [data-bs-theme="dark"] .faq-wrap,
+  .admin-portal .faq-wrap {
+      --callout-bg: rgba(56, 117, 224, 0.10);
+      --callout-border: rgba(122, 184, 255, 0.30);
+      --warn-bg: rgba(217, 119, 6, 0.08);
+      --warn-border: rgba(252, 211, 77, 0.40);
+  }
+</style>
+
+<div class="faq-wrap">
+  <h2 class="faq-title">Frequently Asked Questions</h2>
+  <p class="faq-subtitle">
+    Quick answers for admins, sub-LCOs and employees. Tap any question to expand.
+  </p>
+
+  <div class="faq-section-title">Network &amp; OLT</div>
+
+  <!-- ============================================================ -->
+  <!-- __S44J_FAQ__  Exhaustive OLT + VPN onboarding (Feb 2026 rewrite) -->
+  <!-- ============================================================ -->
+
+  <div class="faq-card" id="olt-add-master">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      Adding an OLT — every field in the Add/Edit form explained (read first)
+    </div>
+    <div class="faq-a">
+      <p>
+        Every OLT you onboard goes through the same form in
+        <b>OLT Manager &rarr; System Config &rarr; + Add OLT</b>. This
+        section walks through <i>every single field</i> in the form so
+        you know exactly what to type before you choose a VPN option.
+      </p>
+
+      <h4>A. Identity &amp; Vendor</h4>
+      <ol>
+        <li><b>Friendly Name</b> &mdash; any label you want to see in
+            dashboards, e.g. <code>Tower-1 / Block-A / Syrotech-EPON</code>.
+            Allowed: letters, digits, dash, underscore, space. Max 64
+            chars. <i>Must be unique within your company.</i></li>
+        <li><b>Vendor / Make</b> &mdash; pick one of <code>Syrotech</code>,
+            <code>Netlink</code>, <code>V-SOL</code>, <code>Huawei</code>,
+            <code>BDCOM</code>, <code>C-Data</code>, <code>ZTE</code>,
+            <code>Other</code>. Drives the CLI dialect the poller uses.
+            If unsure, set <code>Other</code>; you can change later.</li>
+        <li><b>OLT Technology</b> &mdash; <code>EPON</code>,
+            <code>GPON</code>, or <code>XGS-PON</code>. Used to label
+            ports and pick the right SNMP MIB profile.</li>
+        <li><b>Scan Profile</b> &mdash; <code>Fast (60s)</code> for &le;500
+            ONUs, <code>Balanced (180s)</code> for 500&ndash;2000,
+            <code>Light (600s)</code> for &gt;2000 ONUs or slow links.</li>
+      </ol>
+
+      <h4>B. Network Reachability</h4>
+      <ol>
+        <li><b>Local IP / Host</b> &mdash; the OLT's LAN IP as seen from
+            the on-site router (e.g. <code>192.168.1.100</code>).
+            <u>Do not</u> put the WAN/public IP here unless the OLT
+            literally has one. When the tunnel comes up the platform
+            reaches this IP through the VPN.</li>
+        <li><b>Telnet Port</b> &mdash; default <code>23</code>. Set to
+            <code>0</code> to disable Telnet probing.</li>
+        <li><b>SSH Port</b> &mdash; default <code>22</code>. Some Huawei
+            OLTs use <code>2222</code>. Set <code>0</code> to disable.</li>
+        <li><b>Web/HTTP Port</b> &mdash; default <code>80</code>
+            (<code>443</code> if HTTPS). Used for the optional
+            embedded web UI link in the OLT detail card.</li>
+        <li><b>SNMP Port</b> &mdash; default <code>161</code>. The
+            optics-table poller uses this; leave default.</li>
+        <li><b>SNMP Community</b> &mdash; usually <code>public</code>
+            (read-only). Change if your OLT has a custom community.</li>
+        <li><b>PON Ports</b> &mdash; total PON ports on the OLT chassis
+            (1, 2, 4, 8, 16). Used to size the slot/port grid in the UI.</li>
+        <li><b>Uplink Ports</b> &mdash; total SFP+/uplink ports
+            (typically 2 or 4). Used by the "uplink-down" alert.</li>
+      </ol>
+
+      <h4>C. Credentials</h4>
+      <ol>
+        <li><b>CLI Username</b> &mdash; admin user on the OLT
+            (often <code>admin</code> or <code>root</code>).</li>
+        <li><b>CLI Password</b> &mdash; stored encrypted at rest with
+            the platform's per-tenant key. Never logged.</li>
+        <li><b>Enable Password</b> (optional) &mdash; only needed for
+            ZTE/Huawei OLTs that have a second-level "enable" prompt.</li>
+      </ol>
+
+      <h4>D. Alerts (per-OLT toggles)</h4>
+      <p>
+        Each toggle below routes through the platform's integrated WhatsApp pipeline (configured once in
+        <b>Settings &rarr; Integrations &rarr; WhatsApp / SMS</b>). There is no
+        per-OLT bot token any more.
+      </p>
+      <ol>
+        <li><b>Alert: Unit Offline</b> &mdash; fires when the OLT itself
+            is unreachable on its management IP for &gt;90&thinsp;s.</li>
+        <li><b>Alert: Signal Critical</b> &mdash; ONU optical Rx power
+            &le; &minus;28&thinsp;dBm.</li>
+        <li><b>Alert: Signal Warning</b> &mdash; ONU optical Rx power
+            between &minus;25 and &minus;28&thinsp;dBm.</li>
+        <li><b>Alert: High Power</b> &mdash; ONU Tx power &gt; +5&thinsp;dBm
+            (possible bad SFP/SFU).</li>
+        <li><b>Alert: Uplink Down</b> &mdash; any uplink SFP+ port
+            goes link-down.</li>
+      </ol>
+
+      <h4>E. Location (optional but recommended)</h4>
+      <ol>
+        <li><b>Latitude / Longitude</b> &mdash; either type the
+            coordinates or click <i>Pick on map</i> &rarr; tap the
+            location. Drives the OLT-map screen and the "nearest OLT"
+            customer-onboarding helper.</li>
+      </ol>
+
+      <h4>F. Connection Mode &amp; VPN</h4>
+      <ol>
+        <li><b>Connection Mode</b> &mdash; <code>Public IP</code> if the
+            OLT site has a static public IPv4 (rare); otherwise
+            <b><code>VPN</code></b>.</li>
+        <li><b>VPN Type</b> (only if mode = VPN) &mdash; choose one:
+            <code>WireGuard</code>, <code>OpenVPN</code>,
+            <code>L2TP/IPsec</code>, or <code>PPTP</code>. See the
+            dedicated FAQ card for each option below to pick the right
+            one for your router.</li>
+        <li><b>VPN Endpoint</b> &mdash; auto-filled after save with
+            <code>185.199.53.93:&lt;port&gt;</code>. Don't edit.</li>
+        <li><b>VPN Username / Password</b> &mdash; left blank for
+            WireGuard &amp; OpenVPN (key/cert based). Auto-filled by
+            <b>Provision VPN</b> for L2TP/PPTP. Read-only after that.</li>
+      </ol>
+
+      <p class="faq-callout">
+        Click <b>Save</b>. The OLT row appears in System Config with a
+        yellow <b>"VPN pending"</b> badge. Now jump to the FAQ card for
+        your chosen VPN type (below) to provision the tunnel.
+      </p>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-vpn">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      VPN Option A — WireGuard (best for OpenWrt / Linux side-boxes; fast and modern)
+    </div>
+    <div class="faq-a">
+      <p>
+        WireGuard uses the same ChaCha20-Poly1305 cipher as Signal/WhatsApp,
+        sets up in seconds, and survives flaky links well. It's the right
+        choice when you have an <b>OpenWrt</b> router, a <b>Linux</b>
+        side-box, an <b>Android phone</b>, or a <b>Mikrotik RouterOS 7.x</b>
+        with the WireGuard package already in use. Server endpoint is
+        <code>vpn.autoispbilling.com:51820</code> (UDP),
+        peer pool <code>10.50.0.0/24</code>.
+      </p>
+
+      <h4>Step 1 &mdash; Save the OLT with VPN Type = WireGuard</h4>
+      <ol>
+        <li>Follow the master "Adding an OLT" card above.</li>
+        <li>In the <b>VPN Connectivity</b> block, set
+            <code>VPN Type = WireGuard</code>, leave Endpoint/User/Pass
+            untouched, click <b>Save</b>.</li>
+      </ol>
+
+      <h4>Step 2 &mdash; Download <code>olt-&lt;id&gt;-wg.conf</code></h4>
+      <ol>
+        <li>On the new OLT row, click the blue <b>VPN</b> button
+            (<i class="bi bi-shield-lock"></i>).</li>
+        <li>A file like <code>olt-12-wg.conf</code> downloads. It contains
+            the <code>PrivateKey</code>, the assigned tunnel IP
+            (e.g. <code>10.50.0.7/32</code>), the server's
+            <code>PublicKey</code>, the <code>Endpoint</code> and
+            <code>PersistentKeepalive=25</code>.</li>
+        <li>Refresh the OLT list: the badge flips to gray
+            <b>"VPN ready"</b> and the OLT's <i>Local IP</i> in the row
+            shows the new tunnel IP.</li>
+      </ol>
+
+      <h4>Step 3 &mdash; Install WireGuard on the on-site device</h4>
+      <p><b>Option A &mdash; Windows / macOS / Linux laptop (quickest)</b></p>
+      <ol>
+        <li>Install the official <b>WireGuard</b> app from
+            <code>wireguard.com/install</code>.</li>
+        <li>Open it &rarr; <b>+ Import tunnel from file</b> &rarr; pick the
+            downloaded <code>.conf</code>.</li>
+        <li>Click <b>Activate</b>. Status should turn green within
+            5&thinsp;seconds.</li>
+        <li>Make sure this PC is on the same LAN as the OLT (so traffic
+            can be forwarded to it). For a quick test you can stop here
+            &mdash; the platform will reach the OLT through the PC.</li>
+      </ol>
+      <p><b>Option B &mdash; Android phone (works as a USB-tethered gateway)</b></p>
+      <ol>
+        <li>Install <b>WireGuard</b> from Play Store.</li>
+        <li>Tap <i>+</i> &rarr; <b>Import from file or archive</b>.</li>
+        <li>Toggle the tunnel ON. Keep the phone on the same Wi-Fi as
+            the OLT (mobile-data will not reach
+            <code>192.168.1.x</code>).</li>
+      </ol>
+      <p><b>Option C &mdash; OpenWrt router (recommended permanent install)</b></p>
+      <ol>
+        <li>SSH into OpenWrt &rarr; <code>opkg update &amp;&amp; opkg install wireguard-tools luci-app-wireguard</code>.</li>
+        <li>LuCI &rarr; <b>Network &rarr; Interfaces &rarr; Add new</b>,
+            protocol <code>WireGuard VPN</code>, name <code>olt_vpn</code>.</li>
+        <li>Paste the <code>PrivateKey</code> from the file's
+            <code>[Interface]</code> section; add the assigned
+            <code>10.50.0.x/32</code> as the IP address; MTU 1420.</li>
+        <li><b>Peers</b> tab &rarr; Add. Public key, Endpoint and
+            <code>AllowedIPs = 10.50.0.1/32</code> come from the file's
+            <code>[Peer]</code> section. Set
+            <b>Persistent Keepalive = 25</b> (mandatory; do not skip).</li>
+        <li>Firewall &rarr; assign <code>olt_vpn</code> to the
+            <code>lan</code> zone (or a new zone with input/output/forward
+            = ACCEPT). Add a NAT/Masquerade rule from
+            <code>olt_vpn</code> &rarr; <code>lan</code> so platform
+            packets are SNAT-ed to reach the OLT.</li>
+        <li>Save &amp; Apply. Run <code>wg show</code> &mdash; latest
+            handshake should be within 25&thinsp;s.</li>
+      </ol>
+      <p><b>Option D &mdash; Mikrotik RouterOS 7.x</b></p>
+      <ol>
+        <li>Winbox &rarr; <b>WireGuard</b> &rarr; <i>+</i>. Name
+            <code>wg-olt</code>, paste the <code>PrivateKey</code> from
+            the file. Listen Port can stay default (0 = random).</li>
+        <li>Add an address: <b>IP &rarr; Addresses &rarr; +</b>,
+            Address = the file's <code>Address</code>
+            (e.g. <code>10.50.0.7/32</code>), Interface =
+            <code>wg-olt</code>.</li>
+        <li><b>WireGuard &rarr; Peers &rarr; +</b>: Interface =
+            <code>wg-olt</code>, Public Key = file's
+            <code>[Peer] PublicKey</code>, Endpoint =
+            <code>vpn.autoispbilling.com:51820</code>, Allowed Address =
+            <code>10.50.0.0/24</code>,
+            <b>Persistent Keepalive = 25s</b>.</li>
+        <li><b>IP &rarr; Firewall &rarr; NAT</b>: add
+            <code>chain=srcnat src-address=10.50.0.0/24
+            out-interface=&lt;ether-to-OLT&gt; action=masquerade</code>.</li>
+      </ol>
+
+      <h4>Step 4 &mdash; Verify</h4>
+      <ol>
+        <li>Back in the portal, click <b>Check VPN</b> on the OLT row.
+            Green badge with handshake age &lt; 25&thinsp;s = success.</li>
+        <li>If red, scroll to the <i>Troubleshooting</i> card at the
+            bottom of this section.</li>
+      </ol>
+
+      <pre><code>sudo cp olt-12-wg.conf /etc/wireguard/wg0.conf
+sudo systemctl enable --now wg-quick@wg0
+sudo wg show</code></pre>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-openvpn">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      VPN Option B — OpenVPN (recommended for Mikrotik RouterOS 7.15+; the most reliable choice)
+    </div>
+    <div class="faq-a">
+      <p>
+        OpenVPN is the <b>most compatible</b> tunnel for ISP OLT sites.
+        The platform's OpenVPN server is configured for
+        <b>RouterOS 7.15+'s new <code>ovpn-platform</code> client</b>,
+        which only accepts modern crypto:
+      </p>
+      <ul>
+        <li>Cipher: <b>AES-256-GCM</b> (AEAD)</li>
+        <li>Negotiable: <b>AES-128-GCM</b> fallback</li>
+        <li>Auth digest: <b>SHA256</b></li>
+        <li>TLS: <b>1.2+</b></li>
+        <li>No <code>tls-auth</code> / <code>tls-crypt</code> (RouterOS
+            client doesn't support it &mdash; that's intentional)</li>
+        <li>Endpoint: <code>185.199.53.93:1194/udp</code>, pool
+            <code>10.51.0.0/24</code></li>
+      </ul>
+
+      <h4>Step 1 &mdash; Save the OLT with VPN Type = OpenVPN</h4>
+      <ol>
+        <li>Open <b>OLT Manager &rarr; System Config &rarr; + Add OLT</b>
+            (or click <b>Edit</b> on an existing row).</li>
+        <li>Fill the identity, network and credentials sections per the
+            master "Adding an OLT" card above.</li>
+        <li>Under <b>VPN Connectivity</b>:
+          <ul>
+            <li>Set <b>Connection Mode = VPN</b>.</li>
+            <li>Set <b>VPN Type = OpenVPN</b>.</li>
+            <li>The Endpoint auto-fills as
+                <code>185.199.53.93:1194</code> &mdash; leave it.</li>
+            <li>Leave Username/Password blank (cert-based).</li>
+          </ul></li>
+        <li>Click <b>Save</b>. Row badge: yellow "VPN pending".</li>
+      </ol>
+
+      <h4>Step 2 &mdash; Provision &amp; download the <code>.ovpn</code> file</h4>
+      <ol>
+        <li>On the OLT row, click <b>Provision VPN</b>
+            (<i class="bi bi-shield-lock"></i>).</li>
+        <li>A modal pops with the full inline <code>.ovpn</code> content
+            and a <b>Download .ovpn</b> button. Click it.</li>
+        <li>The file <code>olt-&lt;id&gt;.ovpn</code> saves to your
+            machine. It contains:
+          <ul>
+            <li><code>client</code> + <code>dev tun</code> + <code>proto udp</code></li>
+            <li><code>remote 185.199.53.93 1194</code></li>
+            <li><code>data-ciphers AES-256-GCM:AES-128-GCM</code></li>
+            <li><code>data-ciphers-fallback AES-256-GCM</code></li>
+            <li><code>cipher AES-256-GCM</code></li>
+            <li><code>auth SHA256</code></li>
+            <li><code>tls-version-min 1.2</code></li>
+            <li>Inline <code>&lt;ca&gt;</code>, <code>&lt;cert&gt;</code>,
+                <code>&lt;key&gt;</code> blocks (this OLT's unique cert)</li>
+          </ul></li>
+        <li>If you previously downloaded a <code>.ovpn</code> from the
+            <i>old</i> CBC/SHA1 build, <b>discard it</b> and use this
+            new one &mdash; the old file is now incompatible with the
+            server.</li>
+      </ol>
+
+      <h4>Step 3a &mdash; Import on Mikrotik RouterOS 7.15 + (Winbox)</h4>
+      <ol>
+        <li><b>Files</b> &rarr; <b>Upload...</b> &rarr; pick
+            <code>olt-12.ovpn</code>. You should see it appear in the
+            file list.</li>
+        <li><b>Interfaces</b> &rarr; <b>OVPN Client</b> tab &rarr; <i>+</i>
+            (or, in older RouterOS layouts, PPP &rarr; Interface &rarr; +
+            &rarr; OVPN Client).</li>
+        <li>Click <b>Import .ovpn File</b> at the top of the dialog and
+            select the uploaded file. RouterOS auto-fills:
+          <ul>
+            <li>Connect To: <code>185.199.53.93</code></li>
+            <li>Port: <code>1194</code></li>
+            <li>Protocol: <code>udp</code></li>
+            <li>Mode: <code>ip</code></li>
+            <li>Cipher: <code>aes256-gcm</code></li>
+            <li>Auth: <code>sha256</code></li>
+            <li>TLS version: <code>1.2</code></li>
+            <li>Certificate: auto-imported with name
+                <code>cert_&lt;CN&gt;</code></li>
+          </ul></li>
+        <li><b>User</b> field &mdash; type any non-empty string
+            (e.g. <code>olt</code>). RouterOS requires a non-empty value
+            here even though our server is cert-only. The string is
+            ignored on the server side.</li>
+        <li><b>Password</b> &mdash; leave blank.</li>
+        <li>Tick <b>Add Default Route = NO</b> (very important &mdash;
+            otherwise the OLT's Internet route gets hijacked).</li>
+        <li>Click <b>Apply</b> &rarr; <b>OK</b>.</li>
+        <li>The interface flag goes <b>R</b> (running) within ~10&thinsp;s.</li>
+      </ol>
+
+      <h4>Step 3b &mdash; Import on Mikrotik via terminal (CLI)</h4>
+      <pre><code>/file print where name~"olt-12.ovpn"
+/interface ovpn-client add name=ovpn-olt connect-to=185.199.53.93 \
+  port=1194 mode=ip protocol=udp user=olt password="" \
+  add-default-route=no profile=default-encryption \
+  certificate=&lt;cert_imported_by_file&gt;
+/interface ovpn-client import-ovpn-configuration file=olt-12.ovpn
+/interface ovpn-client enable ovpn-olt
+/interface ovpn-client print
+/log print where topics~"ovpn"</code></pre>
+
+      <h4>Step 3c &mdash; Import on OpenWrt / EdgeOS / Linux</h4>
+      <ol>
+        <li>Copy the file to <code>/etc/openvpn/olt.conf</code>.</li>
+        <li><code>sudo systemctl enable --now openvpn@olt</code>
+            (Debian/Ubuntu) <i>or</i>
+            <code>/etc/init.d/openvpn restart</code> (OpenWrt).</li>
+        <li>Check <code>journalctl -u openvpn@olt -f</code> &rarr; you
+            want <i>"Initialization Sequence Completed"</i>.</li>
+      </ol>
+
+      <h4>Step 4 &mdash; Wire the LAN behind the tunnel (Mikrotik)</h4>
+      <ol>
+        <li>Once the OVPN interface is "R", give it a route back to
+            the OLT subnet:
+          <pre><code>/ip route add dst-address=&lt;olt-LAN&gt;/24 gateway=ovpn-olt</code></pre>
+          (skip this if the OLT is already reachable via the router's
+          existing routing table).</li>
+        <li>Add a masquerade so platform-originating packets
+            (10.51.0.0/24) are SNAT-ed before hitting the OLT:
+          <pre><code>/ip firewall nat add chain=srcnat src-address=10.51.0.0/24 \
+  out-interface=&lt;ether-to-OLT&gt; action=masquerade</code></pre></li>
+      </ol>
+
+      <h4>Step 5 &mdash; Verify in the portal</h4>
+      <ol>
+        <li>On the OLT row, click <b>Check VPN</b>. You should see a
+            green pill: <i>"OpenVPN tunnel up since &lt;timestamp&gt;,
+            cipher AES-256-GCM"</i>.</li>
+        <li>Click the OLT name to open the detail page &mdash; the
+            optics scanner should start populating ONU data within one
+            scan cycle (60&ndash;180&thinsp;s depending on your Scan
+            Profile).</li>
+      </ol>
+
+      <p class="faq-callout" style="background:#fee2e2;color:#991b1b;">
+        <b>If your Mikrotik logs say
+        <code>&lt;unsupported cipher AES-256-CBC&gt;</code>
+        or <code>&lt;unsupported auth digest SHA1&gt;</code>:</b>
+        you are using an <i>old</i> <code>.ovpn</code> file generated
+        before the Feb 2026 crypto upgrade. Click <b>Provision VPN</b>
+        again to download a fresh file with GCM + SHA256, then re-import.
+      </p>
+
+      <p class="faq-callout">
+        <b>RouterOS 6.x / very old routers:</b> the new
+        <code>ovpn-platform</code> AEAD requirements may exceed what
+        your firmware supports. In that case use
+        <b>L2TP/IPsec</b> (next card) instead &mdash; it works on
+        RouterOS 6.x and on every stock home router.
+      </p>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-mikrotik-bundle">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      Mikrotik throws "error importing CA, please make sure CA is valid and is not already imported" — what now?
+    </div>
+    <div class="faq-a">
+      <p>
+        This is a well-known RouterOS bug in the <code>.ovpn</code>
+        inline-import parser. It refuses to import the CA from the
+        <code>&lt;ca&gt;...&lt;/ca&gt;</code> block even on a router
+        with an empty certificate store. The workaround is to import
+        the three PEM pieces as <b>separate files</b>.
+      </p>
+
+      <h4>Step 1 — Clean slate on the Mikrotik</h4>
+      <pre><code>/interface ovpn-client remove [find]
+/certificate remove [find name~"ISPBilling"]
+/certificate remove [find name~"olt-"]
+/certificate remove [find name~"cert_"]
+/file remove [find name~"olt-"]
+/certificate print
+/interface ovpn-client print</code></pre>
+      Both prints should be empty.
+
+      <h4>Step 2 — Download the "Mikrotik Bundle" ZIP from the portal</h4>
+      <ol>
+        <li>Admin Portal &rarr; <b>OLT Manager &rarr; System Config</b>.</li>
+        <li>Click <b>Provision VPN</b> on the OLT row.</li>
+        <li>In the popup, click the new <b>Mikrotik Bundle</b> button
+            (next to Download .ovpn). It saves
+            <code>olt-&lt;id&gt;-mikrotik-bundle.zip</code> containing:
+          <ul>
+            <li><code>ca.crt</code> &mdash; the OpenVPN CA</li>
+            <li><code>client.crt</code> &mdash; this OLT's client cert</li>
+            <li><code>client.key</code> &mdash; this OLT's private key</li>
+            <li><code>olt-&lt;id&gt;.ovpn</code> &mdash; stripped config
+                (references certs by name)</li>
+            <li><code>README.txt</code> &mdash; step-by-step</li>
+          </ul></li>
+        <li>Unzip on your laptop.</li>
+      </ol>
+
+      <h4>Step 3 — Upload all 4 files to Mikrotik</h4>
+      Winbox &rarr; <b>Files</b> &rarr; drag-drop
+      <code>ca.crt</code>, <code>client.crt</code>, <code>client.key</code>
+      and <code>olt-&lt;id&gt;.ovpn</code> into the file list.
+
+      <h4>Step 4 — Import certificates one by one (NOT via .ovpn)</h4>
+      Winbox &rarr; <b>System &rarr; Certificates</b>:
+      <ol>
+        <li>Click <b>Import</b> &rarr; pick <code>ca.crt</code> &rarr;
+            (no passphrase) &rarr; Start. Row appears with
+            <b>T</b> (trusted) flag.</li>
+        <li>Click <b>Import</b> &rarr; pick <code>client.crt</code>
+            &rarr; Start.</li>
+        <li>Click <b>Import</b> &rarr; pick <code>client.key</code>
+            &rarr; Start. The client.crt row should now show both
+            <b>T</b> and <b>K</b> (private key bound) flags.</li>
+      </ol>
+      Or via CLI:
+      <pre><code>/certificate import file-name=ca.crt passphrase=""
+/certificate import file-name=client.crt passphrase=""
+/certificate import file-name=client.key passphrase=""
+/certificate print</code></pre>
+
+      <h4>Step 5 — Create the OVPN Client interface manually</h4>
+      <b>PPP &rarr; Interface &rarr; [ + ] &rarr; OVPN Client</b>:
+      <ul>
+        <li>Name: <code>ovpn-olt</code></li>
+        <li>Connect To: <code>185.199.53.93</code></li>
+        <li>Port: <code>1194</code></li>
+        <li>Mode: <code>ip</code></li>
+        <li>Protocol: <code>udp</code></li>
+        <li>User: <code>olt</code> (any non-empty string)</li>
+        <li>Password: blank</li>
+        <li>Certificate: pick the <b>K</b>-flagged row that came from
+            <code>client.crt</code></li>
+        <li>Cipher: <code>aes256</code> (CBC variant)</li>
+        <li>Auth: <code>sha256</code></li>
+        <li><b>Add Default Route:</b> NO (very important)</li>
+      </ul>
+      <p>Apply &rarr; OK. The interface flag should turn <b>R</b>
+      (running) within ~10 seconds.</p>
+
+      Or via CLI (replace the <code>certificate</code> name with the one
+      shown by <code>/certificate print</code>):
+      <pre><code>/interface ovpn-client add name=ovpn-olt connect-to=185.199.53.93 \
+  port=1194 protocol=udp mode=ip user=olt password="" \
+  cipher=aes256 auth=sha256 add-default-route=no \
+  certificate=&lt;client-cert-name&gt;
+/interface ovpn-client enable [find name=ovpn-olt]
+/log print where topics~"ovpn"</code></pre>
+
+      <h4>Step 6 — Verify in the portal</h4>
+      Click <b>Check VPN</b> on the OLT row. Expect a green pill
+      "OpenVPN tunnel up, cipher AES-256-CBC".
+
+      <p class="faq-callout" style="background:#fee2e2;color:#991b1b;">
+        <b>Why the bug exists:</b> RouterOS's <code>.ovpn</code>
+        parser tries to detect "is this CA already imported?" by name
+        before doing the actual import. On certain firmware builds the
+        check returns a false positive and aborts. Importing certs as
+        separate PEM files uses a different RouterOS codepath that
+        doesn't have this bug.
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card" id="olt-l2tp">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      VPN Option C — L2TP/IPsec (works on every stock router: TP-Link / D-Link / Tenda / ASUS / old Mikrotik)
+    </div>
+    <div class="faq-a">
+      <p>
+        L2TP/IPsec is built into almost every router shipped in the last
+        15 years. Pick this when the OLT site only has a home-grade
+        router and you can't install OpenWrt or upgrade RouterOS.
+        Endpoint <code>185.199.53.93</code>, IPsec on UDP&thinsp;500
+        + UDP&thinsp;4500, L2TP on UDP&thinsp;1701, pool
+        <code>10.52.0.0/24</code>.
+      </p>
+
+      <h4>Step 1 &mdash; Save the OLT with VPN Type = L2TP/IPsec</h4>
+      <ol>
+        <li>Fill the master "Adding an OLT" form as above.</li>
+        <li>VPN block: Mode = VPN, Type = <b>L2TP/IPsec</b>. Leave
+            User/Password blank.</li>
+        <li>Save.</li>
+      </ol>
+
+      <h4>Step 2 &mdash; Provision credentials</h4>
+      <ol>
+        <li>Click <b>Provision VPN</b> on the new row.</li>
+        <li>The modal shows:
+          <ul>
+            <li>Server: <code>185.199.53.93</code></li>
+            <li><b>Pre-Shared Key (PSK)</b> &mdash; 32-char random string
+                unique per OLT</li>
+            <li><b>Username</b> &mdash; e.g. <code>olt-12</code></li>
+            <li><b>Password</b> &mdash; 24-char random string</li>
+          </ul></li>
+        <li>Click <b>Download credentials</b> &mdash; saves a plaintext
+            <code>.txt</code> with all four values. Keep it private.</li>
+      </ol>
+
+      <h4>Step 3a &mdash; Mikrotik RouterOS 6.x or 7.x</h4>
+      <ol>
+        <li><b>PPP &rarr; Interface &rarr; +</b> &rarr; <b>L2TP Client</b>.</li>
+        <li>Name <code>l2tp-olt</code>, Connect To
+            <code>185.199.53.93</code>, User + Password from the file.</li>
+        <li>Tick <b>Use IPsec = yes</b>. IPsec Secret = the PSK from the
+            file.</li>
+        <li>Profile = <code>default-encryption</code>. Tick
+            <b>Allow = mschap2</b> only.</li>
+        <li><b>Add Default Route = no</b> (don't hijack Internet).</li>
+        <li>Apply. Status should say "connected" within ~15&thinsp;s.</li>
+      </ol>
+
+      <h4>Step 3b &mdash; TP-Link / D-Link / Tenda (home routers)</h4>
+      <ol>
+        <li><b>Network &rarr; WAN</b> (or "Internet Connection") &rarr;
+            change Connection Type to <b>L2TP</b> (some firmwares call
+            it <i>"L2TP/IPsec"</i>).</li>
+        <li>Fill VPN Server IP, Username, Password from the credentials
+            file. Set IPsec Pre-Shared Key = the PSK.</li>
+        <li>Set the secondary connection type to your normal Internet
+            (DHCP/PPPoE) &mdash; this keeps regular Internet working
+            while the L2TP tunnel runs alongside.</li>
+        <li>Save / Reboot if asked.</li>
+      </ol>
+
+      <h4>Step 3c &mdash; Windows / macOS test client</h4>
+      <ol>
+        <li>Windows: <i>Settings &rarr; Network &rarr; VPN &rarr; Add VPN</i>;
+            Type = <b>L2TP/IPsec with pre-shared key</b>; fill PSK,
+            User, Password from file.</li>
+        <li>macOS: <i>System Settings &rarr; VPN &rarr; Add VPN
+            Configuration</i>; type <b>L2TP over IPsec</b>; same fields.</li>
+      </ol>
+
+      <h4>Step 4 &mdash; Required outbound ports on the on-site router</h4>
+      <ul>
+        <li>UDP 500 (IKE)</li>
+        <li>UDP 4500 (IPsec NAT-T)</li>
+        <li>UDP 1701 (L2TP)</li>
+        <li>ESP (IP protocol 50) &mdash; only matters if you're <i>not</i>
+            behind NAT</li>
+      </ul>
+
+      <h4>Step 5 &mdash; Verify</h4>
+      <ol>
+        <li>Portal &rarr; <b>Check VPN</b> on the OLT row &rarr; expect
+            <i>"L2TP/IPsec tunnel up, peer 10.52.0.x"</i>.</li>
+        <li>If failed, see the Troubleshooting card.</li>
+      </ol>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-pptp">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      VPN Option D — PPTP (legacy; only for very old routers, last-resort)
+    </div>
+    <div class="faq-a">
+      <p>
+        <b>Warning &mdash; PPTP is cryptographically broken.</b> The
+        MS-CHAPv2 handshake it relies on can be brute-forced in hours.
+        Use it only if neither OpenVPN nor L2TP/IPsec is supported by
+        the on-site router. Endpoint
+        <code>185.199.53.93:1723/tcp</code>, pool
+        <code>10.53.0.10-10.53.0.100</code>, GRE (IP protocol 47) must
+        be allowed through any NAT in front of the router.
+      </p>
+
+      <h4>Step 1 &mdash; Save the OLT with VPN Type = PPTP</h4>
+      <ol>
+        <li>Fill the master "Adding an OLT" form.</li>
+        <li>VPN block: Mode = VPN, Type = <b>PPTP</b>.</li>
+        <li>Save.</li>
+      </ol>
+
+      <h4>Step 2 &mdash; Provision credentials</h4>
+      <ol>
+        <li><b>Provision VPN</b> &rarr; popup shows:
+          <ul>
+            <li>Server: <code>185.199.53.93</code></li>
+            <li>Username: e.g. <code>olt-12-pptp</code></li>
+            <li>Password: 24-char random string</li>
+          </ul></li>
+        <li>Click <b>Download credentials</b>.</li>
+      </ol>
+
+      <h4>Step 3 &mdash; Mikrotik</h4>
+      <ol>
+        <li><b>PPP &rarr; Interface &rarr; + &rarr; PPTP Client</b>.</li>
+        <li>Name <code>pptp-olt</code>, Connect To
+            <code>185.199.53.93</code>, User + Password from file.</li>
+        <li>Profile = <code>default-encryption</code> (forces MPPE-128).</li>
+        <li><b>Add Default Route = no</b>.</li>
+        <li>Apply &amp; enable.</li>
+      </ol>
+
+      <h4>Step 3 (alt) &mdash; OpenWrt / Linux</h4>
+      <pre><code>opkg update &amp;&amp; opkg install pptp ppp-mod-mppe
+# /etc/ppp/peers/olt:
+pty "pptp 185.199.53.93 --nolaunchpppd"
+name &lt;username from file&gt;
+password &lt;password from file&gt;
+require-mppe-128
+file /etc/ppp/options.pptp
+ipparam olt</code></pre>
+
+      <h4>Step 4 &mdash; Verify</h4>
+      <ol>
+        <li>Portal &rarr; <b>Check VPN</b> &rarr; expect <i>"PPTP tunnel
+            up, peer 10.53.0.x"</i>.</li>
+      </ol>
+
+      <p class="faq-callout" style="background:#fef3c7;color:#92400e;">
+        <b>If the tunnel never comes up:</b> 99% of the time it's GRE
+        being blocked by the ISP or by a NAT'ing modem in front of the
+        router. Switch the OLT to <b>L2TP/IPsec</b> &mdash; almost
+        always solves it.
+      </p>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-vpn-verify">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I verify the tunnel is actually up? (the Check VPN button + manual checks)
+    </div>
+    <div class="faq-a">
+      <h4>From the portal</h4>
+      <ol>
+        <li><b>OLT Manager &rarr; System Config</b> &rarr; locate the OLT
+            row.</li>
+        <li>Click the <b>Check VPN</b> button. The portal calls
+            <code>GET /api/internal/vpn-status?olt_id=&lt;id&gt;</code>
+            and shows a pill:
+          <ul>
+            <li><span style="color:#16a34a"><b>Green</b></span> &mdash;
+                tunnel up, handshake / cipher details displayed.</li>
+            <li><span style="color:#dc2626"><b>Red</b></span> &mdash;
+                tunnel down. The reason text tells you what to fix.</li>
+          </ul></li>
+        <li>Click <b>Ping OLT</b> next to it to ICMP-test the OLT's LAN
+            IP through the tunnel. RTT shows up inline.</li>
+      </ol>
+
+      <h4>From the on-site router (Mikrotik)</h4>
+      <pre><code># OpenVPN
+/interface ovpn-client print
+/log print where topics~"ovpn"
+
+# L2TP
+/interface l2tp-client print
+/log print where topics~"l2tp,ipsec"
+
+# PPTP
+/interface pptp-client print
+
+# WireGuard
+/interface wireguard peers print</code></pre>
+
+      <h4>From the platform server (admins with shell access)</h4>
+      <pre><code># OpenVPN connected clients
+sudo cat /var/log/openvpn/olt-status.log
+
+# L2TP connected clients
+sudo ipsec status
+sudo ip xfrm policy | head
+
+# WireGuard peers + last handshake
+sudo wg show wg-olt</code></pre>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-vpn-up-but-snmp-fails">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      VPN is connected but the portal still says "SNMP walk returned no PON interfaces" / OLT shows offline — what now?
+    </div>
+    <div class="faq-a">
+      <p>
+        A successful OpenVPN handshake only proves the tunnel is up
+        between the server and the Mikrotik. To actually <i>reach the
+        OLT</i> behind the Mikrotik, three more conditions must be
+        true. The platform already takes care of items&nbsp;A and&nbsp;B
+        automatically — you only have to add the masquerade NAT
+        (item&nbsp;C) on your router.
+      </p>
+
+      <h4>A. Server-side route (handled automatically by the portal)</h4>
+      <p>
+        When you click <b>Provision VPN</b> the platform writes
+        <code>/etc/openvpn/server/ccd/&lt;cn&gt;</code> with
+        <code>iroute &lt;OLT-subnet&gt; 255.255.255.0</code> and adds
+        a matching <code>route</code> directive to the server config.
+        The server now knows "to reach the OLT subnet, push packets down
+        this client's tunnel". <i>No action needed from you.</i>
+      </p>
+
+      <h4>B. Server-to-client tunnel reachability (handled by OpenVPN)</h4>
+      <p>
+        Packets arrive at the Mikrotik's <code>ovpn-client</code>
+        interface with source <code>10.51.0.0/24</code>.
+      </p>
+
+      <h4>C. Mikrotik must SNAT + forward the traffic onto the LAN</h4>
+      <p>
+        This is the step almost everyone misses. Run these
+        <i>once</i> on the Mikrotik (replace <code>ether2</code> with
+        the interface that has the OLT's LAN IP — find it via
+        <code>/ip address print</code>):
+      </p>
+      <pre><code># Masquerade tunnel-sourced traffic onto the LAN
+/ip firewall nat add chain=srcnat \
+  src-address=10.51.0.0/24 \
+  out-interface=ether2 \
+  action=masquerade \
+  comment="auto-isp-olt-vpn-snat"
+
+# Allow forwarding both ways
+/ip firewall filter add chain=forward action=accept \
+  src-address=10.51.0.0/24 dst-address=&lt;OLT-subnet&gt;/24 \
+  place-before=0 comment="auto-isp-olt-vpn-fwd-in"
+/ip firewall filter add chain=forward action=accept \
+  src-address=&lt;OLT-subnet&gt;/24 dst-address=10.51.0.0/24 \
+  place-before=0 comment="auto-isp-olt-vpn-fwd-out"
+
+# Make sure IP forwarding is on (default yes)
+/ip settings set ip-forward=yes</code></pre>
+
+      <h4>Verify</h4>
+      <pre><code># On Mikrotik
+/ip route print where dst-address~"10.51"
+/log print where topics~"ovpn"</code></pre>
+      Then in the portal: OLT row &rarr; <b>Check VPN</b> &rarr; expect
+      green; click <b>Auto-detect PON</b> &rarr; expect a number &gt; 0.
+
+      <h4>Common pitfalls (observed in production)</h4>
+      <ul>
+        <li><b>Wrong out-interface in NAT rule.</b> Use the interface
+            that owns the OLT's LAN IP (look at
+            <code>/ip address print</code>'s INTERFACE column for the
+            row matching the OLT subnet). Common values:
+            <code>ether2</code>, <code>ether3</code>,
+            <code>bridge1</code>, <code>bridge</code>.</li>
+        <li><b>Catch-all forward DROP earlier in the rule list.</b>
+            Use <code>place-before=0</code> so the accept rules sit
+            above any drop.</li>
+        <li><b>OLT's firewall whitelist.</b> Some Vsol/Syrotech OLTs
+            only accept SNMP from <code>192.168.x.x</code>. The
+            masquerade rule above SNATs the source to your router's
+            LAN IP, which solves it. If you have a stricter ACL on
+            the OLT, add your router's LAN IP to it.</li>
+        <li><b>Duplicate OVPN client interfaces.</b> Multiple imports
+            connecting with the same client cert cause
+            <code>&lt;nothing received for a while&gt;</code> flaps
+            every 60s. Keep only ONE
+            <code>/interface ovpn-client</code> per OLT and remove the
+            rest.</li>
+        <li><b>A <code>protocol=!udp</code> accept rule in forward.</b>
+            This blocks UDP (including SNMP 161). Remove it.</li>
+      </ul>
+
+      <h4>For multi-admin / multi-tenant deployments</h4>
+      <p>
+        Each OLT site <b>must</b> use a unique LAN /24 across the
+        entire platform — OpenVPN cannot route the same subnet to two
+        different clients. Suggested convention:
+      </p>
+      <ul>
+        <li><code>192.168.&lt;company-id-last-2-digits&gt;.0/24</code>
+            &mdash; e.g. company id 14150129 uses
+            <code>192.168.29.0/24</code></li>
+        <li><b>Or</b> reserve a private /16 per admin
+            (<code>10.&lt;admin-id&gt;.0.0/16</code>) and slice it /24
+            per OLT.</li>
+      </ul>
+      <p>
+        If two admins have already deployed the same subnet, change
+        one of them: update the Mikrotik LAN IP + DHCP pool, update the
+        OLT's management IP, then edit the OLT in the portal so its
+        <code>host</code> field reflects the new IP. The next
+        <b>Provision VPN</b> click rewrites the CCD <code>iroute</code>
+        automatically.
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card" id="olt-vpn-trouble">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      Troubleshooting — the most common OLT/VPN errors and exact fixes
+    </div>
+    <div class="faq-a">
+      <h4>OpenVPN &mdash; <code>&lt;unsupported cipher AES-256-CBC&gt;</code> or <code>AES-128-CBC</code></h4>
+      <p>
+        Your <code>.ovpn</code> was generated by an old build of the
+        portal. Click <b>Provision VPN</b> again &rarr; download new
+        file &rarr; re-import on the Mikrotik. The new file uses
+        AES-256-GCM and is accepted by RouterOS 7.15+.
+      </p>
+
+      <h4>OpenVPN &mdash; <code>&lt;unsupported auth digest SHA1&gt;</code></h4>
+      <p>
+        Same root cause as above &mdash; re-download the
+        <code>.ovpn</code>. New file uses SHA256.
+      </p>
+
+      <h4>OpenVPN &mdash; <code>&lt;TLS error: no key for certificate found&gt;</code></h4>
+      <p>
+        Mikrotik imported a cert but not its private key. Delete the
+        imported certificate from <b>System &rarr; Certificates</b>,
+        then re-import the <code>.ovpn</code> file from
+        <b>Files</b> using <b>OVPN Client &rarr; Import .ovpn File</b>
+        (not "Import Certificate"). The import dialog brings both cert
+        and key together from the inline <code>&lt;cert&gt;</code> +
+        <code>&lt;key&gt;</code> blocks.
+      </p>
+
+      <h4>OpenVPN &mdash; <code>"could not create interface — wrong username"</code></h4>
+      <p>
+        RouterOS validates that the User field is non-empty even for
+        cert-only setups. Type any string (e.g. <code>olt</code>) in
+        <b>User</b>. Our server ignores it.
+      </p>
+
+      <h4>OpenVPN &mdash; <code>&lt;TLS error: handshake timed out&gt;</code></h4>
+      <ol>
+        <li>UDP 1194 outbound is blocked on the OLT site &mdash; ask the
+            local ISP to open it, or fall back to L2TP/IPsec.</li>
+        <li>Wrong server IP / port in the import &mdash; verify
+            <code>185.199.53.93:1194</code>.</li>
+        <li>Server is down &mdash; check
+            <code>systemctl status openvpn-server@olt</code>.</li>
+      </ol>
+
+      <h4>L2TP/IPsec &mdash; tunnel up but no traffic</h4>
+      <ol>
+        <li>Add the masquerade rule on the on-site router (Step 4 of
+            the OpenVPN card).</li>
+        <li>Verify the OLT can ping the router's LAN IP first.</li>
+      </ol>
+
+      <h4>PPTP &mdash; tunnel never establishes</h4>
+      <p>
+        GRE is being blocked by NAT or ISP. Move the OLT to L2TP/IPsec.
+      </p>
+
+      <h4>WireGuard &mdash; handshake stuck at "never"</h4>
+      <ol>
+        <li>UDP 51820 is blocked on the OLT site.</li>
+        <li><b>Persistent Keepalive</b> not set to 25 on the on-site
+            peer &mdash; this is the #1 cause on Mikrotik.</li>
+        <li>System clock on the OLT-side router is wildly wrong (WG
+            handshake includes a timestamp).</li>
+      </ol>
+
+      <h4>"VPN ready" but the OLT still shows offline in dashboards</h4>
+      <ol>
+        <li>The tunnel is up but the on-site router has no route back to
+            the OLT's LAN. Add the masquerade rule (see OpenVPN Step 4).</li>
+        <li>The CLI Username/Password fields are wrong &mdash; the
+            poller succeeded at reaching the OLT but failed to log in.
+            Edit the OLT and correct the credentials.</li>
+        <li>The OLT firewall is blocking the tunnel subnet &mdash;
+            whitelist <code>10.50.0.0/24</code>, <code>10.51.0.0/24</code>,
+            <code>10.52.0.0/24</code>, <code>10.53.0.0/24</code> on the
+            OLT's management ACL.</li>
+      </ol>
+    </div>
+  </div>
+
+
+  <div class="faq-card" id="olt-revoke">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I revoke / rotate VPN access for a removed or decommissioned OLT?
+    </div>
+    <div class="faq-a">
+      <h4>Rotate (re-issue) credentials without deleting the OLT</h4>
+      <ol>
+        <li>OLT row &rarr; <b>Provision VPN</b>. The platform
+            generates a fresh certificate (OpenVPN), or a new
+            username/password+PSK (L2TP/PPTP), or a new key-pair
+            (WireGuard).</li>
+        <li>The old credential is invalidated server-side immediately.</li>
+        <li>Re-import / re-paste the new credential on the on-site
+            router as you did initially.</li>
+      </ol>
+
+      <h4>Revoke completely (decommission)</h4>
+      <ol>
+        <li>OLT row &rarr; <b>Delete</b>. The platform calls
+            <code>DELETE /api/admin/olt/olts/&lt;id&gt;/vpn-revoke</code>
+            automatically and:
+          <ul>
+            <li><b>WireGuard</b> &mdash; removes the peer block from
+                <code>/etc/wireguard/wg-olt.conf</code> and reloads.</li>
+            <li><b>OpenVPN</b> &mdash; revokes the cert via easy-rsa
+                (<code>revoke</code> + <code>gen-crl</code>) and reloads
+                the CRL.</li>
+            <li><b>L2TP / PPTP</b> &mdash; deletes the username line from
+                <code>/etc/ppp/chap-secrets</code> and HUP-s the daemon.</li>
+          </ul></li>
+        <li>The next handshake attempt from the on-site router is
+            refused.</li>
+      </ol>
+    </div>
+  </div>
+
+<!-- __S44F_FAQ__  How OLT alerts reach the admin -->
+  <div class="faq-card" id="olt-wa-alerts">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I receive OLT alerts on WhatsApp?
+    </div>
+    <div class="faq-a">
+      <p>
+        OLT alerts use the platform's <b>integrated WhatsApp pipeline</b>,
+        not per-OLT bot tokens. You don't manage Instance IDs, API keys, or
+        chat IDs — everything is handled platform-side.
+      </p>
+      <h4>How to enable alerts (one-time)</h4>
+      <ol>
+        <li>Ask your Superadmin to flip <b>Enable WhatsApp API</b> ON for your
+          company (Superadmin &rarr; Company Settings).</li>
+        <li>Make sure your admin profile has a valid <b>phone number</b> with
+          country code (e.g. <code>9199XXXXXXXX</code>). Edit it under
+          <i>User Management &rarr; Admins</i>.</li>
+        <li>Open each OLT's row and confirm the alert toggles you care about
+          are ON (Unit Offline / Signal Critical / Signal Warning / High
+          Power / Uplink Down). They're all default-ON.</li>
+      </ol>
+      <p class="faq-callout">
+        <i class="bi bi-info-circle"></i>
+        <b>Multi-admin teams:</b> every admin in your company who has a phone
+        number on file will receive the alert in parallel — no extra setup
+        needed. Sub-LCOs and employees do <i>not</i> receive OLT alerts by
+        default; flip the per-OLT toggle into the SMS Center settings to
+        forward to those roles.
+      </p>
+      <p class="faq-callout" style="background:#fef3c7;color:#92400e;">
+        <b>Heads-up:</b> WhatsApp Business requires a pre-approved template
+        for outbound alerts. The platform ships with an <code>olt_alert</code>
+        template, but until the WhatsApp provider approves it for your sender number,
+        alert sends will be logged as "dry_run" in
+        <i>SMS Logs &rarr; WhatsApp</i>. The toggle &amp; admin phone are
+        ready — just the template approval is pending on the WhatsApp provider side
+        (typically 24 hours).
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      What's the difference between Public IP and VPN connection modes?
+    </div>
+    <div class="faq-a">
+      <p><b>Public IP</b> — your OLT already has a static public IP and SNMP/CLI
+         ports are open. The platform connects directly. Fastest, no extra
+         hardware needed.</p>
+      <p><b>WireGuard VPN</b> — your OLT is on a private LAN. The on-site device
+         dials home to the platform over UDP/51820 and the OLT becomes reachable
+         at a <code>10.50.0.X</code> private address. No port forwarding, no
+         static IP, and traffic is encrypted.</p>
+    </div>
+  </div>
+
+  <div class="faq-card">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I rotate a compromised OLT VPN key?
+    </div>
+    <div class="faq-a">
+      <p>Open the OLT row, click <b>VPN</b> again — the platform regenerates the
+         keypair, appends the new peer, and gives you a fresh
+         <code>.conf</code> to upload to the on-site device. The old key is
+         retired the next time WireGuard reloads.</p>
+    </div>
+  </div>
+
+    <!-- ========================================================= -->
+    <!-- __S55E_GENIEACS_FAQ_SECTION__ — SuperAdmin-only GenieACS  -->
+    <!-- ========================================================= -->
+    <h2 class="faq-section-title" id="genieacs-superadmin">GenieACS / ACE TR-069 — SuperAdmin Operator Guide</h2>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        Login URL &amp; credentials for the GenieACS web console
+      </div>
+      <div class="faq-a">
+        <p><strong>This page is restricted to SuperAdmins.</strong> The credentials below are production-sensitive — do NOT share with Admins, Sub-LCOs or Employees.</p>
+        <ul>
+          <li><strong>URL:</strong> <code>https://acs.autoispbilling.com</code></li>
+          <li><strong>Username:</strong> <code>admin</code></li>
+          <li><strong>Password:</strong> <code>Genie@Admin#2026</code></li>
+          <li><strong>CWMP listener:</strong> <code>https://acs.autoispbilling.com:7547/</code></li>
+          <li><strong>NBI (internal only):</strong> <code>http://127.0.0.1:7557/</code></li>
+        </ul>
+        <p><em>Anyone with the GenieACS admin password can remotely re-configure every connected ONT/ONU on the network.</em></p>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        First-time GenieACS setup &mdash; 6-step walkthrough
+      </div>
+      <div class="faq-a">
+        <ol>
+          <li>Open the GenieACS UI and sign in with the credentials above.</li>
+          <li><strong>Change the default password</strong> immediately via <em>Admin &rarr; Users &rarr; admin &rarr; Change Password</em>.</li>
+          <li>Verify the CWMP listener is reachable: <pre>curl -I https://acs.autoispbilling.com:7547/</pre> Expect <code>HTTP/1.1 405 Method Not Allowed</code> (CWMP only accepts POST).</li>
+          <li>Confirm the four GenieACS services are running:<pre>systemctl status genieacs-cwmp genieacs-fs genieacs-ui genieacs-nbi</pre></li>
+          <li>Set the ACS URL on every ONU/ONT to <code>https://acs.autoispbilling.com:7547/</code> (TR-069 page on the device).</li>
+          <li>Trigger an Inform on the ONU; it should appear in GenieACS UI &rarr; Devices within 60 seconds.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        Provisioning a new ONU/ONT for a subscriber
+      </div>
+      <div class="faq-a">
+        <ol>
+          <li>Add the customer in Admin Portal &rarr; Subscribers &rarr; Add. Note Subscriber ID &amp; plan.</li>
+          <li>Open the GenieACS UI and find the ONU by serial number or MAC.</li>
+          <li>Open the device detail page &rarr; Parameters &rarr; expand <code>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1</code>.</li>
+          <li>Set <code>Username</code> = subscriber's RADIUS username; <code>Password</code> = RADIUS password; <code>Enable</code> = true.</li>
+          <li>Apply changes. GenieACS pushes on the next Inform (~30s).</li>
+          <li>Verify in Admin Portal &rarr; Online Users.</li>
+        </ol>
+        <p><strong>Tip:</strong> Save common ONU configurations as Presets (Admin &rarr; Presets) so future ONUs of the same vendor auto-apply.</p>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        Day-to-day GenieACS operator tasks
+      </div>
+      <div class="faq-a">
+        <h4>Reboot a customer's ONU remotely</h4>
+        <ol><li>Find the device.</li><li>Actions &rarr; Reboot. Device drops for 30-60s and re-informs.</li></ol>
+        <h4>Push new Wi-Fi SSID / password</h4>
+        <ol>
+          <li>Open device detail page.</li>
+          <li>Edit <code>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</code> and <code>.PreSharedKey.1.KeyPassphrase</code>.</li>
+          <li>Apply (some firmwares require a reboot).</li>
+        </ol>
+        <h4>Bulk firmware upgrade</h4>
+        <ol>
+          <li>Upload firmware via Admin &rarr; Files.</li>
+          <li>Create a Preset targeting the vendor/model + <code>DownloadDiagnosticState</code>.</li>
+          <li>Apply preset to the target device group.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        Troubleshooting common GenieACS errors
+      </div>
+      <div class="faq-a">
+        <h4>ONU doesn't appear in GenieACS</h4>
+        <ul>
+          <li>ACS URL on the ONU must match the CWMP listener exactly (trailing slash matters).</li>
+          <li>TCP 7547 inbound must be open from the subscriber network.</li>
+          <li>Reboot the ONU and watch <code>journalctl -fu genieacs-cwmp</code>.</li>
+        </ul>
+        <h4>Inform received but parameters not pushed</h4>
+        <ul>
+          <li>Open device &rarr; Tasks queue, look for failed tasks.</li>
+          <li>Verify <code>ManagementServer.Username</code> / <code>.Password</code> on the ONU match the GenieACS security realm.</li>
+        </ul>
+        <h4>Services not starting after reboot</h4>
+        <pre>sudo systemctl restart genieacs-cwmp genieacs-fs genieacs-ui genieacs-nbi
+journalctl -u genieacs-cwmp -n 100 --no-pager</pre>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        API tokens &amp; rotating the GenieACS NBI key
+      </div>
+      <div class="faq-a">
+        <p>The billing portal calls the GenieACS NBI using a server-side token at:</p>
+        <pre>/opt/ispbilling/.acs_token   # chmod 600, owner: ispbilling</pre>
+        <p>Generate a new token:</p>
+        <pre>curl -X POST http://127.0.0.1:7557/admin/tokens \
+     -H "Content-Type: application/json" \
+     -d '{"label":"billing-portal-2026"}'</pre>
+        <p>Write the new value to <code>/opt/ispbilling/.acs_token</code> and restart <code>isp-admin</code>.</p>
+      </div>
+    </div>
+
+    <div class="faq-card">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        GenieACS security recommendations
+      </div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Never expose the GenieACS UI publicly.</strong> Use Nginx <code>allow</code>/<code>deny</code> to restrict to your office IP range.</li>
+          <li><strong>Rotate the admin password every 90 days.</strong></li>
+          <li><strong>Disable the default operator account</strong> once you have per-staff accounts (Admin &rarr; Users).</li>
+          <li><strong>Enable TLS on CWMP port 7547</strong> — installer already terminates TLS at Nginx with the same Let's Encrypt cert as <code>autoispbilling.com</code>.</li>
+          <li><strong>Audit changes weekly.</strong> Logs at <code>/var/log/genieacs-cwmp.log</code>.</li>
+          <li><strong>This help page is SuperAdmin-only.</strong> The route <code>/superadmin/faq</code> is server-side gated by <code>require_superadmin()</code> — Admins, Sub-LCOs and Employees cannot reach it.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- __s55w_vlan_faq__ — Per-user VLAN Per-User VLAN operator guide -->
+    <h2 class="faq-section-title" id="vlan-peruser-superadmin">Per-User VLAN Authentication (carrier-style) — SuperAdmin Operator Guide</h2>
+
+    <div class="faq-card" id="vlan-overview">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        What is per-user VLAN auth and why use it?
+      </div>
+      <div class="faq-a">
+        <p>It's the same per-user VLAN authentication model used by major fiber carriers. Each customer's ONU port tags every outgoing frame with a dedicated <strong>CVID</strong> (customer VLAN id). The MikroTik BNG only accepts that user's PPPoE login if the incoming VLAN tag matches the VLAN we assigned to them.</p>
+        <p><strong>Even if someone leaks the PPPoE password</strong>, they cannot dial from a different ONU because their frames would carry a different VLAN tag and the BNG will reject the session.</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-trunk-prep">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        How do I prepare the MikroTik trunk port? (manual prep, do this ONCE)
+      </div>
+      <div class="faq-a">
+        <p>You only need to prep one physical port — the port that receives Q-tagged frames from your OLT (usually <code>ether2</code> or a dedicated uplink).</p>
+
+        <h4>Step 1 &mdash; Pick the right port</h4>
+        <p>Identify the MikroTik port that's plugged into your OLT uplink. This will become the "VLAN trunk".</p>
+
+        <h4>Step 2 &mdash; Make sure tags survive on this port</h4>
+        <p>The trunk port must NOT be part of any bridge that strips VLAN tags. Either:</p>
+        <ul>
+          <li><strong>Keep it un-bridged</strong> (simplest). The PPPoE server binds directly to <code>ether2</code> + the auto-created <code>vlan-N</code> sub-interfaces.</li>
+          <li><strong>OR</strong> put it in a bridge with <code>vlan-filtering=yes</code> set on the bridge.</li>
+        </ul>
+        <p><strong>Winbox / Terminal example (un-bridged path &mdash; recommended):</strong></p>
+        <pre>/interface ethernet set ether2 disabled=no comment="OLT-trunk"</pre>
+        <p>Then make sure <code>ether2</code> does <strong>not</strong> appear under <code>/interface bridge port</code>. If it does, remove it:</p>
+        <pre>/interface bridge port remove [find interface=ether2]</pre>
+
+        <h4>Step 3 &mdash; That's it. Hit "VLAN (1-click)" in NAS Console</h4>
+        <p>From SuperAdmin &rarr; Admin Management &rarr; NAS Console, click <strong>VLAN (1-click)</strong> on the NAS row. Pick your range (e.g. <code>100-999</code>), the trunk interface, the PPPoE service-name, and click <strong>Push to router</strong>. The platform will:</p>
+        <ul>
+          <li>Seed VLAN pool rows in the database</li>
+          <li>Create one <code>vlan-N</code> sub-interface per VID on your trunk port</li>
+          <li>Switch the PPPoE Server to <code>use-radius=yes</code></li>
+          <li>Enable <code>/ppp aaa use-radius=yes</code></li>
+          <li>Enable <code>/radius incoming accept=yes</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-olt-side">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        OLT-side configuration &mdash; what does the operator need to do?
+      </div>
+      <div class="faq-a">
+        <p>Yes. The OLT is what stamps the CVID on each user's traffic &mdash; the MikroTik just verifies it. You must:</p>
+        <ul>
+          <li>Configure each ONU's UNI port with the assigned CVID (the VLAN you allocated to the user inside the platform).</li>
+          <li>Trunk all CVIDs upstream to the MikroTik (<strong>1:1 transparent VLAN translation</strong> &mdash; same VID end-to-end). This is the standard carrier per-user VLAN pattern.</li>
+          <li>Make sure your OLT's PON uplink is in trunk mode tagged for the VLAN range you seeded.</li>
+        </ul>
+        <p>Specifics depend on your OLT vendor (BDCOM, V-SOL, Huawei, ZTE, Vsol, etc.). Search your OLT docs for "<strong>per-ONU VLAN translation</strong>" or "<strong>CVID per UNI</strong>".</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-assign-cust">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        How do I assign a VLAN to a customer?
+      </div>
+      <div class="faq-a">
+        <p>Open <strong>Add User</strong> (or the Edit User popup on an existing customer). Tick the <strong>VLAN Enable</strong> checkbox and pick a VLAN ID from the dropdown (auto-populated with FREE VLANs from your pool).</p>
+        <p>The platform's background worker (<code>vlan-radius-sync</code>) then writes <code>Tunnel-Type</code>, <code>Tunnel-Medium-Type</code> and <code>Tunnel-Private-Group-Id</code> into FreeRADIUS within 30&nbsp;seconds. The user's next PPPoE dial-in will be enforced against that VLAN.</p>
+        <p><strong>Existing customers without the VLAN toggle are NOT affected</strong> &mdash; they keep dialing in over PPPoE exactly as before.</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-manage">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        How do I view, edit, release, or remove existing VLANs?
+      </div>
+      <div class="faq-a">
+        <p>From SuperAdmin &rarr; NAS Console, click <strong>Manage VLANs</strong> on the NAS row. You get a table with every VLAN in the pool plus action buttons per row:</p>
+        <ul>
+          <li><strong>Release</strong> &mdash; frees the VLAN from its current customer (customer keeps PPPoE but loses VLAN enforcement)</li>
+          <li><strong>Mark Free / Reserve</strong> &mdash; change pool state</li>
+          <li><strong>Push to router</strong> &mdash; re-create the <code>vlan-N</code> interface on MikroTik if it was deleted</li>
+          <li><strong>Remove from router</strong> &mdash; delete only the <code>vlan-N</code> interface from MikroTik (pool row stays)</li>
+          <li><strong>Retire</strong> &mdash; hide from future dropdowns but keep for history</li>
+          <li><strong>Hard Delete</strong> (red trash icon) &mdash; remove from the pool permanently</li>
+        </ul>
+        <p>You can also <strong>select multiple rows with checkboxes</strong> and click <strong>Delete selected</strong> to remove many at once.</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-add-more">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        How do I ADD more VLANs to an existing pool?
+      </div>
+      <div class="faq-a">
+        <p>Click <strong>VLAN (1-click)</strong> again with a non-overlapping range (e.g. 1000-1500). The platform skips any VID that already exists in the pool and only adds the new ones. The MikroTik interfaces are also idempotent &mdash; duplicates are silently skipped.</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-verify">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        How do I verify a VLAN binding is actually catching a wrong login?
+      </div>
+      <div class="faq-a">
+        <p>On the MikroTik, open <strong>Log</strong> and watch when the user dials in. With <code>use-radius=yes</code> active, a mismatched VLAN will produce an entry like:</p>
+        <pre>pppoe,error,info: &lt;username&gt; logged out, RADIUS attr Tunnel-Private-Group-Id mismatch</pre>
+        <p>If you see "authenticated" then the user's incoming Q-tag matched the VLAN we expected.</p>
+      </div>
+    </div>
+
+    <div class="faq-card" id="vlan-compat">
+      <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+        Does this work with my existing PPPoE, Hotspot or Static-IP customers?
+      </div>
+      <div class="faq-a">
+        <p><strong>Yes &mdash; completely additive.</strong> All existing customers stay on the legacy path until you explicitly enable the VLAN toggle on each one. Hotspot and Static-IP users are skipped by the sync worker (only PPPoE users participate in VLAN auth, which is the standard carrier design).</p>
+      </div>
+    </div>
+
+</div>
+{% endblock %}

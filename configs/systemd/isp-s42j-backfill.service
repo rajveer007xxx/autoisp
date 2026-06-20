@@ -1,0 +1,14 @@
+[Unit]
+Description=S42J — Backfill company_id on shared FreeRADIUS tables (tenant isolation)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ispbilling/venv/bin/python3 /opt/ispbilling/admin-portal/scripts/s42j_backfill_cron.py
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

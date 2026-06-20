@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Auto ISP Billing</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/login.css">
+    <style>
+        /* Global 10% size reduction (90% zoom) */
+        :root {
+            --site-scale: 0.9;
+        }
+        
+        @supports (zoom: 1) {
+            body {
+                zoom: var(--site-scale);
+            }
+        }
+        
+        @supports not (zoom: 1) {
+            /* Firefox fallback: scale font sizes */
+            html {
+                font-size: calc(16px * var(--site-scale));
+            }
+        }
+        
+        @media print {
+            body {
+                zoom: 1 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-left">
+            <div class="login-left-content">
+                <div class="logo-section">
+                    <h1><strong>Auto ISP</strong> Billing</h1>
+                    <p>Complete ISP Management Solution</p>
+                </div>
+                
+                <div class="features-list">
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>Automated Billing & Invoicing</span>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>Integrated Payment Gateway</span>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>SMS & WhatsApp Notifications</span>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>Customer Self-Service Portal</span>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>MikroTik & RADIUS Integration</span>
+                    </div>
+                    <div class="feature-item">
+                        <i class="fa fa-check-circle"></i>
+                        <span>Advanced Reports & Analytics</span>
+                    </div>
+                </div>
+                
+                <div class="integration-badges">
+                    <div class="badge-item">MikroTik</div>
+                    <div class="badge-item">Cisco</div>
+                    <div class="badge-item">Ubiquiti</div>
+                    <div class="badge-item">RADIUS</div>
+                    <div class="badge-item">pfSense</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="login-right">
+            <div class="login-form-container">
+                <div class="back-home">
+                    <a href="/"><i class="fa fa-home"></i> Back to Home</a>
+                </div>
+                
+                <h2>Sign in to start your session</h2>
+                
+                <div class="user-type-selector">
+                    <div class="user-type-option active" data-type="superadmin">
+                        <i class="fa fa-user-secret"></i>
+                        <span>Superadmin</span>
+                    </div>
+                    <div class="user-type-option" data-type="admin">
+                        <i class="fa fa-user-circle"></i>
+                        <span>Admin</span>
+                    </div>
+                    <div class="user-type-option" data-type="employee">
+                        <i class="fa fa-user"></i>
+                        <span>Employee</span>
+                    </div>
+                    <div class="user-type-option" data-type="customer">
+                        <i class="fa fa-users"></i>
+                        <span>Customer</span>
+                    </div>
+                </div>
+                
+                <form id="loginForm" class="login-form">
+                    <input type="hidden" id="userType" name="userType" value="superadmin">
+                    
+                    <div class="form-group" id="companyIdGroup" style="display: none;">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-building"></i></span>
+                            <input type="text" class="form-control" id="companyId" name="companyId" placeholder="Company ID">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-user"></i></span>
+                            <input type="text" class="form-control" id="userId" name="userId" placeholder="User ID" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="input-group">
+                            <span class="input-group-addon"><i class="fa fa-lock"></i></span>
+                            <input type="password" class="form-control" id="password" name="password" placeholder="Password" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-inline">
+                            <input type="checkbox" name="remember"> Remember Me
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block btn-lg">Sign In</button>
+                    
+                    <div class="form-footer">
+                        <a href="#" class="forgot-password">I forgot my password</a>
+                        <a href="#demo" class="request-demo">Request a Demo</a>
+                    </div>
+                </form>
+                
+                <div class="security-badge">
+                    <i class="fa fa-lock"></i> Secured with 256-bit SSL Encryption
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // User type selection
+            $('.user-type-option').click(function() {
+                $('.user-type-option').removeClass('active');
+                $(this).addClass('active');
+                
+                var userType = $(this).data('type');
+                $('#userType').val(userType);
+                
+                // Show/hide company ID field for Admin and Employee
+                if (userType === 'admin' || userType === 'employee') {
+                    $('#companyIdGroup').slideDown();
+                    $('#companyId').prop('required', true);
+                } else {
+                    $('#companyIdGroup').slideUp();
+                    $('#companyId').prop('required', false);
+                }
+                
+                // Update placeholder text
+                if (userType === 'customer') {
+                    $('#userId').attr('placeholder', 'Customer ID');
+                } else if (userType === 'employee') {
+                    $('#userId').attr('placeholder', 'Employee ID');
+                } else if (userType === 'admin') {
+                    $('#userId').attr('placeholder', 'Admin ID');
+                } else {
+                    $('#userId').attr('placeholder', 'Superadmin ID');
+                }
+            });
+            
+            // Form submission
+            $('#loginForm').submit(function(e) {
+                e.preventDefault();
+                
+                var userType = $('#userType').val();
+                var userId = $('#userId').val();
+                var password = $('#password').val();
+                var companyId = $('#companyId').val();
+                
+                // Basic validation
+                if (!userId || !password) {
+                    alert('Please enter User ID and Password');
+                    return;
+                }
+                
+                if ((userType === 'admin' || userType === 'employee') && !companyId) {
+                    alert('Please enter Company ID');
+                    return;
+                }
+                
+                // Show loading
+                $('button[type="submit"]').html('<i class="fa fa-spinner fa-spin"></i> Signing In...').prop('disabled', true);
+                
+                // Create form data
+                var formData = new FormData();
+                formData.append('userType', userType);
+                formData.append('userId', userId);
+                formData.append('password', password);
+                if (companyId) {
+                    formData.append('companyId', companyId);
+                }
+                
+                // Call login API
+                $.ajax({
+                    url: '/api/auth/login',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.success) {
+                            window.location.href = response.redirect;
+                        } else {
+                            alert(response.message || 'Login failed');
+                            $('button[type="submit"]').html('Sign In').prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr) {
+                        var message = 'Login failed';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            message = xhr.responseJSON.message;
+                        }
+                        alert(message);
+                        $('button[type="submit"]').html('Sign In').prop('disabled', false);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

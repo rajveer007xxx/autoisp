@@ -1,0 +1,116 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Expense List - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Expense List
+        <small>Track business expenses</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Add New Expense</h3>
+        </div>
+        <div class="box-body">
+            <form id="addExpenseForm" class="form-horizontal">
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Expense Category:</label>
+                    <div class="col-sm-4">
+                        <select class="form-control" required>
+                            <option value="">Select Category</option>
+                            <option value="Equipment">Equipment</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Salary">Salary</option>
+                            <option value="Rent">Rent</option>
+                            <option value="Utilities">Utilities</option>
+                            <option value="Marketing">Marketing</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <label class="col-sm-2 control-label">Amount:</label>
+                    <div class="col-sm-4">
+                        <input type="number" class="form-control" placeholder="Enter amount" step="0.01" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Date:</label>
+                    <div class="col-sm-4">
+                        <input type="date" class="form-control" required>
+                    </div>
+                    <label class="col-sm-2 control-label">Payment Mode:</label>
+                    <div class="col-sm-4">
+                        <select class="form-control" required>
+                            <option value="">Select Mode</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="UPI">UPI</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Description:</label>
+                    <div class="col-sm-10">
+                        <textarea class="form-control" rows="3" placeholder="Enter description" required></textarea>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-sm-offset-2 col-sm-10">
+                        <button type="submit" class="btn btn-primary">Add Expense</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Expenses</h3>
+            <div class="box-tools">
+                <button type="button" class="btn btn-sm btn-success"><i class="fa fa-download"></i> Export</button>
+            </div>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Category</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                            <th>Payment Mode</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" class="text-center">No expenses recorded</td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th colspan="3" class="text-right">Total Expenses:</th>
+                            <th>₹ 0.00</th>
+                            <th colspan="2"></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+$(document).ready(function() {
+    $('#addExpenseForm').submit(function(e) {
+        e.preventDefault();
+        alert('Expense creation functionality will be implemented with backend API');
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,151 @@
+{% extends base_template or "base_admin.html" %}
+{% block title %}Feature Not Enabled — Auto ISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  /* __S43ZM__ Feature-not-enabled page */
+  .fne-wrap {
+    min-height: calc(100vh - 200px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px 16px;
+  }
+  .fne-card {
+    max-width: 640px; width: 100%;
+    background: #ffffff;
+    border-radius: 18px;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    text-align: center;
+  }
+  .fne-banner {
+    background: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+    color: #fff;
+    padding: 40px 30px 30px;
+    position: relative;
+  }
+  .fne-banner::after {
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 30px;
+    background: radial-gradient(circle at center top, transparent 28px, #fff 29px);
+  }
+  .fne-icon-circle {
+    width: 88px; height: 88px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    border: 2px solid rgba(255,255,255,0.35);
+    margin: 0 auto 18px;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  .fne-icon-circle i {
+    font-size: 44px; color: #fff;
+  }
+  .fne-banner h2 {
+    margin: 0; font-weight: 700; font-size: 24px; letter-spacing: 0.2px;
+  }
+  .fne-banner p {
+    margin: 6px 0 0; font-size: 13px; opacity: 0.92;
+  }
+  .fne-body {
+    padding: 40px 36px 32px;
+    color: #1f2937;
+  }
+  .fne-body p.fne-msg {
+    font-size: 16px; line-height: 1.55;
+    margin: 0 0 12px;
+    color: #1e293b;
+    font-weight: 500;
+  }
+  .fne-body p.fne-sub {
+    font-size: 14px; color: #475569;
+    margin: 0 0 24px;
+    line-height: 1.55;
+  }
+  .fne-actions {
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    margin-top: 18px;
+  }
+  .fne-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 22px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+    border: 1px solid transparent;
+  }
+  .fne-btn.primary {
+    background: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+    color: #fff !important;
+    box-shadow: 0 6px 16px rgba(124, 58, 237, 0.28);
+  }
+  .fne-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(124, 58, 237, 0.35); }
+  .fne-btn.ghost {
+    background: #f1f5f9; color: #334155 !important; border-color: #e2e8f0;
+  }
+  .fne-btn.ghost:hover { background: #e2e8f0; }
+  .fne-contact {
+    margin-top: 28px;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #475569;
+  }
+  .fne-contact b { color: #1e293b; }
+  .fne-contact a { color: #7c3aed; text-decoration: none; font-weight: 600; }
+  @media (max-width: 540px) {
+    .fne-banner { padding: 30px 20px 22px; }
+    .fne-body { padding: 30px 22px 24px; }
+    .fne-icon-circle { width: 72px; height: 72px; }
+    .fne-icon-circle i { font-size: 36px; }
+  }
+</style>
+
+{# Resolve "back to dashboard" link based on user role #}
+{% set _ut = user_type|default('admin') %}
+{% set _back_url = '/admin/dashboard' %}
+{% if _ut == 'sub_lco' %}{% set _back_url = '/sub-lco/dashboard' %}
+{% elif _ut == 'employee' %}{% set _back_url = '/employee/dashboard' %}
+{% endif %}
+
+<div class="fne-wrap">
+  <div class="fne-card" data-testid="feature-not-enabled-card">
+    <div class="fne-banner">
+      <div class="fne-icon-circle">
+        <i class="bi bi-shield-lock-fill"></i>
+      </div>
+      <h2>{{ feature_title or 'Feature Not Available' }}</h2>
+      <p>Premium add-on access</p>
+    </div>
+    <div class="fne-body">
+      <p class="fne-msg" data-testid="fne-message">
+        This Feature is not enabled for your account.
+      </p>
+      <p class="fne-sub">
+        Please contact <b>Auto ISP Billing</b> to enable this feature on your portal.
+      </p>
+
+      <div class="fne-actions">
+        <a href="{{ _back_url }}" class="fne-btn primary" data-testid="fne-back-btn">
+          <i class="bi bi-arrow-left-circle"></i>
+          Back to Dashboard
+        </a>
+        <a href="https://www.autoispbilling.com" target="_blank" rel="noopener" class="fne-btn ghost" data-testid="fne-website-btn">
+          <i class="bi bi-globe2"></i>
+          Visit autoispbilling.com
+        </a>
+      </div>
+
+      <div class="fne-contact">
+        Need help? Reach out to <b>support@autoispbilling.com</b>
+        or call <a href="tel:+919999999999">+91 99999 99999</a>.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

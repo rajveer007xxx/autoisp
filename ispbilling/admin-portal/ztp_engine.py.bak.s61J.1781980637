@@ -1,0 +1,581 @@
+"""
+s60K_ZTP — Orchestration engine + state machine (Phases 5, 6, 9, 12, 14).
+
+Public API
+----------
+ZTPEngine.discover(olt_id) -> dict             # walks OLT, upserts ztp_discovered_onus
+ZTPEngine.map_to_customer(serial, customer)    # creates ztp_onu_customer_mapping row
+ZTPEngine.provision(serial)                     # runs full bootstrap pipeline
+ZTPEngine.recover_factory_reset(serial)         # idempotent re-provisioning
+ZTPEngine.diagnose(serial)                      # one-click "why offline?"
+ZTPEngine.compatibility(serial)                 # locked-ONT capability probe
+ZTPEngine.acs_match_and_push(genieacs_device_id) # GenieACS watcher hook
+
+The engine never raises. All errors return as `{"ok": False, "error": ...}`.
+State changes are append-only to `ztp_state_audit` for forensic visibility.
+
+Concurrency: long-running tasks are intended to be dispatched to Dramatiq
+workers (see ztp_workers.py). The engine itself is safe to call directly
+from FastAPI request handlers when synchronous behavior is acceptable.
+"""
+from __future__ import annotations
+
+import json
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  State machine
+# ──────────────────────────────────────────────────────────────────────
+STATES = [
+    "DISCOVERED",
+    "MAPPED",
+    "OLT_AUTHORIZING",
+    "OLT_AUTHORIZED",
+    "BOOTSTRAP_PUSHING",
+    "WAITING_FOR_ACS",
+    "ACS_CONNECTED",
+    "CONFIG_PUSHING",
+    "CONFIGURED",
+    "RADIUS_ACTIVE",
+    "ONLINE",
+    # failure states
+    "OLT_AUTH_FAILED",
+    "BOOTSTRAP_FAILED",
+    "ACS_NOT_REACHABLE",
+    "ACS_CONNECTED_BUT_UNSUPPORTED",
+    "CONFIG_PUSH_FAILED",
+    "MANUAL_REQUIRED",
+    "UNSUPPORTED_LOCKED_DEVICE",
+]
+
+TERMINAL_OK = {"ONLINE", "RADIUS_ACTIVE", "CONFIGURED"}
+TERMINAL_FAIL = {"OLT_AUTH_FAILED", "BOOTSTRAP_FAILED", "ACS_NOT_REACHABLE",
+                 "CONFIG_PUSH_FAILED", "MANUAL_REQUIRED",
+                 "UNSUPPORTED_LOCKED_DEVICE"}
+
+
+def _normalize_serial(s: str) -> str:
+    """MAC `98:9d:b2:cf:d6:ff` and serial `F3242989DB2CFD6FF` both fold
+    to comparable forms by stripping separators and uppercasing."""
+    return "".join(ch for ch in (s or "").upper() if ch.isalnum())
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Engine
+# ──────────────────────────────────────────────────────────────────────
+class ZTPEngine:
+    """One instance per request lifecycle. Engine uses the shared SQLAlchemy
+    engine from olt_routes."""
+
+    def __init__(self, company_id: str, actor: str = "system"):
+        self.cid = company_id
+        self.actor = actor
+        # Lazy import to avoid circulars
+        from olt_routes import engine as _eng
+        self._eng = _eng
+
+    # ── audit ───────────────────────────────────────────────────────
+    def _audit(self, serial: str, from_state: Optional[str], to_state: str,
+               reason: str = "", payload: Optional[Dict] = None,
+               customer_id: Optional[str] = None,
+               olt_id: Optional[int] = None) -> None:
+        try:
+            with self._eng.begin() as conn:
+                conn.exec_driver_sql(
+                    "INSERT INTO ztp_state_audit "
+                    "(company_id, onu_serial, customer_id, olt_id, "
+                    " from_state, to_state, reason, actor, payload_json) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (self.cid, serial, customer_id, olt_id,
+                     from_state, to_state, reason[:1000], self.actor,
+                     json.dumps(payload or {})[:8000]))
+        except Exception:
+            pass
+
+    def _set_state(self, serial: str, new_state: str,
+                   reason: str = "", payload: Optional[Dict] = None) -> None:
+        try:
+            with self._eng.begin() as conn:
+                row = conn.exec_driver_sql(
+                    "SELECT status, customer_id, olt_id FROM "
+                    "ztp_onu_customer_mapping "
+                    "WHERE company_id=? AND onu_serial=?",
+                    (self.cid, serial)).fetchone()
+                from_state = row[0] if row else None
+                cust = row[1] if row else None
+                olt = row[2] if row else None
+                conn.exec_driver_sql(
+                    "UPDATE ztp_onu_customer_mapping "
+                    "SET status=?, last_state_change=NOW(), "
+                    "    last_error=?, updated_at=NOW() "
+                    "WHERE company_id=? AND onu_serial=?",
+                    (new_state,
+                     reason[:1000] if new_state in TERMINAL_FAIL else None,
+                     self.cid, serial))
+            self._audit(serial, from_state, new_state, reason, payload,
+                        customer_id=cust, olt_id=olt)
+        except Exception:
+            pass
+
+    # ── helpers ─────────────────────────────────────────────────────
+    def _olt_dict(self, olt_id: int) -> Optional[Dict]:
+        try:
+            with self._eng.begin() as conn:
+                r = conn.exec_driver_sql(
+                    "SELECT id, name, vendor, model, host, cli_port, "
+                    "cli_username, cli_password, snmp_community, "
+                    "parent_nas_id "
+                    "FROM olts WHERE id=? AND company_id=?",
+                    (olt_id, self.cid)).fetchone()
+            if not r:
+                return None
+            return {"id": r[0], "name": r[1], "vendor": r[2] or "",
+                    "model": r[3] or "", "host": r[4],
+                    "cli_port": r[5] or 23,
+                    "cli_username": r[6] or "admin",
+                    "cli_password": r[7] or "",
+                    "snmp_community": r[8] or "public",
+                    "parent_nas_id": r[9]}
+        except Exception:
+            return None
+
+    def _get_driver(self, vendor: str):
+        from ztp_drivers import get_driver
+        return get_driver(vendor)
+
+    def _acs_settings(self) -> Dict:
+        """Tenant ACS settings (NBI URL, ACS URL, credentials)."""
+        try:
+            with self._eng.begin() as conn:
+                r = conn.exec_driver_sql(
+                    "SELECT genieacs_url, genieacs_username, "
+                    "genieacs_password, tr069_acs_url "
+                    "FROM olt_settings WHERE company_id=? LIMIT 1",
+                    (self.cid,)).fetchone()
+        except Exception:
+            r = None
+        return {"nbi_url": (r[0] if r else "") or "",
+                "nbi_user": (r[1] if r else "") or "",
+                "nbi_pw":   (r[2] if r else "") or "",
+                "acs_url":  (r[3] if r else "") or ""}
+
+    # ── Phase 1: Discovery ──────────────────────────────────────────
+    def discover(self, olt_id: int) -> Dict:
+        """Run vendor driver's discover_onus and upsert into
+        ztp_discovered_onus."""
+        olt = self._olt_dict(olt_id)
+        if not olt:
+            return {"ok": False, "error": "OLT not found in this tenant"}
+        drv = self._get_driver(olt["vendor"])
+        res = drv.discover_onus(olt)
+        if not res.ok:
+            return {"ok": False, "error": res.error,
+                    "vendor": drv.vendor_id}
+        onus = res.data.get("onus", [])
+        inserted = updated = 0
+        with self._eng.begin() as conn:
+            for o in onus:
+                serial = (o.get("serial") or "").strip()
+                if not serial:
+                    continue
+                res2 = conn.exec_driver_sql(
+                    "INSERT INTO ztp_discovered_onus "
+                    "(company_id, olt_id, pon_port, onu_serial, onu_vendor, "
+                    " onu_model, firmware, mac_address, loid, rx_power_dbm, "
+                    " tx_power_dbm, distance_m, status, last_seen) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, NOW()) "
+                    "ON CONFLICT (company_id, olt_id, pon_port, onu_serial) "
+                    "DO UPDATE SET last_seen=NOW(), "
+                    "  onu_vendor=COALESCE(EXCLUDED.onu_vendor, "
+                    "                       ztp_discovered_onus.onu_vendor), "
+                    "  rx_power_dbm=EXCLUDED.rx_power_dbm, "
+                    "  tx_power_dbm=EXCLUDED.tx_power_dbm, "
+                    "  updated_at=NOW() "
+                    "RETURNING (xmax = 0) AS inserted",
+                    (self.cid, olt_id, int(o["pon_port"]), serial,
+                     o.get("vendor"), o.get("model"), o.get("firmware"),
+                     o.get("mac"), o.get("loid"),
+                     o.get("rx_dbm"), o.get("tx_dbm"),
+                     o.get("distance_m"), "DISCOVERED")).fetchone()
+                if res2 and res2[0]:
+                    inserted += 1
+                else:
+                    updated += 1
+        return {"ok": True, "vendor": drv.vendor_id,
+                "discovered": len(onus),
+                "inserted": inserted, "updated": updated}
+
+    # ── Phase 2: Customer mapping ───────────────────────────────────
+    def map_to_customer(self, *, serial: str, customer_id: str,
+                        olt_id: int, pon_port: int, onu_index: int,
+                        plan_id: Optional[int] = None,
+                        vlan_id: Optional[int] = None,
+                        pppoe_user: Optional[str] = None,
+                        pppoe_password: Optional[str] = None) -> Dict:
+        """Idempotent. Upserts a mapping row. NEXT step is provision()."""
+        serial = (serial or "").strip()
+        if not serial:
+            return {"ok": False, "error": "serial required"}
+        # If pppoe creds not given, derive from customer
+        if not pppoe_user:
+            try:
+                with self._eng.begin() as conn:
+                    cr = conn.exec_driver_sql(
+                        "SELECT username, pppoe_password FROM customers "
+                        "WHERE customer_id=? AND company_id=?",
+                        (customer_id, self.cid)).fetchone()
+                if cr:
+                    pppoe_user = cr[0]
+                    pppoe_password = pppoe_password or cr[1]
+            except Exception:
+                pass
+        with self._eng.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO ztp_onu_customer_mapping "
+                "(company_id, customer_id, olt_id, pon_port, onu_index, "
+                " onu_serial, internet_plan_id, pppoe_username, "
+                " pppoe_password, vlan_id, status) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?, 'MAPPED') "
+                "ON CONFLICT (company_id, onu_serial) DO UPDATE SET "
+                "  customer_id=EXCLUDED.customer_id, "
+                "  olt_id=EXCLUDED.olt_id, pon_port=EXCLUDED.pon_port, "
+                "  onu_index=EXCLUDED.onu_index, "
+                "  internet_plan_id=EXCLUDED.internet_plan_id, "
+                "  pppoe_username=EXCLUDED.pppoe_username, "
+                "  pppoe_password=EXCLUDED.pppoe_password, "
+                "  vlan_id=EXCLUDED.vlan_id, "
+                "  status='MAPPED', last_state_change=NOW(), "
+                "  updated_at=NOW()",
+                (self.cid, customer_id, olt_id, pon_port, onu_index,
+                 serial, plan_id, pppoe_user, pppoe_password, vlan_id))
+        self._audit(serial, None, "MAPPED",
+                    reason=f"mapped to customer {customer_id}",
+                    customer_id=customer_id, olt_id=olt_id)
+        return {"ok": True, "serial": serial,
+                "customer_id": customer_id, "status": "MAPPED"}
+
+    # ── Phase 5: Bootstrap pipeline ─────────────────────────────────
+    def provision(self, serial: str) -> Dict:
+        """Full pipeline:
+        MAPPED → OLT_AUTHORIZING → OLT_AUTHORIZED →
+        BOOTSTRAP_PUSHING → WAITING_FOR_ACS
+
+        Idempotent. Safe to call repeatedly (each call re-pushes).
+        """
+        # Load mapping
+        with self._eng.begin() as conn:
+            r = conn.exec_driver_sql(
+                "SELECT customer_id, olt_id, pon_port, onu_index, "
+                " pppoe_username, pppoe_password, vlan_id "
+                "FROM ztp_onu_customer_mapping "
+                "WHERE company_id=? AND onu_serial=?",
+                (self.cid, serial)).fetchone()
+        if not r:
+            return {"ok": False, "error": "no mapping for serial"}
+        cust_id, olt_id, pon_port, onu_idx, pppoe_u, pppoe_p, vlan = r
+        if not olt_id or pon_port is None or onu_idx is None:
+            return {"ok": False, "error": "mapping missing olt/pon/index"}
+        olt = self._olt_dict(int(olt_id))
+        if not olt:
+            return {"ok": False, "error": "OLT not found"}
+        drv = self._get_driver(olt["vendor"])
+        steps: List[Dict] = []
+
+        # 1. authorize_onu
+        self._set_state(serial, "OLT_AUTHORIZING")
+        r1 = drv.authorize_onu(olt, pon_port=int(pon_port),
+                               onu_index=int(onu_idx), serial=serial,
+                               profile={"customer_id": cust_id})
+        steps.append({"step": "authorize_onu", **r1.to_dict()})
+        if not r1.ok and r1.method != "unsupported":
+            self._set_state(serial, "OLT_AUTH_FAILED", r1.error,
+                            payload={"steps": steps})
+            return {"ok": False, "error": r1.error, "steps": steps}
+        self._set_state(serial, "OLT_AUTHORIZED")
+
+        # 2. bootstrap: ACS URL push (OAM) + WAN mode tr069_internet
+        self._set_state(serial, "BOOTSTRAP_PUSHING")
+        s = self._acs_settings()
+        if s["acs_url"]:
+            r2 = drv.set_acs_url_if_supported(
+                olt, pon_port=int(pon_port), onu_index=int(onu_idx),
+                acs_url=s["acs_url"],
+                acs_username=s["nbi_user"],
+                acs_password=s["nbi_pw"],
+                inform_interval=300)
+            steps.append({"step": "set_acs_url", **r2.to_dict()})
+        else:
+            steps.append({"step": "set_acs_url",
+                          "skip": "tr069_acs_url not configured"})
+        if pppoe_u:
+            r3 = drv.set_wan_profile_if_supported(
+                olt, pon_port=int(pon_port), onu_index=int(onu_idx),
+                mode="pppoe", pppoe_user=pppoe_u,
+                pppoe_password=pppoe_p or "")
+            steps.append({"step": "set_wan_profile", **r3.to_dict()})
+            if not r3.ok and r3.method != "unsupported":
+                self._set_state(serial, "BOOTSTRAP_FAILED", r3.error,
+                                payload={"steps": steps})
+                return {"ok": False, "error": r3.error, "steps": steps}
+        self._set_state(serial, "WAITING_FOR_ACS",
+                        reason="awaiting periodic CWMP Inform",
+                        payload={"steps": steps})
+        return {"ok": True, "state": "WAITING_FOR_ACS",
+                "steps": steps,
+                "next": ("ONU will Inform within "
+                         "300s; GenieACS watcher will pick up.")}
+
+    # ── Phase 9: Factory-reset recovery ─────────────────────────────
+    def recover_factory_reset(self, serial: str) -> Dict:
+        """When an ONU is factory-reset, the OLT may re-see the same serial.
+        This re-runs provision() but also nudges the OLT to re-authorize.
+        Truly idempotent — safe to invoke any time."""
+        self._audit(serial, None, "RECOVERY_INITIATED",
+                    reason="factory-reset recovery")
+        # Reset state to MAPPED, then re-run provision
+        with self._eng.begin() as conn:
+            conn.exec_driver_sql(
+                "UPDATE ztp_onu_customer_mapping SET status='MAPPED', "
+                "last_error=NULL, last_state_change=NOW() "
+                "WHERE company_id=? AND onu_serial=?",
+                (self.cid, serial))
+        return self.provision(serial)
+
+    # ── Phase 6/7: GenieACS match + push ────────────────────────────
+    def acs_match_and_push(self, genieacs_device_id: str,
+                            device_info: Dict) -> Dict:
+        """Called by the watcher when a new device Informs GenieACS.
+
+        device_info should include: SerialNumber, ProductClass, OUI,
+        Manufacturer, Model, FirmwareVersion, MAC (if known).
+        """
+        serial_in = (device_info.get("SerialNumber") or "").strip()
+        mac_in = (device_info.get("MAC") or "").strip()
+        norm_serial = _normalize_serial(serial_in)
+        norm_mac = _normalize_serial(mac_in)
+        # Try to match by SerialNumber-prefix-or-suffix or MAC anywhere.
+        # Match is bidirectional: the MAC-portion of one may be a substring
+        # of the other. We compare normalized forms (uppercase, no separators).
+        match_row = None
+        with self._eng.begin() as conn:
+            for needle in (norm_serial, norm_mac):
+                if not needle or len(needle) < 6:
+                    continue
+                # Forward: stored serial appears inside the incoming serial.
+                r = conn.exec_driver_sql(
+                    "SELECT customer_id, onu_serial, olt_id, pon_port "
+                    "FROM ztp_onu_customer_mapping "
+                    "WHERE company_id=? AND "
+                    "  ? LIKE ('%%' || "
+                    "          regexp_replace(UPPER(onu_serial),"
+                    "                         '[^A-Z0-9]','','g') "
+                    "          || '%%') "
+                    "  AND LENGTH(regexp_replace(UPPER(onu_serial),"
+                    "                            '[^A-Z0-9]','','g'))>=6 "
+                    "LIMIT 1",
+                    (self.cid, needle)).fetchone()
+                if r:
+                    match_row = r
+                    break
+                # Reverse: incoming serial appears inside the stored serial.
+                r = conn.exec_driver_sql(
+                    "SELECT customer_id, onu_serial, olt_id, pon_port "
+                    "FROM ztp_onu_customer_mapping "
+                    "WHERE company_id=? AND "
+                    "  regexp_replace(UPPER(onu_serial),'[^A-Z0-9]','','g') "
+                    "  LIKE ('%%' || ? || '%%') LIMIT 1",
+                    (self.cid, needle)).fetchone()
+                if r:
+                    match_row = r
+                    break
+
+        # Upsert acs_device_mapping
+        with self._eng.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO acs_device_mapping "
+                "(company_id, customer_id, onu_serial, genieacs_device_id, "
+                " manufacturer, oui, product_class, model, firmware, "
+                " mac_address, last_inform, status) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?, NOW(), ?) "
+                "ON CONFLICT (company_id, genieacs_device_id) DO UPDATE SET "
+                "  customer_id=COALESCE(EXCLUDED.customer_id, "
+                "                       acs_device_mapping.customer_id), "
+                "  onu_serial=COALESCE(EXCLUDED.onu_serial, "
+                "                      acs_device_mapping.onu_serial), "
+                "  last_inform=NOW(), "
+                "  status=CASE WHEN EXCLUDED.customer_id IS NOT NULL "
+                "              THEN 'MATCHED' ELSE 'PENDING_MATCH' END, "
+                "  manufacturer=COALESCE(EXCLUDED.manufacturer, "
+                "                        acs_device_mapping.manufacturer), "
+                "  model=COALESCE(EXCLUDED.model, acs_device_mapping.model), "
+                "  firmware=COALESCE(EXCLUDED.firmware, "
+                "                    acs_device_mapping.firmware), "
+                "  updated_at=NOW()",
+                (self.cid,
+                 match_row[0] if match_row else None,
+                 match_row[1] if match_row else serial_in,
+                 genieacs_device_id,
+                 device_info.get("Manufacturer"),
+                 device_info.get("OUI"),
+                 device_info.get("ProductClass"),
+                 device_info.get("Model"),
+                 device_info.get("FirmwareVersion"),
+                 mac_in,
+                 "MATCHED" if match_row else "PENDING_MATCH"))
+
+        if not match_row:
+            return {"ok": True, "matched": False,
+                    "reason": "no customer mapping for this device yet"}
+
+        # Push config via GenieACS NBI (delegates to existing helper)
+        from olt_routes import _genieacs_auto_push
+        # We need onu_id (DB row in `onus`) for the existing helper.
+        with self._eng.begin() as conn:
+            onu_row = conn.exec_driver_sql(
+                "SELECT id FROM onus WHERE company_id=? AND "
+                "(serial=? OR UPPER(REPLACE(mac,':',''))=UPPER(?) OR "
+                " mac=?) LIMIT 1",
+                (self.cid, match_row[1],
+                 _normalize_serial(match_row[1]),
+                 match_row[1])).fetchone()
+        if not onu_row:
+            self._set_state(match_row[1], "MANUAL_REQUIRED",
+                            reason="matched in mapping but no row in onus")
+            return {"ok": False, "error": "no `onus` row for serial"}
+        push = _genieacs_auto_push(self.cid, int(onu_row[0]),
+                                   reason="acs_watcher_match")
+        if push.get("ok"):
+            self._set_state(match_row[1], "CONFIGURED",
+                            reason="GenieACS push queued",
+                            payload={"push": push})
+        else:
+            self._set_state(match_row[1], "CONFIG_PUSH_FAILED",
+                            reason=push.get("error", "")[:300])
+        return {"ok": True, "matched": True,
+                "customer_id": match_row[0], "serial": match_row[1],
+                "push": push}
+
+    # ── Phase 12: Diagnostics ───────────────────────────────────────
+    def diagnose(self, serial: str) -> Dict:
+        """Run a chain of checks. Returns a list of {step, ok, detail}."""
+        checks: List[Dict] = []
+        # 1. Mapping exists?
+        with self._eng.begin() as conn:
+            row = conn.exec_driver_sql(
+                "SELECT customer_id, olt_id, pon_port, onu_index, "
+                "pppoe_username, status "
+                "FROM ztp_onu_customer_mapping "
+                "WHERE company_id=? AND onu_serial=?",
+                (self.cid, serial)).fetchone()
+        if not row:
+            checks.append({"step": "mapping", "ok": False,
+                           "detail": "No customer mapping for this serial"})
+            return {"ok": False, "checks": checks}
+        cust_id, olt_id, pon, idx, pppoe_u, state = row
+        checks.append({"step": "mapping", "ok": True,
+                       "detail": f"mapped to {cust_id}, state={state}"})
+
+        # 2. OLT reachable?
+        olt = self._olt_dict(int(olt_id)) if olt_id else None
+        if olt:
+            try:
+                import socket
+                with socket.create_connection((olt["host"], olt["cli_port"]),
+                                              timeout=3):
+                    checks.append({"step": "olt_reach", "ok": True,
+                                   "detail": f"{olt['host']}:"
+                                             f"{olt['cli_port']} reachable"})
+            except Exception as e:
+                checks.append({"step": "olt_reach", "ok": False,
+                               "detail": f"OLT unreachable: {e}"})
+        else:
+            checks.append({"step": "olt_reach", "ok": False,
+                           "detail": "OLT record missing"})
+
+        # 3. ONU authorized on OLT?
+        if olt and pon is not None and idx is not None:
+            drv = self._get_driver(olt["vendor"])
+            r3 = drv.get_onu_status(olt, pon_port=int(pon),
+                                    onu_index=int(idx))
+            ok3 = r3.ok and "doesn't exist" not in (r3.output or "").lower()
+            checks.append({"step": "onu_authorized", "ok": ok3,
+                           "detail": (r3.output or r3.error)[:500]})
+
+        # 4. ACS URL configured for tenant?
+        s = self._acs_settings()
+        checks.append({"step": "acs_url_set", "ok": bool(s["acs_url"]),
+                       "detail": s["acs_url"] or "tr069_acs_url is empty"})
+
+        # 5. ACS reachable from VPS?
+        if s["acs_url"]:
+            try:
+                req = urllib.request.Request(s["acs_url"], method="GET")
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    checks.append({"step": "acs_reach", "ok": True,
+                                   "detail": f"HTTP {r.status}"})
+            except urllib.error.HTTPError as he:
+                # 4xx/5xx are OK — means we reached the server.
+                checks.append({"step": "acs_reach",
+                               "ok": he.code < 500 and he.code != 404,
+                               "detail": f"HTTP {he.code}"})
+            except Exception as e:
+                checks.append({"step": "acs_reach", "ok": False,
+                               "detail": str(e)[:200]})
+
+        # 6. GenieACS has the device?
+        if s["nbi_url"]:
+            try:
+                norm = _normalize_serial(serial)
+                q = json.dumps({"_deviceId._SerialNumber":
+                                {"$regex": norm, "$options": "i"}})
+                qurl = (s["nbi_url"].rstrip("/")
+                        + "/devices?query=" + urllib.parse.quote(q)
+                        + "&projection=_id,_lastInform")
+                with urllib.request.urlopen(qurl, timeout=5) as r:
+                    data = json.loads(r.read(8192).decode() or "[]")
+                if data:
+                    checks.append({
+                        "step": "acs_inform", "ok": True,
+                        "detail": f"lastInform={data[0].get('_lastInform')}"})
+                else:
+                    checks.append({"step": "acs_inform", "ok": False,
+                                   "detail": "device never informed"})
+            except Exception as e:
+                checks.append({"step": "acs_inform", "ok": False,
+                               "detail": str(e)[:200]})
+
+        # 7. PPPoE creds set?
+        checks.append({"step": "pppoe_creds_set", "ok": bool(pppoe_u),
+                       "detail": pppoe_u or "no pppoe username on mapping"})
+
+        passed = sum(1 for c in checks if c["ok"])
+        return {"ok": passed >= 5, "checks": checks,
+                "summary": f"{passed}/{len(checks)} checks passed",
+                "state": state}
+
+    # ── Phase 10: Locked-ONT compatibility detector ─────────────────
+    def compatibility(self, serial: str) -> Dict:
+        """Probe an ONU's capabilities (read-only)."""
+        d = self.diagnose(serial)
+        # Heuristic from diagnostic outcomes
+        olt_reach = next((c for c in d["checks"] if c["step"] == "olt_reach"), None)
+        acs_inform = next((c for c in d["checks"] if c["step"] == "acs_inform"), None)
+        onu_auth = next((c for c in d["checks"] if c["step"] == "onu_authorized"), None)
+
+        if onu_auth and onu_auth["ok"] and acs_inform and acs_inform["ok"]:
+            label = "Fully Supported"
+        elif onu_auth and onu_auth["ok"] and not (acs_inform and acs_inform["ok"]):
+            label = "OLT Only"
+        elif acs_inform and acs_inform["ok"]:
+            label = "ACS Only"
+        elif olt_reach and olt_reach["ok"]:
+            label = "Partially Supported"
+        else:
+            label = "Manual Required"
+        return {"ok": True, "compatibility": label,
+                "checks": d["checks"]}

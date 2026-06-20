@@ -1,0 +1,201 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Revenue & Expense - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<style>
+.fin-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:14px; margin:8px 0 18px; }
+.fin-card { background:#fff; border-radius:10px; padding:18px 20px;
+  box-shadow:0 1px 3px rgba(15,23,42,.08); border-left:4px solid #94a3b8; }
+.fin-card.green { border-color:#16a34a; }
+.fin-card.red { border-color:#dc2626; }
+.fin-card.blue { border-color:#2563eb; }
+.fin-card.amber { border-color:#d97706; }
+.fin-card .lbl { color:#64748b; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.fin-card .val { font-size:26px; font-weight:700; color:#0f172a; margin-top:6px; }
+.fin-card .sub { font-size:12px; color:#475569; margin-top:2px; }
+.fin-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-bottom:14px; }
+.fin-toolbar label { font-size:11px; color:#475569; font-weight:600; display:block; margin:0; }
+.fin-bar { height:14px; border-radius:7px; background:#f1f5f9; overflow:hidden; }
+.fin-bar > span { display:block; height:100%; background:linear-gradient(90deg,#dc2626,#f59e0b); }
+.cat-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f1f5f9; }
+.cat-row:last-child { border-bottom:0; }
+.cat-row .cat-name { width:160px; font-weight:600; font-size:13px; color:#0f172a; }
+.cat-row .cat-amt { width:120px; text-align:right; font-weight:700; color:#0f172a; }
+.cat-row .cat-bar { flex:1; }
+@media print { .fin-toolbar, .quick-add { display:none !important; } }
+</style>
+
+<section class="content-header">
+  <h1>Revenue &amp; Expense <small>Profit, loss and category breakdown</small></h1>
+</section>
+
+<section class="content">
+  <div class="fin-summary">
+    <div class="fin-card green">
+      <div class="lbl">Total Revenue</div>
+      <div class="val" id="kRevenue" data-testid="fin-revenue">₹ 0.00</div>
+      <div class="sub" id="kPeriod">—</div>
+    </div>
+    <div class="fin-card red">
+      <div class="lbl">Total Expense</div>
+      <div class="val" id="kExpense" data-testid="fin-expense">₹ 0.00</div>
+      <div class="sub">all categories</div>
+    </div>
+    <div class="fin-card blue">
+      <div class="lbl">Net Profit</div>
+      <div class="val" id="kProfit" data-testid="fin-profit">₹ 0.00</div>
+      <div class="sub">revenue − expense</div>
+    </div>
+    <div class="fin-card amber">
+      <div class="lbl">Profit Margin</div>
+      <div class="val" id="kMargin" data-testid="fin-margin">0%</div>
+      <div class="sub">profit / revenue</div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title"><i class="fa fa-filter"></i> Period</h3>
+      <div class="box-tools pull-right quick-add">
+        <a class="btn btn-warning btn-sm" href="/admin/expenses" data-testid="goto-expenses">
+          <i class="fa fa-list"></i> Expense Details
+        </a>
+        <a class="btn btn-primary btn-sm" href="/admin/revenue" data-testid="goto-revenue">
+          <i class="fa fa-list"></i> Revenue Details
+        </a>
+        <button class="btn btn-default btn-sm" onclick="window.print()">
+          <i class="fa fa-print"></i> Print
+        </button>
+      </div>
+    </div>
+    <div class="box-body">
+      <div class="fin-toolbar">
+        <div>
+          <label>Period</label>
+          <select class="form-control" id="fPeriod" data-testid="fin-period">
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month" selected>This Month</option>
+            <option value="year">This Year</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div id="customFrom" style="display:none">
+          <label>From</label>
+          <input type="date" class="form-control" id="fFrom">
+        </div>
+        <div id="customTo" style="display:none">
+          <label>To</label>
+          <input type="date" class="form-control" id="fTo">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn btn-primary form-control" id="applyBtn" data-testid="fin-apply">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="box box-danger">
+        <div class="box-header with-border">
+          <h3 class="box-title">Expense by Category</h3>
+        </div>
+        <div class="box-body" id="catBreakdown">
+          <div class="text-muted text-center">Loading…</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="box box-success">
+        <div class="box-header with-border">
+          <h3 class="box-title">Monthly P/L (last 6 months)</h3>
+        </div>
+        <div class="box-body table-responsive">
+          <table class="table table-bordered table-condensed">
+            <thead>
+              <tr><th>Month</th><th class="text-right">Revenue</th><th class="text-right">Expense</th><th class="text-right">Profit</th><th class="text-right">Margin</th></tr>
+            </thead>
+            <tbody id="monthlyBody">
+              <tr><td colspan="5" class="text-center text-muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  function fmtINR(n){ return '₹ '+ Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  function getFilters(){
+    var p=$('#fPeriod').val();
+    var q={period:p};
+    if(p==='custom'){ q.dfrom=$('#fFrom').val(); q.dto=$('#fTo').val(); }
+    return q;
+  }
+
+  function renderCats(items, total){
+    var $b=$('#catBreakdown').empty();
+    if(!items.length){ $b.append('<div class="text-muted text-center">No expenses recorded.</div>'); return; }
+    var max=Math.max.apply(null, items.map(function(i){return i.amount;}));
+    items.forEach(function(c){
+      var pct=max>0?(c.amount/max)*100:0;
+      var pctOfTotal=total>0?((c.amount/total)*100).toFixed(1):'0.0';
+      $b.append(
+        '<div class="cat-row">'+
+          '<div class="cat-name">'+c.category+'</div>'+
+          '<div class="cat-bar"><div class="fin-bar"><span style="width:'+pct.toFixed(1)+'%"></span></div></div>'+
+          '<div class="cat-amt">'+fmtINR(c.amount)+' <small class="text-muted">('+pctOfTotal+'%)</small></div>'+
+        '</div>'
+      );
+    });
+  }
+
+  function renderMonthly(items){
+    var $b=$('#monthlyBody').empty();
+    if(!items.length){ $b.append('<tr><td colspan="5" class="text-center text-muted">—</td></tr>'); return; }
+    items.forEach(function(m){
+      var profitClass=m.profit>=0?'text-success':'text-danger';
+      $b.append(
+        '<tr>'+
+          '<td>'+m.month+'</td>'+
+          '<td class="text-right">'+fmtINR(m.revenue)+'</td>'+
+          '<td class="text-right">'+fmtINR(m.expense)+'</td>'+
+          '<td class="text-right '+profitClass+'"><strong>'+fmtINR(m.profit)+'</strong></td>'+
+          '<td class="text-right">'+m.margin+'%</td>'+
+        '</tr>'
+      );
+    });
+  }
+
+  function reload(){
+    $.get('/api/admin/finance/dashboard', getFilters()).done(function(r){
+      var t=r.totals||{};
+      $('#kRevenue').text(fmtINR(t.revenue));
+      $('#kExpense').text(fmtINR(t.expense));
+      $('#kProfit').text(fmtINR(t.profit)).toggleClass('text-danger', (t.profit||0)<0);
+      $('#kMargin').text((t.margin||0)+'%');
+      $('#kPeriod').text((r.period&&r.period.from||'')+' → '+(r.period&&r.period.to||''));
+      renderCats(r.expense_by_category||[], t.expense||0);
+      renderMonthly(r.monthly||[]);
+    }).fail(function(xhr){
+      $('#catBreakdown').html('<div class="text-danger">Failed: '+(xhr.responseJSON&&xhr.responseJSON.detail||xhr.statusText)+'</div>');
+    });
+  }
+
+  $('#fPeriod').on('change', function(){
+    var c=$(this).val()==='custom';
+    $('#customFrom,#customTo').toggle(c);
+  });
+  $('#applyBtn').on('click', reload);
+  reload();
+})();
+</script>
+{% endblock %}

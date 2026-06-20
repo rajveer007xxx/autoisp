@@ -1,0 +1,386 @@
+{% extends base_template|default("base_admin.html") %}
+
+
+
+{% block title %}Online Users - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header { padding: 15px; background: #fff; border-bottom: 1px solid #d2d6de; }
+    .content-header h1 { margin: 0; font-size: 24px; font-weight: 500; }
+    .btn-primary-add { background: #17a2b8; color: #fff; border: none;
+                       padding: 8px 18px; border-radius: 3px; float: right;
+                       margin-top: -5px; margin-left:8px;}
+    .btn-primary-add:hover { background: #138496; color: #fff; }
+    .ou-table { margin-top: 15px; font-size: 12.5px; }
+    .ou-table th { background:#2c3e50; color:#fff; font-size:12px;
+                   white-space: nowrap; padding:8px 6px; }
+    .ou-table td { vertical-align: middle !important; padding:7px 6px; }
+    .ou-table .cust-link { color:#1d4ed8; font-weight:600; cursor:pointer;
+                           text-decoration:none; }
+    .ou-table .cust-link:hover { text-decoration:underline; }
+    .badge-online { background:#28a745; color:#fff; padding:2px 8px;
+                    border-radius:10px; font-size:10px; font-weight:600; }
+    .ou-btn { padding: 3px 8px; font-size: 11px; margin: 0 2px; border:none;
+              color:#fff; border-radius:4px; cursor:pointer; }
+    .ou-btn-kick { background:#dc2626; }
+    .ou-btn-resetmac { background:#d97706; }
+    .ou-mono { font-family:monospace; font-size:11px; }
+    .ou-bytes { white-space:nowrap; }
+  /* _S39R1_OU_TH_VISIBLE */ 
+  .ou-table thead th, .ou-table th { background:#2c3e50 !important; background-color:#2c3e50 !important; color:#fff !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+{# __OU_DEMO_EMPTY__ Demo-account: empty online-users table for company 94685303 #}
+{% if company_id|string == '94685303' %}
+<style>
+  /* Hide every existing table row for the demo company — pure empty state. */
+  table tbody tr:not(.demo-empty-row) { display: none !important; }
+</style>
+<script>
+  (function () {
+    function emptyOut() {
+      // Empty any AJAX-populated body and replace with friendly empty row.
+      document.querySelectorAll('table tbody').forEach(tb => {
+        if (tb.querySelector('.demo-empty-row')) return;
+        // Remove existing rows
+        Array.from(tb.children).forEach(r => r.remove());
+        var colCount = (tb.closest('table') && tb.closest('table').querySelectorAll('thead th').length) || 8;
+        var tr = document.createElement('tr');
+        tr.className = 'demo-empty-row';
+        var td = document.createElement('td');
+        td.colSpan = colCount;
+        td.style.textAlign = 'center';
+        td.style.padding = '40px 20px';
+        td.style.color = '#94A3B8';
+        td.innerHTML = '<i class="fa fa-info-circle" style="margin-right:8px;color:#60A5FA"></i>'
+                     + 'No online users — this is a public demo account.';
+        tr.appendChild(td);
+        tb.appendChild(tr);
+      });
+      // Also hide any "Live Speed / Disconnect / Reset MAC" toolbar buttons
+      document.querySelectorAll('[data-testid*="online"], .live-speed-btn, .disconnect-btn, .reset-mac-btn')
+        .forEach(b => { b.style.display = 'none'; });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', emptyOut);
+    } else { emptyOut(); }
+    // Also re-empty whenever the AJAX populator runs (every ~5s).
+    setInterval(emptyOut, 800);
+  })();
+</script>
+{% endif %}
+<section class="content-header">
+    <h1>
+        Online Users
+        <span style="color:#64748b; font-weight:400; font-size:14px; margin-left:8px;">
+            ({{ online_users|length }} session{{ 's' if online_users|length != 1 else '' }})
+        </span>
+        <!-- s26.16: online-users-cleanup -->
+    </h1>
+<!-- S30 bulk export toolbar -->
+<div id="s30ExportTools_online_users" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+<script src="/static/js/bulk_export.js"></script>
+<script>
+(function(){
+  var tryMount = function(){
+    if (window.BulkExport && window.jQuery) {
+      BulkExport.mount('#s30ExportTools_online_users', '/api/admin/online-users/export-full', 'online_users');
+    } else { setTimeout(tryMount, 80); }
+  };
+  tryMount();
+})();
+</script>
+
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-body">
+            <table class="table table-bordered table-striped ou-table"
+                   id="onlineUsersTable" data-testid="online-users-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>NAS</th>
+                        <th>Logon Time</th>
+                        <th>Uptime</th>
+                        <th>Upload</th>
+                        <th>Download</th>
+                        <th>Name</th>
+                        <th>MAC Address</th>
+                        <th>IP Address</th>
+                        <th>NAS Port</th>
+                        <th data-testid="th-vlan">VLAN</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if not online_users %}
+                    <tr><td colspan="12" style="color:#6b7280; text-align:center; padding:24px;">
+                        No users online right now.
+                    </td></tr>
+                {% endif %}
+                {% for u in online_users %}
+                    <tr data-session-id="{{ u.id }}">
+                        <td>
+                            {% if u.customer_id %}
+                                <a href="{{ path_prefix|default("/admin") }}/subscribers/{{ u.customer_pk }}"
+                                   class="cust-link" data-testid="ou-user-{{ u.username }}">{{ u.username }}</a>
+                            {% else %}
+                                <span class="ou-mono">{{ u.username }}</span>
+                            {% endif %}
+                            <span class="badge-online" style="margin-left:6px;">● live</span>
+                        </td>
+                        <td><strong>{{ u.nas_name }}</strong>
+                            <div class="ou-mono" style="color:#64748b;">{{ u.nas_ip }}</div></td>
+                        <td class="ou-mono" data-ts-utc="{{ u.started_at.isoformat() if u.started_at else '' }}">
+                            {{ u.started_at.strftime('%d-%m-%Y %H:%M') if u.started_at else '—' }}
+                        </td>
+                        <td class="ou-mono">
+                            {{ (u.uptime_seconds // 3600) }}h
+                            {{ ((u.uptime_seconds % 3600) // 60) }}m
+                            {{ u.uptime_seconds % 60 }}s
+                        </td>
+                        <td class="ou-bytes"><!-- S42N: always GB -->
+                            {{ '%.2f GB'|format((u.bytes_in or 0) / 1024.0) }}
+                        </td>
+                        <td class="ou-bytes"><!-- S42N: always GB -->
+                            {{ '%.2f GB'|format((u.bytes_out or 0) / 1024.0) }}
+                        </td>
+                        <td>
+                            {% if u.customer_id %}
+                                <a href="{{ path_prefix|default("/admin") }}/subscribers/{{ u.customer_pk }}"
+                                   class="cust-link" data-testid="ou-name-{{ u.customer_id }}">{{ u.customer_name or '—' }}</a>
+                            {% else %}
+                                <span style="color:#9ca3af;">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="ou-mono">{{ u.mac_address or '—' }}</td>
+                        <td class="ou-mono">
+                            {{ u.ip_address or '—' }}
+                            {% if u.status and u.status != 'Online' %}
+                            <span data-testid="ou-parked-pill-{{ u.username|e }}"
+                                  style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;
+                                         font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;
+                                         border:1px solid #fcd34d;letter-spacing:.3px;text-transform:uppercase;">
+                                Parked
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="ou-mono">{{ u.nas_port_id or u.framed_protocol }}</td>
+                        <td class="ou-mono" data-testid="ou-vlan-{{ u.username|e }}" style="white-space:nowrap; font-size:11px;">
+                            {# __VLAN_LIVE__ : per-user VLAN gate status #}
+                            {% set _ve = u.vlan_enabled or 0 %}
+                            {% set _xv = u.expected_vlan_id %}
+                            {% set _lv = u.live_vlan_id %}
+                            {% if not _ve %}
+                                <span title="VLAN gating not enabled for this user" style="color:#9ca3af;">—</span>
+                            {% elif _lv and _xv and (_lv|int) == (_xv|int) %}
+                                <span data-testid="ou-vlan-ok-{{ u.username|e }}" title="VLAN gate verified: live VLAN matches expected" style="display:inline-block;padding:2px 8px;border-radius:9px;background:#dcfce7;
+                                       color:#166534;border:1px solid #86efac;font-weight:600;">
+                                  VLAN {{ _xv }} <i class="fa fa-check" style="margin-left:2px;"></i>
+                                </span>
+                            {% elif _lv and _xv and (_lv|int) != (_xv|int) %}
+                                <span data-testid="ou-vlan-mismatch-{{ u.username|e }}" title="VLAN mismatch — live session is on the wrong VLAN!" style="display:inline-block;padding:2px 8px;border-radius:9px;background:#fee2e2;
+                                       color:#991b1b;border:1px solid #fca5a5;font-weight:600;">
+                                  Live {{ _lv }} / Exp {{ _xv }}
+                                  <i class="fa fa-exclamation-triangle" style="margin-left:2px;"></i>
+                                </span>
+                            {% elif _xv and not _lv %}
+                                <span data-testid="ou-vlan-pending-{{ u.username|e }}" title="Expected VLAN {{ _xv }} (no live VLAN reading yet — Mikrotik may not be using VLAN-tagged PPPoE)" style="display:inline-block;padding:2px 8px;border-radius:9px;background:#fef3c7;
+                                       color:#92400e;border:1px solid #fcd34d;font-weight:600;">
+                                  Exp {{ _xv }} · live ?
+                                </span>
+                            {% elif _lv and not _xv %}
+                                <span style="display:inline-block;padding:2px 8px;border-radius:9px;background:#e0e7ff;color:#3730a3;border:1px solid #a5b4fc;font-weight:600;" title="Live VLAN {{ _lv }} ({{ u.live_vlan_iface }}), no expected VLAN configured">
+                                  Live {{ _lv }}
+                                </span>
+                            {% else %}
+                                <span style="color:#9ca3af;">—</span>
+                            {% endif %}
+                        </td>
+                        <td style="white-space:nowrap;">
+                            <button class="ou-btn ou-btn-livespeed" style="background:#0ea5e9;"
+                                    onclick='openLiveSpeed("{{ u.username|e }}", {{ u.nas_id or 0 }})'
+                                    data-testid="ou-livespeed-{{ u.username|e }}">
+                                <i class="fa fa-bolt"></i> Live Speed
+                            </button>
+                            <button class="ou-btn ou-btn-kick"
+                                    onclick='kickSession("{{ u.username|e }}", {{ u.nas_id or 0 }})'
+                                    data-testid="ou-kick-{{ u.username|e }}">
+                                <i class="fa fa-times-circle"></i> Disconnect
+                            </button>
+                            <button class="ou-btn ou-btn-resetmac"
+                                    onclick='resetMac("{{ u.customer_id|e }}", "{{ u.username|e }}")'
+                                    data-testid="ou-resetmac-{{ u.customer_id or u.username|e }}">
+                                <i class="fa fa-undo"></i> Reset MAC
+                            </button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Live Speed modal (Session 23) -->
+<div class="modal fade" id="liveSpeedModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#0ea5e9; color:#fff; border-radius:5px 5px 0 0;">
+        <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:1;">&times;</button>
+        <h4 class="modal-title" id="lsTitle">Live Speed</h4>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex; gap:24px; margin-bottom:12px; font-size:13px;">
+          <div><strong>Status:</strong> <span id="lsStatus">—</span></div>
+          <div><strong>Download:</strong> <span id="lsDown" style="color:#16a34a; font-weight:600;">— Mbps</span></div>
+          <div><strong>Upload:</strong> <span id="lsUp" style="color:#dc2626; font-weight:600;">— Mbps</span></div>
+        </div>
+        <div style="height:320px;"><canvas id="lsChart"></canvas></div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// --- IST-format the Logon Time cells ---
+function fmtIST(utcIso) {
+    if (!utcIso) return '—';
+    try {
+        var d = new Date(utcIso.indexOf('Z') === -1 ? utcIso + 'Z' : utcIso);
+        if (isNaN(d.getTime())) return utcIso;
+        var opts = { day: '2-digit', month: '2-digit', year: 'numeric',
+                     hour: '2-digit', minute: '2-digit', hour12: false,
+                     timeZone: 'Asia/Kolkata' };
+        var parts = new Intl.DateTimeFormat('en-GB', opts).formatToParts(d);
+        var get = function(t){ return (parts.find(function(p){return p.type===t;})||{}).value || ''; };
+        return get('day') + '-' + get('month') + '-' + get('year')
+             + ' ' + get('hour') + ':' + get('minute') + ' IST';
+    } catch (e) { return utcIso; }
+}
+document.querySelectorAll('td[data-ts-utc]').forEach(function(td) {
+    var iso = td.getAttribute('data-ts-utc');
+    if (iso) td.textContent = fmtIST(iso);
+});
+
+// --- Disconnect (CoA kick) ---
+function kickSession(username, nasId) {
+    if (!confirm('Disconnect PPPoE session for "' + username + '"?\n\n'
+        + 'Sends a CoA Disconnect-Request to the router. The user will be\n'
+        + 'forced to reconnect immediately (unless the router is offline).')) return;
+    fetch('/api/online-users/kick', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, nas_id: nasId }),
+    }).then(function(r) { return r.json(); })
+      .then(function(d) {
+          alert((d.success ? '✓ ' : '✗ ') + (d.message || JSON.stringify(d)));
+          if (d.success) setTimeout(function(){ location.reload(); }, 800);
+      }).catch(function(e) { alert('Error: ' + e); });
+}
+
+// --- Reset MAC (clear stored MAC on the customer row) ---
+function resetMac(customerId, username) {
+    if (!customerId) {
+        alert('No customer record matched username "' + username + '" — the '
+            + 'PPPoE user may not be registered in this tenant.');
+        return;
+    }
+    if (!confirm('Reset stored MAC address for customer "' + username + '"?\n\n'
+        + 'Any MAC-based binding on the router stays until next session.')) return;
+    fetch('/api/customers/bulk-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_ids: [customerId], action: 'reset_mac' }),
+    }).then(function(r) { return r.json(); })
+      .then(function(d) {
+          alert((d.success ? '✓ ' : '✗ ') + (d.message || JSON.stringify(d)));
+      });
+}
+
+// ====== Live Speed modal (Session 23) ======
+var _lsTimer = null, _lsChart = null, _lsLast = null, _lsHistory = [];
+function openLiveSpeed(username, nasId) {
+    document.getElementById('lsTitle').innerText = 'Live Speed - ' + username;
+    document.getElementById('lsStatus').innerText = 'Connecting...';
+    document.getElementById('lsDown').innerText = '- Mbps';
+    document.getElementById('lsUp').innerText = '- Mbps';
+    _lsHistory = []; _lsLast = null;
+    $('#liveSpeedModal').modal('show');
+    ensureLsChart();
+    _lsTimer = setInterval(function() { pollLiveSpeed(username, nasId); }, 2000);
+    pollLiveSpeed(username, nasId);
+}
+function closeLiveSpeed() {
+    if (_lsTimer) { clearInterval(_lsTimer); _lsTimer = null; }
+}
+function ensureLsChart() {
+    var ctx = document.getElementById('lsChart').getContext('2d');
+    if (_lsChart) { _lsChart.destroy(); }
+    _lsChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [
+            { label: 'Download (Mbps)', data: [], borderColor: '#16a34a',
+              backgroundColor: 'rgba(22,163,74,0.12)', fill: true, tension: 0.3, pointRadius: 0 },
+            { label: 'Upload (Mbps)',   data: [], borderColor: '#dc2626',
+              backgroundColor: 'rgba(220,38,38,0.12)', fill: true, tension: 0.3, pointRadius: 0 }
+        ]},
+        options: {
+            animation: false, responsive: true, maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, title: { display: true, text: 'Mbps' } },
+                      x: { ticks: { maxTicksLimit: 10 } } },
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+}
+function pollLiveSpeed(username, nasId) {
+    fetch('/api/online-users/' + encodeURIComponent(username) + '/live-speed?nas_id=' + (nasId || 0))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) {
+                document.getElementById('lsStatus').innerText = 'X ' + (d.message || 'No data');
+                return;
+            }
+            var now = Date.now();
+            if (_lsLast) {
+                var dt = (now - _lsLast.t) / 1000.0;
+                if (dt > 0.1) {
+                    // bytes_in  = rx-byte on pppoe iface = user UPLOAD
+                    // bytes_out = tx-byte on pppoe iface = user DOWNLOAD
+                    var upMbps   = Math.max(0, (d.bytes_in  - _lsLast.bytes_in)  * 8 / 1000000.0 / dt);
+                    var downMbps = Math.max(0, (d.bytes_out - _lsLast.bytes_out) * 8 / 1000000.0 / dt);
+                    document.getElementById('lsDown').innerText = downMbps.toFixed(2) + ' Mbps';
+                    document.getElementById('lsUp').innerText   = upMbps.toFixed(2) + ' Mbps';
+                    document.getElementById('lsStatus').innerText = '* streaming';
+                    var ts = new Date(now).toLocaleTimeString('en-GB', { hour12: false });
+                    _lsHistory.push({ ts: ts, down: downMbps, up: upMbps });
+                    if (_lsHistory.length > 30) _lsHistory.shift();
+                    _lsChart.data.labels = _lsHistory.map(function(h){return h.ts;});
+                    _lsChart.data.datasets[0].data = _lsHistory.map(function(h){return h.down;});
+                    _lsChart.data.datasets[1].data = _lsHistory.map(function(h){return h.up;});
+                    _lsChart.update('none');
+                }
+            } else {
+                document.getElementById('lsStatus').innerText = '* warming up...';
+            }
+            _lsLast = { t: now, bytes_in: d.bytes_in, bytes_out: d.bytes_out };
+        })
+        .catch(function(e) {
+            document.getElementById('lsStatus').innerText = 'X ' + e;
+        });
+}
+$(document).on('hidden.bs.modal', '#liveSpeedModal', closeLiveSpeed);
+
+</script>
+{% endblock %}

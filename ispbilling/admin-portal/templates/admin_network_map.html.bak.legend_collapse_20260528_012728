@@ -1,0 +1,3757 @@
+<!-- _S40zl_ _S40zo_ -->
+{% extends layout_template %}
+{# _S40k_  Network GIS Map — full redesign:
+   • Tiles with road/POI labels (ESRI Hybrid + CartoDB Voyager)
+   • Nominatim search box
+   • OLT in deploy panel; splitter prompts for output legs
+   • Draggable hardware + draggable fiber endpoints/vertices
+   • ONU pins show name + live RX power label
+   • Fiber snaps to nearest hardware on click (≤ 30 m)
+   • CANCEL fully resets all listeners and modes
+#}
+
+{% block title %}Network Map
+
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  /* _S40zm_  Fill all remaining viewport, no gap to footer */
+  #netmap-shell{position:relative; width:100%; height:calc(100vh - 60px);
+                background:#0f172a; color:#e2e8f0; overflow:hidden;
+                margin:0; padding:0;}
+  /* _S40zn_  Collapse the wrapper around the map. The base layout
+     reserves min-height for content-wrapper which leaves a white gap
+     between the map and the footer. Force it to match the shell. */
+  body.has-netmap{margin-bottom:0!important; padding-bottom:0!important;}
+  body.has-netmap > footer, body.has-netmap .footer{margin-top:0!important;}
+  body.has-netmap .content-wrapper,
+  body.has-netmap .main-content,
+  body.has-netmap .page-content{
+      min-height:0!important; padding-bottom:0!important; margin-bottom:0!important;}
+  body.has-netmap .content-wrapper > div:not(#netmap-shell){
+      display:none!important;}  /* Hide any sibling padding-bearing divs */
+  /* Final safeguard: glue footer to bottom edge regardless */
+  /* _S40zp_  Aggressive footer collapse */
+  body.has-netmap{display:flex; flex-direction:column; min-height:100vh;
+                   margin:0!important; padding:0!important;}
+  body.has-netmap footer, body.has-netmap .footer,
+  body.has-netmap .copyright, body.has-netmap .footer-text{
+      padding:8px 12px!important; margin:0!important;
+      min-height:auto!important; height:auto!important;}
+  body.has-netmap > *:last-child{margin-bottom:0!important;}
+  /* _S40zr_  Final footer collapse — kill EVERY whitespace-bearing wrapper. */
+  body.has-netmap{overflow:hidden!important;}
+  /* _S40zr4_  Fixed-position the netmap-shell so it ignores the buggy
+     base_admin content-wrapper sizing entirely. The shell occupies the
+     viewport space between topbar and footer; content-wrapper collapses
+     to 0 height so the footer naturally sits at the bottom. */
+  body.has-netmap{height:100vh!important; max-height:100vh!important;
+                    overflow:hidden!important;}
+  body.has-netmap .wrapper > .content-wrapper{
+      min-height:0!important; height:auto!important; padding-top:0!important;
+      padding-bottom:0!important; margin-bottom:0!important;}
+  body.has-netmap #netmap-shell{
+      position:fixed!important;
+      top:var(--topbar-h, 56px)!important;
+      left:var(--sidebar-w, 280px)!important;
+      right:0!important; bottom:36px!important;
+      width:auto!important; height:auto!important;}
+  body.has-netmap.sidebar-collapse #netmap-shell{
+      left:68px!important;}
+  body.has-netmap .wrapper > .main-footer{
+      position:fixed!important; bottom:0!important; left:var(--sidebar-w, 280px)!important;
+      right:0!important; height:36px!important; min-height:auto!important;
+      padding:8px 16px!important; line-height:20px!important; z-index:50!important;
+      background:var(--bg, #0f172a)!important;}
+  body.has-netmap.sidebar-collapse .wrapper > .main-footer{left:68px!important;}
+  body.has-netmap .container, body.has-netmap .container-fluid,
+  body.has-netmap main, body.has-netmap section{
+      padding:0!important; margin:0!important; min-height:0!important;}
+  body.has-netmap .footer-container, body.has-netmap .copyright-block,
+  body.has-netmap .footer-bottom, body.has-netmap .bottom-spacer{
+      padding:6px 12px!important; margin:0!important;}
+  body.has-netmap #footer, body.has-netmap #site-footer{
+      padding:6px 12px!important; margin:0!important; min-height:auto!important;}
+  /* If the host layout sneaks in a trailing whitespace div, hide it. */
+  body.has-netmap > div:empty, body.has-netmap > section:empty{display:none!important;}
+  #netmap{position:absolute; inset:0; z-index:1;}
+  /* Top control row */
+  .nm-ctrls{position:absolute; top:14px; left:14px; z-index:600;
+            display:flex; gap:8px; flex-wrap:wrap;}
+  .nm-btn{padding:10px 16px; border-radius:10px; border:none;
+          background:rgba(15,23,42,.85); color:#fff; font-weight:600;
+          font-size:13px; cursor:pointer; backdrop-filter:blur(8px);
+          box-shadow:0 4px 14px rgba(0,0,0,.35);}
+  .nm-btn.active{background:#6366f1;}
+  .nm-btn.satellite{background:#4f46e5;}
+  .nm-btn.danger{background:#dc2626;}
+  .nm-btn.warn{background:#f59e0b; color:#1a1a1a;}
+  .nm-btn.success{background:#10b981;}
+  /* Search box */
+  .nm-search{position:absolute; top:14px; left:50%; transform:translateX(-50%);
+             z-index:600; width:380px; max-width:50vw;
+             display:flex; gap:0; align-items:center;
+             background:rgba(15,23,42,.92); border-radius:9999px;
+             padding:4px 4px 4px 16px; backdrop-filter:blur(8px);
+             box-shadow:0 4px 14px rgba(0,0,0,.35);
+             border:1px solid rgba(99,102,241,.3);}
+  .nm-search input{flex:1; background:transparent; border:none; outline:none;
+                    color:#fff; font-size:14px; padding:8px 4px;}
+  .nm-search input::placeholder{color:#94a3b8;}
+  .nm-search button{padding:7px 16px; border:none; border-radius:9999px;
+                     background:#6366f1; color:#fff; cursor:pointer;
+                     font-weight:600; font-size:13px;}
+  .nm-search-results{position:absolute; top:54px; left:0; right:0;
+                      background:#0f172a; border:1px solid rgba(99,102,241,.3);
+                      border-radius:10px; max-height:280px; overflow-y:auto;
+                      box-shadow:0 6px 22px rgba(0,0,0,.4); display:none;}
+  .nm-search-results.show{display:block;}
+  .nm-search-results .row{padding:9px 14px; cursor:pointer;
+                            border-bottom:1px solid #1e293b; font-size:13px;}
+  .nm-search-results .row:hover{background:rgba(99,102,241,.18);}
+  /* Hardware deploy panel */
+  /* _S40zm_  Make panel scrollable and capped to viewport */
+  .nm-hw-panel{position:absolute; top:74px; left:14px; z-index:600;
+               width:240px; background:rgba(15,23,42,.92); padding:14px;
+               border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.4);
+               backdrop-filter:blur(8px); color:#e2e8f0;
+               border:1px solid rgba(99,102,241,.25);
+               max-height:calc(100vh - 110px); overflow-y:auto;
+               scrollbar-width:thin; scrollbar-color:#6366f1 #1e293b;}
+  .nm-hw-panel::-webkit-scrollbar{width:8px;}
+  .nm-hw-panel::-webkit-scrollbar-track{background:#1e293b; border-radius:4px;}
+  .nm-hw-panel::-webkit-scrollbar-thumb{background:#6366f1; border-radius:4px;}
+  .nm-hw-panel h4{margin:0 0 10px; font-size:11px; font-weight:700;
+                  letter-spacing:.12em; color:#94a3b8; text-transform:uppercase;}
+  .nm-hw-btn{display:flex; align-items:center; gap:10px; width:100%;
+             padding:9px 12px; margin:6px 0; border-radius:8px;
+             border:1px solid rgba(99,102,241,.18);
+             background:rgba(30,41,59,.6); color:#e2e8f0; cursor:pointer;
+             font-size:13px; transition:transform .12s, background .12s;}
+  .nm-hw-btn:hover{background:rgba(99,102,241,.22); transform:translateX(2px);}
+  .nm-hw-btn.deploy{background:#dc2626; color:#fff; font-weight:700;
+                    justify-content:center; padding:11px;}
+  .nm-hw-btn.deploy:hover{background:#b91c1c;}
+  .nm-hw-icon{width:22px; height:22px; display:inline-flex; align-items:center;
+              justify-content:center; border-radius:5px; flex-shrink:0;
+              color:#fff; font-weight:700; font-size:13px;}
+  .nm-banner{position:absolute; top:74px; left:50%; transform:translateX(-50%);
+             z-index:601; background:rgba(245,158,11,.95); color:#1a1a1a;
+             padding:9px 18px; border-radius:9999px; font-weight:700;
+             font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.4); display:none;}
+  .nm-banner.show{display:block;}
+  .nm-legend{position:absolute; bottom:14px; right:14px; z-index:600;
+             background:rgba(15,23,42,.9); padding:10px 14px;
+             border-radius:10px; font-size:12px; color:#e2e8f0;
+             border:1px solid rgba(99,102,241,.25);}
+  .nm-legend .row{display:flex; align-items:center; gap:8px; margin:3px 0;}
+  .nm-legend .dot{width:12px; height:12px; border-radius:50%;}
+  /* Tooltip-style live label on ONU pins */
+  .nm-onu-label{background:rgba(0,0,0,.78)!important; color:#fff!important;
+                 border:1px solid rgba(99,102,241,.6)!important;
+                 padding:3px 8px!important; font-size:11px!important;
+                 font-weight:600!important; border-radius:6px!important;
+                 box-shadow:0 2px 8px rgba(0,0,0,.4)!important;
+                 pointer-events:none!important;   /* _S40x_ */ }
+  .nm-onu-label.bad{border-color:#fca5a5!important; color:#fecaca!important;}
+  .nm-onu-label::before{display:none!important;}
+  /* _S40zg_  Zoom-aware label density: hide hardware leg/PON tooltips at zoom < 17 */
+  body.nm-zoom-low .nm-hw-tip{display:none!important;}
+/* Ensure search box never overlaps the locate FAB */
+  .nm-search{z-index:700;}
+
+  /* _S40o_  Power-budget heatmap ring around ONU pins */
+  .nm-heat-ring{position:absolute; pointer-events:none;
+                 width:48px; height:48px; border-radius:50%;
+                 left:-10px; top:-10px;
+                 box-shadow:0 0 0 4px var(--ring),
+                            0 0 16px var(--ring);
+                 opacity:.85;}
+
+  /* _S40zη_  Worst-RX cluster bubble label */
+  .nm-cluster-tip{background:transparent!important; border:none!important;
+                   box-shadow:none!important; color:#fff!important;
+                   font-size:11px!important; font-weight:700!important;
+                   text-shadow:0 1px 3px rgba(0,0,0,.85)!important;
+                   text-align:center!important; padding:0!important;
+                   white-space:nowrap;}
+  .nm-cluster-tip::before{display:none!important;}
+
+  /* _S40zη_  NOC full-screen mode — hides every chrome element so the
+     map fills the wall display. */
+  body.noc-mode header, body.noc-mode .main-header,
+  body.noc-mode .topbar, body.noc-mode .navbar,
+  body.noc-mode .sidebar, body.noc-mode .main-sidebar,
+  body.noc-mode aside, body.noc-mode nav.sidebar,
+  body.noc-mode .main-footer, body.noc-mode footer,
+  body.noc-mode .footer, body.noc-mode .copyright,
+  body.noc-mode .breadcrumbs, body.noc-mode .breadcrumb,
+  body.noc-mode .wrapper > nav, body.noc-mode #header,
+  body.noc-mode .layout-topbar, body.noc-mode .page-topbar{
+    display:none!important;}
+  /* _S40zη.b_  Clamp body to viewport so the fixed netmap-shell doesn't
+     leave whitespace below/right when the host wrapper is taller. */
+  html.noc-html, body.noc-mode{
+    overflow:hidden!important;
+    height:100vh!important; max-height:100vh!important;
+    width:100vw!important; max-width:100vw!important;
+    margin:0!important; padding:0!important;
+    background:#0f172a!important;}
+  body.noc-mode #netmap-shell{
+    position:fixed!important; top:0!important; left:0!important;
+    right:0!important; bottom:0!important;
+    width:100vw!important; height:100vh!important; z-index:9999!important;}
+  body.noc-mode .wrapper, body.noc-mode .content-wrapper,
+  body.noc-mode .main-content, body.noc-mode .page-content,
+  body.noc-mode .container, body.noc-mode .container-fluid,
+  body.noc-mode main, body.noc-mode section{
+    margin:0!important; padding:0!important;
+    height:auto!important; min-height:0!important;}
+  body.noc-mode .nm-hw-panel{display:none!important;}
+
+  /* NOC alerts panel — only visible in NOC mode */
+  .noc-alerts-panel{position:absolute; top:14px; right:14px;
+                     width:340px; max-height:calc(100vh - 100px);
+                     background:rgba(15,23,42,.94);
+                     border:1px solid rgba(99,102,241,.4);
+                     border-radius:14px; padding:14px;
+                     z-index:700; display:none;
+                     backdrop-filter:blur(10px);
+                     box-shadow:0 14px 44px rgba(0,0,0,.7);}
+  body.noc-mode .noc-alerts-panel{display:block;}
+  .noc-alerts-panel h4{margin:0 0 12px; color:#fff; font-size:13px;
+                        letter-spacing:.12em; text-transform:uppercase;
+                        display:flex; align-items:center; gap:8px;
+                        font-weight:700;}
+  .noc-alerts-panel h4::before{content:''; width:9px; height:9px;
+                                 background:#22c55e; border-radius:50%;
+                                 box-shadow:0 0 8px #22c55e;
+                                 animation:nocPulse 1.6s infinite;}
+  @keyframes nocPulse{0%,100%{opacity:1; transform:scale(1);}
+                       50%{opacity:.3; transform:scale(.7);}}
+  #noc-alerts-list{max-height:calc(100vh - 220px); overflow-y:auto;
+                    padding-right:4px;}
+  #noc-alerts-list::-webkit-scrollbar{width:6px;}
+  #noc-alerts-list::-webkit-scrollbar-thumb{background:#475569;
+                                               border-radius:3px;}
+  .nm-btn.noc-on{background:#ec4899!important; color:#fff!important;}
+  /* _S40zη.b_  Floating NOC button at top-right corner — never overlaps
+     with the centered search bar. */
+  .nm-noc-fab{position:absolute; top:14px; right:14px; z-index:701;
+              background:#ec4899; color:#fff; font-weight:700;
+              padding:10px 18px; border-radius:10px; border:none;
+              cursor:pointer; backdrop-filter:blur(8px);
+              box-shadow:0 4px 14px rgba(0,0,0,.35);
+              font-size:13px; transition:transform .12s, background .12s;}
+  .nm-noc-fab:hover{background:#db2777; transform:translateY(-1px);}
+  /* In NOC mode, move the FAB to bottom-right (next to the legend which
+     we relocate to bottom-left to make room) and lift z-index so it
+     stays clickable above the alerts panel. */
+  body.noc-mode .nm-noc-fab{top:auto; right:14px; bottom:14px;
+                              z-index:9999;}
+  body.noc-mode .nm-legend{right:auto; left:14px;}
+  .noc-clock{position:absolute; top:14px; left:14px; z-index:700;
+              display:none; background:rgba(15,23,42,.92); color:#fff;
+              padding:10px 18px; border-radius:12px;
+              font:700 18px/1 ui-monospace,monospace; letter-spacing:.06em;
+              border:1px solid rgba(99,102,241,.3);
+              box-shadow:0 4px 16px rgba(0,0,0,.4);}
+  body.noc-mode .noc-clock{display:block;}
+  body.noc-mode .nm-ctrls{top:auto; bottom:14px; left:50%;
+                            transform:translateX(-50%);}
+  body.noc-mode .nm-search{display:none;}
+  /* Critical-flash overlay for big alerts */
+  body.noc-mode.noc-flash::after{content:''; position:fixed; inset:0;
+                                   background:rgba(220,38,38,.16);
+                                   pointer-events:none; z-index:9998;
+                                   animation:nocFlash 1.2s 1;}
+  @keyframes nocFlash{0%,80%{opacity:1;} 100%{opacity:0;}}
+
+  /* _S40zη.d_  Native Fullscreen API support — when #netmap-shell is
+     fullscreen, render every overlay/alerts/legend/clock inside it
+     since that's the only element the browser is rendering. */
+  #netmap-shell:fullscreen{
+    width:100vw!important; height:100vh!important;
+    background:#0f172a!important; padding:0!important; margin:0!important;}
+  #netmap-shell:fullscreen #netmap{
+    position:absolute!important; inset:0!important;
+    width:100%!important; height:100%!important;}
+  #netmap-shell:fullscreen .nm-search,
+  #netmap-shell:fullscreen .nm-hw-panel{display:none!important;}
+  #netmap-shell:fullscreen .noc-alerts-panel{display:block!important;}
+  #netmap-shell:fullscreen .noc-clock{display:block!important;}
+  #netmap-shell:fullscreen .nm-noc-fab{position:absolute!important;
+                                         top:auto!important; right:14px!important;
+                                         bottom:14px!important;
+                                         z-index:9999!important;}
+  #netmap-shell:fullscreen .nm-legend{right:auto!important;
+                                        left:14px!important;}
+  #netmap-shell:fullscreen .nm-ctrls{top:auto!important; bottom:14px!important;
+                                       left:50%!important;
+                                       transform:translateX(-50%)!important;}
+
+  /* __S55C_NETMAP_MOBILE__ — collapsible deploy-hardware panel on phones */
+  .nm-hw-toggle{display:none; position:absolute; top:14px; left:14px; z-index:710;
+                background:#dc2626; color:#fff; border:none; border-radius:999px;
+                padding:9px 14px; font-size:13px; font-weight:700; cursor:pointer;
+                box-shadow:0 4px 16px rgba(0,0,0,.4);}
+  .nm-hw-toggle i{margin-right:6px;}
+  @media (max-width: 767px){
+    .nm-hw-toggle{display:inline-flex; align-items:center;}
+    .nm-hw-panel{
+      position:fixed !important;
+      left:0 !important; right:0 !important; bottom:0 !important; top:auto !important;
+      width:100% !important; max-width:100% !important;
+      max-height:55vh !important; min-height:auto !important;
+      border-radius:18px 18px 0 0 !important;
+      transform: translateY(100%);
+      transition: transform .25s ease;
+      z-index:700 !important;
+    }
+    .nm-hw-panel.is-open{ transform: translateY(0); }
+    .nm-hw-panel::before{
+      content:''; display:block; width:42px; height:4px; margin:-4px auto 8px;
+      background:#475569; border-radius:99px;
+    }
+    .nm-legend{
+      bottom:auto !important; top:14px !important; right:14px !important;
+      font-size:10px !important; padding:6px 10px !important;
+    }
+    .nm-banner{
+      top:62px !important; font-size:11px !important; padding:6px 12px !important;
+      max-width:calc(100vw - 30px) !important;
+    }
+  }
+
+  /* __S55D_NETMAP_MOBILE_V2__ — phone-friendly netmap.
+     On ≤767px, COLLAPSE all floating controls into a single hamburger,
+     hide the legend, and ensure the map fills the viewport. */
+  @media (max-width: 767px){
+    /* Hide the top-left control bar buttons by default. */
+    .nm-ctrls{ display: none !important; }
+    .nm-ctrls.is-open{
+      display: flex !important; flex-direction: column !important;
+      gap: 6px !important;
+      position: fixed !important; left: 12px !important; top: 60px !important;
+      background: rgba(15,23,42,.95) !important;
+      padding: 10px !important; border-radius: 12px !important;
+      border: 1px solid rgba(99,102,241,.30) !important;
+      max-height: 70vh !important; overflow-y: auto !important; z-index: 720 !important;
+    }
+    .nm-ctrls.is-open .nm-btn{ width: 100% !important; justify-content: flex-start !important; }
+    /* NOC button gets reduced to icon-only at the far right. */
+    .nm-noc-fab{
+      padding: 8px 10px !important; font-size: 0 !important;
+      width: 38px !important; height: 38px !important;
+      border-radius: 50% !important;
+    }
+    .nm-noc-fab::before{ content: '📺'; font-size: 18px !important; }
+    /* Legend collapses to a single dot/menu icon on mobile. */
+    .nm-legend{
+      bottom: 78px !important; right: 10px !important;
+      max-width: 200px !important; font-size: 10.5px !important;
+      padding: 8px 10px !important;
+    }
+    /* My existing toggle button gets fixed top-left as a hamburger that
+       opens .nm-ctrls instead. Keep deploy alongside. */
+    #nmCtrlsBurger{
+      display: inline-flex !important; position: absolute;
+      top: 12px; left: 12px; z-index: 715;
+      background:#1e293b; border:1px solid rgba(99,102,241,.35);
+      color:#cbd5e1; border-radius:50%; width:38px; height:38px;
+      align-items:center; justify-content:center; cursor:pointer;
+      box-shadow: 0 3px 12px rgba(0,0,0,.5);
+    }
+    .nm-hw-toggle{
+      top: 12px !important; left: 56px !important;
+      padding: 8px 12px !important; font-size: 12px !important;
+    }
+  }
+  /* Always-hidden burger on desktop */
+  #nmCtrlsBurger{ display: none; }
+
+  /* __S55E_NETMAP_FULLWIDTH__ — Force the netmap to occupy 100vw on phones, eliminating
+     any blank area created by leftover AdminLTE margin-left or by Leaflet
+     not realising the viewport size changed. */
+  @media (max-width: 991px){
+    body.has-netmap .main-sidebar,
+    body.has-netmap .left-side {
+      transform: translateX(-100%) !important;
+    }
+    body.has-netmap .wrapper,
+    body.has-netmap .content-wrapper {
+      margin-left: 0 !important;
+      padding-left: 0 !important;
+      width: 100% !important;
+    }
+    body.has-netmap #netmap-shell {
+      position: fixed !important;
+      left: 0 !important; right: 0 !important;
+      top: 56px !important;        /* below the top bar */
+      bottom: 0 !important;
+      width: 100vw !important;
+      max-width: 100vw !important;
+      height: calc(100vh - 56px) !important;
+    }
+    /* Leaflet's tile container must also be 100% */
+    body.has-netmap #netmap-shell > div,
+    body.has-netmap .leaflet-container {
+      width: 100% !important;
+      height: 100% !important;
+    }
+  }
+
+  /* __S55F_NETMAP_CTRLS_SHEET__ — compact bottom-sheet for the mobile
+     controls popup, with proper close button. */
+  @media (max-width: 991px){
+    .nm-ctrls{ display: none !important; }
+    .nm-ctrls.is-open{
+      display: flex !important; flex-wrap: wrap !important;
+      flex-direction: row !important;
+      gap: 8px !important;
+      position: fixed !important;
+      left: 12px !important; right: 12px !important;
+      bottom: 88px !important;  /* above the bottom-nav */
+      top: auto !important;
+      width: auto !important; max-height: 38vh !important;
+      overflow-y: auto !important;
+      background: rgba(15,23,42,.97) !important;
+      padding: 38px 14px 14px !important;
+      border-radius: 16px !important;
+      border: 1px solid rgba(99,102,241,.35) !important;
+      box-shadow: 0 -10px 30px rgba(0,0,0,.55) !important;
+      animation: nmSlideUp .25s ease;
+      z-index: 720 !important;
+    }
+    .nm-ctrls.is-open::before{
+      content: 'Map Controls';
+      position: absolute; top: 10px; left: 14px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.05em;
+      color: #93C5FD; text-transform: uppercase;
+    }
+    /* Close button — generated via ::after pseudo isn't clickable in
+       all browsers, so we inject a real <button> via JS below. */
+    .nm-ctrls-close{
+      position: absolute !important; top: 6px !important; right: 8px !important;
+      width: 30px !important; height: 30px !important;
+      border-radius: 50% !important;
+      background: rgba(239,68,68,.25) !important;
+      color: #FCA5A5 !important;
+      border: 1px solid rgba(239,68,68,.45) !important;
+      font-size: 18px !important; font-weight: 700 !important;
+      line-height: 1 !important; cursor: pointer !important;
+      display: flex !important; align-items: center !important; justify-content: center !important;
+      padding: 0 !important;
+    }
+    .nm-ctrls-close:hover{ background: rgba(239,68,68,.45) !important; color: #FEE2E2 !important; }
+    /* Make each button compact: pill, fits 2 per row */
+    .nm-ctrls.is-open .nm-btn{
+      flex: 1 1 calc(50% - 4px) !important;
+      min-width: 0 !important;
+      padding: 9px 10px !important;
+      font-size: 12px !important;
+      border-radius: 10px !important;
+      white-space: nowrap !important;
+      justify-content: center !important;
+    }
+    @keyframes nmSlideUp { from { transform: translateY(120%); opacity: 0; }
+                          to   { transform: translateY(0);     opacity: 1; } }
+  }
+
+  /* __S55F_LEGEND_COMPACT__ — keep .nm-legend a compact top-right pill on
+     mobile instead of stretching top↔bottom. */
+  @media (max-width: 991px){
+    .nm-legend{
+      top: 64px !important;
+      bottom: auto !important;
+      right: 10px !important;
+      left: auto !important;
+      max-width: 158px !important;
+      width: auto !important;
+      height: auto !important;
+      max-height: none !important;
+      padding: 8px 10px !important;
+      font-size: 10.5px !important;
+      line-height: 1.3 !important;
+      border-radius: 12px !important;
+    }
+    .nm-legend > div, .nm-legend > p { font-size: 10.5px !important; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<script>document.body && document.body.classList.add('has-netmap'); /* _S40zm2_ */</script>
+<div id="netmap-shell" data-testid="netmap-shell">
+  <div id="netmap"></div>
+
+  <!-- Top-left tile/draw controls -->
+  <div class="nm-ctrls">
+    <button class="nm-btn" data-testid="netmap-tile-streets"
+            onclick="nmSetLayer('streets')">STREETS</button>
+    <button class="nm-btn satellite active" data-testid="netmap-tile-satellite"
+            onclick="nmSetLayer('satellite')">SATELLITE</button>
+    <button class="nm-btn" data-testid="netmap-power-budget"
+             onclick="nmPowerBudget()"
+             style="background:#ec4899;color:#fff;font-weight:700">⚡ POWER BUDGET</button>
+    <button class="nm-btn warn" id="nm-fiber-btn"
+            data-testid="netmap-fiber-mode"
+            onclick="nmToggleFiberMode()">DRAW FIBER</button>
+    <!-- _S40zp_  AUDIT button removed per user request; functionality
+         still reachable via window.nmOpenFiberAudit() in console -->
+    
+  </div>
+
+  <!-- _S40zη.b_  NOC button — separate floating button at top-right so it
+       never collides with the centered search bar. -->
+  <button class="nm-btn nm-noc-fab" id="nm-noc-btn"
+          data-testid="netmap-noc-mode"
+          onclick="nmToggleNocMode()"
+          title="Wall-display mode with live audio alerts">📺 NOC MODE</button>
+
+  <!-- _S40zη_  NOC clock + alerts panel (only visible in noc-mode) -->
+  <div class="noc-clock" id="noc-clock" data-testid="noc-clock">--:--:--</div>
+  <div class="noc-alerts-panel" data-testid="noc-alerts-panel">
+    <h4>Live Alerts</h4>
+    <div id="noc-alerts-list" data-testid="noc-alerts-list">
+      <div style="color:#64748b;padding:14px;text-align:center;font-size:12px">
+        Connecting to live stream…
+      </div>
+    </div>
+  </div>
+
+  <!-- Search bar -->
+  <form class="nm-search" data-testid="netmap-search-form"
+         onsubmit="event.preventDefault(); nmSearch();">
+    <input id="nm-search-input" data-testid="netmap-search-input"
+            placeholder="Search city, locality, address…"/>
+    <button type="submit" data-testid="netmap-search-btn">Search</button><button type="button" data-testid="netmap-locate" title="Centre on my GPS"   onclick="nmLocateMe()"    style="margin-left:6px;padding:7px 12px;border:none;border-radius:9999px;background:#10b981;color:#fff;font-size:14px;cursor:pointer">📍</button>
+    <div class="nm-search-results" id="nm-search-results"></div>
+  </form>
+
+  <!-- Mode banner -->
+  <div class="nm-banner" id="nm-banner" data-testid="netmap-banner"></div>
+  <!-- _S40zx_  Path Trace sidebar -->
+  <div id="nm-path-trace-panel" data-testid="path-trace-panel"
+       style="display:none;position:absolute;top:14px;right:14px;
+              width:340px;max-height:calc(100vh - 100px);overflow-y:auto;
+              background:rgba(15,23,42,.97);color:#e2e8f0;border-radius:12px;
+              padding:14px 16px;z-index:650;
+              box-shadow:0 12px 40px rgba(0,0,0,.6);
+              border:1px solid rgba(99,102,241,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                margin-bottom:10px">
+      <h3 style="margin:0;color:#a5b4fc;font-size:14px">🛰️ Path Trace</h3>
+      <button data-testid="path-trace-close"
+              onclick="nmClosePathTracePanel()"
+              style="background:transparent;border:none;color:#94a3b8;
+                     font-size:18px;cursor:pointer;line-height:1">×</button>
+    </div>
+    <div data-testid="path-trace-body"></div>
+  </div>
+
+
+  <!-- Hardware deploy panel -->
+  
+  <button type="button" id="nmCtrlsBurger" aria-label="Open controls" onclick="document.querySelector('.nm-ctrls').classList.toggle('is-open');"><i class="bi bi-list"></i></button>
+  <button type="button" id="nmHwToggle" class="nm-hw-toggle" onclick="document.querySelector('.nm-hw-panel').classList.toggle('is-open');"><i class="bi bi-tools"></i> Deploy</button>
+<div class="nm-hw-panel" data-testid="netmap-hw-panel">
+    <h4>Deploy Hardware</h4>
+    <!-- _S40zr_  Real-OLT picker (fetched from /api/admin/olt/olts) -->
+    <div id="nm-olt-list" data-testid="hw-olt-list">
+      <button class="nm-hw-btn" onclick="nmStartDeploy('olt', null, null)" data-testid="hw-olt-generic">
+        <span class="nm-hw-icon" style="background:#7c3aed">B</span> Generic OLT…
+      </button>
+      <div id="nm-olt-list-real" style="display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('jc_box')" data-testid="hw-jc-box">
+      <span class="nm-hw-icon" style="background:#fcd34d;color:#1a1a1a">▣</span> JC Box (Joint)
+    </button>
+    <!-- _S40zm_  1:2 splitter (50:50) -->
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x2')" data-testid="hw-splitter-1x2">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:2 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x4')" data-testid="hw-splitter-1x4">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:4 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x8')" data-testid="hw-splitter-1x8">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:8 Splitter
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('splitter_1x16')" data-testid="hw-splitter-1x16">
+      <span class="nm-hw-icon" style="background:#f59e0b;color:#1a1a1a">⌬</span> 1:16 Splitter
+    </button>
+    <!-- _S40zl3_  Optical couplers (ratio splitters) -->
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_95x5')" data-testid="hw-coupler-95x5">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 95:5 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_90x10')" data-testid="hw-coupler-90x10">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 90:10 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_80x20')" data-testid="hw-coupler-80x20">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 80:20 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_70x30')" data-testid="hw-coupler-70x30">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 70:30 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_60x40')" data-testid="hw-coupler-60x40">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 60:40 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('coupler_50x50')" data-testid="hw-coupler-50x50">
+      <span class="nm-hw-icon" style="background:#06b6d4">◐</span> 50:50 Coupler
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('pole')" data-testid="hw-pole">
+      <span class="nm-hw-icon" style="background:#94a3b8">▌</span> Pole
+    </button>
+    <button class="nm-hw-btn" onclick="nmStartDeploy('manhole')" data-testid="hw-manhole">
+      <span class="nm-hw-icon" style="background:#475569">◯</span> Manhole
+    </button>
+    <hr style="border-color:#334155; margin:10px 0;"/>
+    <button class="nm-hw-btn deploy" onclick="nmCancelMode()"
+            data-testid="hw-cancel">CANCEL MODE</button>
+  </div>
+
+  
+
+  <!-- Legend -->
+  <div class="nm-legend">
+    <div class="row"><span class="dot" style="background:#7c3aed;"></span> OLT Hub</div>
+    <div class="row"><span class="dot" style="background:#10b981;"></span> ONU (Online)</div>
+    <div class="row"><span class="dot" style="background:#dc2626;"></span> ONU (Issue)</div>
+    <div class="row"><span class="dot" style="background:#f59e0b;"></span> Splitter</div>
+    <div class="row"><span class="dot" style="background:#fcd34d;"></span> JC Box</div>
+    <div class="row" style="margin-top:6px;color:#94a3b8;font-size:10px">
+      Drag any pin to relocate. Click a fiber to delete.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const NM_API = "/api/admin/network-map";
+
+let nmMap, nmTileSat, nmTileStr, nmTileLabels, nmCurrTile = "satellite";
+let nmHwLayer, nmFiberLayer, nmCustLayer;
+let nmDeployKind = null;   // hardware kind being placed
+let nmFiberMode  = false;
+let nmFiberPts   = [];
+let nmFiberTmpLayer = null;
+let nmFocusOnu = null;
+
+/* _S40zg_  Zoom-aware label density */
+function _nmApplyZoomClass() {
+  try {
+    const z = (typeof nmMap !== "undefined" && nmMap) ? nmMap.getZoom() : 17;
+    document.body.classList.toggle("nm-zoom-low", z < 17);
+  } catch(_) {}
+}
+
+/* _S40zα_  Role-aware OLT portal prefix — set by Jinja from sc["prefix"].
+   The fallback covers cases where the variable wasn't injected. */
+window.OLT_PORTAL_PREFIX = "{{ olt_url_prefix or '/admin/olt' }}";
+
+function nmOpenInOltMgmt(refOnuId) {
+  const prefix = (window.OLT_PORTAL_PREFIX || '/admin/olt');
+  window.location.href = `${prefix}/onus?focus_onu=${refOnuId}`;
+}
+let nmHwById   = {};       // id -> {h, marker} for snapping/lookup
+
+(function init() {
+  const u = new URLSearchParams(location.search);
+  nmFocusOnu = u.get("focus_onu");
+  // _S40w_  Google tiles are only available up to zoom 20; capping
+  // map maxZoom to match prevents blank tiles at extreme zoom.
+  nmMap = L.map("netmap", { zoomControl:true, doubleClickZoom:false, maxZoom:20 })
+            .setView([27.5, 80.7], 13);
+
+  // ── Tiles with road labels ──
+  // Satellite imagery base
+  // Google Maps tile layers — satellite-hybrid (lyrs=y) gives
+  // labels + roads + market/shop names directly from Google; road-map
+  // (lyrs=m) is the standard Maps view. maxZoom:20 eliminates
+  // "map data not available" at high zooms.
+  nmTileSat = L.tileLayer(
+    "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    { subdomains:["0","1","2","3"],
+      attribution:"&copy; Google Maps",
+      maxZoom:20, minZoom:3 });
+  // nmTileLabels kept for API compatibility (no-op since hybrid already has labels)
+  nmTileLabels = L.layerGroup();
+  nmTileStr = L.tileLayer(
+    "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+    { subdomains:["0","1","2","3"],
+      attribution:"&copy; Google Maps",
+      maxZoom:20, minZoom:3 });
+  nmTileSat.addTo(nmMap);
+  nmTileLabels.addTo(nmMap);
+
+  nmHwLayer    = L.layerGroup().addTo(nmMap);
+  nmFiberLayer = L.layerGroup().addTo(nmMap);
+  nmCustLayer  = L.layerGroup().addTo(nmMap);
+  // _S40zζ_  Expose for E2E testing
+  window.nmMap = nmMap;
+  window.nmHwLayer = nmHwLayer;
+  window.nmFiberLayer = nmFiberLayer;
+  window.nmCustLayer = nmCustLayer;
+
+  nmMap.on("click", nmOnMapClick);
+  nmMap.on("dblclick", nmOnDblClick);
+  nmMap.on("zoomend", _nmApplyZoomClass);
+  setTimeout(_nmApplyZoomClass, 100);
+  // _S40t_FIXES_  Defer first refresh until ALL wrappers (heatmap,
+  // OLT arms, splitter legs, reconnect buttons) have been attached.
+  setTimeout(() => window.nmRefreshAll && window.nmRefreshAll(), 0);
+})();
+
+// ── Tile toggle ──────────────────────────────────────────────────────
+function nmSetLayer(kind) {
+  if (kind === nmCurrTile) return;
+  nmCurrTile = kind;
+  document.querySelectorAll(".nm-btn[data-testid^='netmap-tile-']")
+    .forEach(b => b.classList.remove("active"));
+  document.querySelector(`[data-testid="netmap-tile-${kind}"]`).classList.add("active");
+  if (kind === "satellite") {
+    nmMap.removeLayer(nmTileStr);
+    nmTileSat.addTo(nmMap);
+    nmTileLabels.addTo(nmMap);
+  } else {
+    nmMap.removeLayer(nmTileSat); nmMap.removeLayer(nmTileLabels);
+    nmTileStr.addTo(nmMap);
+  }
+}
+
+function nmShowBanner(text, bg, fg) {
+  const b = document.getElementById("nm-banner");
+  b.textContent = text; b.classList.add("show");
+  if (bg) b.style.background = bg;
+  if (fg) b.style.color = fg;
+}
+function nmHideBanner() { document.getElementById("nm-banner").classList.remove("show"); }
+
+// ── Geocode search (Nominatim, free) ─────────────────────────────────
+async function nmSearch() {
+  const q = document.getElementById("nm-search-input").value.trim();
+  if (!q) return;
+  const url = "https://nominatim.openstreetmap.org/search?format=json"
+              + "&limit=8&addressdetails=1&q=" + encodeURIComponent(q);
+  let r;
+  try { r = await fetch(url, { headers:{"Accept-Language":"en"} }); }
+  catch(e) { alert("Search failed: " + e); return; }
+  const arr = await r.json();
+  const box = document.getElementById("nm-search-results");
+  if (!arr.length) { box.innerHTML = '<div class="row" style="color:#94a3b8">No results</div>';
+                      box.classList.add("show"); return; }
+  box.innerHTML = arr.map(it =>
+    `<div class="row" onclick="nmGoTo(${it.lat},${it.lon},'${(it.display_name||'').replace(/'/g,"&#39;")}')">
+       ${it.display_name}</div>`).join("");
+  box.classList.add("show");
+}
+function nmGoTo(lat, lng, label) {
+  nmMap.setView([+lat, +lng], 17);
+  document.getElementById("nm-search-results").classList.remove("show");
+  document.getElementById("nm-search-input").value = label || "";
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".nm-search"))
+    document.getElementById("nm-search-results").classList.remove("show");
+});
+
+// ── Locate me (browser GPS) ──────────────────────────────────────────
+function nmLocateMe() {
+  if (!navigator.geolocation) return alert("Geolocation not supported");
+  navigator.geolocation.getCurrentPosition(
+    p => nmMap.setView([p.coords.latitude, p.coords.longitude], 18),
+    e => alert("GPS error: " + e.message),
+    { enableHighAccuracy:true, timeout:10000 });
+}
+
+// ── Deploy hardware mode ─────────────────────────────────────────────
+function nmStartDeploy(kind, refOltId, oltName) {  /* _S40zr_ */
+  nmCancelMode(true);   // soft reset (keep map listeners)
+  nmDeployKind = kind;
+  window.nmDeployRefOlt = (kind === "olt" && refOltId)
+    ? { id: refOltId, name: oltName || ("OLT#" + refOltId) }
+    : null;
+  const labels = { olt:"OLT Hub", jc_box:"JC Box",
+                    splitter_1x4:"1:4 Splitter", splitter_1x8:"1:8 Splitter",
+                    coupler_95x5:"95:5 Coupler",  coupler_90x10:"90:10 Coupler",
+                    coupler_80x20:"80:20 Coupler",  coupler_70x30:"70:30 Coupler",
+                    coupler_60x40:"60:40 Coupler",  coupler_50x50:"50:50 Coupler",
+                    splitter_1x16:"1:16 Splitter", pole:"Pole", manhole:"Manhole" };
+  nmShowBanner(`Click on the map to drop a ${labels[kind] || kind} (or press CANCEL MODE)`,
+               "rgba(99,102,241,.95)", "#fff");
+}
+function nmToggleFiberMode() {
+  if (nmFiberMode) { nmCancelMode(); return; }
+  nmCancelMode(true);
+  nmFiberMode = true;
+  nmFiberPts = [];
+  document.getElementById("nm-fiber-btn").classList.add("active");
+  const b = document.getElementById("nm-banner");
+  b.innerHTML = '<span>Click points along the fiber path. Click near a pin/splitter leg to snap.</span>'
+               + ' &nbsp; <button data-testid="nm-finish-fiber" onclick="nmFinishFiberDraw()" '
+               + 'style="background:#10b981;color:#fff;border:none;padding:4px 12px;'
+               + 'border-radius:9999px;font-weight:700;cursor:pointer;margin-left:10px">'
+               + '✓ FINISH</button>'
+               + ' <button onclick="nmCancelMode()" '
+               + 'style="background:#dc2626;color:#fff;border:none;padding:4px 12px;'
+               + 'border-radius:9999px;font-weight:700;cursor:pointer;margin-left:6px">'
+               + '✗ CANCEL</button>';
+  b.style.background = "rgba(245,158,11,.95)"; b.style.color = "#1a1a1a";
+  b.classList.add("show");
+}
+// Called from the ✓ FINISH banner button — replaces dblclick-to-finish
+async function nmFinishFiberDraw() {
+  if (!nmFiberMode) return;
+  if (nmFiberPts.length < 2) { nmCancelMode();
+    return alert("A fiber needs at least 2 points."); }
+  const color = (prompt(
+    "Fiber tube color? (blue / orange / green / brown / slate / white / red / black / yellow / violet / rose / aqua)",
+    "blue") || "blue").toLowerCase();
+  const cores = parseInt(prompt("Core count (4 / 8 / 12 / 24 / 48)?", "12") || "12", 10);
+  const polyline = nmFiberPts.map(p => [p[0], p[1]]);
+  const body = {
+    color, core_count:cores, polyline,
+    src_hw_id: nmFiberPts[0][2] || null,
+    dst_hw_id: nmFiberPts[nmFiberPts.length-1][2] || null,
+  };
+  // Leg-aware link (embedded in props since DB schema is flat)
+  const srcLeg = nmFiberPts[0][3];
+  const dstLeg = nmFiberPts[nmFiberPts.length-1][3];
+  if (srcLeg !== null && srcLeg !== undefined)
+    body.props = { ...(body.props || {}), src_leg_idx: srcLeg };
+  if (dstLeg !== null && dstLeg !== undefined)
+    body.props = { ...(body.props || {}), dst_leg_idx: dstLeg,
+                     leg_idx: dstLeg };
+  const r = await fetch(NM_API + "/fiber", {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body) });
+  const j = await r.json();
+  nmCancelMode();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+function nmCancelMode(soft) {
+  nmDeployKind = null;
+  nmFiberMode  = false;
+  nmFiberPts   = [];
+  if (nmFiberTmpLayer) { nmMap.removeLayer(nmFiberTmpLayer); nmFiberTmpLayer = null; }
+  document.getElementById("nm-fiber-btn").classList.remove("active");
+  nmHideBanner();
+  // Reset cursor
+  nmMap.getContainer().style.cursor = "";
+}
+
+// ── Fiber snap helper (find nearest hardware within ~30 m) ───────────
+function nmSnapToNearestHw(lat, lng, maxMeters) {
+  let best = null, bestDist = Infinity, bestKind = null;
+  // 1) Snap to hardware centres
+  Object.values(nmHwById).forEach(({h}) => {
+    const d = nmMap.distance([lat,lng], [h.lat,h.lng]);
+    if (d < bestDist) { bestDist = d; best = h; bestKind = "hw"; }
+  });
+  // 2) Snap to splitter legs (free legs preferred over used)
+  const legIdx = window.nmLegIndex || {};
+  Object.keys(legIdx).forEach(sid => {
+    (legIdx[sid] || []).forEach(leg => {
+      const d = nmMap.distance([lat,lng], [leg.lat, leg.lng]);
+      const penalty = leg.used ? 5 : 0;
+      if (d + penalty < bestDist) {
+        bestDist = d + penalty; best = { id: leg.splitter_id,
+                                           lat: leg.lat, lng: leg.lng,
+                                           leg_idx: leg.leg_idx };
+        bestKind = "leg";
+      }
+    });
+  });
+  // 2b) Snap to splitter INPUT arm (special leg_idx = -1)
+  const inIdx = window.nmInputIndex || {};
+  Object.keys(inIdx).forEach(sid => {
+    const arm = inIdx[sid]; if (!arm) return;
+    const d = nmMap.distance([lat,lng], [arm.lat, arm.lng]);
+    if (d < bestDist) {
+      bestDist = d; best = { id: arm.splitter_id, lat: arm.lat,
+                              lng: arm.lng, leg_idx: -1 };
+      bestKind = "leg";
+    }
+  });
+  if (best && bestDist <= (maxMeters || 30))
+    return [best.lat, best.lng, best.id, bestKind === "leg" ? best.leg_idx : null];
+  return [lat, lng, null, null];
+}
+
+async function nmOnMapClick(e) {
+  // Deploy hardware
+  if (nmDeployKind) {
+    /* _S40zr_  Real-OLT shortcut — skip the prompt and reuse OLT name+id. */
+    let nm = null;
+    if (nmDeployKind === "olt" && window.nmDeployRefOlt) {
+      nm = window.nmDeployRefOlt.name;
+    } else {
+      nm = prompt("Name for this " + nmDeployKind + " (optional):", "") || null;
+    }
+    let props = {};
+    if (nmDeployKind.startsWith("splitter_")) {
+      const ratio = nmDeployKind.split("_")[1];   // "1x4" / "1x8" / "1x16"
+      const out = parseInt(ratio.split("x")[1], 10);
+      props = { input_count: 1, output_count: out, ratio: ratio };
+    } else if (nmDeployKind.startsWith("coupler_")) {
+      // _S40zl3_  Couplers always have 2 output legs; encode ratio
+      const ratio = nmDeployKind.split("_")[1];   // e.g. "80x20"
+      props = { input_count: 1, output_count: 2, ratio: ratio,
+                kind_label: ratio.replace("x", ":") + " Coupler" };
+    }
+    const body = { kind:nmDeployKind, name:nm,
+                    lat:e.latlng.lat, lng:e.latlng.lng,
+                    props: props };
+    /* _S40zr_  Pin to a real OLT row when the user picked from the list */
+    if (nmDeployKind === "olt" && window.nmDeployRefOlt && window.nmDeployRefOlt.id) {
+      body.ref_olt_id = window.nmDeployRefOlt.id;
+    }
+    const r = await fetch(NM_API + "/hardware", {
+      method:"POST", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body) });
+    const j = await r.json();
+    if (j.ok) {
+      // _S40s_  AUTO-ATTACH if dropped on a fiber within 50 m
+      if (j.id && (nmDeployKind === "jc_box"
+                    || nmDeployKind.startsWith("splitter_")
+                    || nmDeployKind.startsWith("coupler_"))) {  /* _S40zl3_ */
+        // _S40u_  Refresh fibers cache so the find always sees latest
+        try {
+          const fr = await fetch(NM_API + '/items', {credentials:'include'});
+          if (fr.ok) { const fj = await fr.json(); window.__nmFibers = fj.fibers || []; }
+        } catch(_) {}
+        const hit = _nmFindFiberHit(e.latlng.lat, e.latlng.lng, 50);
+        // _S40w_  Auto-attach without confirm — just do it
+        if (hit) {
+          /* _S40zs_  Defensive: attach-on-fiber can fail on legacy tenants
+             with non-JSON 500s — catch and keep going so the banner always
+             clears and the pin still shows. */
+          try {
+            const r2 = await fetch(`${NM_API}/hardware/${j.id}/attach-on-fiber`, {
+              method:"POST", credentials:"include",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({fiber_id: hit.fiber.id,
+                                     insert_index: hit.segment + 1}) });
+            let j2 = null;
+            try { j2 = await r2.json(); } catch(_) { j2 = {ok:false, error:"non-json"}; }
+            if (j2 && j2.ok) {
+              try { nmShowBanner(`✓ Fiber cut & ${nmDeployKind.replace("_"," ")} inserted`,
+                                   "rgba(34,197,94,.95)", "#fff");
+                    setTimeout(() => nmHideBanner(), 2000); } catch(_) {}
+            } else {
+              console.warn("attach-on-fiber failed", j2);
+              try { nmShowBanner(`✓ ${nmDeployKind.replace("_"," ")} placed (auto-cut skipped)`,
+                                   "rgba(245,158,11,.95)", "#1a1a1a");
+                    setTimeout(() => nmHideBanner(), 2000); } catch(_) {}
+            }
+          } catch(err) {
+            console.warn("attach-on-fiber threw", err);
+          }
+        }
+      }
+      nmCancelMode(); nmHideBanner();   /* _S40zs_  always hide deploy banner */
+      await nmRefreshAll();
+    } else {
+      alert("Failed: " + JSON.stringify(j));
+      nmCancelMode(); nmHideBanner();   /* _S40zs_  also clear on backend failure */
+    }
+    return;
+  }
+  // Fiber draw
+  if (nmFiberMode) {
+    const snap = nmSnapToNearestHw(e.latlng.lat, e.latlng.lng, 30);
+    const [lat, lng, hwId, legIdx] = snap;
+    nmFiberPts.push([lat, lng, hwId, legIdx]);
+    if (nmFiberTmpLayer) nmMap.removeLayer(nmFiberTmpLayer);
+    nmFiberTmpLayer = L.polyline(nmFiberPts.map(p => [p[0],p[1]]),
+                                   { color:"#f59e0b", weight:4, dashArray:"6 6" })
+                          .addTo(nmMap);
+    // Brief toast-style feedback (stays in same banner)
+    if (hwId) {
+      const msg = (legIdx !== null && legIdx !== undefined)
+        ? `Snapped to splitter #${hwId} leg #${legIdx+1} — ✓ FINISH when done`
+        : `Snapped to hardware #${hwId} — click ✓ FINISH when done`;
+      const b = document.getElementById("nm-banner");
+      const orig = b.innerHTML;
+      b.style.background = "rgba(34,197,94,.95)"; b.style.color = "#fff";
+      setTimeout(() => {
+        b.style.background = "rgba(245,158,11,.95)"; b.style.color = "#1a1a1a";
+      }, 1400);
+    }
+    return;
+  }
+}
+async function nmOnDblClick(e) {
+  // Legacy handler — no longer auto-finishes fiber (user clicked ✓ FINISH
+  // button instead). Kept as no-op to avoid stale listener removal.
+}
+
+// ── Render ───────────────────────────────────────────────────────────
+function nmIcon(kind, status) {
+  const colors = {
+    olt:"#7c3aed", onu:status==="offline"?"#dc2626":"#10b981",
+    jc_box:"#fcd34d", splitter_1x4:"#f59e0b", splitter_1x8:"#f59e0b",
+  coupler_95x5:"#06b6d4", coupler_90x10:"#06b6d4",
+  coupler_80x20:"#06b6d4", coupler_70x30:"#06b6d4",
+  coupler_60x40:"#06b6d4", coupler_50x50:"#06b6d4",
+    splitter_1x16:"#f59e0b", pole:"#94a3b8", manhole:"#475569",
+  };
+  const sym = {
+    olt:"B", onu:"⌂", jc_box:"▣",
+    splitter_1x4:"⌬", splitter_1x8:"⌬", splitter_1x16:"⌬",
+  coupler_95x5:"◐", coupler_90x10:"◐",
+  coupler_80x20:"◐", coupler_70x30:"◐",
+  coupler_60x40:"◐", coupler_50x50:"◐",
+    pole:"▌", manhole:"◯",
+  };
+  const fg = (kind==="jc_box" || kind.startsWith("splitter_")
+              || kind.startsWith("coupler_")) ? "#1a1a1a" : "#fff";  /* _S40zl3_ */
+  const c = colors[kind] || "#6366f1";
+  // Splitter shows ratio badge underneath
+  let badge = "";
+  if (kind.startsWith("splitter_")) {
+    const ratio = kind.split("_")[1].replace("x", ":");
+    badge = `<div style="background:#1a1a1a;color:#fcd34d;font-size:9px;
+              padding:1px 5px;border-radius:6px;margin-top:2px;font-weight:700">${ratio}</div>`;
+  }
+  return L.divIcon({
+    className:"nm-divicon",
+    html:`<div style="display:flex;flex-direction:column;align-items:center">
+            <div style="background:${c}; width:28px; height:28px;
+                        border-radius:6px; display:flex; align-items:center;
+                        justify-content:center; color:${fg}; font-weight:700;
+                        box-shadow:0 2px 8px rgba(0,0,0,.4);
+                        border:2px solid #fff; font-size:14px;">${sym[kind]||"?"}</div>
+            ${badge}</div>`,
+    iconSize:[28, badge ? 42 : 28], iconAnchor:[14, badge ? 14 : 14],
+  });
+}
+
+function nmHwTooltip(h) {
+  if (h.kind !== "onu") return null;
+  const props = h.props || {};
+  const rx = props.rx_power;
+  const cls = (rx !== undefined && rx !== null && rx <= -25) ? "nm-onu-label bad"
+                                                                : "nm-onu-label";
+  const rxStr = (rx !== undefined && rx !== null) ? rx.toFixed(1)+" dBm" : "—";
+  /* _S40zβ_  Pin label uses customer name first, then pin name,
+     then serial, then ONU#id — matches popup title chain. */
+  const label = props.customer_name || h.name || props.serial || "ONU";
+  return { html:`<b>${label}</b> <span style="opacity:.85">${rxStr}</span>`,
+            cls };
+}
+function nmHwPopup(h) {
+  const props = h.props || {};
+  /* _S40zα_  ONU pins prefer the customer's name in the title — falling
+     back to the pin's own name, the ONU serial, then the kind. */
+  let title;
+  if (h.kind === "onu") {
+    title = props.customer_name || h.name || props.serial || `ONU#${h.id}`;
+  } else {
+    title = h.name || h.kind.toUpperCase();
+  }
+  let sub = "";
+  if (h.kind === "olt")
+    sub = `Vendor: ${props.vendor || "—"}<br>Status: ${props.status || "—"}`;
+  else if (h.kind === "onu") {
+    /* _S40zα_  Customer-friendly ONU popup. Title falls back through:
+       customer_name → ONU name → serial → ONU#id (handled below). */
+    const cust = props.customer_name || props.customer_id || "—";
+    const phone = props.customer_phone ? ` <span style="color:#94a3b8">(${props.customer_phone})</span>` : "";
+    const rxRaw = props.rx_power;
+    const rxStr = (rxRaw !== undefined && rxRaw !== null && rxRaw !== "")
+      ? `${Number(rxRaw).toFixed(2)} dBm`
+      : `<span style="color:#94a3b8">— (offline)</span>`;
+    const rxColor = (rxRaw !== undefined && rxRaw !== null && rxRaw !== "")
+      ? (rxRaw <= -25 ? "#dc2626" : rxRaw <= -20 ? "#f59e0b" : "#22c55e")
+      : "#94a3b8";
+    sub = `<div style="line-height:1.5">
+              <div><b style="color:#a5b4fc">${cust}</b>${phone}</div>
+              <div style="color:#94a3b8;font-size:11px">Serial: ${props.serial || "—"}</div>
+              <div>RX: <b style="color:${rxColor}">${rxStr}</b></div>
+              <div style="color:#94a3b8;font-size:11px">Status: ${props.status || "—"}</div>
+            </div>`;
+  }
+  else if (h.kind && h.kind.startsWith("coupler_"))   /* _S40zt_  fix order */
+    sub = `Ratio: ${(props.ratio||"50x50").replace("x",":")}<br>2 output legs`;
+  else if (h.kind && h.kind.startsWith("splitter_"))
+    sub = `Ratio: 1:${props.output_count || "?"}<br>${props.output_count||0} output legs`;
+  const isAuto = !!props.auto;
+  const canEdit = (h.editable !== false);   // _S40zζ_  RBAC for non-admins
+  const connectBtn = canEdit
+    ? `<button class="nm-btn" style="padding:4px 10px;font-size:11px;
+       margin-top:6px;margin-right:6px;background:#06b6d4;color:#fff;font-weight:600"
+       data-testid="hw-connect-${h.id}"
+       onclick="nmConnectFrom(${h.id}, ${h.lat}, ${h.lng})">🔌 Connect</button>`
+    : "";
+  const delBtn = canEdit
+    ? `<button class="nm-btn danger" style="padding:4px 10px;font-size:11px;
+       margin-top:6px" data-testid="hw-delete-${h.id}"
+       onclick="nmDeleteHw(${h.id})">Delete</button>`
+    : "";
+  const ownerHint = (!canEdit)
+    ? `<div style="margin-top:6px;font-size:10px;color:#94a3b8;font-style:italic"
+            data-testid="hw-readonly-${h.id}">
+         🔒 Read-only — added by ${h.created_by ? h.created_by : 'another user'}
+       </div>`
+    : "";
+  /* _S40zt_  Cut-history section — visible only for cutter nodes. */
+  const isCutter = h.kind === "jc_box"
+                    || (h.kind && (h.kind.startsWith("splitter_")
+                                    || h.kind.startsWith("coupler_")));
+  const cutBtn = isCutter
+    ? `<button class="nm-btn" data-testid="hw-cut-history-${h.id}"
+         style="padding:4px 10px;font-size:11px;margin-top:6px;
+                background:#475569;color:#fff;font-weight:600"
+         onclick="nmToggleCutHistory(${h.id})">📜 Cut History</button>`
+    : "";
+  const histPanel = isCutter
+    ? `<div id="nm-cut-hist-${h.id}" data-testid="hw-cut-history-panel-${h.id}"
+            style="display:none;margin-top:8px;max-width:320px;
+                   max-height:200px;overflow:auto;font-size:11px;
+                   border-top:1px solid rgba(99,102,241,.3);padding-top:6px"></div>`
+    : "";
+  /* _S40zx_  Trace Path button — ONU only */
+  const traceBtn = (h.kind === "onu")
+    ? `<button class="nm-btn" data-testid="onu-trace-path-${h.id}"
+         style="padding:4px 10px;font-size:11px;margin-top:6px;
+                background:#0ea5e9;color:#fff;font-weight:600"
+         onclick="nmStartPathTrace(${h.id})">🛰️ Trace Path</button>`
+    : "";
+  /* _S40zα_  Role-aware "Open in OLT Mgmt" — uses the prefix injected
+     by _portal_context (admin/sub-lco/employee). */
+  const oltMgmtBtn = (h.kind === "onu" && h.ref_onu_id)
+    ? `<button class="nm-btn" data-testid="onu-open-mgmt-${h.id}"
+         style="padding:4px 10px;font-size:11px;margin-top:6px;
+                margin-right:6px;background:#10b981;color:#fff;font-weight:600"
+         onclick="nmOpenInOltMgmt(${h.ref_onu_id})">🔧 Open in OLT Mgmt</button>`
+    : "";
+  /* _S40zβ_  Pinned-by badge */
+  // Always show who pinned this hardware. Distinguish manual vs.
+  // automated (auto-attach / backfill / mobile GPS) drops with a tag.
+  const pinnedBy = h.created_by || 'system';
+  const pinSrc = (props && (props.source || (props.auto ? 'auto' : ''))) || '';
+  const pinSrcTag = pinSrc
+    ? `<span style="margin-left:4px;padding:1px 5px;border-radius:3px;font-size:9px;background:#312e81;color:#c7d2fe;text-transform:uppercase;letter-spacing:.3px">${pinSrc}</span>`
+    : '';
+  const pinnedBadge = `<div data-testid="hw-pinned-by-${h.id}" style="margin-top:6px;font-size:10px;color:#94a3b8">📍 Pinned by <b style="color:#e2e8f0">${pinnedBy}</b>${pinSrcTag}</div>`;
+    return `<b>${title}</b><br><small style="color:#64748b">${h.kind}</small><br>${sub}<br>${connectBtn}${oltMgmtBtn}${traceBtn}${delBtn}${cutBtn}${ownerHint}${pinnedBadge}${histPanel}`;
+}
+
+/* _S40zt_  Lazy-load + render fiber-cut history. Idempotent toggle. */
+async function nmToggleCutHistory(hwId) {
+  const panel = document.getElementById(`nm-cut-hist-${hwId}`);
+  if (!panel) return;
+  if (panel.style.display === "block") {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "block";
+  panel.innerHTML = `<div style="color:#94a3b8;padding:6px 0">Loading…</div>`;
+  try {
+    const r = await fetch(`${NM_API}/hardware/${hwId}/cut-history`,
+                            {credentials:"include"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const items = (j && j.items) || [];
+    if (!items.length) {
+      panel.innerHTML = `<div style="color:#64748b;padding:6px 0;font-style:italic">
+        No fiber cuts logged at this node.<br>
+        <span style="font-size:10px">Drop this pin on a live fiber to auto-cut + audit.</span></div>`;
+      return;
+    }
+    panel.innerHTML = items.map(it => {
+      /* Use global IST formatter if available (_S40zg_), fallback to raw. */
+      /* _S40zt_  cut_at is SQL format "YYYY-MM-DD HH:MM:SS" (UTC, no TZ).
+         Convert to ISO so fmtIST can render it as IST. Fall back to raw. */
+      let when = it.cut_at || "—";
+      try {
+        if (it.cut_at) {
+          const iso = String(it.cut_at).replace(" ", "T") + "Z";
+          if (typeof window.fmtIST === "function") {
+            const f = window.fmtIST(iso);
+            if (f && f !== "null" && f !== "NaN") when = f;
+          } else {
+            const d = new Date(iso);
+            if (!isNaN(d)) when = d.toLocaleString("en-GB",
+              {timeZone:"Asia/Kolkata", day:"2-digit", month:"2-digit",
+               year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false})
+              .replace(/\//g,"-").replace(",","");
+          }
+        }
+      } catch(_){}
+      const fNm = (f) => `<span style="background:#1e293b;color:#e2e8f0;
+                              padding:1px 6px;border-radius:4px;font-size:10px">
+                              ${(f && f.name) || "—"}</span>`;
+      const findBtn = (fid) => fid
+        ? `<button onclick="nmHighlightFiber(${fid})"
+             title="Highlight this fiber on the map"
+             style="background:transparent;border:none;color:#a5b4fc;
+                    cursor:pointer;font-size:11px;padding:0 2px">🔍</button>`
+        : "";
+      /* _S40zu_  Notes section: read-only paragraph + edit toggle */
+      const noteHtml = it.notes
+        ? `<div style="margin-top:6px;padding:5px 7px;background:rgba(99,102,241,.12);
+                       border-radius:4px;color:#e2e8f0;font-size:11px;white-space:pre-wrap"
+                  data-testid="cut-note-text-${it.id}">📝 ${
+              String(it.notes).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+            }</div>`
+        : "";
+      const editBtn = `<button onclick="nmEditCutNote(${hwId},${it.id})"
+            data-testid="cut-note-edit-${it.id}"
+            style="background:transparent;border:1px solid #6366f1;color:#a5b4fc;
+                   cursor:pointer;font-size:10px;padding:2px 8px;border-radius:4px;
+                   margin-top:6px">📝 ${it.notes ? "Edit note" : "Add note"}</button>`;
+      const editor = `<div id="nm-cut-note-edit-${it.id}" style="display:none;margin-top:6px">
+          <textarea data-testid="cut-note-textarea-${it.id}"
+            style="width:100%;min-height:48px;background:#0f172a;color:#e2e8f0;
+                   border:1px solid #334155;border-radius:4px;padding:5px;
+                   font-size:11px;font-family:inherit;resize:vertical"
+            placeholder="e.g. moved to new pole after road work"
+          >${(it.notes || "").replace(/</g,"&lt;")}</textarea>
+          <div style="display:flex;gap:6px;margin-top:4px">
+            <button onclick="nmSaveCutNote(${hwId},${it.id})"
+                    data-testid="cut-note-save-${it.id}"
+                    style="background:#10b981;border:none;color:#fff;
+                           padding:3px 10px;border-radius:4px;cursor:pointer;
+                           font-size:10px;font-weight:600">Save</button>
+            <button onclick="nmCancelCutNote(${it.id})"
+                    style="background:#475569;border:none;color:#fff;
+                           padding:3px 10px;border-radius:4px;cursor:pointer;
+                           font-size:10px">Cancel</button>
+          </div>
+        </div>`;
+      return `<div style="margin-bottom:8px;padding:6px 8px;
+                            background:rgba(30,41,59,.6);border-radius:6px;
+                            border-left:2px solid #6366f1">
+                <div style="font-weight:600;color:#a5b4fc">${when}</div>
+                <div style="color:#cbd5e1;margin-top:2px">
+                  by ${it.cut_by || "—"}
+                </div>
+                <div style="margin-top:4px;color:#94a3b8;font-size:10px">
+                  Original ${fNm(it.original_fiber)}${findBtn(it.original_fiber && it.original_fiber.id)}
+                  was cut into:
+                </div>
+                <div style="margin-top:2px">
+                  → ${fNm(it.first_half)}${findBtn(it.first_half && it.first_half.id)}
+                  &nbsp;+&nbsp;
+                  ${fNm(it.second_half)}${findBtn(it.second_half && it.second_half.id)}
+                </div>
+                ${noteHtml}
+                ${editBtn}
+                ${editor}
+              </div>`;
+    }).join("");
+  } catch(err) {
+    panel.innerHTML = `<div style="color:#f87171;padding:6px 0">
+      Failed to load history: ${(err && err.message) || err}</div>`;
+  }
+}
+
+/* _S40zt_  Briefly highlight a fiber by its id — pulse weight/colour and
+   pan the map to its midpoint. Falls back gracefully if the fiber isn't
+   currently rendered. */
+function nmHighlightFiber(fiberId) {
+  if (!fiberId) return;
+  const f = (window.__nmFibers || []).find(x => x.id === fiberId);
+  if (!f || !f.polyline || !f.polyline.length) {
+    try { nmShowBanner(`Fiber #${fiberId} no longer on map`,
+                          "rgba(245,158,11,.95)", "#1a1a1a");
+          setTimeout(() => nmHideBanner(), 2200); } catch(_){}
+    return;
+  }
+  const mid = f.polyline[Math.floor(f.polyline.length / 2)];
+  try { nmMap.panTo(mid); } catch(_){}
+  /* Draw an ephemeral overlay polyline so we don't have to mutate the
+     real fiber's style (which would also reset on the next refresh). */
+  const overlay = L.polyline(f.polyline,
+                  { color:"#fbbf24", weight:9, opacity:.95,
+                    dashArray:"10 6" }).addTo(nmMap);
+  let on = true;
+  const blink = setInterval(() => {
+    on = !on;
+    overlay.setStyle({opacity: on ? 0.95 : 0.25});
+  }, 250);
+  setTimeout(() => { clearInterval(blink);
+                       try { nmMap.removeLayer(overlay); } catch(_){} }, 4000);
+}
+
+/* _S40zu_  Inline note editor for a single cut-history row. */
+function nmEditCutNote(hwId, cutId) {
+  const ed = document.getElementById(`nm-cut-note-edit-${cutId}`);
+  if (ed) ed.style.display = "block";
+  const ta = document.querySelector(`[data-testid="cut-note-textarea-${cutId}"]`);
+  if (ta) ta.focus();
+}
+function nmCancelCutNote(cutId) {
+  const ed = document.getElementById(`nm-cut-note-edit-${cutId}`);
+  if (ed) ed.style.display = "none";
+}
+async function nmSaveCutNote(hwId, cutId) {
+  const ta = document.querySelector(`[data-testid="cut-note-textarea-${cutId}"]`);
+  if (!ta) return;
+  const notes = ta.value || "";
+  try {
+    const r = await fetch(`${NM_API}/cut-history/${cutId}`, {
+      method:"PATCH", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({notes}) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    /* Re-render the panel in place — toggle off then on. */
+    const panel = document.getElementById(`nm-cut-hist-${hwId}`);
+    if (panel) {
+      panel.style.display = "none";
+      await nmToggleCutHistory(hwId);
+    }
+  } catch(err) {
+    alert("Failed to save note: " + ((err && err.message) || err));
+  }
+}
+
+async function nmRefreshAll() {
+  nmHwLayer.clearLayers(); nmFiberLayer.clearLayers(); nmCustLayer.clearLayers();
+  nmHwById = {};
+  window.nmHwById = nmHwById;   // _S40zζ_  expose for E2E testing
+  let r;
+  try { r = await fetch(NM_API + "/items", { credentials:"include" }); }
+  catch(e) { console.warn("netmap fetch failed", e); return; }
+  if (!r.ok) {
+    if (r.status === 401)
+      window.location = "/login?next=" + encodeURIComponent(location.pathname);
+    return;
+  }
+  const j = await r.json();
+  // Hardware
+  window._nmHwOnuRefs = new Set();
+  (j.hardware || []).forEach(h => {
+    const props = h.props || {};
+    const isAuto = !!props.auto;
+    const canEdit = (h.editable !== false);   // _S40zζ_  RBAC for non-admins
+    const m = L.marker([h.lat, h.lng],
+                        { icon: nmIcon(h.kind, props.status),
+                          draggable: canEdit })   // _S40zζ_  drag only if owned
+                .bindPopup(nmHwPopup(h)).addTo(nmHwLayer);
+    // _v4734_  Track which ONU IDs already have a hw-pin so the
+    // separate onus layer can suppress duplicates.
+    if (h.kind === 'onu' && h.ref_onu_id) {
+      window._nmHwOnuRefs = window._nmHwOnuRefs || new Set();
+      window._nmHwOnuRefs.add(h.ref_onu_id);
+    }
+    nmHwById[h.id] = { h, marker:m };
+    // Live label for ONUs
+    const tip = nmHwTooltip(h);
+    if (tip) m.bindTooltip(tip.html, { permanent:true, direction:"top",
+                                         offset:[0,-12], className:tip.cls });
+    // Persist drag
+    if (canEdit) {  // _S40zζ_  only owner can save drag
+      m.on("dragend", async ev => {
+        const ll = ev.target.getLatLng();
+        const oldLat = h.lat, oldLng = h.lng;
+        // _S40zb_  Move every connected fiber endpoint with this pin
+        // so they don't visually disconnect (uses /leg-move endpoint with
+        // a generous 30 m tolerance to catch endpoints near the old pos).
+        try {
+          await fetch(`${NM_API}/hardware/${h.id}/leg-move`, {
+            method:"POST", credentials:"include",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({old_lat: oldLat, old_lng: oldLng,
+                                    new_lat: ll.lat, new_lng: ll.lng,
+                                    tolerance_m: 30})});
+        } catch(_) {}
+        const r2 = await fetch(`${NM_API}/hardware/${h.id}`, {
+          method:"PATCH", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({lat:ll.lat, lng:ll.lng}) });
+        if (!r2.ok) alert("Drag-save failed.");
+        else {
+          h.lat = ll.lat; h.lng = ll.lng;
+          /* _S40zr_  AUTO-CUT live fiber when an existing JC/splitter/coupler
+             is dragged on top of a fiber it isn't already part of. */
+          const _isCutter = h.kind === "jc_box"
+                            || (h.kind && (h.kind.startsWith("splitter_")
+                                            || h.kind.startsWith("coupler_")));
+          if (_isCutter) {
+            try {
+              const fr = await fetch(NM_API + '/items', {credentials:'include'});
+              if (fr.ok) { const fj = await fr.json(); window.__nmFibers = fj.fibers || []; }
+            } catch(_) {}
+            const hit = _nmFindFiberHit(ll.lat, ll.lng, 30);
+            if (hit && hit.fiber
+                && hit.fiber.src_hw_id !== h.id
+                && hit.fiber.dst_hw_id !== h.id) {
+              const r3 = await fetch(`${NM_API}/hardware/${h.id}/attach-on-fiber`, {
+                method:"POST", credentials:"include",
+                headers:{"Content-Type":"application/json"},
+                body: JSON.stringify({fiber_id: hit.fiber.id,
+                                       insert_index: hit.segment + 1}) });
+              const j3 = await r3.json();
+              if (j3.ok) {
+                try { nmShowBanner(`✓ Fiber cut & ${h.kind.replace("_"," ")} inserted`,
+                                     "rgba(34,197,94,.95)", "#fff");
+                      setTimeout(() => nmHideBanner(), 2000); } catch(_) {}
+              }
+            }
+          }
+          // Refresh so fibers + legs redraw at the new position
+          await nmRefreshAll();
+        }
+      });
+    }
+  });
+  // Fibers — show src/dst connection info in popup
+  (j.fibers || []).forEach(f => {
+    const colorMap = {blue:"#3b82f6", orange:"#f97316", green:"#22c55e",
+                      brown:"#92400e", red:"#dc2626", yellow:"#eab308",
+                      slate:"#64748b", white:"#e5e7eb"};
+    const srcName = f.src_hw_id && nmHwById[f.src_hw_id]
+                      ? (nmHwById[f.src_hw_id].h.name || ("HW#"+f.src_hw_id)) : "free end";
+    const dstName = f.dst_hw_id && nmHwById[f.dst_hw_id]
+                      ? (nmHwById[f.dst_hw_id].h.name || ("HW#"+f.dst_hw_id)) : "free end";
+    // _S40zp_  Compute fiber length live (Haversine) and show in popup
+    let _flen_m = 0;
+    for (let _i = 0; _i < (f.polyline || []).length - 1; _i++) {
+      _flen_m += nmMap.distance(f.polyline[_i], f.polyline[_i+1]);
+    }
+    const _lengthLabel = _flen_m < 1000
+      ? `${_flen_m.toFixed(2)} m`
+      : `${(_flen_m/1000).toFixed(3)} km (${_flen_m.toFixed(0)} m)`;
+    const fCanEdit = (f.editable !== false);   // _S40zζ_  RBAC for non-admins
+    const fDelBtn = fCanEdit
+      ? `<button class="nm-btn danger" style="margin-top:6px;padding:4px 10px;font-size:11px"
+                 data-testid="fiber-delete-${f.id}"
+                 onclick="nmDeleteFiber(${f.id})">Delete</button>`
+      : `<div style="margin-top:6px;font-size:10px;color:#94a3b8;font-style:italic"
+              data-testid="fiber-readonly-${f.id}">
+           🔒 Read-only — added by ${f.created_by ? f.created_by : 'another user'}
+         </div>`;
+    L.polyline(f.polyline,
+               { color: colorMap[f.color] || "#3b82f6", weight:5,
+                 opacity:.85 })
+     .bindPopup(`<b>Fiber (${f.color})</b><br>
+                 ${f.core_count || "—"} cores<br>
+                 <small>${srcName} → ${dstName}</small><br>
+                 <b style="color:#06b6d4">Length: ${_lengthLabel}</b><br>
+                 ${fDelBtn}`)
+     .addTo(nmFiberLayer);
+  });
+  // Customer dots
+  (j.customers || []).forEach(c => {
+    L.circleMarker([c.lat, c.lng],
+        { radius:4, color:"#fff", weight:1,
+          fillColor: c.status === "active" ? "#22c55e" : "#94a3b8",
+          fillOpacity:.9 })
+     .bindPopup(`<b>${c.name || c.id}</b><br>Customer: ${c.id}<br>
+                 Status: ${c.status || "—"}`)
+     .addTo(nmCustLayer);
+  });
+  // _S40zr_  refresh the real-OLT picker each time the map data refreshes
+  try { nmReloadOltList(); } catch(_) {}
+  // focus_onu handling
+  if (nmFocusOnu) {
+    const tgt = (j.hardware || []).find(h => h.ref_onu_id == nmFocusOnu);
+    if (tgt) {
+      nmMap.setView([tgt.lat, tgt.lng], 18);
+      const m = nmHwById[tgt.id];
+      if (m) m.marker.openPopup();
+      nmFocusOnu = null;
+    } else {
+      nmShowBanner(`ONU #${nmFocusOnu} has no map pin yet — click on the map to drop it.`,
+                    "rgba(245,158,11,.95)", "#1a1a1a");
+      nmMap.off("click", nmOnMapClick);
+      nmMap.once("click", async function(e){
+        const r2 = await fetch(`${NM_API}/onus/${nmFocusOnu}/place`, {
+          method:"POST", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({lat:e.latlng.lat, lng:e.latlng.lng}) });
+        const j2 = await r2.json();
+        if (j2.ok) { nmFocusOnu = null; nmHideBanner();
+                      nmMap.on("click", nmOnMapClick); await nmRefreshAll(); }
+        else { alert("Failed: " + JSON.stringify(j2));
+                nmMap.on("click", nmOnMapClick); }
+      });
+    }
+  }
+}
+async function nmDeleteHw(id) {
+  if (!confirm("Delete this hardware? Connected fiber lines will also be removed.")) return;
+  const r = await fetch(`${NM_API}/hardware/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+async function nmDeleteFiber(id) {
+  if (!confirm("Delete this fiber line?")) return;
+  const r = await fetch(`${NM_API}/fiber/${id}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmRefreshAll();
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+
+// ═══ _S40l_ Phase-2 JS additions ═══════════════════════════════════════
+// Tube/core color codes (TIA-598-C standard)
+const NM_TUBE_COLORS = ["blue","orange","green","brown","slate","white",
+                          "red","black","yellow","violet","rose","aqua"];
+const NM_CORE_HEX = {
+  blue:"#3b82f6", orange:"#f97316", green:"#22c55e", brown:"#92400e",
+  slate:"#64748b", white:"#e5e7eb", red:"#dc2626", black:"#111827",
+  yellow:"#eab308", violet:"#8b5cf6", rose:"#f43f5e", aqua:"#06b6d4"
+};
+
+// ── KML / GeoJSON import ──
+async function nmImport(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (!confirm(`Import ${f.name}? This will add hardware/fibers to the map.`)) {
+    ev.target.value = ""; return;
+  }
+  const fd = new FormData();
+  fd.append("file", f);
+  let r;
+  try { r = await fetch(NM_API + "/import", {
+    method:"POST", credentials:"include", body:fd }); }
+  catch(e) { alert("Upload failed: " + e); return; }
+  const j = await r.json();
+  ev.target.value = "";
+  if (j.ok) { alert(`Imported: ${j.hardware_imported} hardware, ${j.fibers_imported} fibers`);
+              await nmRefreshAll(); }
+  else alert("Failed: " + JSON.stringify(j));
+}
+
+// ── Splitter leg dots (radial) ──
+function nmDrawSplitterLegs(h, mark) {
+  // _S40n_  Directional fan-out (NOT 360° radial):
+  // 1 input arm pointing WEST, N output arms fanning to the EAST (±60°).
+  // This matches the 1×N optical-splitter convention shown in the user's
+  // reference image and prevents leg overlap with surrounding hardware.
+  const props = h.props || {};
+  // _S40zl_  Couplers always have 2 outputs; ratio is encoded in kind
+  let coupler_ratio = null;
+  if (h.kind && h.kind.startsWith('coupler_')) {
+    coupler_ratio = h.kind.replace('coupler_','').replace('x','/');
+    // e.g. 'coupler_80x20' → '80/20'
+  }
+  const n = coupler_ratio ? 2 : (props.output_count || 4);
+  // _S40zl_  Robust per-leg used detection.
+  // We ONLY mark a leg as used when a fiber explicitly references that
+  // leg via props.src_leg_idx / dst_leg_idx / leg_idx. Legacy fibers
+  // without leg metadata are NOT counted (they show as 'free' rather
+  // than incorrectly polluting random legs).
+  const used = new Set();
+  if (window.__nmFibers) {
+    window.__nmFibers.forEach(f => {
+      const fp = f.props || {};
+      if (f.src_hw_id === h.id) {
+        const li = (fp.src_leg_idx !== undefined) ? fp.src_leg_idx
+                 : (fp.leg_idx !== undefined ? fp.leg_idx : null);
+        if (li !== null && li >= 0) used.add(li);
+      }
+      if (f.dst_hw_id === h.id) {
+        const li = (fp.dst_leg_idx !== undefined) ? fp.dst_leg_idx
+                 : (fp.leg_idx !== undefined ? fp.leg_idx : null);
+        // dst on splitter typically targets INPUT (-1) — don't mark output legs
+        if (li !== null && li >= 0) used.add(li);
+      }
+    });
+  }
+  const center = mark.getLatLng();
+  const _legCanEdit = (h.editable !== false);   // _S40zζ_  RBAC for legs
+  window.nmLegIndex = window.nmLegIndex || {};
+  window.nmLegIndex[h.id] = [];
+  window.nmInputIndex = window.nmInputIndex || {};
+  // _S40v_  Zoom-aware arm length, tight upper-bound (~25 m) so legs
+  // stay readable even if zoom is briefly low during initial paint.
+  const zoom = nmMap.getZoom();
+  let rad = Math.max(0.00012, 0.0006 / Math.pow(2, (zoom - 15)));
+  if (zoom < 16) rad = 0.00018;   // ~20 m hard cap when zoomed out
+
+  // _S40s_LEG_DRAG_  Custom positions persisted in props.leg_pos (out)
+  // and props.input_pos (in). Default to fan-out only when override absent.
+  const overrides = props.leg_pos || {};
+  const inOverride = props.input_pos;
+  const inLat = inOverride ? inOverride.lat : center.lat;
+  const inLng = inOverride ? inOverride.lng : (center.lng - rad);
+  const inLine = L.polyline([[center.lat, center.lng], [inLat, inLng]],
+              { color:"#fbbf24", weight:3.5, opacity:.95 })
+   .addTo(nmHwLayer);
+  // Draggable input arm endpoint
+  const inMarker = L.marker([inLat, inLng], {
+    draggable:_legCanEdit, zIndexOffset:300,
+    icon: L.divIcon({ className:"",
+      html:'<div title="Click to disconnect / drag to connect" style="width:18px;height:18px;border-radius:3px;'
+           +'background:#fbbf24;border:2.5px solid #fff;'
+           +'box-shadow:0 2px 6px rgba(0,0,0,.5);transform:rotate(45deg);'
+           +'cursor:pointer"></div>',
+      iconSize:[18,18], iconAnchor:[9,9] })
+  }).addTo(nmHwLayer);
+  inMarker.bindTooltip(`<b>INPUT</b> <span class="nm-leg-pwr" data-hw="${h.id}" data-leg="-1"></span>`,
+    { permanent:true, direction:"left", offset:[-6,0],
+      className:"nm-onu-label nm-hw-tip", interactive:false });
+  inMarker.on("drag", e => inLine.setLatLngs([[center.lat,center.lng],
+                                                e.target.getLatLng()]));
+  inMarker.on("dragend", async e => {
+    const ll = e.target.getLatLng();
+    const start = e.target.__dragStartLL || { lat: inLat, lng: inLng };
+    // _S40t_FIXES_  Keep input fibers attached when input arm moves
+    await _nmLegMoveFollow(h.id, start.lat, start.lng, ll.lat, ll.lng);
+    const newProps = Object.assign({}, props,
+                       { input_pos:{lat:ll.lat, lng:ll.lng} });
+    await fetch(`${NM_API}/hardware/${h.id}`, {
+      method:"PATCH", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ props: newProps }) });
+    if (window.nmInputIndex[h.id])
+      window.nmInputIndex[h.id] = { lat: ll.lat, lng: ll.lng,
+                                      splitter_id: h.id };
+    // _S40u_  Auto-connect input → other hardware
+    await _nmTryAutoConnectAfterDrag(h.id, -1, ll.lat, ll.lng);
+    await nmRefreshAll();
+  });
+  inMarker.on("click", function(ev) {
+    L.DomEvent.stopPropagation(ev);
+    window.nmShowLegDisconnect(h.id, -1,
+      inMarker.getLatLng().lat, inMarker.getLatLng().lng);
+  });
+  window.nmInputIndex[h.id] = { lat: inLat, lng: inLng, splitter_id: h.id };
+
+  // OUTPUT arms — overridden positions if present, else fan EAST
+  const fanArc = Math.PI / 1.5;
+  for (let i = 0; i < n; i++) {
+    const ov = overrides[i];
+    let lat, lng;
+    if (ov && typeof ov.lat === "number" && typeof ov.lng === "number") {
+      lat = ov.lat; lng = ov.lng;
+    } else {
+      const angle = (n === 1) ? 0
+                  : (-fanArc/2 + (fanArc * i / (n - 1)));
+      lat = center.lat + rad * Math.sin(angle);
+      lng = center.lng + rad * Math.cos(angle);
+    }
+    const isUsed = used.has(i);
+    const armColor = isUsed ? "#10b981" : "#fcd34d";
+    const armLine = L.polyline([[center.lat, center.lng], [lat, lng]],
+                 { color: armColor, weight: 2.5, opacity:.85,
+                   dashArray: isUsed ? null : "4 4" })
+     .addTo(nmHwLayer);
+    const dot = L.marker([lat, lng], {
+      draggable:_legCanEdit, zIndexOffset:300,
+      icon: L.divIcon({ className:"",
+        html:`<div title="Click to disconnect / drag to connect" style="width:14px;height:14px;border-radius:50%;
+              background:${armColor};border:2.5px solid #fff;
+              box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer"></div>`,
+        iconSize:[14,14], iconAnchor:[7,7] })
+    }).addTo(nmHwLayer);
+    // _S40zl_  Coupler legs labelled by ratio %, regular splitter by N
+    const _legLabel = coupler_ratio
+      ? `<b>${coupler_ratio.split('/')[i]}%</b>`
+      : `<b>OUT #${i+1}</b>`;
+    dot.bindTooltip(`${_legLabel} ${isUsed?'(used)':'(free)'} <span class="nm-leg-pwr" data-hw="${h.id}" data-leg="${i}"></span>`,
+                    { permanent:true, direction:"right", offset:[8,0],
+                      className:"nm-onu-label nm-hw-tip", interactive:false });
+    dot.on("drag", e => armLine.setLatLngs([[center.lat,center.lng],
+                                              e.target.getLatLng()]));
+    dot.on("dragend", async e => {
+      const ll = e.target.getLatLng();
+      const start = e.target.__dragStartLL || { lat, lng };
+      // _S40t_FIXES_  _S40w_ Move connected fiber endpoints first so they stay attached
+      await _nmLegMoveFollow(h.id, start.lat, start.lng, ll.lat, ll.lng);
+      const newOv = Object.assign({}, overrides);
+      newOv[i] = { lat: ll.lat, lng: ll.lng };
+      const newProps = Object.assign({}, props, { leg_pos: newOv });
+      await fetch(`${NM_API}/hardware/${h.id}`, {
+        method:"PATCH", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ props: newProps }) });
+      const li = window.nmLegIndex[h.id] || [];
+      const target = li.find(x => x.leg_idx === i);
+      if (target) { target.lat = ll.lat; target.lng = ll.lng; }
+      // _S40u_  Auto-connect if dropped onto another hw leg
+      await _nmTryAutoConnectAfterDrag(h.id, i, ll.lat, ll.lng);
+      await nmRefreshAll();
+    });
+    // Single-click → show Disconnect popup if leg has a connected fiber
+    dot.on("click", function(ev) {
+      L.DomEvent.stopPropagation(ev);
+      window.nmShowLegDisconnect(h.id, i,
+        dot.getLatLng().lat, dot.getLatLng().lng);
+    });
+    window.nmLegIndex[h.id].push({ lat, lng, leg_idx:i,
+                                     splitter_id:h.id, used:isUsed });
+  }
+}
+
+// ── Polyline vertex dragging ──
+let nmEditingFiber = null;   // {id, vertices: [marker,marker,...], poly: L.polyline}
+function nmEnableFiberEdit(fiberObj, polyLayer) {
+  // Remove existing edit
+  nmDisableFiberEdit();
+  const verts = [];
+  fiberObj.polyline.forEach((pt, idx) => {
+    const m = L.marker(pt, {
+      icon: L.divIcon({
+        className:"",
+        html:'<div style="width:14px;height:14px;border-radius:50%;'
+              +'background:#f59e0b;border:3px solid #fff;'
+              +'box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:move"></div>',
+        iconSize:[14,14], iconAnchor:[7,7]
+      }),
+      draggable:true, zIndexOffset:1000,
+    });
+    m.on("drag", () => {
+      const lls = verts.map(v => v.getLatLng());
+      polyLayer.setLatLngs(lls);
+    });
+    m.on("dragend", async () => {
+      // _S40o_  When the FIRST or LAST vertex is dropped near a hardware
+      // pin or splitter leg (≤ 30 m), snap onto it AND update the fiber's
+      // src_hw_id / dst_hw_id (and src/dst leg_idx) in the same PATCH.
+      const lls = verts.map(v => [v.getLatLng().lat, v.getLatLng().lng]);
+      const isFirst = (idx === 0);
+      const isLast  = (idx === fiberObj.polyline.length - 1);
+      const patch = { polyline: lls };
+      if (isFirst || isLast) {
+        const ll = m.getLatLng();
+        const snap = nmSnapToNearestHw(ll.lat, ll.lng, 30);
+        const [snapLat, snapLng, hwId, legIdx] = snap;
+        if (hwId) {
+          // Update the dragged vertex onto the snap point so the line
+          // visually attaches.
+          m.setLatLng([snapLat, snapLng]);
+          lls[idx] = [snapLat, snapLng];
+          polyLayer.setLatLngs(lls);
+          patch.polyline = lls;
+          if (isFirst) {
+            patch.src_hw_id = hwId;
+            if (legIdx !== null && legIdx !== undefined) {
+              patch.props_src_leg = legIdx;
+            }
+          } else {
+            patch.dst_hw_id = hwId;
+            if (legIdx !== null && legIdx !== undefined) {
+              patch.props_dst_leg = legIdx;
+            }
+          }
+        }
+      }
+      // Re-shape body for the backend (props_src_leg / props_dst_leg are
+      // synthetic helpers; backend ignores unknown fields, so we still
+      // include them but the canonical fields are src_hw_id / dst_hw_id).
+      const body = { polyline: patch.polyline };
+      if (patch.src_hw_id !== undefined) body.src_hw_id = patch.src_hw_id;
+      if (patch.dst_hw_id !== undefined) body.dst_hw_id = patch.dst_hw_id;
+      const r = await fetch(`${NM_API}/fiber/${fiberObj.id}`, {
+        method:"PATCH", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!j.ok) { alert("Vertex save failed"); return; }
+      // Refresh map to redraw with new endpoints + recompute heatmap
+      await nmRefreshAll();
+    });
+    m.addTo(nmFiberLayer);
+    verts.push(m);
+  });
+  nmEditingFiber = { id: fiberObj.id, vertices: verts, poly: polyLayer };
+}
+function nmDisableFiberEdit() {
+  if (!nmEditingFiber) return;
+  nmEditingFiber.vertices.forEach(v => nmFiberLayer.removeLayer(v));
+  nmEditingFiber = null;
+}
+
+// ── Splice modal ──
+async function nmOpenSpliceModal(hwId) {
+  const r = await fetch(`${NM_API}/splice/${hwId}`, { credentials:"include" });
+  if (!r.ok) return alert("Failed to load splices");
+  const data = await r.json();
+  document.getElementById("nmSpliceTitle").textContent =
+    (data.node.name || "Node") + " (#" + data.node.id + ")";
+  // Body = 3 cols: incoming fibers | center actions | outgoing fibers
+  const ins = data.fibers.filter(f => f.side === "in");
+  const outs = data.fibers.filter(f => f.side === "out");
+  const renderFiber = side => f => {
+    const cores = [];
+    for (let c = 1; c <= (f.core_count || 12); c++) {
+      const tubeCol = f.color || "blue";
+      const coreCol = NM_TUBE_COLORS[(c-1) % 12];
+      cores.push(
+        `<div class="nm-core-pill" data-fiber="${f.id}" data-core="${c}"
+            data-side="${side}" onclick="nmPickCore(this)"
+            style="display:inline-flex;align-items:center;gap:5px;
+                    padding:4px 8px;margin:2px;border-radius:14px;
+                    background:#0f172a;border:1px solid #334155;
+                    cursor:pointer;font-size:11px">
+          <span style="width:10px;height:10px;border-radius:50%;
+                       background:${NM_CORE_HEX[coreCol]};
+                       border:1px solid #fff"></span>
+          ${c}
+         </div>`);
+    }
+    return `<div style="background:#1e293b;border-radius:10px;padding:12px;
+                          margin-bottom:8px;border-left:5px solid ${NM_CORE_HEX[f.color || "blue"]}">
+              <div style="display:flex;justify-content:space-between;
+                            align-items:center;margin-bottom:8px">
+                <b>${f.name || "Fiber #"+f.id}</b>
+                <small style="color:#94a3b8">${f.color}-tube • ${f.core_count} cores</small>
+              </div>
+              <div>${cores.join("")}</div>
+            </div>`;
+  };
+  document.getElementById("nmSpliceBody").innerHTML =
+    `<div>
+       <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                    text-transform:uppercase;margin:0 0 10px">
+         📥 Incoming Fibers (${ins.length})</h4>
+       ${ins.length ? ins.map(renderFiber("in")).join("")
+                     : '<div style="color:#64748b;font-size:13px;padding:14px;'
+                       +'background:#1e293b;border-radius:8px">'
+                       +'No incoming fibers connected to this node.</div>'}
+     </div>
+     <div style="display:flex;flex-direction:column;align-items:center;
+                  justify-content:center;gap:10px">
+       <div id="nmSpliceSrc" style="width:38px;height:38px;border-radius:50%;
+              background:#1e293b;border:2px dashed #475569"></div>
+       <div style="color:#a5b4fc;font-size:18px;font-weight:700">⇄</div>
+       <div id="nmSpliceDst" style="width:38px;height:38px;border-radius:50%;
+              background:#1e293b;border:2px dashed #475569"></div>
+       <button onclick="nmCommitSplice(${hwId})"
+                data-testid="nm-splice-commit"
+                style="margin-top:6px;padding:8px 12px;border-radius:6px;
+                       background:#10b981;border:none;color:#fff;
+                       font-weight:600;font-size:11px;cursor:pointer">
+         ✚ SPLICE</button>
+       <button onclick="nmClearSplicePick()"
+                style="padding:6px 12px;border-radius:6px;
+                       background:#475569;border:none;color:#fff;
+                       font-size:11px;cursor:pointer">Clear</button>
+     </div>
+     <div>
+       <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                    text-transform:uppercase;margin:0 0 10px">
+         📤 Outgoing Fibers (${outs.length})</h4>
+       ${outs.length ? outs.map(renderFiber("out")).join("")
+                       : '<div style="color:#64748b;font-size:13px;padding:14px;'
+                         +'background:#1e293b;border-radius:8px">'
+                         +'No outgoing fibers from this node.</div>'}
+     </div>`;
+  // Render existing splices
+  const sp = document.getElementById("nmSpliceList");
+  if (!data.splices.length) {
+    sp.innerHTML = '<div style="color:#64748b">No splices yet.</div>';
+  } else {
+    sp.innerHTML = data.splices.map(s =>
+      `<div style="display:flex;justify-content:space-between;
+                    background:#1e293b;padding:8px 12px;border-radius:6px">
+         <span><b>F${s.src_fiber_id}/c${s.src_core}</b>
+                <span style="color:#a5b4fc">⇄</span>
+                <b>F${s.dst_fiber_id}/c${s.dst_core}</b>
+                <small style="color:#94a3b8;margin-left:8px">${s.mode}</small>
+                ${s.loss_db ? '<small style="color:#fcd34d">'+s.loss_db+' dB</small>' : ''}</span>
+         <button onclick="nmDeleteSplice(${s.id}, ${hwId})"
+            style="background:#dc2626;border:none;color:#fff;padding:3px 9px;
+                   border-radius:5px;font-size:10px;cursor:pointer">×</button>
+       </div>`).join("");
+  }
+  document.getElementById("nmSpliceModal").style.display = "block";
+  window.__nmSpliceContext = { hwId, src:null, dst:null };
+}
+function nmCloseSpliceModal() {
+  document.getElementById("nmSpliceModal").style.display = "none";
+}
+function nmPickCore(el) {
+  const ctx = window.__nmSpliceContext || {};
+  const slot = ctx.src ? "dst" : "src";
+  ctx[slot] = { fiber: parseInt(el.dataset.fiber, 10),
+                core: parseInt(el.dataset.core, 10),
+                side: el.dataset.side };
+  document.getElementById("nmSplice"+slot.toUpperCase().substring(0,1)+slot.substring(1)).innerText = "";
+  const target = document.getElementById("nmSplice" + (slot==="src"?"Src":"Dst"));
+  target.style.background = "#10b981";
+  target.style.border = "2px solid #fff";
+  target.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+                                    height:100%;color:#fff;font-size:11px;font-weight:700">
+                         F${ctx[slot].fiber}<br>c${ctx[slot].core}</div>`;
+  // Highlight the picked pill
+  document.querySelectorAll(".nm-core-pill").forEach(p =>
+    p.style.outline = "");
+  el.style.outline = "3px solid #10b981";
+}
+function nmClearSplicePick() {
+  window.__nmSpliceContext = { hwId: window.__nmSpliceContext?.hwId, src:null, dst:null };
+  ["nmSpliceSrc","nmSpliceDst"].forEach(id => {
+    const e = document.getElementById(id);
+    e.style.background = "#1e293b";
+    e.style.border = "2px dashed #475569";
+    e.innerHTML = "";
+  });
+  document.querySelectorAll(".nm-core-pill").forEach(p => p.style.outline = "");
+}
+async function nmCommitSplice(hwId) {
+  const ctx = window.__nmSpliceContext || {};
+  if (!ctx.src || !ctx.dst) return alert("Pick a SRC core then a DST core");
+  const loss = parseFloat(prompt("Loss (dB)?", "0.2") || "0");
+  const r = await fetch(`${NM_API}/splice`, {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      node_hw_id: hwId,
+      src_fiber_id: ctx.src.fiber, src_core: ctx.src.core,
+      dst_fiber_id: ctx.dst.fiber, dst_core: ctx.dst.core,
+      mode: "thru", loss_db: isNaN(loss) ? null : loss,
+    })
+  });
+  const j = await r.json();
+  if (j.ok) await nmOpenSpliceModal(hwId);
+  else alert("Splice failed: " + JSON.stringify(j));
+}
+async function nmDeleteSplice(spliceId, hwId) {
+  if (!confirm("Delete this splice?")) return;
+  const r = await fetch(`${NM_API}/splice/${spliceId}`, {
+    method:"DELETE", credentials:"include" });
+  const j = await r.json();
+  if (j.ok) await nmOpenSpliceModal(hwId);
+  else alert("Delete failed");
+}
+
+// ── Hook into refresh: cache fibers + add splitter legs + fiber click→edit ──
+const __nmRefreshAll_orig = window.nmRefreshAll || nmRefreshAll;
+window.nmRefreshAll = async function patched_nmRefreshAll() {
+  // Clear edit handles before redraw
+  nmDisableFiberEdit();
+  await __nmRefreshAll_orig();
+  // After base render, fetch raw items again to add legs / dblclick splice handlers
+  let r;
+  try { r = await fetch(NM_API + "/items", { credentials:"include" }); }
+  catch(e) { return; }
+  if (!r.ok) return;
+  const j = await r.json();
+  window.__nmFibers = j.fibers || [];
+  // Add splitter legs (radial dots)
+  (j.hardware || []).forEach(h => {
+    /* _S40zv_  Couplers are 1xN devices just like splitters, only with
+       asymmetric per-leg power; they need INPUT+OUTPUT legs rendered too. */
+    if (!h.kind || (!h.kind.startsWith("splitter_")
+                    && !h.kind.startsWith("coupler_"))) return;
+    const m = nmHwById[h.id];
+    if (m && m.marker) nmDrawSplitterLegs(h, m.marker);
+  });
+  // For JC-Box / splitter, double-click marker → splice modal
+  Object.values(nmHwById).forEach(({h, marker}) => {
+    if (h.kind === "jc_box" || h.kind.startsWith("splitter_") || h.kind.startsWith("coupler_")) {  /* _S40zl3_ */
+      marker.on("dblclick", () => nmOpenSpliceModal(h.id));
+      marker.bindTooltip(
+        (h.name || h.kind) + ' • dbl-click to splice',
+        { direction:"bottom", offset:[0,8] });
+    }
+  });
+  // For each fiber polyline already drawn by base, re-attach a click-to-edit
+  // handler. We re-iterate nmFiberLayer's children:
+  nmFiberLayer.eachLayer(layer => {
+    if (!(layer instanceof L.Polyline)) return;
+    layer.on("click", function(ev) {
+      // _S40t_FIXES_  In deploy mode, hardware drop must take priority
+      // over fiber-edit. Forward the click straight to the map handler.
+      if (nmDeployKind || nmFiberMode || window.__nmReconnect) {
+        L.DomEvent.stopPropagation(ev);
+        nmOnMapClick(ev);
+        return;
+      }
+      // Find matching fiber by polyline match
+      const pts = layer.getLatLngs().map(p => [p.lat, p.lng]);
+      const match = (j.fibers || []).find(f =>
+        f.polyline.length === pts.length &&
+        Math.abs(f.polyline[0][0] - pts[0][0]) < 1e-6 &&
+        Math.abs(f.polyline[0][1] - pts[0][1]) < 1e-6);
+      if (!match) return;
+      // _S40zζ_  Block fiber-vertex editing for non-owners
+      if (match.editable === false) {
+        try { nmShowBanner("🔒 Read-only — you can only edit fibers you added",
+                            "rgba(248,113,113,.95)", "#fff");
+              setTimeout(() => nmHideBanner(), 1800); } catch(_) {}
+        return;
+      }
+      if (nmEditingFiber && nmEditingFiber.id === match.id)
+        nmDisableFiberEdit();
+      else nmEnableFiberEdit({ id: match.id,
+                                  polyline: match.polyline }, layer);
+    });
+  });
+};
+
+
+
+// ═══ _S40m_  Power Budget (fiber planning) ═════════════════════════════
+async function nmPowerBudget() {
+  const r = await fetch(NM_API + "/power-budget", { credentials:"include" });
+  if (!r.ok) return alert("Failed: HTTP " + r.status);
+  const j = await r.json();
+  const K = j.constants || {};
+  document.getElementById("nmPowerConsts").innerHTML =
+    '<b style="color:#fbcfe8">Loss model:</b> '
+    + 'Fiber ' + K.fiber_loss_db_per_km + ' dB/km &nbsp;·&nbsp; '
+    + 'Splice ' + K.splice_loss_db + ' dB &nbsp;·&nbsp; '
+    + 'Connector ' + K.connector_loss_db + ' dB &nbsp;·&nbsp; '
+    + 'Splitter 1:4 ' + K.splitter_loss[4] + ' dB / '
+    + '1:8 ' + K.splitter_loss[8] + ' dB / '
+    + '1:16 ' + K.splitter_loss[16] + ' dB &nbsp;·&nbsp; '
+    + 'Default OLT TX ' + K.default_olt_tx_dbm + ' dBm';
+  const rows = j.rows || [];
+  if (!rows.length) {
+    document.getElementById("nmPowerBody").innerHTML =
+      '<div style="padding:30px;text-align:center;color:#94a3b8">'
+      + 'No ONUs reachable through placed fibers yet. '
+      + 'Draw fibers from your OLT pin to the ONU pins so the '
+      + 'planning calculator can trace a path.</div>';
+  } else {
+    const hdr = '<tr style="background:#1e293b;color:#fbcfe8;font-size:11px;'
+              + 'letter-spacing:.08em;text-transform:uppercase">'
+              + '<th style="padding:8px;text-align:left">ONU</th>'
+              + '<th style="padding:8px">OLT</th>'
+              + '<th style="padding:8px">TX</th>'
+              + '<th style="padding:8px">Path loss</th>'
+              + '<th style="padding:8px">Expected</th>'
+              + '<th style="padding:8px">Actual</th>'
+              + '<th style="padding:8px">Δ</th>'
+              + '<th style="padding:8px">Health</th></tr>';
+    const body = rows.map(r => {
+      const dlt = r.delta_db;
+      let health, healthCol;
+      if (dlt === null || dlt === undefined) {
+        health = "No live data"; healthCol = "#64748b";
+      } else if (Math.abs(dlt) <= 2)  { health = "OK";        healthCol = "#22c55e"; }
+      else if (Math.abs(dlt) <= 5)    { health = "WARN";      healthCol = "#fbbf24"; }
+      else                             { health = "CRITICAL";  healthCol = "#ef4444"; }
+      const rxStr = (v) => (v === null || v === undefined)
+                            ? "&mdash;" : v.toFixed(2) + " dBm";
+      return '<tr style="border-top:1px solid #1e293b">'
+           + '<td style="padding:8px"><b>' + (r.onu_name || "ONU#"+r.ref_onu_id) + '</b></td>'
+           + '<td style="padding:8px;color:#94a3b8">' + r.olt_name + '</td>'
+           + '<td style="padding:8px">' + rxStr(r.olt_tx_dbm) + '</td>'
+           + '<td style="padding:8px">' + r.path_loss_db.toFixed(2) + ' dB</td>'
+           + '<td style="padding:8px">' + rxStr(r.expected_rx_dbm) + '</td>'
+           + '<td style="padding:8px">' + rxStr(r.actual_rx_dbm) + '</td>'
+           + '<td style="padding:8px"><b style="color:' + healthCol + '">'
+                + ((dlt>=0 ? "+" : "") + (dlt===null ? "—" : dlt.toFixed(2)))
+                + (dlt===null ? "" : " dB") + '</b></td>'
+           + '<td style="padding:8px"><span style="padding:3px 8px;'
+                + 'border-radius:9999px;background:' + healthCol + '22;'
+                + 'color:' + healthCol + ';font-size:11px;font-weight:700">'
+                + health + '</span></td>'
+           + '</tr>';
+    }).join("");
+    document.getElementById("nmPowerBody").innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+      + hdr + body + '</table>';
+  }
+  document.getElementById("nmPowerModal").style.display = "block";
+}
+
+
+
+// ═══ _S40n_  Connect-from-here helper ═════════════════════════════════
+function nmConnectFrom(hwId, lat, lng) {
+  // Close popups first
+  nmMap.closePopup();
+  nmCancelMode(true);
+  // Start fiber mode pre-seeded with this hardware as the origin
+  nmFiberMode = true;
+  nmFiberPts = [[lat, lng, hwId, null]];
+  document.getElementById("nm-fiber-btn").classList.add("active");
+  // Render initial dot for the origin
+  if (nmFiberTmpLayer) nmMap.removeLayer(nmFiberTmpLayer);
+  nmFiberTmpLayer = L.polyline([[lat, lng]],
+      { color:"#06b6d4", weight:4, dashArray:"6 6" }).addTo(nmMap);
+  // Same FINISH/CANCEL banner as nmToggleFiberMode
+  const b = document.getElementById("nm-banner");
+  b.innerHTML = '<span>Click on the map (or another pin/splitter leg) to draw the next fiber point.</span>'
+               + ' &nbsp; <button data-testid="nm-finish-fiber" onclick="nmFinishFiberDraw()" '
+               + 'style="background:#10b981;color:#fff;border:none;padding:4px 12px;'
+               + 'border-radius:9999px;font-weight:700;cursor:pointer;margin-left:10px">'
+               + '✓ FINISH</button>'
+               + ' <button onclick="nmCancelMode()" '
+               + 'style="background:#dc2626;color:#fff;border:none;padding:4px 12px;'
+               + 'border-radius:9999px;font-weight:700;cursor:pointer;margin-left:6px">'
+               + '✗ CANCEL</button>';
+  b.style.background = "rgba(6,182,212,.95)"; b.style.color = "#fff";
+  b.classList.add("show");
+}
+
+
+
+// ═══ _S40o_HEATMAP_  Power-budget heatmap + auto-recompute ════════════
+window.__nmPowerCache = null;     // {ts: epoch, rows: […]}
+const NM_POWER_CACHE_MS = 30_000;  // refresh after 30 s
+
+async function nmFetchPowerBudget(force) {
+  const now = Date.now();
+  if (!force && window.__nmPowerCache &&
+      now - window.__nmPowerCache.ts < NM_POWER_CACHE_MS)
+    return window.__nmPowerCache;
+  let r;
+  try { r = await fetch(NM_API + "/power-budget", { credentials:"include" }); }
+  catch(e) { return null; }
+  if (!r.ok) return null;
+  const j = await r.json();
+  window.__nmPowerCache = { ts: now, rows: j.rows || [],
+                             constants: j.constants || {},
+                             node_expected_dbm: j.node_expected_dbm || {} };
+  return window.__nmPowerCache;
+}
+
+function _nmHealthFromDelta(dlt) {
+  if (dlt === null || dlt === undefined) return null;
+  const a = Math.abs(dlt);
+  if (a <= 2) return { col:"#22c55e", grade:"OK" };
+  if (a <= 5) return { col:"#fbbf24", grade:"WARN" };
+  return         { col:"#ef4444", grade:"CRIT" };
+}
+
+async function nmRenderHeatmap(force) {
+  const cache = await nmFetchPowerBudget(force);
+  if (!cache) return;
+  const byOnuHw = {};
+  cache.rows.forEach(r => { byOnuHw[r.onu_hw_id] = r; });
+  // Iterate every ONU marker on the map and decorate it
+  Object.values(nmHwById || {}).forEach(({h, marker}) => {
+    if (h.kind !== "onu") return;
+    // Strip any prior ring/badge first
+    if (marker.__heatRing) {
+      try { nmHwLayer.removeLayer(marker.__heatRing); } catch(_) {}
+      marker.__heatRing = null;
+    }
+    const row = byOnuHw[h.id];
+    if (!row) return;
+    const health = _nmHealthFromDelta(row.delta_db);
+    if (!health) return;
+    // Render a CircleMarker ring underneath the ONU divIcon
+    marker.__heatRing = L.circleMarker([h.lat, h.lng], {
+      radius:22, color:health.col, weight:3,
+      opacity:.85, fillColor:health.col, fillOpacity:.12,
+      interactive:false,
+    });
+    marker.__heatRing.addTo(nmHwLayer);
+    marker.__heatRing.bringToBack();
+    // Augment the existing tooltip with Δ
+    const tip = marker.getTooltip();
+    if (tip) {
+      const txt = tip.getContent();
+      if (!/Δ/.test(txt)) {
+        const dlt = row.delta_db;
+        const sign = dlt >= 0 ? "+" : "";
+        const newTxt = txt + ` <span style="color:${health.col}">Δ ${sign}${dlt.toFixed(1)}</span>`;
+        marker.setTooltipContent(newTxt);
+      }
+    }
+  });
+}
+
+// Hook: auto-recompute after any fiber/hw change so the heatmap stays fresh.
+function _nmInvalidatePower() {
+  window.__nmPowerCache = null;
+  // Defer slightly so the calling fetch's await resolves first
+  setTimeout(() => nmRenderHeatmap(true).catch(() => {}), 200);
+}
+
+// Wrap the hot endpoints. We only patch `fetch` calls that mutate map data.
+(function _wrapFetchInvalidate() {
+  const _fetch = window.fetch.bind(window);
+  window.fetch = async function patched(input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    const method = (init && init.method ? init.method : "GET").toUpperCase();
+    const r = await _fetch(input, init);
+    try {
+      // Any successful mutation on /network-map/... (except /power-budget)
+      // invalidates the power-budget cache.
+      if (r.ok && /\/api\/admin\/network-map\/(hardware|fiber|splice|onus)/.test(url)
+          && !/\/power-budget/.test(url)
+          && (method === "POST" || method === "PATCH" || method === "DELETE")) {
+        _nmInvalidatePower();
+      }
+    } catch(_) {}
+    return r;
+  };
+})();
+
+// Run heatmap once on load (after first refresh paints) and again every 60s
+setInterval(() => nmRenderHeatmap(true).catch(() => {}), 60_000);
+window.addEventListener("load", () =>
+  setTimeout(() => nmRenderHeatmap(true).catch(() => {}), 1500));
+
+// Also re-render heatmap whenever nmRefreshAll completes.
+const __nmRefreshOrig2 = window.nmRefreshAll;
+window.nmRefreshAll = async function _heat_refresh() {
+  await __nmRefreshOrig2();
+  setTimeout(() => nmRenderHeatmap(false).catch(() => {}), 400);
+};
+
+
+
+// ═══ _S40p_OLT_FANOUT_  OLT PON-port arms + dBm-aware leg labels ══════
+window.nmPortIndex = window.nmPortIndex || {};   // {olt_hw_id: [{lat,lng,port_idx}…]}
+
+// Splitter loss table — keep in sync with backend
+const NM_SPLITTER_LOSS = { 2: 3.5, 4: 7.0, 8: 10.5, 16: 14.0, 32: 17.0, 64: 20.5 };  /* _S40zm2_ */
+
+function nmDrawOltArms(h, mark) {
+  const props = h.props || {};
+  const n = props.pon_count || 4;       // default 4 if unknown
+  const tx = props.tx_per_port || {};
+  const center = mark.getLatLng();
+  const _oltCanEdit = (h.editable !== false);   // _S40zζ_  RBAC for OLT arms
+  const zoom = nmMap.getZoom();
+  let rad  = Math.max(0.00012, 0.0006 / Math.pow(2, (zoom - 15)));
+  if (zoom < 16) rad = 0.00018;   // _S40v_  hard cap when zoomed out
+  window.nmPortIndex[h.id] = [];
+  // Fan EAST (right) like splitter outputs but with full 180° spread
+  const fanArc = Math.PI;     // 180°
+  const portOverrides = props.port_pos || {};
+  for (let i = 0; i < n; i++) {
+    const portIdx = i + 1;
+    const ov = portOverrides[portIdx];
+    let lat, lng;
+    if (ov && typeof ov.lat === "number" && typeof ov.lng === "number") {
+      lat = ov.lat; lng = ov.lng;
+    } else {
+      const angle = (n === 1) ? 0
+                  : (-Math.PI/2 + (Math.PI * i / (n - 1)));   // 180° fan
+      lat = center.lat + rad * Math.sin(angle);
+      lng = center.lng + rad * Math.cos(angle);
+    }
+    const portTx  = tx[portIdx];
+    const txStr   = (portTx !== undefined && portTx !== null)
+                     ? `+${portTx.toFixed(1)} dBm` : `+5 dBm`;  // _S40zl_
+    const armLine = L.polyline([[center.lat, center.lng], [lat, lng]],
+                 { color:"#a78bfa", weight:3, opacity:.9 })
+     .addTo(nmHwLayer);
+    const dot = L.marker([lat, lng], {
+      draggable:_oltCanEdit, zIndexOffset:300,
+      icon: L.divIcon({ className:"",
+        html:'<div title="Click to disconnect / drag to connect" style="width:16px;height:16px;border-radius:50%;'
+             +'background:#7c3aed;border:2.5px solid #fff;'
+             +'box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer"></div>',
+        iconSize:[16,16], iconAnchor:[8,8] })
+    }).addTo(nmHwLayer);
+    dot.bindTooltip(`<b>PON #${portIdx}</b> TX ${txStr} <span class="nm-leg-pwr" data-hw="${h.id}" data-leg="port-${portIdx}"></span>`,
+                    { permanent:true, direction:"right", offset:[8,0],
+                      className:"nm-onu-label nm-hw-tip", interactive:false });
+    dot.on("drag", e => armLine.setLatLngs([[center.lat,center.lng],
+                                              e.target.getLatLng()]));
+    dot.on("dragend", async e => {
+      const ll = e.target.getLatLng();
+      const start = e.target.__dragStartLL || { lat, lng };
+      // _S40t_FIXES_  Keep PON-port fibers attached
+      await _nmLegMoveFollow(h.id, start.lat, start.lng, ll.lat, ll.lng);
+      const newOv = Object.assign({}, portOverrides);
+      newOv[portIdx] = { lat: ll.lat, lng: ll.lng };
+      const newProps = Object.assign({}, props, { port_pos: newOv });
+      await fetch(`${NM_API}/hardware/${h.id}`, {
+        method:"PATCH", credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ props: newProps }) });
+      const pi = window.nmPortIndex[h.id] || [];
+      const target = pi.find(x => x.port_idx === portIdx);
+      if (target) { target.lat = ll.lat; target.lng = ll.lng; }
+      // _S40u_  Auto-connect PON port → other hardware on drop
+      await _nmTryAutoConnectAfterDrag(h.id, -100 - portIdx, ll.lat, ll.lng);
+      await nmRefreshAll();
+    });
+    window.nmPortIndex[h.id].push({ lat, lng, port_idx: portIdx,
+                                       olt_hw_id: h.id });
+  }
+}
+
+
+/* _S40zv_  Coupler per-leg loss (dB). Mirrors backend _coupler_leg_loss().
+   leg_idx 0 = first ratio component, 1 = second, -1 = input arm. */
+function nmCouplerLegLoss(hw, legIdx) {
+  if (!hw || !hw.kind) return 0.0;
+  if (legIdx === null || legIdx === undefined || legIdx < 0) return 0.5;
+  try {
+    const ratio = (hw.props && hw.props.ratio) || hw.kind.split("_")[1] || "50x50";
+    const parts = ratio.replace(":", "x").split("x").map(s => parseInt(s, 10));
+    const a = parts[0], b = parts[1] || (100 - a);
+    const pct = legIdx === 0 ? a : (legIdx === 1 ? b : 50);
+    return Math.max(0, -10.0 * Math.log10(pct / 100.0) + 0.5);
+  } catch (_) { return 3.7; }
+}
+
+// Augment splitter-leg tooltips with input/output dBm from power budget cache
+function nmDecorateSplitterLegsWithDbm() {
+  const cache = window.__nmPowerCache;
+  if (!cache || !cache.node_expected_dbm) return;
+  const nodeExp = cache.node_expected_dbm;
+  // For each splitter or coupler, compute per-leg output dBm.
+  Object.keys(window.nmLegIndex || {}).forEach(sid => {
+    const inp = nodeExp[sid];
+    if (inp === undefined) return;
+    const hw = (nmHwById[sid] || {}).h;
+    if (!hw) return;
+    const isCoupler = hw.kind && hw.kind.startsWith("coupler_");
+    const splOut = (hw.props && hw.props.output_count) || 4;
+    // Update OUTPUT-leg tooltips — per-leg for couplers, flat for splitters
+    (window.nmLegIndex[sid] || []).forEach(leg => {
+      const out = isCoupler
+        ? inp - nmCouplerLegLoss(hw, leg.leg_idx)
+        : inp - (NM_SPLITTER_LOSS[splOut] || 10.5);
+      nmHwLayer.eachLayer(l => {
+        if (!l.getLatLng) return;
+        const ll = l.getLatLng();
+        if (Math.abs(ll.lat - leg.lat) < 1e-7
+            && Math.abs(ll.lng - leg.lng) < 1e-7
+            && l.getTooltip) {
+          const t = l.getTooltip();
+          if (t) {
+            const orig = t.getContent();
+            if (!/dBm/.test(orig))
+              l.setTooltipContent(`${orig}<br>~${out.toFixed(1)} dBm`);
+          }
+        }
+      });
+    });
+    // INPUT arm tooltip
+    const arm = (window.nmInputIndex || {})[sid];
+    if (arm) {
+      nmHwLayer.eachLayer(l => {
+        if (!l.getLatLng) return;
+        const ll = l.getLatLng();
+        if (Math.abs(ll.lat - arm.lat) < 1e-7
+            && Math.abs(ll.lng - arm.lng) < 1e-7
+            && l.getTooltip) {
+          const t = l.getTooltip();
+          if (t) {
+            const orig = t.getContent();
+            if (!/dBm/.test(orig))
+              l.setTooltipContent(`${orig}<br>~${inp.toFixed(1)} dBm in`);
+          }
+        }
+      });
+    }
+  });
+}
+
+// Hook into the existing render pipeline: redraw OLT arms + splitter dBm
+// after every refresh, and after every heatmap update.
+const __nmRefreshOrig3 = window.nmRefreshAll;
+window.nmRefreshAll = async function _olt_arms_refresh() {
+  await __nmRefreshOrig3();
+  // OLT arms
+  Object.values(nmHwById || {}).forEach(({h, marker}) => {
+    if (h.kind === "olt") nmDrawOltArms(h, marker);
+  });
+  // After a brief delay, decorate splitter dBm (heatmap fetch finishes ~200 ms)
+  setTimeout(() => nmDecorateSplitterLegsWithDbm(), 800);
+};
+
+// Snap also matches OLT port arms (treats them like splitter legs but with port_idx)
+const __nmSnapOrig = window.nmSnapToNearestHw || nmSnapToNearestHw;
+window.nmSnapToNearestHw = function _snap_with_olt_ports(lat, lng, maxMeters) {
+  const baseRes = __nmSnapOrig(lat, lng, maxMeters);
+  let [bLat, bLng, bId, bLeg] = baseRes;
+  let bestDist = (bId !== null && bId !== undefined)
+                  ? nmMap.distance([lat,lng], [bLat, bLng]) : Infinity;
+  const ports = window.nmPortIndex || {};
+  Object.keys(ports).forEach(oid => {
+    (ports[oid] || []).forEach(pt => {
+      const d = nmMap.distance([lat,lng], [pt.lat, pt.lng]);
+      if (d < bestDist) {
+        bestDist = d;
+        bLat = pt.lat; bLng = pt.lng; bId = pt.olt_hw_id;
+        bLeg = -100 - pt.port_idx;     // negative encodes "olt port idx"
+      }
+    });
+  });
+  if (bId !== null && bId !== undefined && bestDist <= (maxMeters || 30))
+    return [bLat, bLng, bId, bLeg];
+  return [lat, lng, null, null];
+};
+
+
+
+// ═══ _S40s_  Fiber-hit detection + connect-endpoint helpers ═══════════
+// Closest-point-to-segment distance (haversine-ish, good enough for ≤ 100 m)
+function _nmDistToSegmentMeters(lat, lng, a, b) {
+  // Project lat/lng onto the segment a-b and return distance in metres
+  const ax = a[1], ay = a[0], bx = b[1], by = b[0];
+  const px = lng,   py = lat;
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx*dx + dy*dy;
+  if (lenSq === 0) return nmMap.distance([lat,lng], a);
+  let t = ((px - ax)*dx + (py - ay)*dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projLng = ax + t*dx, projLat = ay + t*dy;
+  return nmMap.distance([lat,lng], [projLat, projLng]);
+}
+
+function _nmFindFiberHit(lat, lng, maxMeters) {
+  // Return {fiber, segment} closest to the click within maxMeters
+  let best = null, bestD = Infinity;
+  (window.__nmFibers || []).forEach(f => {
+    const poly = f.polyline || [];
+    for (let i = 1; i < poly.length; i++) {
+      const d = _nmDistToSegmentMeters(lat, lng, poly[i-1], poly[i]);
+      if (d < bestD) { bestD = d; best = { fiber: f, segment: i-1 }; }
+    }
+  });
+  if (best && bestD <= (maxMeters || 25)) return best;
+  return null;
+}
+
+// Connect-endpoint workflow: user clicks on a fiber popup's "Reconnect End"
+// button → script highlights the two endpoints → next leg/port click PATCHes
+// the matching end.
+window.__nmReconnect = null;   // {fiber, end: 'src'|'dst'}
+async function nmStartReconnect(fiberId, end) {
+  const fiber = (window.__nmFibers || []).find(f => f.id == fiberId);
+  if (!fiber) return alert("Fiber not loaded");
+  window.__nmReconnect = { fiber, end };
+  nmMap.closePopup();
+  nmShowBanner(`Click any OLT port arm or splitter leg to reconnect the ${end.toUpperCase()} end of fiber #${fiberId}. (or click ✗ Cancel)`,
+                "rgba(6,182,212,.95)", "#fff");
+  // Show cancel button
+  document.getElementById("nm-banner").innerHTML +=
+    ` <button onclick="nmCancelReconnect()" style="margin-left:10px;`
+    + `padding:4px 12px;border-radius:9999px;background:#dc2626;color:#fff;`
+    + `border:none;cursor:pointer;font-weight:700">✗ CANCEL</button>`;
+}
+function nmCancelReconnect() {
+  window.__nmReconnect = null;
+  nmHideBanner();
+}
+async function _nmTryConsumeReconnect(snapResult) {
+  if (!window.__nmReconnect) return false;
+  const [lat, lng, hwId, legIdx] = snapResult;
+  if (hwId === null || hwId === undefined) return false;
+  const ctx = window.__nmReconnect;
+  const body = {};
+  if (ctx.end === "src") body.src_hw_id = hwId;
+  else                    body.dst_hw_id = hwId;
+  // Update polyline endpoint to snap location
+  const newPoly = (ctx.fiber.polyline || []).slice();
+  if (ctx.end === "src") newPoly[0] = [lat, lng];
+  else                    newPoly[newPoly.length-1] = [lat, lng];
+  body.polyline = newPoly;
+  const r = await fetch(`${NM_API}/fiber/${ctx.fiber.id}`, {
+    method:"PATCH", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body) });
+  const j = await r.json();
+  window.__nmReconnect = null; nmHideBanner();
+  if (j.ok) await nmRefreshAll();
+  else alert("Reconnect failed: " + JSON.stringify(j));
+  return true;
+}
+
+// Hook the existing map click — if a reconnect is in flight, consume the
+// click first; otherwise fall through.
+const __nmOnMapClickOrig = window.nmOnMapClick;
+window.nmOnMapClick = async function _click_reconnect(e) {
+  if (window.__nmReconnect) {
+    const snap = nmSnapToNearestHw(e.latlng.lat, e.latlng.lng, 35);
+    if (snap[2] !== null) { await _nmTryConsumeReconnect(snap); return; }
+  }
+  await __nmOnMapClickOrig(e);
+};
+
+// Augment fiber popup buttons — adds "Reconnect SRC / DST" buttons by
+// re-binding popups after refresh
+const __nmRefreshOrig4 = window.nmRefreshAll;
+window.nmRefreshAll = async function _refresh_with_reconnect() {
+  await __nmRefreshOrig4();
+  // After base render, walk each polyline layer and append reconnect buttons
+  nmFiberLayer.eachLayer(layer => {
+    if (!(layer instanceof L.Polyline)) return;
+    const cur = layer.getPopup();
+    if (!cur) return;
+    let html = cur.getContent();
+    if (typeof html !== "string" || html.includes("nmStartReconnect")) return;
+    // Try to find which fiber this layer belongs to
+    const pts = layer.getLatLngs().map(p => [p.lat, p.lng]);
+    const match = (window.__nmFibers || []).find(f =>
+      f.polyline && f.polyline.length === pts.length &&
+      Math.abs(f.polyline[0][0] - pts[0][0]) < 1e-6);
+    if (!match) return;
+    const extra = `<br><div style="margin-top:6px;display:flex;gap:4px">`
+      + `<button class="nm-btn" style="padding:3px 8px;font-size:10px;background:#06b6d4;color:#fff" `
+      + `onclick="nmStartReconnect(${match.id}, 'src')">↤ Reconnect SRC</button>`
+      + `<button class="nm-btn" style="padding:3px 8px;font-size:10px;background:#06b6d4;color:#fff" `
+      + `onclick="nmStartReconnect(${match.id}, 'dst')">Reconnect DST ↦</button></div>`;
+    layer.setPopupContent(html + extra);
+  });
+};
+
+// _S40s_LEG_DRAG_  marker so re-application detects already-patched
+window._S40s_LEG_DRAG_ = true;
+
+// _S40t_FIXES_  Permanent leg dBm labels — robust DOM-based decorator
+window.nmDecorateSplitterLegsWithDbm = function _decorate_perm() {
+  const cache = window.__nmPowerCache;
+  if (!cache || !cache.node_expected_dbm) return;
+  const ne = cache.node_expected_dbm;
+  // Iterate every tooltip; replace the empty <span class="nm-leg-pwr"
+  // data-hw=X data-leg=Y> tag with the computed dBm.
+  // 1. Splitter input/output legs
+  Object.keys(window.nmLegIndex || {}).forEach(sid => {
+    const inp = ne[sid]; if (inp === undefined) return;
+    const hw = (nmHwById[sid] || {}).h;
+    if (!hw) return;
+    const isCoupler = hw.kind && hw.kind.startsWith("coupler_");
+    const splOut = (hw.props && hw.props.output_count) || 4;
+    nmHwLayer.eachLayer(l => {
+      if (!l.getTooltip) return;
+      const t = l.getTooltip(); if (!t) return;
+      const txt = t.getContent();
+      if (typeof txt !== "string") return;
+      // Match input arm (-1)
+      const inMatch = new RegExp(`<span class="nm-leg-pwr" data-hw="${sid}" data-leg="-1"[^>]*></span>`);
+      if (inMatch.test(txt)) {
+        t.setContent(txt.replace(inMatch,
+          `<span class="nm-leg-pwr" data-hw="${sid}" data-leg="-1" style="color:#fbbf24;font-weight:700">${inp >= 0 ? "+" : ""}${inp.toFixed(1)} dBm</span>`));
+        return;
+      }
+      // Match output legs — per-leg for couplers, flat for splitters
+      const outMatch = new RegExp(`<span class="nm-leg-pwr" data-hw="${sid}" data-leg="(\\d+)"[^>]*></span>`);
+      const m = txt.match(outMatch);
+      if (m) {
+        const legI = parseInt(m[1], 10);
+        const out = isCoupler
+          ? inp - nmCouplerLegLoss(hw, legI)
+          : inp - (NM_SPLITTER_LOSS[splOut] || 10.5);
+        t.setContent(txt.replace(outMatch,
+          `<span class="nm-leg-pwr" data-hw="${sid}" data-leg="$1" style="color:#fbbf24;font-weight:700">${out >= 0 ? "+" : ""}${out.toFixed(1)} dBm</span>`));
+      }
+    });
+  });
+  // _S40zl_  OLT PON ports SKIPPED: TX is the actual output, so the
+  // tooltip's "TX +5 dBm" is correct. The power-budget engine returns
+  // an inverse "input dBm" for OLTs which doesn't apply here.
+  // No per-port decoration on OLTs.
+
+};
+
+
+
+// ═══ _S40t_FIXES_  Leg-move helper: keep connected fibers attached when
+// a splitter leg / OLT port / splitter input arm is dragged. Triggers a
+// server-side bulk update via the new /leg-move endpoint.
+async function _nmLegMoveFollow(hwId, oldLat, oldLng, newLat, newLng) {
+  try {
+    await fetch(`${NM_API}/hardware/${hwId}/leg-move`, {
+      method:"POST", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({old_lat: oldLat, old_lng: oldLng,
+                              new_lat: newLat, new_lng: newLng,
+                              tolerance_m: 5})});
+  } catch(_) { /* best-effort */ }
+}
+
+// Capture starting lat/lng on every draggable leg/arm dot so we can
+// look up which fiber endpoint to follow.
+window.__nmDragStart = {};   // markerCid -> {lat, lng}
+(function _capture_drag_start() {
+  const _origAddTo = L.Marker.prototype.addTo;
+  // Intercept .on("dragstart") on draggable markers via Leaflet hook
+  L.Marker.addInitHook(function() {
+    this.on("dragstart", () => {
+      const ll = this.getLatLng();
+      this.__dragStartLL = { lat: ll.lat, lng: ll.lng };
+    });
+  });
+})();
+
+// Click on a splitter leg dot (single click) → show "Disconnect" popup
+// when that leg has a connected fiber. We use Leaflet popup rather than
+// a custom modal for simplicity.
+window.nmShowLegDisconnect = function(splitterId, legIdx, lat, lng) {
+  // _S40zl_  Improved leg-fiber matching:
+  //   • legIdx === -1 (INPUT arm): any fiber whose dst_hw_id is this splitter
+  //   • legIdx >= 0  (OUTPUT leg): any fiber whose src_hw_id is this splitter
+  //                  AND src_leg_idx/leg_idx matches (or no leg_idx).
+  const splitId = parseInt(splitterId);
+  const fb = (window.__nmFibers || []).find(f => {
+    const fp = f.props || {};
+    if (legIdx === -1) {
+      // INPUT — match fibers whose DST is this hardware
+      if (parseInt(f.dst_hw_id) === splitId) {
+        // Either explicitly tagged as input (-1) OR no tag (legacy) — both ok
+        const tag = (fp.dst_leg_idx !== undefined) ? fp.dst_leg_idx : -1;
+        return tag === -1 || tag === legIdx;
+      }
+      return false;
+    }
+    // OUTPUT leg N
+    if (parseInt(f.src_hw_id) === splitId) {
+      const tag = (fp.src_leg_idx !== undefined) ? fp.src_leg_idx
+                : (fp.leg_idx !== undefined ? fp.leg_idx : null);
+      return tag === legIdx || (tag === null && legIdx === 0);
+    }
+    return false;
+  });
+  const html = fb
+    ? `<b>Splitter leg #${legIdx+1}</b><br>
+       Connected to fiber #${fb.id} (${fb.color || 'blue'})<br>
+       <button class="nm-btn danger" style="margin-top:6px;padding:4px 10px;font-size:11px"
+         onclick="nmDisconnectLeg(${fb.id}, ${splitterId})">✗ Disconnect</button>`
+    : `<b>Splitter leg #${legIdx+1}</b><br><small>No fiber attached.</small>`;
+  L.popup({offset:[0,-10]}).setLatLng([lat,lng]).setContent(html).openOn(nmMap);
+};
+window.nmDisconnectLeg = async function(fiberId, hwId) {
+  if (!confirm("Disconnect this fiber from the leg?")) return;
+  const fb = (window.__nmFibers || []).find(f => f.id == fiberId);
+  if (!fb) return alert("Fiber not loaded");
+  const body = {};
+  if (fb.src_hw_id == hwId) body.src_hw_id = null;
+  else if (fb.dst_hw_id == hwId) body.dst_hw_id = null;
+  else return alert("Fiber not actually connected to this hardware");
+  const r = await fetch(`${NM_API}/fiber/${fiberId}`, {
+    method:"PATCH", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body)});
+  const j = await r.json();
+  nmMap.closePopup();
+  if (j.ok) await nmRefreshAll();
+  else alert("Disconnect failed: " + JSON.stringify(j));
+};
+
+// _S40t_FIXES_  Auto-fitBounds on first paint when hardware exists but
+// the current map view is far from any pin.
+window.__nmFirstFitDone = false;
+async function _nmAutoFit() {  // _S40t2_
+  if (window.__nmFirstFitDone) return;
+  // nmHwById is `let`-scoped at module top — bare identifier picks it up
+  const hwArr = Object.values(nmHwById || {});
+  if (!hwArr.length) return;
+  const lls = hwArr.map(({h}) => [h.lat, h.lng]).filter(p =>
+                p[0] != null && p[1] != null);
+  if (!lls.length) return;
+  const b = nmMap.getBounds();
+  const anyVisible = lls.some(p => b.contains(p));
+  if (!anyVisible) {
+    // _S40v_  Register the moveend handler BEFORE fitBounds and use a
+    // fallback timeout in case moveend fires synchronously or not at all.
+    let __redrawTriggered = false;
+    const __doRedraw = () => {
+      if (__redrawTriggered) return;
+      __redrawTriggered = true;
+      setTimeout(() => {
+        // Hard-clear hw layer to remove stale leg polylines/dots
+        try { nmHwLayer.clearLayers(); } catch(_) {}
+        window.nmRefreshAll && window.nmRefreshAll();
+      }, 150);
+    };
+    nmMap.once("moveend", __doRedraw);
+    nmMap.fitBounds(lls, { padding:[60,60], maxZoom:18 });
+    // Belt-and-braces fallback: 700ms is enough for any fitBounds animation
+    setTimeout(__doRedraw, 700);
+  }
+  window.__nmFirstFitDone = true;
+}
+
+// _S40u_  Also re-render legs when the user pans/zooms enough that the
+// rad-aware leg size becomes wrong. Throttled so we don't refresh on
+// every wheel tick.
+window.__nmLastZoom = null;
+nmMap.on("zoomend", () => {
+  const z = nmMap.getZoom();
+  if (window.__nmLastZoom == null) { window.__nmLastZoom = z; return; }
+  if (Math.abs(z - window.__nmLastZoom) >= 1) {
+    window.__nmLastZoom = z;
+    if (window.__nmZoomRedrawT) clearTimeout(window.__nmZoomRedrawT);
+    window.__nmZoomRedrawT = setTimeout(() => {
+      // Only redraw splitter legs + OLT arms — keep markers/fibers as-is
+      try {
+        // Find splitter / OLT markers and clear+redraw their legs
+        // Simplest: full refresh
+        window.nmRefreshAll && window.nmRefreshAll();
+      } catch(_) {}
+    }, 350);
+  }
+});
+const __nmRefreshOrig5 = window.nmRefreshAll;
+window.nmRefreshAll = async function _autofit_refresh() {
+  await __nmRefreshOrig5();
+  setTimeout(() => _nmAutoFit().catch(() => {}), 300);
+  // Re-run dBm decorator after refresh — backend power data is in cache by now
+  setTimeout(() => {
+    nmFetchPowerBudget(false).then(() => {
+      try { nmDecorateSplitterLegsWithDbm(); } catch(_) {}
+    });
+  }, 600);
+};
+
+
+
+
+// ═══ _S40u_  Auto-connect on leg drag-drop ═════════════════════════════
+// When a splitter OUT leg / splitter INPUT arm / OLT PON port is dragged
+// and dropped on TOP of (within 30 m of) another hardware's leg or pin,
+// propose creating a fiber that connects the two.
+
+/* _S40zr_  Populate Deploy panel with real OLTs from olt_settings table. */
+async function nmReloadOltList() {
+  try {
+    const r = await fetch('/api/admin/olt/olts', {credentials:'include'});
+    if (!r.ok) return;
+    const j = await r.json();
+    const olts = (j && (j.olts || j.items || j.data)) || (Array.isArray(j) ? j : []);
+    const host = document.getElementById('nm-olt-list-real');
+    if (!host) return;
+    /* _S40zw_  Hide the "Generic OLT…" fallback when real OLTs are
+       configured so the deploy panel matches the OLT dashboard count. */
+    const genericBtn = document.querySelector('[data-testid="hw-olt-generic"]');
+    if (genericBtn) genericBtn.style.display = olts.length ? "none" : "";
+    if (!olts.length) { host.innerHTML = ''; return; }
+    /* Track which OLTs are already pinned on the map so the user can spot duplicates. */
+    const pinned = new Set();
+    (window.__nmFibers || []);
+    (window.nmHwById || {});
+    for (const k in (window.nmHwById || {})) {
+      const h = window.nmHwById[k] && window.nmHwById[k].h;
+      if (h && h.kind === 'olt' && h.ref_olt_id) pinned.add(h.ref_olt_id);
+    }
+    host.innerHTML = olts.map(o => {
+      const id = o.id || o.olt_id;
+      const nm = (o.name || o.olt_name || ('OLT#' + id)).replace(/"/g, '&quot;');
+      const tag = pinned.has(id) ? ' <span style="color:#22c55e;font-size:10px">●</span>' : '';
+      return `<button class="nm-hw-btn" data-testid="hw-olt-real-${id}"
+              onclick='nmStartDeploy("olt", ${id}, ${JSON.stringify(o.name || ("OLT#"+id))})'>
+                <span class="nm-hw-icon" style="background:#7c3aed">B</span>
+                ${nm}${tag}
+              </button>`;
+    }).join('');
+  } catch(_) {}
+}
+async function _nmTryAutoConnectAfterDrag(srcHwId, srcLegIdx,
+                                            dropLat, dropLng) {
+  // Snap to nearest leg / port / hw pin (excluding our own splitter)
+  const snap = nmSnapToNearestHw(dropLat, dropLng, 50);  // _S40x_  more forgiving
+  const [snapLat, snapLng, snapHwId, snapLegIdx] = snap;
+  if (snapHwId === null || snapHwId === undefined) return false;
+  if (snapHwId === srcHwId) return false;   // dropped on own splitter
+  // Get source center for the polyline
+  const srcHw = (typeof nmHwById !== 'undefined' && nmHwById[srcHwId]) || null;
+  if (!srcHw) return false;
+  const srcCenter = srcHw.marker.getLatLng();
+  // Confirm
+  const targetName = (nmHwById[snapHwId] && nmHwById[snapHwId].h.name)
+                       || ('HW#' + snapHwId);
+  // _S40w_  Auto-connect without confirm — just do it
+  // (toast feedback shown on success below)
+  // Build the body
+  const body = {
+    color: 'blue',
+    core_count: 1,
+    polyline: [[srcCenter.lat, srcCenter.lng], [snapLat, snapLng]],
+    src_hw_id: srcHwId,
+    dst_hw_id: snapHwId,
+    props: {}
+  };
+  if (srcLegIdx !== null && srcLegIdx !== undefined && srcLegIdx >= 0)
+    body.props.src_leg_idx = srcLegIdx;
+  if (snapLegIdx !== null && snapLegIdx !== undefined)
+    body.props.dst_leg_idx = snapLegIdx;
+  const r = await fetch(NM_API + "/fiber", {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!j.ok) { alert("Auto-connect failed: " + JSON.stringify(j));
+                return false; }
+  // _S40w_  Brief toast banner on success
+  try { nmShowBanner(`✓ Connected to ${targetName}`,
+                       "rgba(34,197,94,.95)", "#fff");
+        setTimeout(() => nmHideBanner(), 1800); } catch(_) {}
+  return true;
+}
+
+
+/* _S40zx_  Path Trace — visualises the upstream route from an ONU back to
+   its OLT. Highlights every fiber polyline traversed and renders a sidebar
+   showing hop-by-hop dB loss + running cumulative dBm. */
+window.__nmPathOverlays = [];
+window.__nmPathHopMarkers = [];
+
+function _nmHopColorForCum(cum) {
+  /* Amber → red gradient for getting worse, green for healthy. */
+  if (cum >= -8)  return "#22c55e";   // green: comfortable
+  if (cum >= -20) return "#fbbf24";   // amber: budget warning
+  if (cum >= -25) return "#f97316";   // orange: marginal
+  return "#dc2626";                    // red: under budget
+}
+
+async function nmStartPathTrace(onuHwId) {
+  nmClearPathTrace();   // wipe any previous overlay
+  const sidebar = document.getElementById("nm-path-trace-panel");
+  sidebar.style.display = "block";
+  sidebar.querySelector("[data-testid=path-trace-body]").innerHTML =
+    `<div style="color:#94a3b8;padding:14px 0">Loading path…</div>`;
+  try {
+    const r = await fetch(`${NM_API}/onus/${onuHwId}/path-trace`,
+                            {credentials:"include"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    if (!j.ok || !j.hops || !j.hops.length) {
+      sidebar.querySelector("[data-testid=path-trace-body]").innerHTML =
+        `<div style="color:#f87171;padding:14px 0">
+           ${j.error || "No upstream OLT path found for this ONU."}
+         </div>`;
+      return;
+    }
+    nmRenderPathTrace(j);
+  } catch(err) {
+    sidebar.querySelector("[data-testid=path-trace-body]").innerHTML =
+      `<div style="color:#f87171;padding:14px 0">
+         Trace failed: ${(err && err.message) || err}
+       </div>`;
+  }
+}
+
+function nmRenderPathTrace(j) {
+  const sb = document.getElementById("nm-path-trace-panel");
+  const body = sb.querySelector("[data-testid=path-trace-body]");
+  /* Header — OLT TX, total loss, expected/actual RX */
+  const dRx = (j.delta_db !== null && j.delta_db !== undefined)
+    ? `<span style="color:${Math.abs(j.delta_db)<=2?'#22c55e':'#fbbf24'};
+          font-weight:600">Δ ${j.delta_db>=0?"+":""}${j.delta_db} dB</span>`
+    : "";
+  const actual = (j.onu.actual_rx_dbm !== null && j.onu.actual_rx_dbm !== undefined)
+    ? `<div style="color:#cbd5e1">Actual RX:
+        <b style="color:#a5b4fc">${j.onu.actual_rx_dbm.toFixed(2)} dBm</b>
+        ${dRx}</div>`
+    : "";
+  let html = `
+    <div style="background:rgba(99,102,241,.15);padding:10px 12px;
+                border-radius:8px;margin-bottom:10px;border-left:3px solid #6366f1">
+      <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;
+                  letter-spacing:.5px">Power Budget</div>
+      <div style="display:flex;justify-content:space-between;
+                  align-items:center;margin-top:4px">
+        <div>
+          <div style="color:#e2e8f0">${j.olt.name}
+              <span style="color:#94a3b8">→</span> ${j.onu.name}</div>
+          <div style="color:#cbd5e1;font-size:11px;margin-top:2px">
+              TX: <b style="color:#22c55e">+${j.olt.tx_dbm} dBm</b>
+              &nbsp;Total loss: <b>${j.total_loss_db} dB</b></div>
+        </div>
+      </div>
+      <div style="margin-top:6px;color:#cbd5e1">Expected RX:
+        <b style="color:${_nmHopColorForCum(j.expected_rx_dbm)}">
+          ${j.expected_rx_dbm.toFixed(2)} dBm</b></div>
+      ${actual}
+    </div>
+  `;
+
+  /* Hop list */
+  html += `<div data-testid="path-trace-hops">`;
+  j.hops.forEach((h, idx) => {
+    const c = _nmHopColorForCum(h.cum_dbm);
+    if (h.type === "node") {
+      const legTxt = (h.leg_in !== null && h.leg_in !== undefined && h.leg_in >= 0)
+        ? ` in #${h.leg_in+1}` : (h.leg_in === -1 ? " in" : "");
+      const legOut = (h.leg_out !== null && h.leg_out !== undefined && h.leg_out >= 0)
+        ? ` ↪ out #${h.leg_out+1}` : "";
+      const ic = h.kind === "olt" ? "📡"
+              : h.kind === "onu" ? "🏠"
+              : h.kind === "jc_box" ? "▣"
+              : h.kind.startsWith("coupler_") ? "◐"
+              : h.kind.startsWith("splitter_") ? "⌬" : "•";
+      html += `
+        <div data-testid="path-trace-hop-${idx}"
+             onclick="nmPanToHop(${h.lat},${h.lng})"
+             style="display:flex;align-items:center;gap:8px;padding:6px 8px;
+                    margin-bottom:3px;background:rgba(30,41,59,.7);
+                    border-radius:6px;cursor:pointer;
+                    border-left:3px solid ${c}">
+          <div style="font-size:14px">${ic}</div>
+          <div style="flex:1;min-width:0">
+            <div style="color:#e2e8f0;font-size:12px;font-weight:600;
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              ${h.name || h.kind}<span style="color:#94a3b8;font-weight:400">${legTxt}${legOut}</span>
+            </div>
+            <div style="color:#94a3b8;font-size:10px">
+              ${h.kind}${h.loss_db > 0 ? ` &nbsp;-${h.loss_db.toFixed(2)} dB` : ""}
+            </div>
+          </div>
+          <div style="font-weight:700;color:${c};font-size:12px">
+            ${h.cum_dbm >= 0 ? "+" : ""}${h.cum_dbm.toFixed(2)} dBm
+          </div>
+        </div>`;
+    } else {  // fiber
+      html += `
+        <div data-testid="path-trace-hop-${idx}"
+             onclick="nmPanToHop(${h.polyline[0][0]},${h.polyline[0][1]})"
+             style="display:flex;align-items:center;gap:8px;padding:4px 8px;
+                    margin-bottom:3px;cursor:pointer;
+                    border-left:3px solid ${c}">
+          <div style="width:20px;height:3px;background:${c};border-radius:2px"></div>
+          <div style="flex:1;color:#94a3b8;font-size:11px">
+            <i>fiber</i> ${h.name}
+            &nbsp;<span style="color:#cbd5e1">${h.length_m}m</span>
+            &nbsp;<span>-${h.loss_db.toFixed(2)} dB</span>
+          </div>
+          <div style="color:${c};font-size:11px;font-weight:600">
+            ${h.cum_dbm >= 0 ? "+" : ""}${h.cum_dbm.toFixed(2)}
+          </div>
+        </div>`;
+    }
+  });
+  html += `</div>`;
+  body.innerHTML = html;
+
+  /* Draw fiber overlays — one per fiber hop, color graded by health */
+  j.hops.forEach(h => {
+    if (h.type !== "fiber" || !h.polyline || h.polyline.length < 2) return;
+    const c = _nmHopColorForCum(h.cum_dbm);
+    const overlay = L.polyline(h.polyline, {
+      color: c, weight: 8, opacity: 0.85,
+      dashArray: "12 6"
+    }).addTo(nmMap);
+    let on = true;
+    overlay._nmBlink = setInterval(() => {
+      on = !on;
+      overlay.setStyle({opacity: on ? 0.85 : 0.35});
+    }, 600);
+    window.__nmPathOverlays.push(overlay);
+  });
+
+  /* Pan to fit the whole route */
+  const allPts = [];
+  j.hops.forEach(h => {
+    if (h.type === "fiber" && h.polyline) allPts.push(...h.polyline);
+    else if (h.type === "node") allPts.push([h.lat, h.lng]);
+  });
+  if (allPts.length) {
+    try { nmMap.fitBounds(L.latLngBounds(allPts).pad(0.15)); } catch(_){}
+  }
+}
+
+function nmPanToHop(lat, lng) {
+  if (typeof lat === "number" && typeof lng === "number") {
+    nmMap.panTo([lat, lng]);
+  }
+}
+
+function nmClearPathTrace() {
+  (window.__nmPathOverlays || []).forEach(o => {
+    try { clearInterval(o._nmBlink); } catch(_){}
+    try { nmMap.removeLayer(o); } catch(_){}
+  });
+  window.__nmPathOverlays = [];
+}
+
+function nmClosePathTracePanel() {
+  nmClearPathTrace();
+  const sb = document.getElementById("nm-path-trace-panel");
+  if (sb) sb.style.display = "none";
+}
+</script>
+
+<!-- _S40l_SPLICE_MODAL_ -->
+<div id="nmSpliceModal" data-testid="nm-splice-modal" style="display:none;
+     position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);
+     backdrop-filter:blur(6px)">
+  <div style="max-width:1100px;margin:30px auto;background:#0f172a;
+              border:1px solid rgba(99,102,241,.3);border-radius:14px;
+              padding:24px;color:#e2e8f0;max-height:90vh;overflow-y:auto;
+              box-shadow:0 12px 50px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                margin-bottom:16px">
+      <h2 style="margin:0;color:#a5b4fc;font-size:18px">
+        🧵 Splice Tray — <span id="nmSpliceTitle">…</span>
+      </h2>
+      <button onclick="nmCloseSpliceModal()" style="background:transparent;
+        border:none;color:#94a3b8;font-size:24px;cursor:pointer">×</button>
+    </div>
+    <div id="nmSpliceBody" style="display:grid;grid-template-columns:1fr 60px 1fr;gap:14px"></div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1e293b">
+      <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;
+                  text-transform:uppercase;margin:0 0 10px">
+        Existing splices at this node</h4>
+      <div id="nmSpliceList" style="display:grid;gap:6px;font-size:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- _S40m_POWER_BUDGET_MODAL_ -->
+<div id="nmPowerModal" data-testid="nm-power-modal" style="display:none;
+     position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);
+     backdrop-filter:blur(6px)">
+  <div style="max-width:1200px;margin:30px auto;background:#0f172a;
+              border:1px solid rgba(236,72,153,.3);border-radius:14px;
+              padding:24px;color:#e2e8f0;max-height:92vh;overflow-y:auto;
+              box-shadow:0 12px 50px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;
+                align-items:center;margin-bottom:14px">
+      <h2 style="margin:0;color:#fbcfe8;font-size:18px">
+        ⚡ Optical Power Budget — Fiber Planning &amp; Live Verification
+      </h2>
+      <button onclick="document.getElementById('nmPowerModal').style.display='none'"
+              style="background:transparent;border:none;color:#94a3b8;
+                     font-size:24px;cursor:pointer">×</button>
+    </div>
+    <div style="background:#1e293b;padding:12px 14px;border-radius:10px;
+                font-size:12px;color:#94a3b8;margin-bottom:14px" id="nmPowerConsts">
+    </div>
+    <div id="nmPowerBody"></div>
+  </div>
+</div>
+
+
+
+<!-- _S40zo_  Fiber Audit Modal -->
+<div id="nmFiberAuditModal" style="display:none;position:fixed;inset:0;
+    background:rgba(0,0,0,.55);z-index:11000;align-items:center;
+    justify-content:center;padding:20px" data-testid="fiber-audit-modal">
+  <div style="background:#0f172a;color:#e2e8f0;width:min(960px,95vw);
+       max-height:90vh;border-radius:14px;display:flex;flex-direction:column;
+       box-shadow:0 20px 60px rgba(0,0,0,.45);
+       border:1px solid rgba(99,102,241,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;
+         padding:16px 20px;border-bottom:1px solid rgba(99,102,241,.25)">
+      <h4 style="margin:0;font-size:18px;font-weight:700">
+        📐 Fiber Length Audit</h4>
+      <button onclick="nmCloseFiberAudit()" style="background:none;border:none;
+              color:#e2e8f0;font-size:24px;cursor:pointer;line-height:1"
+              aria-label="Close">×</button>
+    </div>
+    <div id="nmFiberAuditSummary" style="display:flex;gap:10px;
+         padding:14px 20px;border-bottom:1px solid rgba(99,102,241,.15);
+         flex-wrap:wrap;align-items:center;font-size:13px"></div>
+    <div id="nmFiberAuditTableWrap" style="flex:1;overflow:auto;padding:0">
+      <table id="nmFiberAuditTable" style="width:100%;border-collapse:collapse;
+             font-size:13px">
+        <thead style="background:rgba(99,102,241,.1);position:sticky;top:0;
+              z-index:1">
+          <tr>
+            <th style="padding:10px 12px;text-align:left;font-weight:600">Fiber</th>
+            <th style="padding:10px 12px;text-align:left;font-weight:600">Path</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:600">Computed (m)</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:600">Labeled (m)</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:600">Drift</th>
+            <th style="padding:10px 12px;text-align:center;font-weight:600">Severity</th>
+            <th style="padding:10px 12px;text-align:center;font-weight:600">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="nmFiberAuditBody">
+          <tr><td colspan="7" style="padding:30px;text-align:center;
+              color:#94a3b8">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid rgba(99,102,241,.25);
+         display:flex;gap:10px;justify-content:flex-end;align-items:center">
+      <span id="nmFiberAuditFooter" style="margin-right:auto;color:#94a3b8;
+            font-size:12px"></span>
+      <button onclick="nmFiberAuditRefresh()" style="background:#1e293b;
+              border:1px solid rgba(99,102,241,.4);color:#e2e8f0;
+              padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px"
+              data-testid="audit-refresh">🔄 Refresh</button>
+      <button onclick="nmFiberAuditSyncAll()" style="background:#10b981;
+              border:none;color:#fff;padding:8px 16px;border-radius:8px;
+              cursor:pointer;font-size:13px;font-weight:600"
+              data-testid="audit-sync-all">✓ Sync All Drifted</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* _S40zo_  Fiber Audit panel JS */
+window.nmOpenFiberAudit = function(){
+  document.getElementById('nmFiberAuditModal').style.display = 'flex';
+  nmFiberAuditRefresh();
+};
+window.nmCloseFiberAudit = function(){
+  document.getElementById('nmFiberAuditModal').style.display = 'none';
+};
+window.__nmAuditData = null;
+
+window.nmFiberAuditRefresh = async function(){
+  const tbody = document.getElementById('nmFiberAuditBody');
+  tbody.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:#94a3b8">Loading…</td></tr>';
+  try {
+    const r = await fetch(NM_API + '/fiber-audit', {credentials:'include'});
+    const j = await r.json();
+    if (!j.ok) throw new Error(JSON.stringify(j));
+    window.__nmAuditData = j;
+    nmFiberAuditRender(j);
+  } catch(e){
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:#f87171">Failed: ' + e.message + '</td></tr>';
+  }
+};
+
+function _sevBadge(sev){
+  const m = {
+    ok:      ['#10b981','OK'],
+    warn:    ['#fbbf24','Drift'],
+    error:   ['#ef4444','High Drift'],
+    missing: ['#6366f1','No Label'],
+  };
+  const [c, txt] = m[sev] || ['#94a3b8', sev];
+  return '<span style="background:'+c+';color:#fff;padding:3px 10px;'
+       + 'border-radius:14px;font-size:11px;font-weight:600">'+txt+'</span>';
+}
+
+window.nmFiberAuditRender = function(j){
+  const c = j.counts || {};
+  document.getElementById('nmFiberAuditSummary').innerHTML =
+      '<span style="color:#94a3b8">Threshold:</span> '
+    + '<b>'+ j.thresholds.drift_pct +'%</b> or '
+    + '<b>'+ j.thresholds.drift_m +' m</b> &nbsp; • &nbsp;'
+    + '<span style="color:#10b981">'+ (c.ok||0) +' OK</span> &nbsp; '
+    + '<span style="color:#fbbf24">'+ (c.warn||0) +' Warn</span> &nbsp; '
+    + '<span style="color:#ef4444">'+ (c.error||0) +' Error</span> &nbsp; '
+    + '<span style="color:#6366f1">'+ (c.missing||0) +' Missing label</span>';
+
+  const sevOrder = {error:0, warn:1, missing:2, ok:3};
+  const rows = (j.fibers || []).slice().sort((a,b) =>
+      (sevOrder[a.severity] || 9) - (sevOrder[b.severity] || 9));
+  const tbody = document.getElementById('nmFiberAuditBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:#94a3b8">No fibers found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const driftTxt = (r.drift_m !== null && r.drift_pct !== null)
+      ? '<span style="color:'+(r.severity==='error'?'#f87171':r.severity==='warn'?'#fbbf24':'#94a3b8')+'">'
+        + r.drift_m + ' m (' + r.drift_pct + '%)</span>'
+      : '<span style="color:#94a3b8">—</span>';
+    return '<tr style="border-top:1px solid rgba(99,102,241,.1)" data-fid="'+r.id+'">'
+      + '<td style="padding:9px 12px"><b>#' + r.id + '</b><br><small style="color:#94a3b8">'+ r.color +'</small></td>'
+      + '<td style="padding:9px 12px">'+ r.src_name +' → '+ r.dst_name +'</td>'
+      + '<td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">'+ r.computed_m +'</td>'
+      + '<td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">'
+      + (r.labeled_m ? r.labeled_m : '<span style="color:#6b7280">—</span>') +'</td>'
+      + '<td style="padding:9px 12px;text-align:right">'+ driftTxt +'</td>'
+      + '<td style="padding:9px 12px;text-align:center">'+ _sevBadge(r.severity) +'</td>'
+      + '<td style="padding:9px 12px;text-align:center;white-space:nowrap">'
+      + '<button onclick="nmFiberAuditLocate('+r.id+')" '
+      + 'style="background:#1e293b;border:1px solid rgba(99,102,241,.4);'
+      + 'color:#e2e8f0;padding:4px 10px;border-radius:6px;cursor:pointer;'
+      + 'font-size:11px;margin-right:4px" data-testid="audit-locate-'+r.id+'">📍</button>'
+      + '<button onclick="nmFiberAuditSyncOne('+r.id+')" '
+      + 'style="background:#10b981;border:none;color:#fff;padding:4px 10px;'
+      + 'border-radius:6px;cursor:pointer;font-size:11px;font-weight:600" '
+      + 'data-testid="audit-sync-'+r.id+'">Sync</button>'
+      + '</td></tr>';
+  }).join('');
+  document.getElementById('nmFiberAuditFooter').textContent =
+      rows.length + ' fibers analysed';
+};
+
+window.nmFiberAuditLocate = function(fid){
+  const f = (window.__nmAuditData?.fibers || []).find(x => x.id === fid);
+  if (!f || !f.midpoint) return alert('No coordinates for this fiber');
+  nmCloseFiberAudit();
+  nmMap.setView([f.midpoint[0], f.midpoint[1]], 19);
+};
+
+window.nmFiberAuditSyncOne = async function(fid){
+  if (!confirm('Update labeled length to the computed value for fiber #'+fid+'?')) return;
+  try {
+    const r = await fetch(NM_API + '/fiber-audit/sync', {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fiber_ids:[fid]})});
+    const j = await r.json();
+    if (!j.ok) throw new Error(JSON.stringify(j));
+    nmFiberAuditRefresh();
+  } catch(e){ alert('Sync failed: ' + e.message); }
+};
+
+window.nmFiberAuditSyncAll = async function(){
+  const data = window.__nmAuditData;
+  if (!data) return;
+  // Sync only fibers with drift OR missing label
+  const ids = (data.fibers || [])
+    .filter(f => f.severity !== 'ok')
+    .map(f => f.id);
+  if (!ids.length) return alert('No drifted fibers to sync.');
+  if (!confirm('Update labeled length to computed value for '+ids.length+' fibers?')) return;
+  try {
+    const r = await fetch(NM_API + '/fiber-audit/sync', {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fiber_ids: ids})});
+    const j = await r.json();
+    if (!j.ok) throw new Error(JSON.stringify(j));
+    alert('Updated ' + j.updated + ' fibers.');
+    nmFiberAuditRefresh();
+  } catch(e){ alert('Sync failed: ' + e.message); }
+};
+
+/* Close on backdrop click + Esc key */
+document.addEventListener('click', function(e){
+  if (e.target && e.target.id === 'nmFiberAuditModal') nmCloseFiberAudit();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') {
+    const m = document.getElementById('nmFiberAuditModal');
+    if (m && m.style.display !== 'none') nmCloseFiberAudit();
+  }
+});
+
+// ═══ _S40zη_  Clustered ONU worst-RX heat-map (low zoom) ═══════════════
+// At zoom ≤ NM_CLUSTER_ZOOM individual ONU pins collapse into circles
+// sized by count and coloured by the *worst* RX in the bucket. Click a
+// cluster to zoom in.
+window.nmClusterLayer = window.nmClusterLayer || null;
+const NM_CLUSTER_ZOOM = 13;
+const NM_CLUSTER_GRID = 0.012;   // ≈ 1.3 km @ equator
+
+function _nmRxColor(rx, status) {
+  if (status && status !== 'online') return '#dc2626';
+  if (rx === null || rx === undefined) return '#94a3b8';
+  if (rx <= -28) return '#dc2626';
+  if (rx <= -25) return '#f59e0b';
+  return '#22c55e';
+}
+
+function nmRebuildClusters() {
+  if (!window.nmMap || !window.nmHwById || !window.nmHwLayer) return;
+  if (!window.nmClusterLayer)
+    window.nmClusterLayer = L.layerGroup().addTo(window.nmMap);
+  window.nmClusterLayer.clearLayers();
+  const isClusterZoom = window.nmMap.getZoom() <= NM_CLUSTER_ZOOM;
+
+  // Toggle individual ONU markers + their heat rings + tooltips
+  Object.values(window.nmHwById).forEach(({h, marker}) => {
+    if (h.kind !== 'onu' || !marker) return;
+    if (isClusterZoom) {
+      if (window.nmHwLayer.hasLayer(marker)) window.nmHwLayer.removeLayer(marker);
+      if (marker.__heatRing && window.nmHwLayer.hasLayer(marker.__heatRing))
+        window.nmHwLayer.removeLayer(marker.__heatRing);
+    } else {
+      if (!window.nmHwLayer.hasLayer(marker)) window.nmHwLayer.addLayer(marker);
+      if (marker.__heatRing && !window.nmHwLayer.hasLayer(marker.__heatRing))
+        window.nmHwLayer.addLayer(marker.__heatRing);
+    }
+  });
+  if (!isClusterZoom) return;
+
+  // Bucket ONUs into a coarse grid
+  const buckets = {};
+  Object.values(window.nmHwById).forEach(({h}) => {
+    if (h.kind !== 'onu' || h.lat == null || h.lng == null) return;
+    const gy = Math.floor(h.lat / NM_CLUSTER_GRID);
+    const gx = Math.floor(h.lng / NM_CLUSTER_GRID);
+    const key = gy + '_' + gx;
+    if (!buckets[key]) buckets[key] = {
+      onus: [], sumLat: 0, sumLng: 0,
+      worstRx: null, online: 0, offline: 0
+    };
+    const b = buckets[key];
+    b.onus.push(h);
+    b.sumLat += h.lat; b.sumLng += h.lng;
+    const rx = h.props && h.props.rx_power;
+    const st = (h.props && h.props.status) || '';
+    if (st && st !== 'online') b.offline++; else b.online++;
+    if (rx !== undefined && rx !== null) {
+      if (b.worstRx === null || rx < b.worstRx) b.worstRx = rx;
+    }
+  });
+
+  Object.values(buckets).forEach(b => {
+    const lat = b.sumLat / b.onus.length;
+    const lng = b.sumLng / b.onus.length;
+    const col = _nmRxColor(b.worstRx, b.offline ? 'offline' : 'online');
+    const radius = Math.min(42, 14 + Math.sqrt(b.onus.length) * 4.5);
+    const m = L.circleMarker([lat, lng], {
+      radius, color: '#fff', weight: 2.5,
+      fillColor: col, fillOpacity: .85, className: 'nm-onu-cluster',
+    });
+    const rxStr = (b.worstRx !== null) ? b.worstRx.toFixed(1) + ' dBm' : '—';
+    const offMsg = b.offline
+      ? '<br><span style="color:#fca5a5">⚠ ' + b.offline + ' offline</span>'
+      : '';
+    m.bindTooltip(
+      '<div style="font-size:14px"><b>' + b.onus.length + '</b></div>' +
+      '<div>worst ' + rxStr + '</div>' + offMsg,
+      { permanent: true, direction: 'center', className: 'nm-cluster-tip',
+        offset: [0, 0] });
+    m.bindPopup(
+      '<b>' + b.onus.length + ' ONUs in this area</b><br>' +
+      'Online: ' + b.online + ' &nbsp;·&nbsp; Offline: ' + b.offline + '<br>' +
+      'Worst RX: <b style="color:' + col + '">' + rxStr + '</b><br>' +
+      '<small>Click to zoom in</small>');
+    m.on('click', () => window.nmMap.setView([lat, lng], 16));
+    m.addTo(window.nmClusterLayer);
+  });
+}
+
+// Re-cluster on zoom change
+(function _nmHookZoomCluster() {
+  // nmMap is created during DOMContentLoaded init; bind once available.
+  const tryBind = () => {
+    if (window.nmMap) {
+      window.nmMap.on('zoomend', () => {
+        try { nmRebuildClusters(); } catch(_){}
+      });
+      try { nmRebuildClusters(); } catch(_){}
+    } else {
+      setTimeout(tryBind, 500);
+    }
+  };
+  tryBind();
+})();
+
+// Hook into refresh so clusters rebuild on data change
+const __nmRefreshOrigCluster = window.nmRefreshAll;
+window.nmRefreshAll = async function _cluster_refresh() {
+  await __nmRefreshOrigCluster();
+  setTimeout(() => { try { nmRebuildClusters(); } catch(_){} }, 600);
+};
+
+
+// ═══ _S40zη_  NOC Full-Screen Mode + audio alerts via SSE ═══════════════
+window.__nocActive = false;
+window.__nocSSE = null;
+window.__nocAlerts = [];
+window.__nocAudioCtx = null;
+window.__nocLastSnap = { olts: [], onus: [] };
+window.__nocClockTimer = null;
+
+function _nocChime(critical) {
+  try {
+    if (!window.__nocAudioCtx)
+      window.__nocAudioCtx = new (window.AudioContext
+                                   || window.webkitAudioContext)();
+    const ctx = window.__nocAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const f1 = critical ? 880 : 660;
+    const f2 = critical ? 1320 : 880;
+    const dur = critical ? 0.18 : 0.14;
+    [f1, f2, critical ? f1 : null].filter(Boolean).forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, now + i * dur);
+      g.gain.linearRampToValueAtTime(0.35, now + i * dur + 0.02);
+      g.gain.linearRampToValueAtTime(0, now + i * dur + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(now + i * dur);
+      o.stop(now + i * dur + dur + 0.05);
+    });
+  } catch(_) {}
+}
+
+function _nocFlashScreen() {
+  document.body.classList.add('noc-flash');
+  setTimeout(() => document.body.classList.remove('noc-flash'), 1300);
+}
+
+function _nocPushAlert(level, title, message) {
+  const ts = new Date();
+  window.__nocAlerts.unshift({ ts, level, title, message });
+  if (window.__nocAlerts.length > 40) window.__nocAlerts.pop();
+  _nocRenderAlerts();
+  if (!window.__nocActive) return;   // don't chime when not in NOC mode
+  if (level === 'critical') { _nocChime(true); _nocFlashScreen(); }
+  else if (level === 'warn') { _nocChime(false); }
+}
+
+function _nocRenderAlerts() {
+  const panel = document.getElementById('noc-alerts-list');
+  if (!panel) return;
+  if (!window.__nocAlerts.length) {
+    panel.innerHTML =
+      '<div style="color:#64748b;padding:14px;text-align:center;font-size:12px">'
+      + 'No alerts yet. Network healthy.</div>';
+    return;
+  }
+  const fmt = d => d.toLocaleTimeString('en-GB', { hour12: false });
+  const colMap = { critical:'#dc2626', warn:'#f59e0b', info:'#3b82f6' };
+  panel.innerHTML = window.__nocAlerts.map(a => {
+    const col = colMap[a.level] || '#64748b';
+    return '<div style="border-left:4px solid ' + col +
+           ';padding:8px 12px;margin-bottom:6px;background:rgba(15,23,42,.7);' +
+           'border-radius:6px;font-size:12px" data-testid="noc-alert-row">' +
+             '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+               '<b style="color:' + col + '">' + a.title + '</b>' +
+               '<span style="color:#64748b;font-size:10px">' + fmt(a.ts) + '</span>' +
+             '</div>' +
+             '<div style="color:#cbd5e1;margin-top:2px">' + a.message + '</div>' +
+           '</div>';
+  }).join('');
+}
+
+function _nocOpenSSE() {
+  if (window.__nocSSE) return;
+  try {
+    const es = new EventSource('/api/admin/olt/stream');
+    es.addEventListener('snapshot', e => {
+      try {
+        window.__nocLastSnap = JSON.parse(e.data) || { olts:[], onus:[] };
+      } catch(_) {}
+    });
+    es.addEventListener('delta', e => {
+      try {
+        const d = JSON.parse(e.data);
+        const prev = window.__nocLastSnap || { olts:[], onus:[] };
+        const prevOlts = {}; (prev.olts||[]).forEach(o => prevOlts[o.id] = o);
+        const prevOnus = {}; (prev.onus||[]).forEach(u => prevOnus[u.id] = u);
+        // OLT events
+        (d.olts || []).forEach(o => {
+          const p = prevOlts[o.id];
+          if (p && p.status !== o.status) {
+            if (o.status !== 'online')
+              _nocPushAlert('critical', 'OLT DOWN',
+                (o.name || '#' + o.id) + ' — status ' + o.status);
+            else
+              _nocPushAlert('info', 'OLT recovered',
+                (o.name || '#' + o.id) + ' is back online');
+          }
+        });
+        // ONU events
+        (d.onus || []).forEach(u => {
+          const p = prevOnus[u.id];
+          if (p && p.status !== u.status) {
+            if (u.status !== 'online')
+              _nocPushAlert('warn', 'ONU offline',
+                (u.name || '#' + u.id) + ' — went ' + u.status);
+            else
+              _nocPushAlert('info', 'ONU back online', (u.name || '#' + u.id));
+          }
+          if (u.rx_power !== null && u.rx_power !== undefined && u.rx_power <= -28) {
+            const wasCritical = p && p.rx_power !== null
+                                && p.rx_power !== undefined && p.rx_power <= -28;
+            if (!wasCritical)
+              _nocPushAlert('critical', 'CRITICAL RX',
+                (u.name || '#' + u.id) + ' — RX ' + Number(u.rx_power).toFixed(1) + ' dBm');
+          }
+        });
+        // Merge into last snapshot for next diff
+        (d.onus || []).forEach(u => prevOnus[u.id] = u);
+        (d.olts || []).forEach(o => prevOlts[o.id] = o);
+        window.__nocLastSnap = {
+          olts: Object.values(prevOlts),
+          onus: Object.values(prevOnus),
+        };
+      } catch(_) {}
+    });
+    es.onerror = function() { /* EventSource auto-retries */ };
+    window.__nocSSE = es;
+  } catch(e) {
+    console.warn('NOC SSE failed:', e);
+    _nocPushAlert('warn', 'SSE error', 'Live stream unavailable: ' + e.message);
+  }
+}
+
+function _nocCloseSSE() {
+  if (window.__nocSSE) {
+    try { window.__nocSSE.close(); } catch(_){}
+    window.__nocSSE = null;
+  }
+}
+
+function _nocStartClock() {
+  const el = document.getElementById('noc-clock');
+  if (!el) return;
+  const tick = () => {
+    const d = new Date();
+    el.textContent = d.toLocaleTimeString('en-GB', { hour12: false }) +
+                     '  ·  ' + d.toLocaleDateString('en-GB');
+  };
+  tick();
+  if (window.__nocClockTimer) clearInterval(window.__nocClockTimer);
+  window.__nocClockTimer = setInterval(tick, 1000);
+}
+function _nocStopClock() {
+  if (window.__nocClockTimer) clearInterval(window.__nocClockTimer);
+  window.__nocClockTimer = null;
+}
+
+window.nmToggleNocMode = function() {
+  const shell = document.getElementById('netmap-shell');
+  const btn = document.getElementById('nm-noc-btn');
+  if (!window.__nocActive) {
+    // Enter NOC mode using the native Fullscreen API so the browser
+    // sizes the shell against the screen — bypasses any parent CSS
+    // layout/transform that was clipping #netmap-shell to ~80%.
+    if (shell && shell.requestFullscreen) {
+      shell.requestFullscreen().then(() => {
+        // The fullscreenchange handler below toggles state.
+      }).catch(err => {
+        // Fallback: fixed-positioned overlay if Fullscreen API blocked.
+        console.warn('Fullscreen failed, using overlay fallback:', err);
+        _nocApplyState(true, /* fallback */ true);
+      });
+    } else {
+      _nocApplyState(true, true);
+    }
+  } else {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      _nocApplyState(false, true);   // fallback path
+    }
+  }
+};
+
+// _S40zη.d_  Apply / clear all NOC styling, alerts, SSE in one place
+// regardless of whether we entered via Fullscreen API or fallback.
+function _nocApplyState(active, fallback) {
+  window.__nocActive = active;
+  const shell = document.getElementById('netmap-shell');
+  const mapEl = document.getElementById('netmap');
+  const btn = document.getElementById('nm-noc-btn');
+  if (active) {
+    document.body.classList.add('noc-mode');
+    document.documentElement.classList.add('noc-html');
+    if (btn) { btn.classList.add('noc-on'); btn.textContent = '✕ EXIT NOC'; }
+    if (fallback && shell) {
+      // Overlay fallback (when Fullscreen API isn't available)
+      shell.__nocOrigParent = shell.parentNode;
+      shell.__nocOrigNext   = shell.nextSibling;
+      try { document.body.appendChild(shell); } catch(_){}
+      shell.style.cssText =
+        'position:fixed!important;top:0!important;left:0!important;' +
+        'right:0!important;bottom:0!important;' +
+        'width:' + window.innerWidth + 'px!important;' +
+        'height:' + window.innerHeight + 'px!important;' +
+        'z-index:9999!important;background:#0f172a!important;' +
+        'margin:0!important;padding:0!important;';
+    }
+    if (mapEl) {
+      mapEl.style.cssText =
+        'position:absolute!important;top:0!important;left:0!important;' +
+        'right:0!important;bottom:0!important;width:100%!important;' +
+        'height:100%!important;';
+    }
+    _nocOpenSSE();
+    _nocStartClock();
+    if (!window.__nocAudioCtx) {
+      try {
+        window.__nocAudioCtx = new (window.AudioContext
+                                     || window.webkitAudioContext)();
+      } catch(_) {}
+    }
+    if (window.__nocAudioCtx && window.__nocAudioCtx.state === 'suspended')
+      window.__nocAudioCtx.resume();
+    _nocPushAlert('info', 'NOC mode active', 'Live SSE + audio alerts on');
+  } else {
+    document.body.classList.remove('noc-mode');
+    document.documentElement.classList.remove('noc-html');
+    if (btn) { btn.classList.remove('noc-on'); btn.textContent = '📺 NOC MODE'; }
+    if (shell) {
+      shell.style.cssText = '';
+      if (shell.__nocOrigParent) {
+        try {
+          if (shell.__nocOrigNext)
+            shell.__nocOrigParent.insertBefore(shell, shell.__nocOrigNext);
+          else
+            shell.__nocOrigParent.appendChild(shell);
+        } catch(_) {}
+      }
+      shell.__nocOrigParent = null;
+      shell.__nocOrigNext = null;
+    }
+    if (mapEl) mapEl.style.cssText = '';
+    _nocCloseSSE();
+    _nocStopClock();
+  }
+  // Re-fit Leaflet across multiple frames so it catches the new size.
+  const fix = () => {
+    try { window.nmMap && window.nmMap.invalidateSize(true); } catch(_){}
+  };
+  requestAnimationFrame(fix);
+  setTimeout(fix, 100);
+  setTimeout(fix, 350);
+  setTimeout(fix, 800);
+}
+
+// Sync state with the browser's fullscreen lifecycle (ESC, F11, etc.)
+document.addEventListener('fullscreenchange', () => {
+  const shell = document.getElementById('netmap-shell');
+  const inFs = (document.fullscreenElement === shell);
+  if (inFs && !window.__nocActive) _nocApplyState(true, false);
+  else if (!inFs && window.__nocActive) _nocApplyState(false, false);
+});
+
+// Re-fit map on any viewport resize while NOC is active
+window.addEventListener('resize', () => {
+  if (!window.__nocActive) return;
+  try { window.nmMap && window.nmMap.invalidateSize(true); } catch(_){}
+});
+
+// ESC exits NOC mode (separate from fiber-audit ESC)
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && window.__nocActive) {
+    const m = document.getElementById('nmFiberAuditModal');
+    if (m && m.style.display !== 'none') return;   // let audit modal handle
+    window.nmToggleNocMode();
+  }
+});
+</script>
+
+
+<!-- _S40zκ_ Phase 2.6 ONU geolocation pins -->
+<script>
+(function(){
+  function init(){
+    if (typeof L === 'undefined' || typeof nmMap === 'undefined' || !nmMap){
+      return setTimeout(init, 500);
+    }
+    const onuLayer = L.layerGroup().addTo(nmMap);
+    let _onuMarkers = {};
+
+    function pinHtml(status, source){
+      const c = (status === 'online') ? '#10b981'
+              : (status === 'offline') ? '#ef4444'
+              : '#94a3b8';
+      const ring = (source === 'gps')    ? '3px solid #10b981'
+                : (source === 'manual') ? '3px solid #3b82f6'
+                :                          '3px dashed #f59e0b';
+      return '<div style="width:18px;height:18px;border-radius:50%;background:'+c+
+             ';border:'+ring+';box-shadow:0 1px 4px rgba(0,0,0,.3);"></div>';
+    }
+
+    async function loadOnuPins(){
+      try {
+        const r = await fetch('/api/admin/network-map/onus', {credentials:'include'});
+        const d = await r.json();
+        if(!d.success){ console.warn('onu pins err', d); return; }
+        onuLayer.clearLayers(); _onuMarkers = {};
+        d.items.forEach(o => {
+          // _v4734_  Skip rendering the minimal-popup pin when a
+          // network_hardware pin with ref_onu_id == o.id already exists —
+          // avoids duplicate markers at the same coords. The hw pin's
+          // rich popup (Connect/Trace Path/Open OLT Mgmt/Delete) supersedes.
+          if (window._nmHwOnuRefs && window._nmHwOnuRefs.has(o.id)) {
+            return;
+          }
+          const m = L.marker([o.lat, o.lng], {
+            icon: L.divIcon({html: pinHtml(o.status, o.location_source),
+                              iconSize:[18,18], iconAnchor:[9,9], className:'onu-pin'}),
+            draggable: true
+          });
+          const statusBg = (o.status==='online') ? '#dcfce7' : '#fee2e2';
+          const statusFg = (o.status==='online') ? '#15803d' : '#b91c1c';
+          const html = '<div style="font-size:13px;line-height:1.6;min-width:220px;">'+
+            '<b>'+(o.customer_name||'(unassigned)')+'</b><br>'+
+            '<small style="color:#64748b">'+o.serial+' · '+(o.locality||'-')+'</small><br>'+
+            '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:'+statusBg+';color:'+statusFg+';">'+
+            (o.status||'').toUpperCase()+'</span>'+
+            (o.rx_dbm ? '<span style="margin-left:6px;font-size:11px;color:#475569;">RX '+o.rx_dbm+' dBm</span>' : '')+
+            '<br><small>OLT-'+o.olt_id+' / PON '+o.pon_port+'</small>'+
+            '<br><small style="color:#94a3b8">Source: '+o.location_source+'</small>'+
+            '<br><a href="'+(window.OLT_PORTAL_PREFIX || '/admin/olt')+'/onus?focus_onu='+o.id+'" target="_blank" style="color:#6366f1;font-weight:600;font-size:12px;" data-testid="olt-manager-link-'+o.id+'">Open in OLT Manager &rarr;</a>'+
+            '</div>';
+          m.bindPopup(html);
+          m.on('dragend', async function(ev){
+            const ll = ev.target.getLatLng();
+            if(!confirm('Move '+(o.customer_name||o.serial)+' pin to '+ll.lat.toFixed(6)+', '+ll.lng.toFixed(6)+'?')){
+              ev.target.setLatLng([o.lat, o.lng]); return;
+            }
+            const resp = await fetch('/api/admin/onus/'+o.id+'/location',{
+              method:'PUT', credentials:'include',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({lat:ll.lat, lng:ll.lng, source:'manual'})});
+            const dd = await resp.json();
+            if(dd.success){
+              o.lat=ll.lat; o.lng=ll.lng; o.location_source='manual';
+              ev.target.setIcon(L.divIcon({html:pinHtml(o.status,'manual'),
+                iconSize:[18,18], iconAnchor:[9,9], className:'onu-pin'}));
+            } else {
+              alert('Save failed: '+(dd.message||'unknown'));
+              ev.target.setLatLng([o.lat,o.lng]);
+            }
+          });
+          m.addTo(onuLayer);
+          _onuMarkers[o.id] = m;
+        });
+        console.log('[onu-pins] loaded', d.count);
+        const u = new URLSearchParams(location.search);
+        const f = u.get('focus_onu');
+        if(f && _onuMarkers[f]){
+          nmMap.flyTo(_onuMarkers[f].getLatLng(), 18, {duration:0.8});
+          setTimeout(()=>_onuMarkers[f].openPopup(), 1000);
+        }
+      } catch(e){ console.error('onu pins fetch', e); }
+    }
+    setTimeout(loadOnuPins, 1500);
+    window.nmReloadOnuPins = loadOnuPins;
+    setInterval(loadOnuPins, 60000);
+  }
+  init();
+})();
+</script>
+
+
+<script>
+/* __S55F_NETMAP_CTRLS_SHEET__ — close button + outside-click dismiss */
+(function(){
+  function ensureClose(){
+    var pnl = document.querySelector('.nm-ctrls');
+    if (!pnl) return;
+    if (pnl.querySelector('.nm-ctrls-close')) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'nm-ctrls-close';
+    btn.setAttribute('aria-label', 'Close map controls');
+    btn.setAttribute('data-testid', 'nm-ctrls-close');
+    btn.innerHTML = '×';
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      pnl.classList.remove('is-open');
+    });
+    pnl.appendChild(btn);
+  }
+  document.addEventListener('DOMContentLoaded', ensureClose);
+  setTimeout(ensureClose, 800);
+  // Outside-click close (mobile)
+  document.addEventListener('click', function(ev){
+    if (window.innerWidth > 991) return;
+    var pnl = document.querySelector('.nm-ctrls.is-open');
+    if (!pnl) return;
+    if (pnl.contains(ev.target)) return;
+    var burger = document.getElementById('nmCtrlsBurger');
+    if (burger && burger.contains(ev.target)) return;
+    pnl.classList.remove('is-open');
+  });
+  // ESC closes
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape') {
+      var pnl = document.querySelector('.nm-ctrls.is-open');
+      if (pnl) pnl.classList.remove('is-open');
+    }
+  });
+})();
+</script>
+
+{% endblock %}
+<script>
+/* __S55E_NETMAP_INVALIDATE_SIZE__ — Call leaflet's invalidateSize() whenever
+   the viewport resizes so the map redraws to fill the container. */
+(function(){
+  function tryInvalidate(){
+    try{
+      var candidates = [window.map, window.netmap, window.NMMAP, window.nmMap];
+      for (var i = 0; i < candidates.length; i++){
+        var m = candidates[i];
+        if (m && typeof m.invalidateSize === 'function'){ m.invalidateSize(true); }
+      }
+      // Fallback: find via leaflet container DOM
+      var el = document.querySelector('.leaflet-container');
+      if (el && el._leaflet_id && window.L){
+        var maps = (window.L && L._allMaps) || [];
+        maps.forEach(function(mm){ if (mm && mm.invalidateSize) mm.invalidateSize(true); });
+      }
+    } catch(e){}
+  }
+  window.addEventListener('resize', function(){
+    clearTimeout(window.__nmResizeT);
+    window.__nmResizeT = setTimeout(tryInvalidate, 100);
+  });
+  window.addEventListener('orientationchange', function(){ setTimeout(tryInvalidate, 350); });
+  // Initial nudge after page load — covers the case where #netmap-shell
+  // resizes after our mobile CSS applies.
+  setTimeout(tryInvalidate, 800);
+  setTimeout(tryInvalidate, 2000);
+})();
+</script>

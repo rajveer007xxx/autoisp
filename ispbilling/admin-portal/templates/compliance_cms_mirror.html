@@ -1,0 +1,107 @@
+{% extends "base_admin.html" %}
+{% block title %}CMS Mirror Configuration - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-input{padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;width:100%;max-width:520px}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:9px 18px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-btn.green{background:#10b981}
+.cmp-row{margin-bottom:14px}
+.cmp-row label{display:block;color:#475569;font-size:13px;font-weight:600;margin-bottom:4px}
+.cmp-status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600}
+.cmp-status.ok{background:#dcfce7;color:#15803d}
+.cmp-status.bad{background:#fee2e2;color:#b91c1c}
+.cmp-status.unknown{background:#f1f5f9;color:#64748b}
+</style>
+
+<section class="content-header">
+  <h1>CMS Mirror Configuration<small>Real-time RADIUS accounting mirror to government CMS endpoint</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card">
+    <h4 style="margin:0 0 16px"><i class="bi bi-shield-fill-check" style="color:#6366f1"></i> CMS Endpoint Configuration</h4>
+
+    <div class="cmp-row">
+      <label>CMS endpoint URL</label>
+      <input id="endpoint" class="cmp-input" placeholder="https://cms.gov.in/lawful-intercept/ingest" data-testid="cms-endpoint">
+    </div>
+
+    <div class="cmp-row">
+      <label>CMS shared secret / API key</label>
+      <input id="cmsKey" class="cmp-input" type="password" placeholder="Leave blank to keep existing" data-testid="cms-key">
+      <small style="color:#94a3b8;font-size:12px">Stored encrypted at rest. Empty value = unchanged.</small>
+    </div>
+
+    <div class="cmp-row">
+      <label>Mirror NAS / Router ID</label>
+      <input id="nasId" class="cmp-input" type="number" placeholder="e.g. 1" data-testid="cms-nas-id">
+    </div>
+
+    <div class="cmp-row">
+      <label><input type="checkbox" id="enabled" data-testid="cms-enabled"> &nbsp;Enable mirror</label>
+    </div>
+
+    <div class="cmp-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="cmp-btn" onclick="save()" data-testid="cms-save">Save</button>
+      <button class="cmp-btn green" onclick="test()" data-testid="cms-test">Test connection</button>
+      <a class="cmp-btn gray" href="/admin/compliance" data-testid="cms-back" style="text-decoration:none">← Back</a>
+      <span id="status" class="cmp-status unknown">Status: not tested</span>
+      <span id="lastTest" style="color:#94a3b8;font-size:12px"></span>
+    </div>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-info-circle"></i> What this enables</h4>
+    <p style="font-size:13px;color:#475569;line-height:1.7;margin:0">
+      Once configured, your network sends a real-time copy of session/accounting data to the
+      government CMS endpoint. This runs in parallel with your normal session, IPDR and URL-logs
+      retention — together they provide the complete forensic coverage required by DoT.
+    </p>
+  </div>
+</section>
+
+<script>
+async function load(){
+  const r = await fetch('/api/compliance/cms-mirror/get', {credentials:'include'});
+  const d = await r.json();
+  if(!d.success || !d.config) return;
+  const c = d.config;
+  document.getElementById('endpoint').value = c.cms_endpoint || '';
+  document.getElementById('nasId').value = c.mirror_nas_id || '';
+  document.getElementById('enabled').checked = !!c.enabled;
+  const st = document.getElementById('status');
+  if (c.last_test_at) {
+    if (c.last_test_ok) { st.className = 'cmp-status ok'; st.textContent = 'Status: OK · ' + (c.last_test_msg||''); }
+    else { st.className = 'cmp-status bad'; st.textContent = 'Status: FAIL · ' + (c.last_test_msg||''); }
+    document.getElementById('lastTest').textContent = '(last tested: ' + c.last_test_at + ')';
+  }
+}
+async function save(){
+  const body = {
+    cms_endpoint: document.getElementById('endpoint').value.trim(),
+    cms_key:      document.getElementById('cmsKey').value,
+    mirror_nas_id: document.getElementById('nasId').value || null,
+    enabled:      document.getElementById('enabled').checked ? 1 : 0,
+  };
+  const r = await fetch('/api/compliance/cms-mirror/save', {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (d.success) { alert('Saved.'); document.getElementById('cmsKey').value=''; load(); }
+  else alert('Save failed: ' + (d.message||'unknown'));
+}
+async function test(){
+  const r = await fetch('/api/compliance/cms-mirror/test', {
+    method:'POST', credentials:'include'
+  });
+  const d = await r.json();
+  alert((d.success?'OK · ':'FAIL · ') + (d.message||'no message'));
+  load();
+}
+load();
+</script>
+{% endblock %}

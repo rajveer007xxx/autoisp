@@ -1,0 +1,68 @@
+{% extends "base_employee.html" %}
+
+{% block title %}Connection Request - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Connection Request
+        <small>Manage connection requests</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Requests</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:</label>
+                    <select class="form-control">
+                        <option value="">All</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Approved">Approved</option>
+                        <option value="Rejected">Rejected</option>
+                        <option value="Completed">Completed</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary">Apply Filter</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Connection Requests</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Customer Name</th>
+                            <th>Mobile</th>
+                            <th>Address</th>
+                            <th>Plan Requested</th>
+                            <th>Request Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="8" class="text-center">No connection requests found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

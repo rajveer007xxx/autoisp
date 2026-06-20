@@ -1,0 +1,330 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}WhatsApp Campaign - Superadmin{% endblock %}
+
+{% block extra_css %}
+<!-- DataTables CSS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap.min.css">
+<style>
+    .campaign-stats {
+        background: #f9f9f9;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+    .stat-box {
+        text-align: center;
+        padding: 10px;
+    }
+    .stat-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #3c8dbc;
+    }
+    .stat-label {
+        font-size: 12px;
+        color: #666;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>WhatsApp Campaign<small>Create and manage WhatsApp campaigns</small></h1>
+</section>
+
+<section class="content">
+    <!-- Create Campaign Section -->
+    <div class="box box-primary">
+        <div class="box-header with-border">
+            <h3 class="box-title">Create New Campaign</h3>
+            <div class="box-tools pull-right">
+                <button type="button" class="btn btn-success btn-sm" data-toggle="modal" data-target="#createCampaignModal">
+                    <i class="fa fa-plus"></i> New Campaign
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Campaigns List -->
+    <div class="box box-success">
+        <div class="box-header with-border">
+            <h3 class="box-title">Campaign History</h3>
+        </div>
+        <div class="box-body">
+            <table id="campaignsTable" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Campaign Name</th>
+                        <th>Template</th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>Recipients</th>
+                        <th>Sent</th>
+                        <th>Failed</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Create Campaign Modal -->
+<div class="modal fade" id="createCampaignModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Create WhatsApp Campaign</h4>
+            </div>
+            <div class="modal-body">
+                <form id="campaignForm">
+                    <div class="form-group">
+                        <label>Campaign Name *</label>
+                        <input type="text" class="form-control" id="campaign_name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Select Template *</label>
+                        <select class="form-control" id="template_id" name="template_id" required>
+                            <option value="">-- Select Template --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Audience *</label>
+                        <select class="form-control" id="target_type" name="target_type" required>
+                            <option value="all_admins">All Admins</option>
+                            <option value="active_admins">Active Admins Only</option>
+                            <option value="trial_admins">Trial Admins Only</option>
+                            <option value="expired_admins">Expired Admins</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Schedule</label>
+                        <select class="form-control" id="schedule_type" name="schedule_type">
+                            <option value="now">Send Now</option>
+                            <option value="later">Schedule for Later</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="scheduled_time_group" style="display:none;">
+                        <label>Scheduled Time</label>
+                        <input type="datetime-local" class="form-control" id="scheduled_at" name="scheduled_at">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="createCampaignBtn">Create Campaign</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Campaign Details Modal -->
+<div class="modal fade" id="campaignDetailsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Campaign Details</h4>
+            </div>
+            <div class="modal-body" id="campaignDetailsBody">
+                <!-- Details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- DataTables JS -->
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Load templates
+    loadTemplates();
+    
+    // Initialize DataTable
+    var table = $('#campaignsTable').DataTable({
+        ajax: {
+            url: '/api/superadmin/whatsapp/campaigns',
+            dataSrc: 'data'
+        },
+        order: [[7, 'desc']],
+        columns: [
+            { data: 'name' },
+            { data: 'template_name' },
+            { data: 'target_type' },
+            { 
+                data: 'status',
+                render: function(data) {
+                    var labels = {
+                        'draft': 'default',
+                        'scheduled': 'info',
+                        'sending': 'warning',
+                        'completed': 'success',
+                        'failed': 'danger'
+                    };
+                    return '<span class="label label-' + (labels[data] || 'default') + '">' + data + '</span>';
+                }
+            },
+            { data: 'total_recipients' },
+            { data: 'sent_count' },
+            { data: 'failed_count' },
+            { 
+                data: 'created_at',
+                render: function(data) {
+                    return data ? new Date(data).toLocaleString() : 'N/A';
+                }
+            },
+            {
+                data: null,
+                render: function(data, type, row) {
+                    var buttons = '<button class="btn btn-xs btn-info view-btn" data-id="' + row.id + '"><i class="fa fa-eye"></i></button> ';
+                    if (row.status === 'draft' || row.status === 'scheduled') {
+                        buttons += '<button class="btn btn-xs btn-success start-btn" data-id="' + row.id + '"><i class="fa fa-play"></i></button> ';
+                    }
+                    if (row.status === 'draft') {
+                        buttons += '<button class="btn btn-xs btn-danger delete-btn" data-id="' + row.id + '"><i class="fa fa-trash"></i></button>';
+                    }
+                    return buttons;
+                }
+            }
+        ]
+    });
+    
+    // Load templates for dropdown
+    function loadTemplates() {
+        $.get('/api/superadmin/whatsapp/templates/list', function(response) {
+            if (response.success) {
+                var select = $('#template_id');
+                select.empty().append('<option value="">-- Select Template --</option>');
+                response.data.forEach(function(template) {
+                    select.append('<option value="' + template.id + '">' + template.name + '</option>');
+                });
+            }
+        });
+    }
+    
+    // Schedule type change
+    $('#schedule_type').change(function() {
+        if ($(this).val() === 'later') {
+            $('#scheduled_time_group').show();
+        } else {
+            $('#scheduled_time_group').hide();
+        }
+    });
+    
+    // Create campaign
+    $('#createCampaignBtn').click(function() {
+        var formData = {
+            name: $('#campaign_name').val(),
+            template_id: parseInt($('#template_id').val()),
+            target_type: $('#target_type').val(),
+            scheduled_at: $('#schedule_type').val() === 'later' ? $('#scheduled_at').val() : null
+        };
+        
+        if (!formData.name || !formData.template_id || !formData.target_type) {
+            alert('Please fill all required fields');
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/superadmin/whatsapp/campaigns',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                alert('Campaign created successfully!');
+                $('#createCampaignModal').modal('hide');
+                $('#campaignForm')[0].reset();
+                table.ajax.reload();
+            },
+            error: function(xhr) {
+                alert('Error creating campaign: ' + (xhr.responseJSON?.message || 'Unknown error'));
+            }
+        });
+    });
+    
+    // View campaign details
+    $('#campaignsTable').on('click', '.view-btn', function() {
+        var id = $(this).data('id');
+        $.get('/api/superadmin/whatsapp/campaigns/' + id, function(response) {
+            if (response.success) {
+                var data = response.data;
+                var html = '<div class="campaign-stats">';
+                html += '<div class="row">';
+                html += '<div class="col-xs-3 stat-box"><div class="stat-number">' + data.total_recipients + '</div><div class="stat-label">Recipients</div></div>';
+                html += '<div class="col-xs-3 stat-box"><div class="stat-number">' + data.sent_count + '</div><div class="stat-label">Sent</div></div>';
+                html += '<div class="col-xs-3 stat-box"><div class="stat-number">' + data.failed_count + '</div><div class="stat-label">Failed</div></div>';
+                html += '<div class="col-xs-3 stat-box"><div class="stat-number">' + Math.round((data.sent_count / data.total_recipients) * 100) + '%</div><div class="stat-label">Success Rate</div></div>';
+                html += '</div></div>';
+                html += '<table class="table table-bordered">';
+                html += '<tr><th>Campaign Name</th><td>' + data.name + '</td></tr>';
+                html += '<tr><th>Template</th><td>' + data.template_name + '</td></tr>';
+                html += '<tr><th>Target</th><td>' + data.target_type + '</td></tr>';
+                html += '<tr><th>Status</th><td>' + data.status + '</td></tr>';
+                html += '<tr><th>Created</th><td>' + new Date(data.created_at).toLocaleString() + '</td></tr>';
+                if (data.started_at) {
+                    html += '<tr><th>Started</th><td>' + new Date(data.started_at).toLocaleString() + '</td></tr>';
+                }
+                if (data.completed_at) {
+                    html += '<tr><th>Completed</th><td>' + new Date(data.completed_at).toLocaleString() + '</td></tr>';
+                }
+                html += '</table>';
+                $('#campaignDetailsBody').html(html);
+                $('#campaignDetailsModal').modal('show');
+            }
+        });
+    });
+    
+    // Start campaign
+    $('#campaignsTable').on('click', '.start-btn', function() {
+        if (confirm('Are you sure you want to start this campaign?')) {
+            var id = $(this).data('id');
+            $.ajax({
+                url: '/api/superadmin/whatsapp/campaigns/' + id + '/start',
+                method: 'POST',
+                success: function() {
+                    alert('Campaign started successfully!');
+                    table.ajax.reload();
+                },
+                error: function(xhr) {
+                    alert('Error starting campaign: ' + (xhr.responseJSON?.message || 'Unknown error'));
+                }
+            });
+        }
+    });
+    
+    // Delete campaign
+    $('#campaignsTable').on('click', '.delete-btn', function() {
+        if (confirm('Are you sure you want to delete this campaign?')) {
+            var id = $(this).data('id');
+            $.ajax({
+                url: '/api/superadmin/whatsapp/campaigns/' + id,
+                method: 'DELETE',
+                success: function() {
+                    alert('Campaign deleted successfully!');
+                    table.ajax.reload();
+                },
+                error: function() {
+                    alert('Error deleting campaign');
+                }
+            });
+        }
+    });
+    
+    // Reset form when modal closes
+    $('#createCampaignModal').on('hidden.bs.modal', function() {
+        $('#campaignForm')[0].reset();
+        $('#scheduled_time_group').hide();
+    });
+});
+</script>
+{% endblock %}

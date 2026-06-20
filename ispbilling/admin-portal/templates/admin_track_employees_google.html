@@ -1,0 +1,654 @@
+{# __s56y_visibility_fix__ #}
+{# __s56x_route_modal__ #}
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Track Employees - Auto ISP Billing
+<script>
+/* _S39EMP_TRAIL_JS — render a 2-hour polyline trail per employee. */
+window._trails = window._trails || {};
+async function renderEmployeeTrail(empId, color) {
+    try {
+        var r = await fetch('/api/employee-trail?employee_id=' + empId + '&minutes=120');
+        var j = await r.json();
+        if (!j.ok) return;
+        var path = (j.points || []).map(p => ({lat: p.lat, lng: p.lng}));
+        if (path.length < 2) return;
+        if (window._trails[empId]) window._trails[empId].setMap(null);
+        window._trails[empId] = new google.maps.Polyline({
+            path: path,
+            geodesic: true,
+            strokeColor: color || '#0ea5e9',
+            strokeOpacity: 0.85,
+            strokeWeight: 4,
+            map: window.map,
+            icons: [{
+                icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                         scale: 3, strokeColor: color || '#0ea5e9' },
+                offset: '100%',
+                repeat: '120px',
+            }],
+        });
+    } catch (e) { /* swallow */ }
+}
+function refreshAllTrails() {
+    if (!window.locations) return;
+    var palette = ['#0ea5e9','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4','#84cc16'];
+    window.locations.forEach((loc, i) => {
+        if (loc && loc.employee_id) {
+            renderEmployeeTrail(loc.employee_id, palette[i % palette.length]);
+        }
+    });
+}
+/* hook into the existing auto-refresh */
+var _origLoad = window.loadLocations;
+if (typeof _origLoad === 'function') {
+    window.loadLocations = async function() {
+        await _origLoad.apply(this, arguments);
+        refreshAllTrails();
+    };
+}
+</script>
+
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper" style="margin-left: 0; padding: 20px;">
+    <section class="content-header" style="margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">
+            Track Employees
+            <small style="font-size: 14px; color: #666; margin-left: 10px;">Real-time GPS location tracking</small>
+        </h1>
+    </section>
+
+    <section class="content">
+        <div style="background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div>
+                    <button id="refreshBtn" class="btn btn-primary" style="background: #667eea; border: none; padding: 8px 20px; font-size: 14px;">
+                        <i class="fa fa-refresh"></i> Refresh Locations
+                    </button>
+                    <button id="showAllBtn" class="btn btn-secondary" style="background: #6c757d; border: none; padding: 8px 20px; font-size: 14px; margin-left: 10px;">
+                        <i class="fa fa-globe"></i> Show All
+                    </button>
+                    <span id="lastUpdate" style="margin-left: 15px; color: #666; font-size: 13px;"></span>
+                </div>
+                <div>
+                    <label style="margin-right: 10px; font-size: 14px;">Auto-refresh:</label>
+                    <input type="checkbox" id="autoRefresh" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="margin-left: 5px; font-size: 13px; color: #666;">(every 10 seconds)</span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 300px 1fr; gap: 20px;">
+                <div id="employeeList" style="background: #f9f9f9; padding: 15px; max-height: 600px; overflow-y: auto;">
+                    <h4 style="margin-top: 0; margin-bottom: 15px; font-size: 16px; color: #333;">Employees</h4>
+                    <div id="employeeListContent">
+                        <p style="text-align: center; color: #999; padding: 20px;">Loading...</p>
+                    </div>
+                </div>
+
+                <div id="mapContainer" style="height: 600px; position: relative; background: #e5e3df;">
+                    <div id="map" style="width: 100%; height: 100%;"></div>
+                    <div id="noLocationsMessage" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; background: white; padding: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 1000;">
+                        <i class="fa fa-map-marker" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
+                        <h3 style="margin: 0 0 10px 0; color: #666;">No Live Locations Yet</h3>
+                        <p style="margin: 0; color: #999;">Employee locations will appear here once they start tracking</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+<!-- __s56x_route_modal__ — full-route popup -->
+<div id="empRouteModal" style="display:none;position:fixed;inset:0;z-index:1000000;background:rgba(15,23,42,.62);">
+  <div style="position:fixed;top:24px;left:24px;right:24px;bottom:24px;background:#fff;border-radius:14px;box-shadow:0 30px 60px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;z-index:1000001;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:linear-gradient(135deg,#0f766e,#0e7490);color:#fff;">
+      <div>
+        <h3 id="empRouteTitle" style="margin:0;font-size:18px;font-weight:600;">Route history</h3>
+        <div id="empRouteSubtitle" style="margin-top:3px;font-size:12px;opacity:.85;">—</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="empRouteWindow" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 10px;font-size:13px;">
+          <option value="60">Last 1 hour</option>
+          <option value="240">Last 4 hours</option>
+          <option value="720" selected>Last 12 hours</option>
+          <option value="1440">Last 24 hours</option>
+        </select>
+        <button id="empRouteRefresh" type="button" style="background:rgba(255,255,255,.2);color:#fff;border:0;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;">
+          <i class="fa fa-refresh"></i> Refresh
+        </button>
+        <button id="empRouteClose" type="button" style="background:rgba(255,255,255,.2);color:#fff;border:0;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:18px;line-height:1;">&times;</button>
+      </div>
+    </div>
+    <div style="display:flex;flex:1;min-height:0;">
+      <div id="empRouteStats" style="width:280px;background:#f8fafc;border-right:1px solid #e2e8f0;padding:16px;overflow-y:auto;font-size:13px;color:#0f172a;">
+        <div class="empRouteStat" id="empRouteStatCurrent">
+          <div style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Current location</div>
+          <div id="empRouteCurrent" style="font-weight:600;">—</div>
+          <div id="empRouteCurrentAgo" style="color:#64748b;font-size:12px;margin-top:2px;">—</div>
+        </div>
+        <hr style="border:0;border-top:1px solid #e2e8f0;margin:14px 0;">
+        <div style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Trip summary</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Points</span><span id="empRoutePointCount" style="font-weight:600;">0</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Distance</span><span id="empRouteDistance" style="font-weight:600;">0 km</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">First ping</span><span id="empRouteFirstPing" style="font-weight:600;">—</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;">Last ping</span><span id="empRouteLastPing" style="font-weight:600;">—</span></div>
+        <hr style="border:0;border-top:1px solid #e2e8f0;margin:14px 0;">
+        <div style="color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Recent stops</div>
+        <div id="empRouteStops" style="font-size:12px;color:#475569;"></div>
+      </div>
+      <div id="empRouteMap" style="flex:1;background:#e2e8f0;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* __s56AA_modal_root__ — make sure the route modal sits at <body> root,
+   not inside .content-wrapper, so its position:fixed inset:0 references
+   the real viewport regardless of padding-top / stacking-context shenanigans. */
+(function(){
+    function relocate(){
+        var m = document.getElementById('empRouteModal');
+        if (m && m.parentNode !== document.body) {
+            document.body.appendChild(m);
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', relocate);
+    } else {
+        relocate();
+    }
+})();
+</script>
+
+
+</div>
+
+<style>
+/* __s56y_visibility_fix__ — explicit colors so dark-theme cascade
+   doesn't render white-on-white on this page. */
+#employeeList { background: #f8fafc !important; color: #0f172a !important; }
+#employeeList h4 { color: #0f172a !important; }
+#noLocationsMessage { color: #475569 !important; }
+#noLocationsMessage h3 { color: #1e293b !important; }
+#lastUpdate { color: #475569 !important; }
+.content-header h1 { color: #f8fafc !important; }
+.content-header h1 small { color: #94a3b8 !important; }
+
+.employee-item {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 12px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid #0e7490;
+    border-radius: 6px;
+}
+.employee-item:hover {
+    background: #f1f5f9 !important;
+    transform: translateX(3px);
+}
+.employee-item.active {
+    background: #0e7490 !important;
+    color: #ffffff !important;
+    border-left-color: #0891b2 !important;
+}
+.employee-item.active .employee-name,
+.employee-item.active .employee-code,
+.employee-item.active .employee-status,
+.employee-item.active .employee-time { color: #ffffff !important; }
+
+.employee-name {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: #0f172a !important;
+}
+.employee-code {
+    font-size: 12px;
+    color: #475569 !important;
+    margin-bottom: 6px;
+}
+.employee-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857 !important;
+}
+.employee-status.live    { background:#dcfce7; color:#15803d !important; }
+.employee-status.recent  { background:#fef9c3; color:#a16207 !important; }
+.employee-status.idle    { background:#e2e8f0; color:#475569 !important; }
+.employee-status.stale   { background:#fee2e2; color:#b91c1c !important; }
+.employee-status.no-location { background:#f1f5f9; color:#64748b !important; }
+.employee-status .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.employee-time {
+    font-size: 11px;
+    color: #64748b !important;
+    margin-top: 6px;
+}
+.employee-time.stale-time { color: #b91c1c !important; font-weight: 600; }
+
+/* ---- Route modal: lock colors so dark-mode body rules don't bleed in ---- */
+#empRouteModal, #empRouteModal * { box-sizing: border-box; }
+#empRouteModal #empRouteTitle    { color: #ffffff !important; }
+/* __s56AC_iw_fix__  Force Google InfoWindow text to dark slate so it
+   remains readable on the admin dark theme. */
+.gm-style .gm-style-iw,
+.gm-style .gm-style-iw-d,
+.gm-style .gm-style-iw-c,
+.gm-style .gm-style-iw * {
+    color: #0f172a !important;
+}
+.gm-style .gm-style-iw h4,
+.gm-style .gm-style-iw b,
+.gm-style .gm-style-iw strong {
+    color: #0f172a !important;
+}
+#empRouteModal #empRouteSubtitle { color: rgba(255,255,255,.85) !important; }
+#empRouteStats { color: #0f172a !important; background: #f8fafc !important; }
+#empRouteStats div, #empRouteStats span { color: inherit; }
+#empRouteStats .label { color: #64748b !important; }
+#empRoutePointCount, #empRouteDistance, #empRouteFirstPing,
+#empRouteLastPing, #empRouteCurrent { color: #0f172a !important; font-weight: 600; }
+#empRouteCurrentAgo { color: #64748b !important; }
+#empRouteStops > div { background: #ffffff !important; color: #0f172a !important; }
+#empRouteStops > div div { color: #0f172a !important; }
+#empRouteStops > div div + div { color: #64748b !important; }
+#empRouteWindow option { color: #0f172a; background: #fff; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBBbCSJ47XNocbZLJu6GkOcLh8OQUf6r3A&loading=async&callback=__s39c_gmaps_ready"></script>
+
+<script>
+var __s39c_init_done = false;
+function __s39c_gmaps_ready() {
+    // Google Maps SDK is loaded; jQuery may load after — wait for both.
+    var iv = setInterval(function() {
+        if (window.jQuery && window.google && window.google.maps && !__s39c_init_done) {
+            __s39c_init_done = true;
+            clearInterval(iv);
+            jQuery(__s39c_boot);
+        }
+    }, 50);
+}
+
+function __s39c_boot() {
+    var map = null;
+    var markers = {};
+    var infoWindows = {};
+    var autoRefreshInterval = null;
+    var selectedEmployeeId = null;
+
+    function initMap() {
+        map = new google.maps.Map(document.getElementById('map'), {
+            center: { lat: 20.5937, lng: 78.9629 },
+            zoom: 5,
+            // __S39C__ default to satellite (HYBRID = satellite + labels)
+            mapTypeId: google.maps.MapTypeId.HYBRID,
+            mapTypeControl: true,
+            mapTypeControlOptions: {
+                style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+                position: google.maps.ControlPosition.TOP_LEFT,
+                mapTypeIds: [
+                    google.maps.MapTypeId.ROADMAP,
+                    google.maps.MapTypeId.SATELLITE,
+                    google.maps.MapTypeId.HYBRID,
+                    google.maps.MapTypeId.TERRAIN
+                ]
+            },
+            streetViewControl: true,
+            fullscreenControl: true,
+            zoomControl: true
+        });
+    }
+
+    function formatTimeAgo(iso) {
+        if (!iso) return 'Never';
+        var date = new Date(iso);
+        var seconds = Math.floor((new Date() - date) / 1000);
+        if (seconds < 60) return 'Just now';
+        if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago';
+        if (seconds < 86400) return Math.floor(seconds / 3600) + ' hours ago';
+        return Math.floor(seconds / 86400) + ' days ago';
+    }
+
+    function clearMarkers() {
+        Object.values(markers).forEach(function(m) { m.setMap(null); });
+        markers = {};
+        infoWindows = {};
+    }
+
+    function loadEmployeeLocations() {
+        jQuery.ajax({
+            url: '/api/employee-locations',
+            type: 'GET',
+            success: function(response) {
+                if (response && response.success) {
+                    updateEmployeeList(response.locations || []);
+                    updateMap(response.locations || []);
+                    jQuery('#lastUpdate').text('Last updated: ' + new Date().toLocaleTimeString());
+                }
+            }
+        });
+    }
+
+    function updateEmployeeList(locations) {
+        var listContent = jQuery('#employeeListContent');
+        listContent.empty();
+        if (!locations.length) {
+            listContent.html('<p style="text-align:center;color:#999;padding:20px;">No employees found</p>');
+            return;
+        }
+        locations.forEach(function(emp) {
+            var hasLoc = emp.last_latitude && emp.last_longitude;
+            var activeClass = (selectedEmployeeId === emp.id) ? 'active' : '';
+            // __s56y_freshness__  Classify by minutes-since-last-ping so the
+            // admin can instantly tell "currently live" from "last seen yesterday".
+            var fresh = 'no-location';
+            var label = 'No location yet';
+            var ageMin = null;
+            if (hasLoc) {
+                if (emp.last_seen_at) {
+                    var d = new Date(emp.last_seen_at);
+                    if (!isNaN(d.getTime())) {
+                        ageMin = (Date.now() - d.getTime()) / 60000;
+                    }
+                }
+                if (ageMin === null) { fresh = 'idle';   label = 'Location available'; }
+                else if (ageMin < 2)  { fresh = 'live';  label = 'LIVE NOW'; }
+                else if (ageMin < 30) { fresh = 'recent';label = 'Recent'; }
+                else if (ageMin < 1440){ fresh = 'idle'; label = 'Idle'; }
+                else                  { fresh = 'stale'; label = 'Offline'; }
+            }
+            var timeCls = (ageMin !== null && ageMin > 120) ? 'employee-time stale-time' : 'employee-time';
+            var item = jQuery(
+                '<div class="employee-item ' + activeClass + '" data-id="' + emp.id + '">' +
+                    '<div class="employee-name">' + (emp.employee_name || '') + '</div>' +
+                    '<div class="employee-code">' + (emp.employee_code || '') + '</div>' +
+                    '<div class="employee-status ' + fresh + '">' +
+                        '<span class="dot"></span>' + label +
+                    '</div>' +
+                    (hasLoc ? '<div class="' + timeCls + '"><i class="fa fa-clock-o"></i> ' + formatTimeAgo(emp.last_seen_at) + '</div>' : '') +
+                '</div>'
+            );
+            item.on('click', function() {
+                if (hasLoc) {
+                    jQuery('.employee-item').removeClass('active');
+                    jQuery(this).addClass('active');
+                    selectedEmployeeId = emp.id;
+                    map.setCenter({ lat: emp.last_latitude, lng: emp.last_longitude });
+                    map.setZoom(17);
+                    if (infoWindows[emp.id] && markers[emp.id]) {
+                        infoWindows[emp.id].open(map, markers[emp.id]);
+                    }
+                }
+            });
+            listContent.append(item);
+        });
+    }
+
+    function updateMap(locations) {
+        clearMarkers();
+        var coords = locations.filter(function(e) { return e.last_latitude && e.last_longitude; });
+        if (!coords.length) {
+            jQuery('#noLocationsMessage').show();
+            return;
+        }
+        jQuery('#noLocationsMessage').hide();
+        var bounds = new google.maps.LatLngBounds();
+        coords.forEach(function(emp) {
+            var pos = { lat: emp.last_latitude, lng: emp.last_longitude };
+            var marker = new google.maps.Marker({
+                position: pos,
+                map: map,
+                title: emp.employee_name || ''
+            });
+            var info = new google.maps.InfoWindow({
+                content:
+                    '<div style="min-width:200px;color:#0f172a !important;background:#fff;">' +
+                        '<h4 style="margin:0 0 8px 0;font-size:14px;color:#0f172a !important;font-weight:700;">' + (emp.employee_name || '') + '</h4>' +
+                        '<p style="margin:0 0 4px 0;font-size:12px;color:#333;"><strong>ID:</strong> ' + (emp.employee_code || '') + '</p>' +
+                        '<p style="margin:0 0 4px 0;font-size:12px;color:#333;"><strong>Mobile:</strong> ' + (emp.mobile || '') + '</p>' +
+                        '<p style="margin:0;font-size:11px;color:#666;"><i class="fa fa-clock-o"></i> ' + formatTimeAgo(emp.last_seen_at) + '</p>' +
+                    '</div>'
+            });
+            marker.addListener('click', function() { info.open(map, marker); });
+            markers[emp.id] = marker;
+            infoWindows[emp.id] = info;
+            bounds.extend(pos);
+        });
+        /* S39MAP_REMEMBER_ZOOM */
+        if (!window._firstFit) {
+            if (coords.length === 1) {
+                map.setCenter({ lat: coords[0].last_latitude, lng: coords[0].last_longitude });
+                map.setZoom(17);
+            } else {
+                map.fitBounds(bounds, 50);
+            }
+            window._firstFit = true;
+        }
+    }
+
+    function startAutoRefresh() {
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+        autoRefreshInterval = setInterval(function() {
+            if (jQuery('#autoRefresh').is(':checked')) loadEmployeeLocations();
+        }, 10000);
+    }
+
+    jQuery('#refreshBtn').on('click', loadEmployeeLocations);
+    jQuery('#showAllBtn').on('click', function() {
+        var bounds = new google.maps.LatLngBounds();
+        var any = false;
+        Object.values(markers).forEach(function(m) {
+            bounds.extend(m.getPosition()); any = true;
+        });
+        if (any) map.fitBounds(bounds, 50);
+    });
+    jQuery('#autoRefresh').on('change', function() {
+        if (jQuery(this).is(':checked')) startAutoRefresh();
+        else if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    });
+
+    initMap();
+    loadEmployeeLocations();
+    startAutoRefresh();
+
+    /* ===========================================================
+       __s56x_route_modal__ — full-route popup wiring
+       =========================================================== */
+    var __rmMap = null;
+    var __rmPolyline = null;
+    var __rmMarkers = [];
+    var __rmRefreshIv = null;
+    var __rmEmpId = null;
+
+    function _rmFmtAgo(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        var s = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (s < 60) return 'Just now';
+        if (s < 3600) return Math.floor(s/60) + ' min ago';
+        if (s < 86400) return Math.floor(s/3600) + ' hr ago';
+        return Math.floor(s/86400) + ' days ago';
+    }
+
+    function _rmHaversine(a, b) {
+        var R = 6371;  // km
+        var dLat = (b.lat - a.lat) * Math.PI/180;
+        var dLng = (b.lng - a.lng) * Math.PI/180;
+        var aa = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                 Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180) *
+                 Math.sin(dLng/2)*Math.sin(dLng/2);
+        return 2 * R * Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa));
+    }
+
+    function _rmClearMap() {
+        if (__rmPolyline) { __rmPolyline.setMap(null); __rmPolyline = null; }
+        __rmMarkers.forEach(function(m){ m.setMap(null); });
+        __rmMarkers = [];
+    }
+
+    function _rmRender(emp, points) {
+        _rmClearMap();
+        var bounds = new google.maps.LatLngBounds();
+        var path = (points || []).map(function(p){ return { lat: p.lat, lng: p.lng }; });
+
+        // polyline trail
+        if (path.length >= 2) {
+            __rmPolyline = new google.maps.Polyline({
+                path: path, geodesic: true,
+                strokeColor: '#0e7490', strokeOpacity: 0.95, strokeWeight: 4,
+                map: __rmMap,
+                icons: [{
+                    icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                             scale: 3, strokeColor: '#0e7490' },
+                    offset: '100%', repeat: '120px',
+                }]
+            });
+            path.forEach(function(pt){ bounds.extend(pt); });
+        }
+
+        // start marker
+        if (path.length >= 1) {
+            var startM = new google.maps.Marker({
+                position: path[0], map: __rmMap, label: 'A',
+                title: 'Start',
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8,
+                         fillColor: '#16a34a', fillOpacity: 1,
+                         strokeColor: '#fff', strokeWeight: 2 }
+            });
+            __rmMarkers.push(startM);
+            bounds.extend(path[0]);
+        }
+
+        // current / last marker
+        var current = emp && emp.last_latitude && emp.last_longitude
+            ? { lat: emp.last_latitude, lng: emp.last_longitude }
+            : (path.length ? path[path.length - 1] : null);
+        if (current) {
+            var endM = new google.maps.Marker({
+                position: current, map: __rmMap,
+                title: emp.employee_name + ' (current)',
+                animation: google.maps.Animation.DROP,
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 11,
+                         fillColor: '#ef4444', fillOpacity: 1,
+                         strokeColor: '#fff', strokeWeight: 3 }
+            });
+            var iw = new google.maps.InfoWindow({
+                content: '<div style="min-width:180px;color:#0f172a;">' +
+                          '<b style="color:#0f172a;">' + (emp.employee_name || '') + '</b><br>' +
+                          '<span style="font-size:12px;color:#475569;">' +
+                          (emp.employee_code || '') + '</span><br>' +
+                          '<span style="font-size:11px;color:#64748b;">' +
+                          _rmFmtAgo(emp.last_seen_at) + '</span></div>'
+            });
+            endM.addListener('click', function(){ iw.open(__rmMap, endM); });
+            __rmMarkers.push(endM);
+            bounds.extend(current);
+        }
+
+        if (!bounds.isEmpty()) __rmMap.fitBounds(bounds, 60);
+
+        // stats panel
+        var dist = 0;
+        for (var i = 1; i < path.length; i++) dist += _rmHaversine(path[i-1], path[i]);
+        jQuery('#empRoutePointCount').text(path.length);
+        jQuery('#empRouteDistance').text(dist.toFixed(2) + ' km');
+        jQuery('#empRouteFirstPing').text(points.length ? new Date(points[0].at).toLocaleString() : '—');
+        jQuery('#empRouteLastPing').text(points.length ? new Date(points[points.length-1].at).toLocaleString() : '—');
+        jQuery('#empRouteCurrent').text(current ? (current.lat.toFixed(5) + ', ' + current.lng.toFixed(5)) : 'No fix yet');
+        jQuery('#empRouteCurrentAgo').text(emp.last_seen_at ? _rmFmtAgo(emp.last_seen_at) : '—');
+
+        // recent stops — show last 5 distinct points (>50m apart)
+        var stops = [];
+        for (var j = points.length - 1; j >= 0 && stops.length < 5; j--) {
+            var p = points[j];
+            if (!stops.length || _rmHaversine(p, stops[stops.length-1]) > 0.05) {
+                stops.push({ lat: p.lat, lng: p.lng, at: p.at });
+            }
+        }
+        var stopsHtml = stops.map(function(s){
+            return '<div style="margin-bottom:8px;padding:6px 8px;background:#fff;border-left:3px solid #0e7490;font-size:11px;">' +
+                   '<div style="font-weight:600;color:#0f172a;">' + s.lat.toFixed(5) + ', ' + s.lng.toFixed(5) + '</div>' +
+                   '<div style="color:#64748b;">' + (s.at || '') + '</div></div>';
+        }).join('');
+        jQuery('#empRouteStops').html(stopsHtml || '<div style="color:#94a3b8;font-style:italic;">No movement recorded yet.</div>');
+    }
+
+    function openEmpRouteModal(emp) {
+        if (!emp) return;
+        __rmEmpId = emp.id;
+        jQuery('#empRouteTitle').text(emp.employee_name || ('Employee #' + emp.id));
+        jQuery('#empRouteSubtitle').text((emp.employee_code || '') + (emp.mobile ? '  ·  ' + emp.mobile : ''));
+        jQuery('#empRouteModal').css('display', 'block');
+        // Build the map lazily — fresh instance per open so resize is clean
+        setTimeout(function(){
+            if (!__rmMap) {
+                __rmMap = new google.maps.Map(document.getElementById('empRouteMap'), {
+                    center: { lat: 20.5937, lng: 78.9629 }, zoom: 5,
+                    mapTypeId: google.maps.MapTypeId.HYBRID,
+                    streetViewControl: true, fullscreenControl: true,
+                });
+            } else {
+                google.maps.event.trigger(__rmMap, 'resize');
+            }
+            loadEmpRoute();
+        }, 60);
+        if (__rmRefreshIv) clearInterval(__rmRefreshIv);
+        __rmRefreshIv = setInterval(loadEmpRoute, 20000);
+    }
+
+    function loadEmpRoute() {
+        if (!__rmEmpId) return;
+        var mins = parseInt(jQuery('#empRouteWindow').val(), 10) || 720;
+        jQuery.when(
+            jQuery.ajax({ url: '/api/employee-trail',
+                          data: { employee_id: __rmEmpId, minutes: mins } }),
+            jQuery.ajax({ url: '/api/employee-locations' })
+        ).done(function(trail, locs) {
+            var tj = trail[0];
+            var lj = locs[0];
+            if (!tj || !tj.ok) return;
+            var emp = (lj.locations || []).find(function(e){ return e.id === __rmEmpId; }) || {};
+            _rmRender(emp, tj.points || []);
+        });
+    }
+
+    function closeEmpRouteModal() {
+        jQuery('#empRouteModal').css('display', 'none');
+        if (__rmRefreshIv) { clearInterval(__rmRefreshIv); __rmRefreshIv = null; }
+        __rmEmpId = null;
+    }
+
+    jQuery('#empRouteClose').on('click', closeEmpRouteModal);
+    jQuery('#empRouteRefresh').on('click', loadEmpRoute);
+    jQuery('#empRouteWindow').on('change', loadEmpRoute);
+    jQuery(document).on('keydown', function(e){
+        if (e.key === 'Escape' && jQuery('#empRouteModal').is(':visible')) closeEmpRouteModal();
+    });
+
+    // Hijack employee-item clicks: open the modal instead of just centering.
+    // We delegate so it survives every re-render from auto-refresh.
+    jQuery('#employeeListContent').on('click', '.employee-item', function(ev){
+        var empId = parseInt(jQuery(this).attr('data-id'), 10);
+        // Look up the latest employee record from the in-memory marker map
+        jQuery.ajax({ url: '/api/employee-locations' }).done(function(resp){
+            if (!resp || !resp.success) return;
+            var emp = (resp.locations || []).find(function(e){ return e.id === empId; });
+            if (emp) openEmpRouteModal(emp);
+        });
+        ev.stopImmediatePropagation();
+    });
+}
+</script>
+{% endblock %}

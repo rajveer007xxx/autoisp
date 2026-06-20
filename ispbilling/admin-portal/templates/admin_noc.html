@@ -1,0 +1,229 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}Live NOC Dashboard{% endblock %}
+{% block content %}
+<style>
+  .noc-wrap{padding:18px;background:#0b1220;min-height:calc(100vh - 70px);color:#e5e7eb;}
+  .noc-hero{padding:16px 22px;background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(148,163,184,.14);border-radius:14px;margin-bottom:18px;display:flex;align-items:center;gap:12px;}
+  .noc-hero .icon{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#10b981,#22d3ee);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;}
+  .noc-hero h3{margin:0;font-size:20px;font-weight:700;}
+  .noc-hero .sub{font-size:12px;color:#94a3b8;}
+  .noc-hero .live-pill{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;background:rgba(16,185,129,.15);color:#34d399;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+  .noc-hero .live-dot{width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;animation:noc-pulse 1.5s infinite;}
+  @keyframes noc-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+  .noc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px;}
+  .noc-kpi{background:#131c2e;border:1px solid rgba(148,163,184,.14);border-radius:12px;padding:18px;}
+  .noc-kpi .l{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
+  .noc-kpi .v{font-size:32px;font-weight:700;letter-spacing:-0.02em;margin-top:8px;}
+  .noc-kpi.good .v{color:#34d399;}
+  .noc-kpi.bad .v{color:#f87171;}
+  .noc-kpi.warn .v{color:#fbbf24;}
+  .noc-kpi.info .v{color:#60a5fa;}
+  .noc-kpi.ai .v{color:#a78bfa;}
+  .noc-row{display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-bottom:18px;}
+  @media (max-width:1000px){.noc-row{grid-template-columns:1fr;}}
+  .noc-card{background:#131c2e;border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:18px;}
+  .noc-card h4{font-size:11px;font-weight:700;letter-spacing:.1em;color:#64748b;text-transform:uppercase;margin:0 0 12px 0;display:flex;align-items:center;gap:6px;}
+  .noc-card h4 .badge{margin-left:auto;background:#0f172a;padding:2px 8px;border-radius:99px;font-size:11px;color:#94a3b8;}
+  .noc-item{padding:10px 12px;background:#0f172a;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:10px;border-left:3px solid #64748b;}
+  .noc-item.crit{border-left-color:#ef4444;}
+  .noc-item.warn{border-left-color:#fbbf24;}
+  .noc-item.info{border-left-color:#60a5fa;}
+  .noc-item.ai{border-left-color:#a78bfa;}
+  .noc-item .title{font-weight:600;font-size:13px;flex:1;}
+  .noc-item .meta{font-size:11px;color:#94a3b8;font-family:'JetBrains Mono','Consolas',monospace;}
+  .noc-item .sev{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;}
+  .noc-empty{padding:24px;text-align:center;color:#64748b;font-size:13px;}
+</style>
+
+<div class="noc-wrap" data-testid="noc-page">
+  <div class="noc-hero">
+    <div class="icon"><i class="bi bi-broadcast-pin"></i></div>
+    <div>
+      <h3>Live Network Operations Center</h3>
+      <div class="sub">Auto-refresh every 5 seconds · Last updated: <span id="noc-ts">—</span></div>
+    </div>
+    <span class="live-pill"><span class="live-dot"></span> Live</span>
+  </div>
+
+  <div class="noc-kpis">
+    <div class="noc-kpi info" data-testid="kpi-olts">
+      <div class="l"><i class="bi bi-hdd-rack"></i> OLTs Online</div>
+      <div class="v"><span id="olt-online">—</span> / <span id="olt-total" style="color:#94a3b8;font-size:18px;">—</span></div>
+    </div>
+    <div class="noc-kpi good" data-testid="kpi-onus-online">
+      <div class="l"><i class="bi bi-hdd-network"></i> ONUs Online</div>
+      <div class="v" id="onus-online">—</div>
+    </div>
+    <div class="noc-kpi bad" data-testid="kpi-onus-offline">
+      <div class="l"><i class="bi bi-hdd-network"></i> ONUs Offline</div>
+      <div class="v" id="onus-offline">—</div>
+    </div>
+    <div class="noc-kpi bad" data-testid="kpi-active-outages">
+      <div class="l"><i class="bi bi-exclamation-octagon"></i> Active Outages</div>
+      <div class="v" id="active-outages">—</div>
+    </div>
+    <div class="noc-kpi warn" data-testid="kpi-signal-alerts">
+      <div class="l"><i class="bi bi-bell"></i> Signal Alerts 24h</div>
+      <div class="v" id="signal-alerts">—</div>
+    </div>
+    <div class="noc-kpi ai" data-testid="kpi-predicted">
+      <div class="l"><i class="bi bi-cpu"></i> AI Predicted Failures</div>
+      <div class="v" id="predicted-count">—</div>
+    </div>
+  </div>
+
+  <div class="noc-row">
+    <div class="noc-card" data-testid="card-outages">
+      <h4><i class="bi bi-exclamation-octagon"></i> Active Outages <span class="badge" id="outage-badge">0</span></h4>
+      <div id="outage-list"><div class="noc-empty">Loading…</div></div>
+    </div>
+    <div class="noc-card" data-testid="card-predicted">
+      <h4><i class="bi bi-cpu"></i> AI Predicted Failures
+        <span class="badge" style="background:rgba(167,139,250,.15);color:#a78bfa;">predictive</span>
+      </h4>
+      <div id="predicted-list"><div class="noc-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="noc-row">
+    <div class="noc-card" data-testid="card-fiber-cuts">
+      <h4><i class="bi bi-lightning-charge"></i> Recent Fiber Cuts (7d) <span class="badge" id="cuts-badge">0</span></h4>
+      <div id="cuts-list"><div class="noc-empty">Loading…</div></div>
+    </div>
+    <div class="noc-card" data-testid="card-worst-rx">
+      <h4><i class="bi bi-arrow-down-circle"></i> Lowest RX Power (Online ONUs)</h4>
+      <div id="worst-rx-list"><div class="noc-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="noc-card" data-testid="card-top-traffic">
+    <h4><i class="bi bi-bar-chart"></i> Top Traffic (last 30 min)</h4>
+    <div id="top-traffic-list"><div class="noc-empty">Loading…</div></div>
+  </div>
+</div>
+
+
+<style id="_S57G_ROWLINKS_">
+/* _S57G_ROWLINKS_  NOC row-level drill-down anchors */
+a.noc-item.row-link, a.noc-item.row-link:visited{
+  text-decoration:none; color:inherit; display:flex;
+}
+a.noc-item.row-link:hover{
+  box-shadow:0 0 0 1px #22d3ee, 0 4px 16px rgba(34,211,238,.18);
+  transform:translateY(-1px); transition:transform .12s ease;
+}
+</style>
+
+<script>
+function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = (v ?? '—'); }
+
+function renderOutages(items){
+  const wrap = document.getElementById('outage-list');
+  document.getElementById('outage-badge').textContent = items.length;
+  if (!items.length){ wrap.innerHTML = '<div class="noc-empty">No active outages 🎉</div>'; return; }
+  wrap.innerHTML = items.map(o => `
+    <a class="noc-item crit row-link" data-testid="outage-item-${o.id}" href="/admin/outages-v2#outage-${o.id}" title="Open outage detail">
+      <div class="title">${(o.kind || 'outage').toUpperCase()} · ${o.onu_count} ONUs · ${o.customer_count} customers</div>
+      <span class="meta">${o.opened_at || ''}</span>
+    </a>
+  `).join('');
+}
+
+function renderPredicted(items){
+  const wrap = document.getElementById('predicted-list');
+  if (!items.length){ wrap.innerHTML = '<div class="noc-empty">No predicted failures right now ✓</div>'; return; }
+  wrap.innerHTML = items.map(p => `
+    <a class="noc-item ai row-link" data-testid="predicted-item-${p.id}" href="/admin/onu/${p.onu_id}/detail" title="Open ONU detail">
+      <div class="title">
+        ${p.serial || p.name || ('ONU #'+p.onu_id)}
+        <span style="color:#fbbf24;font-weight:700;"> · ${p.days_left} days</span>
+      </div>
+      <span class="meta">slope ${p.slope > 0 ? '+' : ''}${p.slope} dB/day${p.rx_power ? ' · RX ' + p.rx_power.toFixed(1) + ' dBm' : ''}</span>
+    </a>
+  `).join('');
+}
+
+function renderCuts(items){
+  document.getElementById('cuts-badge').textContent = items.length;
+  const wrap = document.getElementById('cuts-list');
+  if (!items.length){ wrap.innerHTML = '<div class="noc-empty">No fiber cuts in last 7 days</div>'; return; }
+  wrap.innerHTML = items.map(c => `
+    <a class="noc-item warn row-link" data-testid="cut-item-${c.id}" href="/admin/network-map?fiber_id=${c.fiber_id}" title="Open fiber on map">
+      <div class="title">Fiber #${c.fiber_id} · cut at ${c.cut_at}</div>
+      ${c.lat && c.lng ? `<a href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#fbbf24;text-decoration:none;font-size:12px;"><i class="bi bi-geo-alt"></i> Map</a>` : ''}
+    </a>
+  `).join('');
+}
+
+function renderWorstRx(items){
+  const wrap = document.getElementById('worst-rx-list');
+  if (!items.length){ wrap.innerHTML = '<div class="noc-empty">No signal data yet</div>'; return; }
+  wrap.innerHTML = items.map(o => {
+    const rx = o.rx_power;
+    const c = rx > -25 ? '#34d399' : rx > -28 ? '#fbbf24' : '#ef4444';
+    return `<div class="noc-item ${rx > -25 ? 'info' : rx > -28 ? 'warn' : 'crit'}" data-testid="worst-rx-${o.id}">
+      <div class="title">${o.serial || o.mac || ('ONU #'+o.id)}</div>
+      <span class="meta" style="color:${c};font-weight:700;">${rx.toFixed(2)} dBm</span>
+      <a href="/admin/onu/${o.id}/detail" style="color:#22d3ee;text-decoration:none;font-size:12px;font-weight:600;">View</a>
+    </div>`;
+  }).join('');
+}
+
+function renderTopTraffic(items){
+  const wrap = document.getElementById('top-traffic-list');
+  if (!items.length){ wrap.innerHTML = '<div class="noc-empty">No traffic data in last 30 min</div>'; return; }
+  wrap.innerHTML = items.map(t => `
+    <div class="noc-item info" data-testid="top-traffic-${t.onu_id}">
+      <div class="title">${t.serial || t.name || ('ONU #'+t.onu_id)}</div>
+      <span class="meta" style="color:#60a5fa;font-weight:700;">${t.avg_mbps} Mbps</span>
+      <a href="/admin/onu/${t.onu_id}/detail" style="color:#22d3ee;text-decoration:none;font-size:12px;font-weight:600;">View</a>
+    </div>
+  `).join('');
+}
+
+async function tick(){
+  try {
+    const r = await fetch('/api/admin/noc/feed', {credentials:'same-origin'});
+    const j = await r.json();
+    setText('olt-online', j.olts_online); setText('olt-total', j.olts_total);
+    setText('onus-online', j.onus_online); setText('onus-offline', j.onus_offline);
+    setText('active-outages', (j.active_outages || []).length);
+    setText('signal-alerts', j.signal_alerts_24h || 0);
+    setText('predicted-count', j.predicted_failures_count || 0);
+    renderOutages(j.active_outages || []);
+    renderPredicted(j.predicted_failures || []);
+    renderCuts(j.fiber_cuts_recent || []);
+    renderWorstRx(j.worst_rx_onus || []);
+    renderTopTraffic(j.top_traffic || []);
+    document.getElementById('noc-ts').textContent = new Date().toLocaleTimeString();
+  } catch (e){ console.error('NOC feed err', e); }
+}
+tick();
+setInterval(tick, 5000);
+</script>
+
+<script>
+// _S57F_DRILLDOWN_  Make every NOC KPI tile clickable to drill into the
+// existing detail pages, so operators can pivot from the dashboard.
+document.addEventListener('DOMContentLoaded', () => {
+  const links = {
+    'kpi-olts':            '/admin/olt/system-config',
+    'kpi-onus-online':     '/admin/olt/onus?status=online',
+    'kpi-onus-offline':    '/admin/olt/onus?status=offline',
+    'kpi-active-outages':  '/admin/outages-v2',
+    'kpi-signal-alerts':   '/admin/olt/alerts',
+    'kpi-predicted':       '/admin/olt/alerts?kind=predicted',
+  };
+  for (const [tid, href] of Object.entries(links)){
+    const el = document.querySelector('[data-testid="' + tid + '"]');
+    if (!el) continue;
+    el.style.cursor = 'pointer';
+    el.title = 'Click to drill down';
+    el.addEventListener('click', () => location.href = href);
+    el.addEventListener('mouseenter', () => el.style.boxShadow = '0 0 0 1px #22d3ee, 0 4px 16px rgba(34,211,238,.18)');
+    el.addEventListener('mouseleave', () => el.style.boxShadow = '');
+  }
+});
+</script>
+
+{% endblock %}

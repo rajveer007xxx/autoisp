@@ -1,0 +1,91 @@
+{% extends "base_admin.html" %}
+{% block title %}2-Year Retention - Compliance{% endblock %}
+{% block content %}
+<style>
+.cmp-card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.cmp-tbl th{background:#f1f5f9;padding:8px;text-align:left;color:#475569;font-size:12px;text-transform:uppercase}
+.cmp-tbl td{padding:8px;border-bottom:1px solid #e5e7eb}
+.cmp-btn{background:#6366f1;color:#fff;border:none;padding:9px 18px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600}
+.cmp-btn.gray{background:#64748b}
+.cmp-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.cmp-pill.ok{background:#dcfce7;color:#15803d}
+.cmp-pill.bad{background:#fee2e2;color:#b91c1c}
+</style>
+
+<section class="content-header">
+  <h1>2-Year Retention Policy<small>DoT/TRAI 730-day retention attestation log</small></h1>
+</section>
+
+<section class="content">
+  <div class="cmp-card">
+    <p style="margin:0 0 10px;color:#475569;font-size:14px">
+      <b>Policy:</b> Compliance records (connection-level activity and visited URLs) are retained for
+      <b>{{ retention_days }}</b> days. Older records are exported to a secure archive and removed
+      from active storage.
+    </p>
+    <p style="margin:0 0 16px;color:#475569;font-size:14px">
+      Session/accounting records are kept in place as required by the regulator. This page records
+      an attestation count of how many such records are older than the retention cutoff.
+    </p>
+    <button class="cmp-btn" onclick="runNow()" data-testid="retention-run">Run retention now</button>
+    <a class="cmp-btn gray" href="/admin/compliance" data-testid="retention-back" style="text-decoration:none;margin-left:8px">← Back</a>
+    <span id="msg" style="margin-left:12px;color:#475569;font-size:13px"></span>
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 14px"><i class="bi bi-clock-history" style="color:#6366f1"></i> Run history (last 50)</h4>
+    {% if not runs %}
+      <p style="color:#94a3b8;text-align:center;padding:24px">No retention runs yet. Click "Run retention now" to record the first attestation.</p>
+    {% else %}
+    <table class="cmp-tbl">
+      <thead><tr>
+        <th>Run Time</th><th>Record Type</th><th>Cutoff</th>
+        <th>Archived</th><th>Deleted</th><th>Result</th><th>Message</th>
+      </tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td>{{ r.ran_at }}</td>
+          <td>{{ {'ipdr_records':'Connection records (IPDR)', 'url_logs':'Visited URLs', 'radacct':'Session / accounting'}.get(r.target_table, r.target_table) }}</td>
+          <td>{{ r.cutoff_ts }}</td>
+          <td>{{ r.rows_archived }}</td>
+          <td>{{ r.rows_deleted }}</td>
+          <td><span class="cmp-pill {% if r.ok %}ok{% else %}bad{% endif %}">{% if r.ok %}OK{% else %}FAIL{% endif %}</span></td>
+          <td style="font-size:12px;color:#64748b">{{ r.message or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <div class="cmp-card">
+    <h4 style="margin:0 0 8px"><i class="bi bi-calendar-event"></i> Automated schedule</h4>
+    <p style="font-size:13px;color:#475569">
+      Retention runs automatically every day at 03:30 IST. Use the button above only if you need to
+      trigger an export immediately for a special audit.
+    </p>
+  </div>
+</section>
+
+<script>
+async function runNow(){
+  document.getElementById('msg').textContent = 'Running…';
+  const r = await fetch('/api/compliance/retention/run', {
+    method:'POST', credentials:'include'
+  });
+  const d = await r.json();
+  if (d.success) {
+    const lines = (d.result.summary || []).map(s =>
+      s.kept ? `${s.table}: ${s.older_count} rows older than cutoff (kept)`
+             : `${s.table}: archived ${s.archived}, deleted ${s.deleted}`
+    ).join(' · ');
+    document.getElementById('msg').textContent = '✓ Done · ' + lines;
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    document.getElementById('msg').textContent = '✗ Failed: ' + (d.message||'unknown');
+  }
+}
+</script>
+{% endblock %}

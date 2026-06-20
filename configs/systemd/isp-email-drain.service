@@ -1,0 +1,15 @@
+# __PHASE1__ Enqueues drain_pending_emails into Dramatiq once per tick.
+[Unit]
+Description=AutoISP Billing — enqueue pending-email drain
+After=network.target redis-server.service isp-queue-worker.service
+Requires=redis-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONPATH=/opt/ispbilling:/opt/ispbilling/admin-portal
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
+ExecStart=/opt/ispbilling/venv/bin/python -c "from task_queue.tasks import drain_pending_emails; drain_pending_emails.send()"
+StandardOutput=append:/var/log/autoispbilling/email-drain.log
+StandardError=append:/var/log/autoispbilling/email-drain.log
+User=root

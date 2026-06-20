@@ -1,0 +1,201 @@
+{% extends "base_admin.html" %}
+{% block title %}2FA Security — Auto ISP Billing
+<!-- s36f-recovery-ui -->
+<section class="content" style="padding-top:0;">
+<div class="row"><div class="col-md-12">
+  <div class="box box-warning">
+    <div class="box-header with-border"><h3 class="box-title"><i class="bi bi-key"></i> Recovery Codes</h3></div>
+    <div class="box-body">
+      <p>Single-use codes for when you lose your 2FA device. Print them and keep them in a safe place.</p>
+      {% if totp_enabled %}
+        <div class="form-group">
+          <label>Enter current 2FA code to regenerate 10 new recovery codes:</label>
+          <input id="s36f-recov-code" class="form-control" maxlength="6" placeholder="123456" data-testid="totp-recov-code-input">
+        </div>
+        <button class="btn btn-warning" onclick="s36fRegen()" data-testid="totp-recov-regen-btn"><i class="bi bi-arrow-clockwise"></i> Regenerate Recovery Codes</button>
+        <button class="btn btn-default" onclick="s36gEmailCodes()" data-testid="totp-email-btn" style="margin-left:8px;"><i class="bi bi-envelope"></i> Email codes to me</button>
+        <div id="s36f-recov-out" style="margin-top:12px;"></div>
+      {% else %}
+        <p class="text-muted">Enable 2FA above first. Recovery codes will be generated automatically.</p>
+      {% endif %}
+    </div>
+  </div>
+</div></div>
+</section>
+<script>
+function s36fRegen(){
+  var c=document.getElementById('s36f-recov-code').value.trim();
+  var out=document.getElementById('s36f-recov-out');
+  if(!/^\d{6}$/.test(c)){ out.innerHTML='<span class="text-danger">Enter a 6-digit code</span>'; return; }
+  fetch('/api/admin/totp/regenerate-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok && j.codes){
+        var html='<div class="alert alert-info"><b>SAVE THESE — they will NOT be shown again:</b><pre style="font-size:16px;letter-spacing:2px;margin:10px 0 0;padding:12px;background:#fff;border:1px solid #d1d5db;border-radius:4px;">'+
+          j.codes.map(function(c){return '<span data-testid="totp-recov-code">'+c+'</span>';}).join('\n')+'</pre>'+
+          '<button class="btn btn-xs btn-default" onclick="window.print()"><i class="bi bi-printer"></i> Print</button> <button class="btn btn-xs btn-primary" style="margin-left:4px;" data-testid="totp-email-these-btn" onclick="window.s38EmailTheseCodes(this)"><i class="bi bi-envelope"></i> Email these</button></div>';
+        out.innerHTML=html;
+      } else out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+    });
+}
+// Capture recovery codes shown right after enabling 2FA (returned from /api/admin/totp/enable).
+(function(){
+  var oldEnable = window.s36dTotpEnable;
+  if(typeof oldEnable !== 'function') return;
+  window.s36dTotpEnable = function(){
+    var c = document.getElementById('totp-code').value.trim();
+    var out = document.getElementById('totp-out');
+    if(!/^\d{6}$/.test(c)){ out.innerHTML='<span class="text-danger">Enter a 6-digit code</span>'; return; }
+    fetch('/api/admin/totp/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})})
+      .then(r=>r.json()).then(j=>{
+        if(j.ok){
+          var html='<div class="alert alert-success">2FA enabled ✓</div>';
+          if(j.recovery_codes && j.recovery_codes.length){
+            html+='<div class="alert alert-warning" style="margin-top:8px;"><b>Save your recovery codes NOW:</b><pre style="font-size:16px;letter-spacing:2px;margin:10px 0 0;padding:12px;background:#fff;border:1px solid #d1d5db;border-radius:4px;">'+
+              j.recovery_codes.map(function(c){return '<span data-testid="totp-recov-code">'+c+'</span>';}).join('\n')+'</pre>'+
+              '<button class="btn btn-xs btn-default" onclick="window.print()"><i class="bi bi-printer"></i> Print</button> <button class="btn btn-xs btn-primary" style="margin-left:4px;" data-testid="totp-email-these-btn" onclick="window.s38EmailTheseCodes(this)"><i class="bi bi-envelope"></i> Email these</button></div>';
+          }
+          out.innerHTML = html;
+          setTimeout(function(){location.reload();}, 8000);  // longer so user can save codes
+        }
+        else out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+      });
+  };
+})();
+</script>
+
+{% endblock %}
+{% block content %}
+<section class="content-header">
+    <h1>Two-Factor Authentication <small>Secure your admin login with a 6-digit code</small></h1>
+</section>
+<section class="content">
+<div class="row">
+  <div class="col-md-6">
+    <div class="box box-primary">
+      <div class="box-header"><h3 class="box-title">{% if totp_enabled %}2FA is ENABLED{% else %}Enable 2FA{% endif %}</h3></div>
+      <div class="box-body">
+        {% if not totp_enabled %}
+        <p>Scan this QR code with <b>Google Authenticator</b>, <b>Authy</b>, or any TOTP app, then enter the 6-digit code below to activate 2FA.</p>
+        <div style="text-align:center;background:#f7fafc;padding:20px;border-radius:6px;">
+          <img src="data:image/png;base64,{{totp_qr_b64}}" alt="TOTP QR" style="max-width:220px;" data-testid="totp-qr">
+          <div style="margin-top:12px;font-family:monospace;font-size:14px;">
+            <code>{{totp_secret}}</code>
+          </div>
+        </div>
+        <hr>
+        <div class="form-group">
+          <label>Enter 6-digit code from the app:</label>
+          <input id="totp-code" class="form-control" maxlength="6" placeholder="123456" data-testid="totp-code-input" style="font-size:20px;text-align:center;letter-spacing:6px;font-family:monospace;">
+        </div>
+        <button class="btn btn-success btn-block" onclick="s36dTotpEnable()" data-testid="totp-enable-btn">
+          <i class="bi bi-shield-check"></i> Activate 2FA
+        </button>
+        <div id="totp-out" style="margin-top:10px;"></div>
+        {% else %}
+        <div class="alert alert-success"><i class="bi bi-check-circle"></i>
+          <b>2FA is active</b> on your account. You'll be prompted for a code at every login.</div>
+        <div class="form-group">
+          <label>To disable, enter your current 6-digit code:</label>
+          <input id="totp-code" class="form-control" maxlength="6" placeholder="123456" data-testid="totp-code-input">
+        </div>
+        <button class="btn btn-danger btn-block" onclick="s36dTotpDisable()" data-testid="totp-disable-btn">
+          <i class="bi bi-shield-slash"></i> Disable 2FA
+        </button>
+        <div id="totp-out" style="margin-top:10px;"></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="box box-default">
+      <div class="box-header"><h3 class="box-title">How it works</h3></div>
+      <div class="box-body" style="font-size:13px;">
+        <ol>
+          <li>Install a TOTP app on your phone (Google Authenticator, Authy, Microsoft Authenticator, 1Password).</li>
+          <li>Scan the QR code. The app will add a 6-digit rolling code that refreshes every 30 seconds.</li>
+          <li>Enter the current code here to activate 2FA.</li>
+          <li>From now on, the login page will ask for your 2FA code after your password.</li>
+        </ol>
+        <p class="text-muted" style="margin-top:12px;">Lost your device? Disable 2FA from another logged-in admin session, or contact your superadmin.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+<script>
+function s36dTotpEnable(){
+  var c = document.getElementById('totp-code').value.trim();
+  var out = document.getElementById('totp-out');
+  if(!/^\d{6}$/.test(c)){ out.innerHTML='<span class="text-danger">Enter a 6-digit code</span>'; return; }
+  fetch('/api/admin/totp/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok){ out.innerHTML='<span class="text-success">2FA enabled</span>'; setTimeout(function(){location.reload();},900); }
+      else out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+    });
+}
+function s36dTotpDisable(){
+  var c = document.getElementById('totp-code').value.trim();
+  var out = document.getElementById('totp-out');
+  if(!/^\d{6}$/.test(c)){ out.innerHTML='<span class="text-danger">Enter a 6-digit code</span>'; return; }
+  fetch('/api/admin/totp/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok){ out.innerHTML='<span class="text-success">2FA disabled</span>'; setTimeout(function(){location.reload();},900); }
+      else out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+    });
+}
+</script>
+{% endblock %}
+
+<script>
+function s36gEmailCodes(){
+  var c=document.getElementById('s36f-recov-code').value.trim();
+  var out=document.getElementById('s36f-recov-out');
+  if(!/^\d{6}$/.test(c)){ out.innerHTML='<span class="text-danger">Enter current 6-digit TOTP</span>'; return; }
+  out.innerHTML='<i class="bi bi-hourglass-split"></i> Sending…';
+  fetch('/api/admin/totp/email-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})})
+    .then(r=>r.json()).then(function(j){
+      if(j.ok){
+        out.innerHTML='<div class="alert alert-success" data-testid="totp-email-result"><i class="bi bi-check-circle"></i> Fresh recovery codes sent to <b>'+j.emailed_to+'</b> ('+j.count+' codes). The old ones are now invalid.</div>';
+      } else {
+        out.innerHTML='<span class="text-danger">'+(j.error||'failed')+'</span>';
+      }
+    });
+}
+</script>
+<script>
+/* __S38_EMAIL_THESE_UI__ */
+window.s38EmailTheseCodes = function(btn, codes) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...'; }
+    var arr = [];
+    if (Array.isArray(codes)) {
+        arr = codes;
+    } else {
+        // Scrape visible code <span>s from closest <pre>
+        var pre = btn && btn.parentElement && btn.parentElement.querySelector('pre');
+        if (pre) {
+            pre.querySelectorAll('[data-testid="totp-recov-code"]').forEach(function(el){
+                arr.push(el.textContent.trim());
+            });
+        }
+    }
+    if (!arr.length) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-envelope"></i> Email these'; }
+        alert('No codes to email'); return;
+    }
+    fetch('/api/admin/totp/email-these-codes', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({codes: arr})
+    }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) {
+            if (btn) btn.outerHTML = '<span class="label label-success" style="padding:4px 8px;"><i class="bi bi-check-circle"></i> Sent to ' + j.emailed_to + '</span>';
+        } else {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-envelope"></i> Email these'; }
+            alert('Email failed: ' + (j.error || 'unknown'));
+        }
+    }).catch(function(err){
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-envelope"></i> Email these'; }
+        alert('Request failed: ' + err);
+    });
+};
+</script>
+

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<!-- __PUBLIC_SITEMAP_TPL__ -->
+<head>
+  <meta charset="utf-8">
+  <title>Site Map — Auto ISP Billing</title>
+  <meta name="description" content="Site map of Auto ISP Billing — find pricing, FAQ, sign-in pages, payment portal and policies.">
+  <link rel="canonical" href="https://www.autoispbilling.com/sitemap">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+           background: #0b1228; color: #e2e8f0; margin: 0;
+           padding: 60px 24px; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    a.brand { color: #cbd5e1; text-decoration: none; font-weight: 700;
+              font-size: 18px; display: inline-block; margin-bottom: 24px; }
+    h1 { font-size: 30px; margin: 0 0 8px; color: #f8fafc; }
+    .sub { color: #94a3b8; margin: 0 0 32px; font-size: 14px; }
+    .grid { display: grid; gap: 18px;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .card { background: #11193a; border: 1px solid #1e2a4d;
+            border-radius: 12px; padding: 20px 22px; }
+    .card h3 { margin: 0 0 14px; font-size: 14px; letter-spacing: .4px;
+               text-transform: uppercase; color: #93c5fd; }
+    .card ul { list-style: none; padding: 0; margin: 0; }
+    .card li { padding: 6px 0; }
+    .card a { color: #e2e8f0; text-decoration: none; font-size: 14px; }
+    .card a:hover { color: #60a5fa; }
+    .back { display:inline-block; margin-top:24px; color:#94a3b8;
+            text-decoration:none; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="brand" href="/">← Auto ISP Billing</a>
+    <h1><i class="bi bi-diagram-3"></i> Site Map</h1>
+    <p class="sub">Every public page on autoispbilling.com at a glance.</p>
+    <div class="grid">
+      {% for group_name, items in groups.items() %}
+      <div class="card" data-testid="sitemap-group-{{ group_name|lower }}">
+        <h3>{{ group_name }}</h3>
+        <ul>
+          {% for label, href in items %}
+          <li><a href="{{ href }}" data-testid="sitemap-link-{{ href.replace('/', '_') }}">{{ label }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>

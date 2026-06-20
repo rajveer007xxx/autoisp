@@ -1,0 +1,515 @@
+"""SuperAdmin: One-click "Apply" buttons for per-NAS configuration.
+
+Each endpoint connects DIRECTLY to the customer's MikroTik via librouteros
+(using the api_username/api_password stored on the NAS row) and applies
+config changes idempotently — no copy-paste, no scripts, no manual steps.
+
+Built on every lesson learned during the 2026-05-14 outage:
+  * pool selection always filters status=Active and non-empty network
+  * NAT-list MASQUERADE / ALLOW for every PPPoE pool + fallback ranges
+  * MSS clamp added (1452) — fixes "ping works but HTTPS won't load"
+  * Address-list `parked-customers` matches dstnat redirect (not "blocked")
+  * Parking pool = pool-parking (10.99.99.0/24) on router, redirected
+    to /pay/captive (not /expired which 404s)
+  * Anti-BF preserves the cloud IP 185.199.53.93 in allowed-mgmt
+  * Each step skips-if-exists so re-running is harmless
+
+Kinds:
+  std-users      - add 'monitoring' user (read-only)
+  api-admin      - add/ensure 'api-admin' user with NAS row password
+  rsc-hardening  - timezone, NTP, DNS, identity, logging defaults
+  universal-nat  - per-pool MASQUERADE/ALLOW + master srcnat + MSS clamp
+  parking-pool   - pool + profile + filter + dstnat + proxy + /pay/captive
+  anti-bruteforce- allowed-mgmt + auto-banned input chain + service hardening
+  auto-config    - runs ALL of the above in sequence (idempotent)
+"""
+import os, sys, time, traceback
+from typing import Callable, Dict
+from fastapi import Request, Depends
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+
+CLOUD_IP = "185.199.53.93"
+CAPTIVE_URL = "https://www.autoispbilling.com/pay/captive"
+ADMIN_LANS = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]  # private LAN ranges to NAT
+
+
+def _is_sa(request: Request) -> bool:
+    try:
+        return (request.session.get("user_type") or "").lower() == "superadmin"
+    except Exception:
+        return False
+
+
+def _connect(nas):
+    """Open a librouteros API session using the NAS row credentials."""
+    from librouteros import connect
+    from librouteros.login import plain
+    return connect(host=nas.ip_address,
+                   username=(nas.api_username or "admin"),
+                   password=(nas.api_password or ""),
+                   port=int(getattr(nas, "port", None) or 8728),
+                   login_method=plain, timeout=25)
+
+
+def _resolve_nas(db: Session, company_id: str, nas_id: int):
+    from radius_network import NasDevice
+    return db.query(NasDevice).filter(NasDevice.id == nas_id,
+                                       NasDevice.company_id == company_id).first()
+
+
+# ---------------------------------------------------------------- step helpers
+def _step(log: list, ok: bool, msg: str):
+    log.append(f"{'[ok] ' if ok else '[skip] '}{msg}")
+
+
+# ---------------------------------------------------------------- 1. std users
+def _apply_std_users(api, log, **_):
+    users = api.path("/user")
+    existing = {u.get("name"): u for u in users}
+    if "monitoring" in existing:
+        _step(log, False, "user 'monitoring' already exists")
+    else:
+        users.add(name="monitoring", password="AutoISP@Monitor2026",
+                  group="read", comment="auto-isp-monitoring")
+        _step(log, True, "added user 'monitoring' (read-only)")
+
+
+# ---------------------------------------------------------------- 2. api admin
+def _apply_api_admin(api, log, nas=None, **_):
+    """Ensure an 'api-admin' user with full perms exists, using the
+    password stored on the NAS row (so the portal can talk to it)."""
+    pw = (getattr(nas, "api_password", "") or "").strip()
+    if not pw:
+        _step(log, False, "NAS row has no api_password — cannot create api-admin")
+        return
+    users = api.path("/user")
+    existing = {u.get("name"): u for u in users}
+    if "api-admin" in existing:
+        _step(log, False, "user 'api-admin' already exists (password not changed)")
+    else:
+        users.add(name="api-admin", password=pw,
+                  group="full", comment="auto-isp-api-admin")
+        _step(log, True, "added user 'api-admin' with NAS-row password")
+    # Ensure API service is enabled
+    svc = api.path("/ip/service")
+    for s in svc:
+        if s.get("name") == "api" and s.get("disabled"):
+            svc.update(**{".id": s[".id"], "disabled": "no"})
+            _step(log, True, "enabled /ip service api")
+
+
+# ---------------------------------------------------------------- 3. rsc hard.
+def _apply_rsc_hardening(api, log, **_):
+    """System identity, NTP client, DNS resolvers, logging memory size."""
+    # NTP
+    ntp = api.path("/system/ntp/client")
+    for r in ntp:
+        if not r.get("enabled"):
+            ntp.update(**{".id": r[".id"], "enabled": "yes",
+                          "primary-ntp": "162.159.200.123",
+                          "secondary-ntp": "216.239.35.0"})
+            _step(log, True, "NTP client enabled (cloudflare + google)")
+            break
+        else:
+            _step(log, False, "NTP client already enabled")
+    # DNS — set Google/Cloudflare resolvers
+    dns = api.path("/ip/dns")
+    for r in dns:
+        cur = (r.get("servers") or "").strip()
+        if "8.8.8.8" not in cur:
+            dns.update(**{".id": r[".id"], "servers": "8.8.8.8,1.1.1.1",
+                          "allow-remote-requests": "no"})
+            _step(log, True, "DNS resolvers set to 8.8.8.8,1.1.1.1")
+        else:
+            _step(log, False, "DNS resolvers already configured")
+    # Increase memory log size
+    log_p = api.path("/system/logging/action")
+    for r in log_p:
+        if r.get("name") == "memory":
+            try:
+                lines = int(r.get("memory-lines") or 100)
+            except Exception:
+                lines = 100
+            if lines < 1000:
+                log_p.update(**{".id": r[".id"], "memory-lines": "1000"})
+                _step(log, True, "system logging memory-lines -> 1000")
+            else:
+                _step(log, False, "logging memory-lines already >=1000")
+
+
+# ---------------------------------------------------------------- 4. univ NAT
+def _apply_universal_nat(api, log, db=None, nas=None, **_):
+    """For every Active PPPoE / Static-IP / Hotspot pool that belongs to
+    this NAS's company, add the subnet to MASQUERADE + ALLOW address-lists.
+    Also ensure the master srcnat rule + MSS clamp + safety-net entries
+    for the auto-fallback pools (10.112.x.x)."""
+    # 1. Collect target subnets from DB
+    nets = []
+    try:
+        from sqlalchemy import text as _sql
+        rows = db.execute(_sql(
+            "SELECT network FROM ip_pools WHERE company_id=:cid "
+            "AND (role IS NULL OR role IN ('PPPoE','Static','Static-IP','Hotspot')) "
+            "AND (status IS NULL OR LOWER(status)='active') "
+            "AND network IS NOT NULL AND network != ''"
+        ), {"cid": nas.company_id}).fetchall()
+        nets = [r[0] for r in rows if r and r[0]]
+    except Exception as e:
+        log.append(f"[warn] pool DB query failed: {e}")
+    if not nets:
+        nets = ["172.10.10.0/24"]  # sensible fallback
+        log.append("[info] no Active pools in DB — defaulting to 172.10.10.0/24")
+
+    # 2. Always include safety-net fallback ranges
+    nets = list(dict.fromkeys(nets + ["10.112.121.0/24", "10.112.118.0/24"] + ADMIN_LANS))
+
+    al = api.path("/ip/firewall/address-list")
+    existing = {(r.get("address"), r.get("list")) for r in al}
+    for subnet in nets:
+        for lst in ("MASQUERADE", "ALLOW"):
+            if (subnet, lst) in existing:
+                _step(log, False, f"{subnet} already in {lst}")
+            else:
+                al.add(address=subnet, list=lst,
+                       comment="auto-isp-pool-nat")
+                _step(log, True, f"added {subnet} -> {lst}")
+
+    # 3. Master srcnat masquerade rule (src-address-list=MASQUERADE)
+    nat = api.path("/ip/firewall/nat")
+    have_master = any(
+        r.get("chain") == "srcnat"
+        and r.get("action") == "masquerade"
+        and r.get("src-address-list") == "MASQUERADE"
+        for r in nat
+    )
+    if have_master:
+        _step(log, False, "master srcnat MASQUERADE rule already exists")
+    else:
+        nat.add(chain="srcnat", action="masquerade",
+                **{"src-address-list": "MASQUERADE"},
+                comment="auto-isp-master-masquerade")
+        _step(log, True, "added master srcnat MASQUERADE rule")
+
+    # 4. MSS clamp (forward chain) — solves HTTPS-stuck-at-handshake
+    mangle = api.path("/ip/firewall/mangle")
+    have_mss = any(r.get("action") == "change-mss" for r in mangle)
+    if have_mss:
+        _step(log, False, "MSS clamp already configured")
+    else:
+        mangle.add(chain="forward", protocol="tcp",
+                   **{"tcp-flags": "syn",
+                      "tcp-mss": "1453-65535",
+                      "action": "change-mss",
+                      "new-mss": "1452",
+                      "passthrough": "yes",
+                      "comment": "auto-isp-pppoe-mss-clamp"})
+        _step(log, True, "added MSS clamp rule (new-mss=1452)")
+
+
+# ---------------------------------------------------------------- 5. parking
+def _apply_parking_pool(api, log, **_):
+    """Build the full captive-portal trap for expired customers."""
+    # 1. /ip pool pool-parking
+    pool = api.path("/ip/pool")
+    if not any(p.get("name") == "pool-parking" for p in pool):
+        pool.add(name="pool-parking", ranges="10.99.99.10-10.99.99.250")
+        _step(log, True, "created /ip pool pool-parking (10.99.99.10-250)")
+    else:
+        _step(log, False, "/ip pool pool-parking already exists")
+
+    # 2. Gateway address 10.99.99.1/24 (assigned to ether3 if present, else combo1)
+    addrs = api.path("/ip/address")
+    have_gw = any((r.get("address") or "").startswith("10.99.99.1") for r in addrs)
+    if not have_gw:
+        # Pick first running ether-like interface
+        iface_name = None
+        for r in api.path("/interface"):
+            n = r.get("name", "")
+            if n in ("ether3", "ether2", "combo1") and r.get("running"):
+                iface_name = n
+                break
+        iface_name = iface_name or "ether3"
+        try:
+            addrs.add(address="10.99.99.1/24", interface=iface_name,
+                      comment="auto-isp-parking-gw")
+            _step(log, True, f"added 10.99.99.1/24 on {iface_name}")
+        except Exception as e:
+            _step(log, False, f"could not bind 10.99.99.1/24: {e}")
+    else:
+        _step(log, False, "10.99.99.1 gateway already present")
+
+    # 3. PPP profile 'parking-prof'
+    prof = api.path("/ppp/profile")
+    if not any(p.get("name") == "parking-prof" for p in prof):
+        prof.add(name="parking-prof",
+                 **{"local-address": "10.99.99.1",
+                    "remote-address": "pool-parking",
+                    "dns-server": "10.99.99.1",
+                    "rate-limit": "512k/512k",
+                    "comment": "auto-isp-parking-profile"})
+        _step(log, True, "added PPP profile parking-prof")
+    else:
+        _step(log, False, "PPP profile parking-prof already exists")
+
+    # 4. Address-list parked-customers (covers BOTH 10.99.99.x and 10.255.x.x)
+    al = api.path("/ip/firewall/address-list")
+    existing = {(r.get("address"), r.get("list")) for r in al}
+    for subnet in ("10.99.99.0/24", "10.255.0.0/24"):
+        if (subnet, "parked-customers") not in existing:
+            al.add(address=subnet, list="parked-customers",
+                   comment="auto-isp-parked-cust")
+            _step(log, True, f"added {subnet} -> parked-customers")
+        else:
+            _step(log, False, f"{subnet} already in parked-customers")
+
+    # 5. Filter rules: drop everything except DNS + cloud
+    fltr = api.path("/ip/firewall/filter")
+    have_cmts = {r.get("comment", "") for r in fltr}
+    wanted = [
+        ("forward", "drop", {"src-address-list": "parked-customers",
+                              "dst-address-type": "!local"},
+         "auto-isp-parking-block"),
+        ("forward", "accept", {"src-address-list": "parked-customers",
+                                "dst-address": CLOUD_IP},
+         "auto-isp-parking-allow-cloud"),
+        ("forward", "accept", {"src-address-list": "parked-customers",
+                                "protocol": "udp", "dst-port": "53"},
+         "auto-isp-parking-allow-dns"),
+    ]
+    for chain, action, extra, cmt in wanted:
+        if cmt in have_cmts:
+            _step(log, False, f"filter '{cmt}' already exists")
+        else:
+            params = {"chain": chain, "action": action, "comment": cmt,
+                      "place-before": "0"}
+            params.update(extra)
+            fltr.add(**params)
+            _step(log, True, f"added filter rule '{cmt}'")
+
+    # 6. Dst-NAT redirect: parked HTTP/HTTPS -> port 8089
+    nat = api.path("/ip/firewall/nat")
+    have_nat_cmts = {r.get("comment", "") for r in nat}
+    for port, cmt in [("80", "auto-isp-park-http"),
+                       ("443", "auto-isp-park-https")]:
+        if cmt in have_nat_cmts:
+            _step(log, False, f"dstnat '{cmt}' already exists")
+        else:
+            nat.add(chain="dstnat", action="redirect",
+                    **{"src-address-list": "parked-customers",
+                       "protocol": "tcp",
+                       "dst-port": port,
+                       "to-ports": "8089",
+                       "place-before": "0",
+                       "comment": cmt})
+            _step(log, True, f"added dstnat '{cmt}' (TCP {port} -> 8089)")
+
+    # 7. /ip proxy enable on 8089
+    prx = api.path("/ip/proxy")
+    for r in prx:
+        if not r.get("enabled"):
+            prx.update(**{".id": r[".id"], "enabled": "yes",
+                          "port": "8089"})
+            _step(log, True, "enabled /ip proxy on port 8089")
+        else:
+            _step(log, False, "/ip proxy already enabled")
+
+    # 8. /ip proxy access deny + redirect-to captive URL
+    pacc = api.path("/ip/proxy/access")
+    found = False
+    for r in pacc:
+        if r.get("action") == "deny" and "captive" in (r.get("comment", "")):
+            # Update URL if drifted
+            if (r.get("redirect-to") or "") != CAPTIVE_URL:
+                pacc.update(**{".id": r[".id"], "redirect-to": CAPTIVE_URL})
+                _step(log, True, f"updated proxy redirect -> {CAPTIVE_URL}")
+            else:
+                _step(log, False, "proxy redirect already points at captive URL")
+            found = True
+            break
+    if not found:
+        pacc.add(action="deny", **{"redirect-to": CAPTIVE_URL,
+                                    "comment": "auto-isp-park-redir-captive"})
+        _step(log, True, f"added proxy access: deny + redirect to {CAPTIVE_URL}")
+
+
+# ---------------------------------------------------------------- 6. anti-BF
+def _apply_anti_bruteforce(api, log, **_):
+    """Auto-ban brute-force WAN scanners + restrict admin services."""
+    # 1. allowed-mgmt address-list with cloud + RFC1918
+    al = api.path("/ip/firewall/address-list")
+    existing = {(r.get("address"), r.get("list")) for r in al}
+    for addr in [CLOUD_IP] + ADMIN_LANS:
+        if (addr, "allowed-mgmt") not in existing:
+            al.add(address=addr, list="allowed-mgmt",
+                   comment="auto-isp-mgmt-allow")
+            _step(log, True, f"added {addr} -> allowed-mgmt")
+        else:
+            _step(log, False, f"{addr} already in allowed-mgmt")
+
+    # 2. WAN interface list if absent
+    ilst = api.path("/interface/list")
+    have_wan = any(r.get("name") == "WAN" for r in ilst)
+    if not have_wan:
+        ilst.add(name="WAN", comment="auto-isp-wan-list")
+        _step(log, True, "created interface-list WAN")
+        # add combo1/ether1 as WAN
+        members = api.path("/interface/list/member")
+        for cand in ("combo1", "ether1"):
+            try:
+                members.add(list="WAN", interface=cand)
+                _step(log, True, f"added {cand} to interface-list WAN")
+                break
+            except Exception:
+                pass
+    else:
+        _step(log, False, "interface-list WAN already exists")
+
+    # 3. Filter rules: add brute-force IPs to auto-banned, drop banned
+    fltr = api.path("/ip/firewall/filter")
+    have_cmts = {r.get("comment", "") for r in fltr}
+    rules = [
+        ("input", "add-src-to-address-list",
+         {"in-interface-list": "WAN",
+          "src-address-list": "!allowed-mgmt",
+          "protocol": "tcp",
+          "dst-port": "22,80,443,8291,8728,8729",
+          "address-list": "auto-banned",
+          "address-list-timeout": "1d"},
+         "auto-isp-bf-add"),
+        ("input", "drop",
+         {"in-interface-list": "WAN",
+          "src-address-list": "auto-banned"},
+         "auto-isp-bf-drop"),
+    ]
+    for chain, action, extra, cmt in rules:
+        if cmt in have_cmts:
+            _step(log, False, f"filter '{cmt}' already exists")
+        else:
+            params = {"chain": chain, "action": action, "place-before": "0",
+                      "comment": cmt}
+            params.update(extra)
+            fltr.add(**params)
+            _step(log, True, f"added filter rule '{cmt}'")
+
+    # 3b. Auto-detect current admin sessions (real IPv4 only) and
+    #     add them to allowed-mgmt so step-4 lockdown does not
+    #     lock the admin out of their own Winbox/SSH session.
+    import re as _re
+    detected = set()
+    try:
+        for u in api.path("/user/active"):
+            a = u.get("address") or ""
+            if _re.fullmatch(r"\d+\.\d+\.\d+\.\d+", a) and not a.startswith("127."):
+                detected.add(a)
+    except Exception:
+        pass
+    for ip in detected:
+        if (ip, "allowed-mgmt") not in existing:
+            al.add(address=ip, list="allowed-mgmt",
+                   comment="auto-isp-detected-admin-ip")
+            _step(log, True, f"detected admin IP {ip} -> allowed-mgmt")
+            existing.add((ip, "allowed-mgmt"))
+
+    # 4. Lock down /ip services to cloud + LAN + detected admin IPs
+    svc = api.path("/ip/service")
+    cloud_mask = CLOUD_IP + "/32"
+    locked_parts = [cloud_mask] + ADMIN_LANS + [ip + "/32" for ip in detected]
+    locked = ",".join(locked_parts)
+    if not detected:
+        _step(log, False, "no live admin IPv4 sessions detected — skipping /ip service lockdown (would lock you out)")
+        # Disable risky services anyway, but do not change address fields
+        for s in svc:
+            n2 = s.get("name")
+            if n2 in ("telnet", "ftp", "www", "www-ssl") and not s.get("disabled"):
+                try:
+                    svc.update(**{".id": s[".id"], "disabled": "yes"})
+                    _step(log, True, f"/ip service {n2} disabled")
+                except Exception:
+                    pass
+        return
+    for s in svc:
+        n = s.get("name")
+        if n in ("api", "api-ssl", "winbox", "ssh"):
+            cur = s.get("address") or ""
+            if cur != locked:
+                try:
+                    svc.update(**{".id": s[".id"], "address": locked})
+                    _step(log, True, f"/ip service {n} restricted to cloud+LAN")
+                except Exception as e:
+                    _step(log, False, f"could not restrict {n}: {e}")
+            else:
+                _step(log, False, f"/ip service {n} already restricted")
+        elif n in ("telnet", "ftp", "www", "www-ssl"):
+            if not s.get("disabled"):
+                try:
+                    svc.update(**{".id": s[".id"], "disabled": "yes"})
+                    _step(log, True, f"/ip service {n} disabled")
+                except Exception:
+                    pass
+
+
+# ---------------------------------------------------------------- registry
+KINDS: Dict[str, Callable] = {
+    "std-users":      _apply_std_users,
+    "api-admin":      _apply_api_admin,
+    "rsc-hardening":  _apply_rsc_hardening,
+    "universal-nat":  _apply_universal_nat,
+    "parking-pool":   _apply_parking_pool,
+    "anti-bruteforce": _apply_anti_bruteforce,
+}
+
+
+def register(app, *, get_db):
+
+    @app.post("/api/superadmin/admins/{company_id}/nas/{nas_id}/apply/{kind}")
+    async def apply_kind(company_id: str, nas_id: int, kind: str,
+                          request: Request, db: Session = Depends(get_db)):
+        if not _is_sa(request):
+            return JSONResponse({"success": False, "message": "auth"},
+                                status_code=401)
+        nas = _resolve_nas(db, company_id, nas_id)
+        if not nas:
+            return JSONResponse({"success": False, "message": "NAS not found"},
+                                status_code=404)
+
+        # Determine list of sub-kinds to run
+        if kind == "auto-config":
+            run_list = ["std-users", "api-admin", "rsc-hardening",
+                         "universal-nat", "parking-pool", "anti-bruteforce"]
+        else:
+            if kind not in KINDS:
+                return JSONResponse({"success": False,
+                                      "message": f"unknown kind '{kind}'"},
+                                     status_code=400)
+            run_list = [kind]
+
+        log: list = []
+        api = None
+        try:
+            api = _connect(nas)
+            log.append(f"[connected] {nas.ip_address}:{nas.port or 8728} "
+                       f"as {nas.api_username or 'admin'}")
+        except Exception as e:
+            return JSONResponse({"success": False,
+                                  "message": f"connect failed: {e}",
+                                  "log": log}, status_code=502)
+
+        for sub in run_list:
+            log.append(f"--- {sub} ---")
+            try:
+                KINDS[sub](api=api, log=log, db=db, nas=nas)
+            except Exception as e:
+                log.append(f"[ERR] {sub}: {e}")
+                log.append(traceback.format_exc(limit=2))
+
+        try:
+            api.close()
+        except Exception:
+            pass
+
+        return {"success": True, "kind": kind, "applied": run_list,
+                "log": log, "nas_name": nas.name,
+                "nas_ip": nas.ip_address}
+
+    print("[sa_nas_apply] superadmin apply router wired -> /api/superadmin/admins/{cid}/nas/{nid}/apply/{kind}")

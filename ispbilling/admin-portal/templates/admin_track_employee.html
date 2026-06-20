@@ -1,0 +1,150 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Track Employee - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<div class="content-wrapper" style="margin-left: 0; padding: 20px;">
+    <section class="content-header" style="margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">
+            Track Employee
+            <small style="font-size: 14px; color: #666; margin-left: 10px;">GPS location tracking</small>
+        </h1>
+    </section>
+
+    <section class="content">
+        <div style="background: white; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                Employee Location
+            </h3>
+            
+            <div id="employeeInfo" style="margin-bottom: 20px;">
+                <p style="font-size: 14px; color: #666;">Loading employee information...</p>
+            </div>
+            
+            <div id="mapContainer" style="width: 100%; height: 500px; background: #f5f5f5; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center;">
+                <div style="text-align: center; color: #666;">
+                    <i class="fa fa-map-marker" style="font-size: 48px; margin-bottom: 10px; color: #667eea;"></i>
+                    <p style="font-size: 16px; margin: 0;">GPS Tracking Map</p>
+                    <p style="font-size: 14px; margin: 5px 0 0 0;">Map integration ready for mobile app</p>
+                </div>
+            </div>
+            
+            <div id="locationDetails" style="margin-top: 20px;">
+            </div>
+        </div>
+
+        <div style="background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 18px; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
+                About GPS Tracking
+            </h3>
+            
+            <div style="padding: 15px; background: #f9f9f9; border-left: 4px solid #667eea; margin-bottom: 15px;">
+                <h4 style="margin-top: 0; font-size: 16px; color: #333;">Mobile App Integration</h4>
+                <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.6;">
+                    This GPS tracking feature is designed to work with the mobile app. When employees use the mobile app, 
+                    their location data will be automatically captured and displayed here in real-time.
+                </p>
+            </div>
+            
+            <div style="padding: 15px; background: #f9f9f9; border-left: 4px solid #667eea; margin-bottom: 15px;">
+                <h4 style="margin-top: 0; font-size: 16px; color: #333;">Features</h4>
+                <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #666; line-height: 1.8;">
+                    <li>Real-time GPS location tracking</li>
+                    <li>Location history with timestamps</li>
+                    <li>Last seen location and time</li>
+                    <li>Route visualization on map</li>
+                    <li>Geofencing alerts (coming soon)</li>
+                </ul>
+            </div>
+            
+            <div style="padding: 15px; background: #f9f9f9; border-left: 4px solid #667eea;">
+                <h4 style="margin-top: 0; font-size: 16px; color: #333;">Privacy & Permissions</h4>
+                <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.6;">
+                    Location tracking requires employee consent and is only active when the mobile app is in use. 
+                    Employees can view their own location history and tracking status through the mobile app.
+                </p>
+            </div>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <a href="/admin/employees" class="btn btn-default" style="padding: 10px 30px; font-size: 14px; font-weight: 600; border: 1px solid #ddd;">
+                    Back to Employee List
+                </a>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+$(document).ready(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const employeeId = urlParams.get('id');
+    
+    if (!employeeId) {
+        $('#employeeInfo').html('<p style="color: #d9534f; font-size: 14px;">Error: Employee ID is required</p>');
+        return;
+    }
+    
+    $.ajax({
+        url: `/api/employees/${employeeId}/locations`,
+        type: 'GET',
+        success: function(response) {
+            if (response.success) {
+                $('#employeeInfo').html(`
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <label style="font-weight: 600; font-size: 14px; color: #333;">Employee Name:</label>
+                            <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">${response.employee_name}</p>
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; font-size: 14px; color: #333;">Employee ID:</label>
+                            <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">${response.employee_code}</p>
+                        </div>
+                    </div>
+                `);
+                
+                if (response.locations && response.locations.length > 0) {
+                    let locationsHtml = '<h4 style="margin-top: 0; font-size: 16px; color: #333;">Location History</h4>';
+                    locationsHtml += '<div style="overflow-x: auto;"><table class="table table-bordered" style="margin: 0;">';
+                    locationsHtml += '<thead><tr style="background: #f5f5f5;"><th style="padding: 10px;">Latitude</th><th style="padding: 10px;">Longitude</th><th style="padding: 10px;">Timestamp</th></tr></thead>';
+                    locationsHtml += '<tbody>';
+                    
+                    response.locations.forEach(function(loc) {
+                        const timestamp = loc.timestamp ? new Date(loc.timestamp).toLocaleString() : 'N/A';
+                        locationsHtml += `<tr>
+                            <td style="padding: 10px;">${loc.latitude}</td>
+                            <td style="padding: 10px;">${loc.longitude}</td>
+                            <td style="padding: 10px;">${timestamp}</td>
+                        </tr>`;
+                    });
+                    
+                    locationsHtml += '</tbody></table></div>';
+                    $('#locationDetails').html(locationsHtml);
+                    
+                    $('#mapContainer').html(`
+                        <div style="text-align: center; color: #666;">
+                            <i class="fa fa-map-marker" style="font-size: 48px; margin-bottom: 10px; color: #28a745;"></i>
+                            <p style="font-size: 16px; margin: 0; font-weight: 600;">Location Data Available</p>
+                            <p style="font-size: 14px; margin: 5px 0 0 0;">Last Location: ${response.locations[0].latitude}, ${response.locations[0].longitude}</p>
+                            <p style="font-size: 12px; margin: 5px 0 0 0; color: #999;">Map visualization coming soon</p>
+                        </div>
+                    `);
+                } else {
+                    $('#locationDetails').html(`
+                        <div style="padding: 20px; background: #f9f9f9; text-align: center; border: 1px solid #ddd;">
+                            <i class="fa fa-info-circle" style="font-size: 36px; color: #667eea; margin-bottom: 10px;"></i>
+                            <p style="margin: 0; font-size: 14px; color: #666;">No location data available yet.</p>
+                            <p style="margin: 5px 0 0 0; font-size: 13px; color: #999;">Location data will appear here once the employee uses the mobile app.</p>
+                        </div>
+                    `);
+                }
+            } else {
+                $('#employeeInfo').html(`<p style="color: #d9534f; font-size: 14px;">Error: ${response.message}</p>`);
+            }
+        },
+        error: function() {
+            $('#employeeInfo').html('<p style="color: #d9534f; font-size: 14px;">Failed to load employee location data</p>');
+        }
+    });
+});
+</script>
+{% endblock %}

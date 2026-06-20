@@ -1,0 +1,408 @@
+/* S28.2 */
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Payment History - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<!-- S28 global var -->
+<script>window.WA_ENABLED = {{ 'true' if (company and company.enable_whatsapp_api) else 'false' }};</script>
+
+<!-- xlsx library for Excel export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<section class="content-header" style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <h1 style="margin:0;">
+        Payment History
+        <small>All recorded payments</small>
+    </h1>
+    <div id="pageExportToolbar" style="white-space:nowrap;">
+        <button type="button" id="exportExcelBtn" class="btn btn-success btn-sm" data-testid="tx-export-xlsx"
+                style="margin-left:4px;" title="Download Excel (.xlsx)">
+            <i class="fa fa-file-excel-o"></i> Excel
+        </button>
+        <button type="button" id="exportCsvBtn" class="btn btn-primary btn-sm" data-testid="tx-export-csv"
+                style="margin-left:4px;" title="Download CSV">
+            <i class="fa fa-file-text-o"></i> CSV
+        </button>
+        <button type="button" id="printBtn" class="btn btn-default btn-sm" data-testid="tx-print"
+                style="margin-left:4px;" title="Print">
+            <i class="fa fa-print"></i> Print
+        </button>
+    </div>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Payments</h3>
+        </div>
+        <div class="box-body">
+            <form id="filterForm" class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:</label>
+                    <select id="filterStatus" class="form-control">
+                        <option value="">All</option>
+                        <option value="Success">Success</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Failed">Failed</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Payment Mode:</label>
+                    <select id="filterPaymentMode" class="form-control">
+                        <option value="">All</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Online">Online</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="UPI">UPI</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Collected By:</label>
+                    <select id="filterCollectedBy" class="form-control" data-testid="tx-filter-collected-by"{% if user_type == "employee" %} disabled title="Locked to your own collections"{% endif %}>
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Start Date:</label>
+                    <input type="date" id="filterStartDate" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>End Date:</label>
+                    <input type="date" id="filterEndDate" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <!-- _S39TX_SEARCH -->
+                    <label>Search:</label>
+                    <input type="text" id="filterCustomerName" class="form-control" placeholder="Tx No, Customer ID, or Name" data-testid="tx-search-input">
+                </div>
+                <button type="button" id="applyFilter" class="btn btn-primary">Apply Filter</button>
+                <button type="button" id="clearFilter" class="btn btn-default">Clear</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Payments</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table id="transactionsTable" class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Transaction No</th>
+                            <th>Customer ID</th>
+                            <th>Customer Name</th>
+                            <th>Amount</th>
+                            <th>Payment Mode</th>
+                            <th>Payment Date</th>
+                            <th>Collected By</th>
+                            <th>Status</th>
+                            <th>Remarks</th>
+                            <th style="text-align:center;" class="print-hide">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionsTableBody">
+                        <tr><td colspan="10" class="text-center">Loading payments...</td></tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th colspan="3" class="text-right">Total:</th>
+                            <th id="totalAmount">&#8377; 0.00</th>
+                            <th colspan="6"></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+@media print {
+    .box-header, .content-header small, #pageExportToolbar,
+    #filterForm, .print-hide, .btn { display: none !important; }
+    body { font-size: 11pt; }
+    .box { border: 0; box-shadow: none; }
+}
+</style>
+
+<script>
+$(document).ready(function() {
+
+    // ------ Prefill from URL (existing s26.17c behaviour kept) ------
+    (function prefillFromUrl(){
+        var qp = new URLSearchParams(window.location.search);
+        var cid = qp.get('customer_id') || '';
+        var st  = qp.get('status') || '';
+        var pm  = qp.get('payment_mode') || '';
+        var cn  = qp.get('customer_name') || '';
+        if (st)  $('#filterStatus').val(st);
+        if (pm)  $('#filterPaymentMode').val(pm);
+        if (cn)  $('#filterCustomerName').val(cn);
+        if (cid) {
+            window._pinnedCustomerId = cid;
+            if (!$('#pinnedCustomerBadge').length) {
+                $('h1').first().after(
+                    '<div id="pinnedCustomerBadge" style="padding:6px 12px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:6px;margin:8px 0;font-size:13px;display:inline-block;">'+
+                    '<i class="fa fa-filter"></i> Pinned to customer <strong>'+cid+'</strong> '+
+                    '<a href="' + window.location.pathname + '" style="margin-left:10px;color:#065f46;text-decoration:underline;">clear</a>'+
+                    '</div>');
+            }
+        }
+    })();
+
+    // ------ Populate Collected-By dropdown ------
+    $.get('/api/admin/collectors', function(d){
+        if (d && d.success && Array.isArray(d.collectors)) {
+            var $sel = $('#filterCollectedBy');
+            d.collectors.forEach(function(c){
+                $sel.append('<option value="' + c.id + '">' +
+                            c.name + ' (' + c.type + ')</option>');
+            });
+        }
+    });
+
+    function loadTransactions() {
+        var params = new URLSearchParams();
+        if (window._pinnedCustomerId) params.append('customer_id', window._pinnedCustomerId);
+        var s  = $('#filterStatus').val();        if (s)  params.append('status', s);
+        var pm = $('#filterPaymentMode').val();   if (pm) params.append('payment_mode', pm);
+        var cb = $('#filterCollectedBy').val();   if (cb) params.append('collected_by', cb);
+        var sd = $('#filterStartDate').val();     if (sd) params.append('start_date', sd);
+        var ed = $('#filterEndDate').val();       if (ed) params.append('end_date', ed);
+        var cn = $('#filterCustomerName').val();  if (cn) { params.append('customer_name', cn); params.append('q', cn); }
+
+        $.ajax({
+            url: '/api/transactions/list?' + params.toString(),
+            method: 'GET',
+            success: function(response) {
+                if (!response.success) {
+                    alert('Error loading payments: ' + (response.message||''));
+                    return;
+                }
+                var tbody = $('#transactionsTableBody');
+                tbody.empty();
+                if (response.transactions.length === 0) {
+                    tbody.append('<tr><td colspan="10" class="text-center">No payments found</td></tr>');
+                    $('#totalAmount').text('\u20B9 0.00');
+                    return;
+                }
+                var total = 0;
+                response.transactions.forEach(function(tx) {
+                    var statusBadge =
+                        tx.status === 'Success' ? '<span class="label label-success">Success</span>' :
+                        tx.status === 'Pending' ? '<span class="label label-warning">Pending</span>' :
+                        tx.status === 'Failed'  ? '<span class="label label-danger">Failed</span>'  : tx.status;
+                    if (tx.status === 'Success') total += tx.amount;
+
+                    var actions =
+                        '<a href="/api/payments/' + tx.payment_id + '/receipt" target="_blank" ' +
+                           'class="tx-dl" title="Download Receipt" style="margin:0 4px;color:#2563eb;">' +
+                           '<i class="fa fa-download"></i></a>' +
+                        '<a href="javascript:void(0)" class="tx-email" ' +
+                           'data-payment-id="' + tx.payment_id + '" ' +
+                           'data-customer-email="' + (tx.customer_email || '') + '" ' +
+                           'title="Send receipt via Email" style="margin:0 4px;color:#ea580c;">' +
+                           '<i class="fa fa-envelope"></i></a>' +
+                        '<a href="javascript:void(0)" class="tx-wa" ' +
+                           'data-payment-id="' + tx.payment_id + '" ' +
+                           'data-customer-phone="' + (tx.customer_phone || '') + '" ' +
+                           'data-transaction-no="' + (tx.transaction_no || '') + '" ' +
+                           'data-amount="' + (tx.amount || 0) + '" ' +
+                           'data-customer-name="' + (tx.customer_name || '') + '" ' +
+                           'title="Send receipt via WhatsApp" style="margin:0 4px;color:#25D366;">' +
+                           '<i class="fa fa-whatsapp"></i></a>'
+                        {% if user_type in ["admin", "superadmin"] %}
+                        + '<a href="javascript:void(0)" class="tx-delete-btn" ' +
+                           'data-payment-id="' + tx.payment_id + '" ' +
+                           'data-transaction-no="' + (tx.transaction_no || '') + '" ' +
+                           'data-amount="' + (tx.amount || 0) + '" ' +
+                           'data-testid="tx-delete-' + tx.payment_id + '" ' +
+                           'title="Delete this payment (reverts dues + wipes PDF)" ' +
+                           'style="margin:0 4px;color:#dc2626;">' +
+                           '<i class="fa fa-trash"></i></a>'
+                        {% endif %}
+                        ;
+
+                    var row = '<tr>' +
+                        '<td>' + tx.transaction_no + '</td>' +
+                        '<td>' + tx.customer_id + '</td>' +
+                        '<td>' + tx.customer_name + '</td>' +
+                        '<td>\u20B9 ' + tx.amount.toFixed(2) + '</td>' +
+                        '<td>' + tx.payment_mode + '</td>' +
+                        '<td>' + tx.payment_date + '</td>' +
+                        '<td>' + (tx.collected_by || '\u2014') + '</td>' +
+                        '<td>' + statusBadge + '</td>' +
+                        '<td>' + (tx.remarks || '') + '</td>' +
+                        '<td style="text-align:center;white-space:nowrap;" class="print-hide">' + actions + '</td>' +
+                        '</tr>';
+                    tbody.append(row);
+                });
+                $('#totalAmount').text('\u20B9 ' + total.toFixed(2));
+            },
+            error: function(){ alert('Error loading payments'); }
+        });
+    }
+
+    $('#applyFilter').click(loadTransactions);
+    $('#clearFilter').click(function(){
+        $('#filterStatus,#filterPaymentMode,#filterCollectedBy,' +
+          '#filterStartDate,#filterEndDate,#filterCustomerName').val('');
+        loadTransactions();
+    });
+    $('#filterCustomerName').on('keydown', function(e){
+        if (e.which === 13) { e.preventDefault(); loadTransactions(); }
+    });
+
+    // ------ Export / Print ------
+    $('#exportExcelBtn').click(function(){
+        var wb = XLSX.utils.table_to_book(document.getElementById('transactionsTable'),
+                                            {sheet: 'Payments'});
+        XLSX.writeFile(wb, 'payments_' + new Date().toISOString().split('T')[0] + '.xlsx');
+    });
+    $('#exportCsvBtn').click(function(){
+        var rows = [];
+        $('#transactionsTable thead tr, #transactionsTable tbody tr').each(function(){
+            var line = [];
+            $(this).find('th,td').each(function(i, cell){
+                // skip the actions column (last)
+                if ($(cell).hasClass('print-hide')) return;
+                var text = $(cell).text().replace(/"/g, '""').replace(/\s+/g, ' ').trim();
+                line.push('"' + text + '"');
+            });
+            rows.push(line.join(','));
+        });
+        var blob = new Blob([rows.join('\r\n')], {type: 'text/csv;charset=utf-8;'});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'payments_' + new Date().toISOString().split('T')[0] + '.csv';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+    /* S28.2 — print only the payments table */
+    $('#printBtn').click(function(){
+        var tableHtml = document.getElementById('transactionsTable').outerHTML;
+        var $w = $('<div>' + tableHtml + '</div>');
+        // drop Actions column (last)
+        $w.find('tr').each(function(){
+            $(this).find('th:last-child, td:last-child').remove();
+        });
+        var title = 'Payment History — ' + new Date().toLocaleDateString();
+        var w = window.open('', '_blank', 'width=1200,height=800');
+        w.document.write(
+          '<html><head><title>' + title + '</title>' +
+          '<style>' +
+          'body{font-family:Arial,sans-serif;margin:20px;color:#111;}' +
+          'h1{font-size:18px;margin:0 0 14px;}' +
+          'table{border-collapse:collapse;width:100%;font-size:12px;}' +
+          'th,td{border:1px solid #999;padding:4px 6px;text-align:left;}' +
+          'thead{background:#eee;}' +
+          '</style></head><body>' +
+          '<h1>' + title + '</h1>' +
+          $w.html() +
+          '</body></html>');
+        w.document.close();
+        setTimeout(function(){ w.print(); }, 300);
+    });
+
+    // ------ Action column handlers (CLEAN <script> block — S28 fix) ------
+    $(document).on('click', '.tx-email', function(e){
+        e.preventDefault();
+        var $a = $(this);
+        var pid = $a.data('payment-id');
+        var email = $a.data('customer-email') || '';
+        if (!email) {
+            if (!confirm('Customer has no email on file — proceed anyway?')) return;
+        }
+        var oh = $a.html();
+        $a.html('<i class="fa fa-spinner fa-spin"></i>');
+        $.ajax({
+            url: '/api/payments/' + pid + '/send-email',
+            method: 'POST',
+            success: function(d){
+                $a.html(oh);
+                if (d && d.success) alert('Receipt emailed' + (email ? ' to ' + email : '.'));
+                else alert('Email failed: ' + (d && d.message || 'unknown'));
+            },
+            error: function(xhr){ $a.html(oh); alert('Email request failed: ' + xhr.status); }
+        });
+    });
+
+    $(document).on('click', '.tx-wa', function(e){
+        e.preventDefault();
+        var $a = $(this);
+        var pid   = $a.data('payment-id');
+        var phone = ($a.data('customer-phone') || '').toString();
+        var txNo  = $a.data('transaction-no') || '';
+        var amt   = parseFloat($a.data('amount') || 0).toFixed(2);
+        var name  = $a.data('customer-name') || 'Customer';
+
+        if (!window.WA_ENABLED) {
+            var digits = phone.replace(/[^0-9]/g, '');
+            if (digits.length === 10) digits = '91' + digits;
+            if (!digits) { alert('Customer phone missing / invalid'); return; }
+            var receiptUrl = window.location.origin + '/api/payments/' + pid + '/receipt';
+            var msg = 'Hi ' + name + ', your payment receipt (Txn ' + txNo +
+                      ', Rs.' + amt + ') is ready. Download: ' + receiptUrl;
+            var waUrl = 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg);
+            window.open(waUrl, '_blank');
+            return;
+        }
+
+        var oh = $a.html();
+        $a.html('<i class="fa fa-spinner fa-spin"></i>');
+        $.ajax({
+            url: '/api/payments/' + pid + '/send-whatsapp',
+            method: 'POST', contentType: 'application/json', data: '{}',
+            success: function(d){
+                $a.html(oh);
+                if (d && d.success) alert('Receipt sent via WhatsApp! SID: ' + (d.result && d.result.sid || '(ok)'));
+                else if (d && d.feature_disabled && d.fallback_wa_url) window.open(d.fallback_wa_url, '_blank');
+                else alert('WhatsApp failed: ' + (d && (d.result && (d.result.error || d.result.template_error) || d.message) || 'unknown'));
+            },
+            error: function(xhr){ $a.html(oh); alert('Request failed: ' + xhr.status); }
+        });
+    });
+
+    loadTransactions();
+});
+
+    // __S43J_DELETE_TX__
+    $(document).on('click', '.tx-delete-btn', function() {
+        var $btn = $(this);
+        var pid  = $btn.data('payment-id');
+        var txn  = $btn.data('transaction-no');
+        var amt  = $btn.data('amount');
+        if (!confirm(
+            '⚠️  WARNING — PERMANENT DELETION\n\n' +
+            'You are about to permanently delete payment ' + txn + '  (₹' + amt + ').\n\n' +
+            'This will:\n' +
+            ' • REMOVE the payment record from the database\n' +
+            ' • REVERT the customer\'s dues and received-amount counters\n' +
+            ' • WIPE the receipt PDF from all portals & the mobile app\n\n' +
+            'This action CANNOT be undone. Continue?')) return;
+        $btn.prop('disabled', true).find('i').removeClass('fa-trash').addClass('fa-spinner fa-spin');
+        $.ajax({
+            url: '/api/admin/payments/' + pid + '/delete',
+            method: 'POST',
+            success: function(r) {
+                if (r && r.success) {
+                    alert(r.message || 'Payment deleted.');
+                    if (typeof loadTransactions === 'function') loadTransactions();
+                } else {
+                    alert('Failed: ' + ((r && r.message) || 'unknown error'));
+                    $btn.prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-trash');
+                }
+            },
+            error: function(x) {
+                alert('Failed: ' + (x.responseJSON && x.responseJSON.message || x.statusText || 'HTTP ' + x.status));
+                $btn.prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-trash');
+            }
+        });
+    });
+</script>
+{% endblock %}

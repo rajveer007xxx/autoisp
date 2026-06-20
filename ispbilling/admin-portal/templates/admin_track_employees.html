@@ -1,0 +1,281 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Track Employees - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<div class="content-wrapper" style="margin-left: 0; padding: 20px;">
+    <section class="content-header" style="margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">
+            Track Employees
+            <small style="font-size: 14px; color: #666; margin-left: 10px;">Real-time GPS location tracking</small>
+        </h1>
+    </section>
+
+    <section class="content">
+        <div style="background: white; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div>
+                    <button id="refreshBtn" class="btn btn-primary" style="background: #667eea; border: none; padding: 8px 20px; font-size: 14px;">
+                        <i class="fa fa-refresh"></i> Refresh Locations
+                    </button>
+                    <span id="lastUpdate" style="margin-left: 15px; color: #666; font-size: 13px;"></span>
+                </div>
+                <div>
+                    <label style="margin-right: 10px; font-size: 14px;">Auto-refresh:</label>
+                    <input type="checkbox" id="autoRefresh" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="margin-left: 5px; font-size: 13px; color: #666;">(every 10 seconds)</span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 300px 1fr; gap: 20px;">
+                <div id="employeeList" style="background: #f9f9f9; padding: 15px; max-height: 600px; overflow-y: auto;">
+                    <h4 style="margin-top: 0; margin-bottom: 15px; font-size: 16px; color: #333;">Employees</h4>
+                    <div id="employeeListContent">
+                        <p style="text-align: center; color: #999; padding: 20px;">Loading...</p>
+                    </div>
+                </div>
+
+                <div id="mapContainer" style="height: 600px; position: relative; background: #e5e3df;">
+                    <div id="map" style="width: 100%; height: 100%;"></div>
+                    <div id="noLocationsMessage" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; background: white; padding: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                        <i class="fa fa-map-marker" style="font-size: 48px; color: #ccc; margin-bottom: 15px;"></i>
+                        <h3 style="margin: 0 0 10px 0; color: #666;">No Live Locations Yet</h3>
+                        <p style="margin: 0; color: #999;">Employee locations will appear here once they start tracking</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+.employee-item {
+    background: white;
+    padding: 12px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid #667eea;
+}
+
+.employee-item:hover {
+    background: #f0f0f0;
+    transform: translateX(3px);
+}
+
+.employee-item.active {
+    background: #667eea;
+    color: white;
+}
+
+.employee-item.active .employee-status,
+.employee-item.active .employee-time {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.employee-name {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.employee-code {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.employee-item.active .employee-code {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.employee-status {
+    font-size: 11px;
+    color: #28a745;
+}
+
+.employee-status.no-location {
+    color: #999;
+}
+
+.employee-time {
+    font-size: 11px;
+    color: #999;
+    margin-top: 4px;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+$(document).ready(function() {
+    let map = null;
+    let markers = {};
+    let autoRefreshInterval = null;
+    let selectedEmployeeId = null;
+
+    function initMap() {
+        map = L.map('map').setView([20.5937, 78.9629], 5);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+    }
+
+    function formatTimeAgo(isoString) {
+        if (!isoString) return 'Never';
+        
+        const date = new Date(isoString);
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return 'Just now';
+        if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago';
+        if (seconds < 86400) return Math.floor(seconds / 3600) + ' hours ago';
+        return Math.floor(seconds / 86400) + ' days ago';
+    }
+
+    function loadEmployeeLocations() {
+        $.ajax({
+            url: '/api/employees/locations',
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    updateEmployeeList(response.locations);
+                    updateMap(response.locations);
+                    $('#lastUpdate').text('Last updated: ' + new Date().toLocaleTimeString());
+                } else {
+                    console.error('Failed to load locations:', response.message);
+                }
+            },
+            error: function() {
+                console.error('Failed to load employee locations');
+            }
+        });
+    }
+
+    function updateEmployeeList(locations) {
+        const listContent = $('#employeeListContent');
+        listContent.empty();
+        
+        if (locations.length === 0) {
+            listContent.html('<p style="text-align: center; color: #999; padding: 20px;">No employees found</p>');
+            return;
+        }
+        
+        locations.forEach(function(emp) {
+            const hasLocation = emp.last_latitude && emp.last_longitude;
+            const activeClass = selectedEmployeeId === emp.id ? 'active' : '';
+            
+            const item = $(`
+                <div class="employee-item ${activeClass}" data-id="${emp.id}" data-lat="${emp.last_latitude}" data-lng="${emp.last_longitude}">
+                    <div class="employee-name">${emp.employee_name}</div>
+                    <div class="employee-code">${emp.employee_code}</div>
+                    <div class="employee-status ${hasLocation ? '' : 'no-location'}">
+                        <i class="fa fa-${hasLocation ? 'map-marker' : 'circle-o'}"></i>
+                        ${hasLocation ? 'Location available' : 'No location yet'}
+                    </div>
+                    ${hasLocation ? `<div class="employee-time"><i class="fa fa-clock-o"></i> ${formatTimeAgo(emp.last_seen_at)}</div>` : ''}
+                </div>
+            `);
+            
+            item.on('click', function() {
+                if (hasLocation) {
+                    $('.employee-item').removeClass('active');
+                    $(this).addClass('active');
+                    selectedEmployeeId = emp.id;
+                    
+                    map.setView([emp.last_latitude, emp.last_longitude], 15);
+                    
+                    if (markers[emp.id]) {
+                        markers[emp.id].openPopup();
+                    }
+                }
+            });
+            
+            listContent.append(item);
+        });
+    }
+
+    function updateMap(locations) {
+        Object.values(markers).forEach(marker => marker.remove());
+        markers = {};
+        
+        const locationsWithCoords = locations.filter(emp => emp.last_latitude && emp.last_longitude);
+        
+        if (locationsWithCoords.length === 0) {
+            $('#noLocationsMessage').show();
+            return;
+        }
+        
+        $('#noLocationsMessage').hide();
+        
+        const bounds = [];
+        
+        locationsWithCoords.forEach(function(emp) {
+            const lat = emp.last_latitude;
+            const lng = emp.last_longitude;
+            
+            const marker = L.marker([lat, lng]).addTo(map);
+            
+            marker.bindPopup(`
+                <div style="min-width: 200px;">
+                    <h4 style="margin: 0 0 8px 0; font-size: 14px;">${emp.employee_name}</h4>
+                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">
+                        <strong>ID:</strong> ${emp.employee_code}
+                    </p>
+                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">
+                        <strong>Mobile:</strong> ${emp.mobile}
+                    </p>
+                    <p style="margin: 0; font-size: 11px; color: #999;">
+                        <i class="fa fa-clock-o"></i> ${formatTimeAgo(emp.last_seen_at)}
+                    </p>
+                </div>
+            `);
+            
+            markers[emp.id] = marker;
+            bounds.push([lat, lng]);
+        });
+        
+        if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+    }
+
+    function startAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+        }
+        
+        autoRefreshInterval = setInterval(function() {
+            if ($('#autoRefresh').is(':checked')) {
+                loadEmployeeLocations();
+            }
+        }, 10000);
+    }
+
+    $('#refreshBtn').on('click', function() {
+        loadEmployeeLocations();
+    });
+
+    $('#autoRefresh').on('change', function() {
+        if ($(this).is(':checked')) {
+            startAutoRefresh();
+        } else {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        }
+    });
+
+    initMap();
+    loadEmployeeLocations();
+    startAutoRefresh();
+});
+</script>
+{% endblock %}

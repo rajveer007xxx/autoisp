@@ -1,0 +1,578 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}OLT System Config · AutoISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  :root{ --olt-card:#161D2E; --olt-line:#1F2940; --olt-fg:#E7ECF5;
+    --olt-mute:#8A93A6; --olt-cyan:#00E5FF; --olt-violet:#7C5CFF;
+    --olt-red:#EF4444; }
+  .ws { color:var(--olt-fg); padding:18px 6px 60px; }
+  .ws h1 { font-size:22px; font-weight:800; letter-spacing:-.4px; margin:0 0 4px; }
+  .ws .sub { color:var(--olt-mute); font-size:13px; margin-bottom:18px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--olt-mute);
+    border:1px solid var(--olt-line); background:var(--olt-card); }
+  .tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    border-color:transparent; font-weight:700; }
+  .grid2 { display:grid; gap:14px; grid-template-columns:1fr; }
+  @media(min-width:980px){ .grid2{ grid-template-columns:1.5fr 1fr; } }
+  .panel { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:18px; }
+  .panel h3 { font-size:14px; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--olt-mute); margin:0 0 14px; }
+  .field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+  .field label { font-size:11px; letter-spacing:.6px; text-transform:uppercase;
+    color:var(--olt-mute); }
+  .field input, .field select { background:#0B0F1A; border:1px solid var(--olt-line);
+    color:var(--olt-fg); border-radius:10px; padding:10px 12px;
+    font-size:13.5px; outline:none; }
+  .field input:focus, .field select:focus { border-color:var(--olt-cyan); }
+  .row { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+  .btn { padding:10px 16px; border-radius:10px; border:1px solid var(--olt-line);
+    background:var(--olt-card); color:var(--olt-fg); font-size:13px;
+    cursor:pointer; font-weight:700; }
+  .btn:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }
+  .btn.primary { background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    color:#0B0F1A; border-color:transparent; }
+  .btn.danger:hover { border-color:var(--olt-red); color:var(--olt-red); }
+  table.olt { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.olt th, table.olt td { padding:10px 8px; border-bottom:1px solid
+    var(--olt-line); font-size:12.5px; text-align:left; }
+  table.olt th { color:var(--olt-mute); font-weight:600; font-size:10.5px;
+    letter-spacing:.8px; text-transform:uppercase; }
+  .pill { display:inline-flex; padding:2px 10px; border-radius:99px;
+    font-size:10.5px; font-weight:700; }
+  .pill.online { background:rgba(34,197,94,.12); color:#34D399; }
+  .pill.offline { background:rgba(239,68,68,.14); color:#F87171; }
+  .pill.error { background:rgba(245,158,11,.14); color:#FBBF24; }
+  .pill.unknown { background:rgba(138,147,166,.14); color:var(--olt-mute); }
+  .toolbar { display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:8px; }
+</style>
+
+<section class="ws" data-testid="olt-system-page">
+  <h1>OLT System Config</h1>
+  <p class="sub">Register OLT devices, set polling intervals, and tune alert thresholds.</p>
+
+  <nav class="tabs">
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/dashboard">Dashboard</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/onus">ONU / ONT Manage</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/alerts">Alerts</a>
+    <a class="on" href="/admin/olt/system-config">System Config</a>
+  </nav>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="toolbar">
+        <h3 style="margin:0">Registered OLTs</h3>
+        <button class="btn primary" data-testid="olt-add-btn"
+          onclick="oltOpen()">+ Add OLT</button>
+      </div>
+      <table class="olt">
+        <thead><tr><th>Name</th><th>Vendor</th><th>Host</th><th>Status</th>
+          <th>Enabled</th><th></th></tr></thead>
+        <tbody id="olts_tb">
+          {% for o in olts %}
+          <tr data-testid="olt-cfg-{{o.id}}">
+            <td><b>{{o.name}}</b><br><span style="color:#8A93A6;font-size:11px">{{o.location or '—'}}</span></td>
+            <td>{{o.vendor|capitalize}}<br><span style="color:#8A93A6;font-size:11px">{{o.model or '—'}}</span></td>
+            <td>
+              <code>{{o.host}}</code>
+              {% if o.connection_mode == 'vpn' %}
+                {% if o.vpn_peer_pubkey %}
+                  <br><span class="pill" style="background:#0e3b2a;color:#a7f3d0;border:1px solid #14532d;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;" data-testid="olt-vpn-pill-{{o.id}}"><i class="bi bi-shield-lock"></i> VPN ready</span>
+                {% else %}
+                  <br><span class="pill" style="background:#3b2f0e;color:#fde68a;border:1px solid #78350f;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;" data-testid="olt-vpn-pill-{{o.id}}"><i class="bi bi-shield-exclamation"></i> VPN pending</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td><span class="pill {{o.status}}">{{o.status}}</span></td>
+            <td>{{ 'Yes' if o.enabled else 'No' }}</td>
+            <td>
+              {% if o.connection_mode == 'vpn' %}
+              <button class="btn" style="padding:5px 10px;font-size:11.5px;border-color:#3b82f6;color:#7AB8FF"
+                data-testid="olt-vpn-{{o.id}}"
+                title="Download / rotate the OLT's WireGuard config (.conf file)"
+                onclick="oltDownloadVpn({{o.id}})"><i class="bi bi-shield-lock"></i> VPN</button>
+              <button class="btn ghost" style="font-size:11px;padding:4px 8px;background:#1e293b;color:#7dd3fc;"
+                title="Check live WireGuard handshake status for this OLT"
+                onclick="oltWgStatus({{o.id}})" data-testid="olt-wg-status-btn-{{o.id}}"><i class="bi bi-activity"></i> Check VPN</button>
+              {% if o.vpn_peer_pubkey %}
+              <button class="btn danger" style="padding:5px 10px;font-size:11.5px"
+                data-testid="olt-vpn-revoke-{{o.id}}"
+                title="Revoke this OLT's VPN access — peer is removed from the tunnel instantly"
+                onclick="oltRevokeVpn({{o.id}}, '{{o.name|e}}')">Revoke VPN</button>
+              {% endif %}
+              {% endif %}
+              <button class="btn" style="padding:5px 10px;font-size:11.5px"
+                data-testid="olt-edit-{{o.id}}"
+                onclick='oltOpen({{ o|tojson }})'>Edit</button>
+              <button class="btn danger" style="padding:5px 10px;font-size:11.5px"
+                data-testid="olt-del-{{o.id}}"
+                onclick="oltDelete({{o.id}})">Delete</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" style="color:#8A93A6;text-align:center;padding:30px">
+            No OLT registered yet. Click <b>+ Add OLT</b>.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>Alert Thresholds</h3>
+      <form id="settings_form" onsubmit="event.preventDefault(); saveSettings();">
+        <div class="row">
+          <div class="field"><label>RX warn (dBm)</label>
+            <input type="number" step="0.5" name="rx_warn_dbm"
+              value="{{settings.rx_warn_dbm}}" data-testid="set-rx-warn"/></div>
+          <div class="field"><label>RX critical (dBm)</label>
+            <input type="number" step="0.5" name="rx_crit_dbm"
+              value="{{settings.rx_crit_dbm}}" data-testid="set-rx-crit"/></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Fiber-cut % of port</label>
+            <input type="number" step="1" name="fiber_cut_pct"
+              value="{{settings.fiber_cut_pct}}" data-testid="set-fc-pct"/></div>
+          <div class="field"><label>Fiber-cut min ONUs</label>
+            <input type="number" step="1" name="fiber_cut_min"
+              value="{{settings.fiber_cut_min}}" data-testid="set-fc-min"/></div>
+        </div>
+        <div class="field"><label>Default poll interval (sec)</label>
+          <input type="number" step="10" name="poll_interval"
+            value="{{settings.poll_interval}}" data-testid="set-poll"/></div>
+        <hr style="border-color:var(--olt-line); margin:14px 0"/>
+        <div class="row">
+          <div class="field"><label>WhatsApp alerts</label>
+            <select name="wa_enabled" data-testid="set-wa-enabled">
+              <option value="1" {% if settings.wa_enabled %}selected{% endif %}>Enabled</option>
+              <option value="0" {% if not settings.wa_enabled %}selected{% endif %}>Disabled</option>
+            </select></div>
+          <div class="field"><label>WhatsApp target</label>
+            <input type="text" name="wa_target"
+              value="{{settings.wa_target or ''}}" placeholder="91xxxxxxxxxx"
+              data-testid="set-wa-target"/></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Email alerts</label>
+            <select name="email_enabled" data-testid="set-email-enabled">
+              <option value="1" {% if settings.email_enabled %}selected{% endif %}>Enabled</option>
+              <option value="0" {% if not settings.email_enabled %}selected{% endif %}>Disabled</option>
+            </select></div>
+          <div class="field"><label>Email target</label>
+            <input type="text" name="email_target"
+              value="{{settings.email_target or ''}}" placeholder="ops@example.com"
+              data-testid="set-email-target"/></div>
+        </div>
+        <button class="btn primary" type="submit" data-testid="settings-save-btn">
+          Save Settings</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Add/Edit OLT modal -->
+<div id="olt_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#161D2E;border:1px solid #1F2940;border-radius:18px;
+       padding:24px;max-width:760px;width:100%;color:#E7ECF5;
+       max-height:90vh;overflow:auto;">
+    <h3 id="olt_modal_title" style="margin:0 0 12px">Add OLT</h3>
+    <!-- __S44D_MODAL__  iFastX-parity Add/Edit OLT form -->
+    <form id="olt_form" onsubmit="event.preventDefault(); oltSave();">
+      <input type="hidden" name="id"/>
+
+      <!-- ── Identity ── -->
+      <div class="field"><label>Friendly Name *</label>
+        <input name="name" required data-testid="cfg-name"
+               placeholder="e.g. Main Tower OLT"/></div>
+      <div class="row">
+        <div class="field"><label>Vendor *</label>
+          <select name="vendor" required data-testid="cfg-vendor">
+            {% for v in vendors %}<option value="{{v}}">{{v|capitalize}}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>Model</label>
+          <input name="model" data-testid="cfg-model" placeholder="e.g. V1600D-MINI"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Local IP Address *</label>
+          <input name="host" required data-testid="cfg-host"
+                 placeholder="192.168.1.10 — or 10.50.0.X for WireGuard"/></div>
+        <div class="field"><label>Telnet / API Port</label>
+          <input name="telnet_port" type="number" value="23"
+                 data-testid="cfg-telnet-port"/></div>
+        <div class="field"><label>Web Port (Optional)</label>
+          <input name="web_port" type="number" value="80"
+                 data-testid="cfg-web-port"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>SSH Port</label>
+          <input name="ssh_port" type="number" value="22"
+                 data-testid="cfg-ssh-port"/></div>
+        <div class="field"><label>SNMP Port (Optional)</label>
+          <input name="snmp_port" type="number" value="161"
+                 data-testid="cfg-snmp-port"/></div>
+        <div class="field"><label>SNMP Community</label>
+          <input name="snmp_community" value="public"
+                 data-testid="cfg-snmp-comm"/></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Username</label>
+          <input name="cli_username" data-testid="cfg-cli-user"/></div>
+        <div class="field"><label>Password</label>
+          <input name="cli_password" type="password"
+                 placeholder="(unchanged)" data-testid="cfg-cli-pass"/></div>
+      </div>
+
+      <!-- ── Topology & Tech ── -->
+      <div class="row">
+        <div class="field"><label># PON Ports</label>
+          <select name="pon_port_count" data-testid="cfg-pon-count">
+            <option value="4">4 Ports</option>
+            <option value="8">8 Ports</option>
+            <option value="16" selected>16 Ports</option>
+          </select></div>
+        <div class="field"><label># Uplink Ports</label>
+          <select name="uplink_port_count" data-testid="cfg-uplink-count">
+            <option value="2">2 Ports</option>
+            <option value="4">4 Ports</option>
+            <option value="8">8 Ports</option>
+            <option value="16" selected>16 Ports</option>
+          </select></div>
+        <div class="field"><label>OLT Tech</label>
+          <select name="olt_tech" data-testid="cfg-olt-tech">
+            <option value="GPON">GPON (-28 Limit)</option>
+            <option value="EPON">EPON (-25 Limit)</option>
+          </select></div>
+      </div>
+      <div class="row">
+        <div class="field" style="flex:1"><label>Scan Profile</label>
+          <select name="scan_profile" data-testid="cfg-scan-profile">
+            <option value="Generic">Generic / Universal</option>
+            <option value="VSOL EPON">Generic / VSOL EPON</option>
+            <option value="VSOL GPON">Generic / VSOL GPON</option>
+            <option value="Syrotech">Syrotech (S-1604 / S-1605)</option>
+            <option value="Netlink">Netlink (HG, HQ)</option>
+            <option value="Huawei">Huawei (MA56xx)</option>
+            <option value="BDCOM">BDCOM (P3310, P3608)</option>
+            <option value="ZTE">ZTE (C300, C320)</option>
+          </select></div>
+        <div class="field"><label>SNMP Version</label>
+          <select name="snmp_version"><option>v2c</option><option>v3</option></select></div>
+        <div class="field"><label>Location</label>
+          <input name="location" placeholder="Site or zone"/></div>
+      </div>
+
+      <!-- ── Real-time Alert Preferences ── -->
+      <div style="margin-top:10px;padding:10px;background:#1F2940;border-radius:10px;">
+        <div style="font-size:13px;font-weight:600;color:#A5C7FF;margin-bottom:8px;">
+          <i class="bi bi-bell"></i> Real-time Alert Preferences
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f1626;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#cbd5e1;">
+            Unit Offline
+            <input type="checkbox" name="alert_unit_offline" checked data-testid="cfg-alert-offline"/>
+          </label>
+          <label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f1626;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#cbd5e1;">
+            Signal Critical
+            <input type="checkbox" name="alert_signal_critical" checked data-testid="cfg-alert-critical"/>
+          </label>
+          <label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f1626;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#cbd5e1;">
+            Signal Warning
+            <input type="checkbox" name="alert_signal_warning" checked data-testid="cfg-alert-warning"/>
+          </label>
+          <label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f1626;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#cbd5e1;">
+            High Power
+            <input type="checkbox" name="alert_high_power" checked data-testid="cfg-alert-highpower"/>
+          </label>
+          <label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f1626;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#cbd5e1;grid-column:span 2;">
+            Uplink Down
+            <input type="checkbox" name="alert_uplink_down" checked data-testid="cfg-alert-uplink"/>
+          </label>
+        </div>
+      </div>
+
+      <!-- ── VPN Connectivity ── -->
+      <div style="margin-top:10px;padding:10px;background:#1F2940;border-radius:10px;">
+        <div style="font-size:13px;font-weight:600;color:#A5C7FF;margin-bottom:8px;">
+          <i class="bi bi-diagram-3"></i> VPN Connectivity
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1.2"><label>VPN Type</label>
+            <select name="vpn_type" data-testid="cfg-vpn-type" onchange="oltVpnTypeChange()">
+              <option value="none">None (Direct)</option>
+              <option value="wireguard">WireGuard (built-in)</option>
+              <option value="openvpn">OpenVPN</option>
+              <option value="l2tp_ipsec">L2TP / IPsec</option>
+              <option value="pptp">PPTP</option>
+            </select></div>
+          <div class="field" id="vpn_ep_wrap" style="display:none;"><label>VPN Endpoint (server)</label>
+            <input name="vpn_endpoint" placeholder="vpn.example.com:1194"
+                   data-testid="cfg-vpn-endpoint"/></div>
+        </div>
+        <div class="row" id="vpn_userpass_wrap" style="display:none;">
+          <div class="field"><label>VPN Username</label>
+            <input name="vpn_username" data-testid="cfg-vpn-user"/></div>
+          <div class="field"><label>VPN Password</label>
+            <input name="vpn_password" type="password" placeholder="(unchanged on edit)"
+                   data-testid="cfg-vpn-pass"/></div>
+        </div>
+        <div id="vpn_wg_extra" style="display:none;font-size:11px;color:#9aa9c7;padding:8px 4px;">
+          <i class="bi bi-info-circle"></i>
+          Save first, then click the <b>VPN</b> button on the row to download
+          the WireGuard <code>.conf</code> for the on-site router. Quota: 20 OLTs / admin.
+        </div>
+        <div id="vpn_other_extra" style="display:none;font-size:11px;color:#fde68a;padding:8px 4px;">
+          <i class="bi bi-exclamation-triangle"></i>
+          OpenVPN / L2TP-IPsec / PPTP daemons are installed on demand.
+          Save the OLT first, then click <b>Provision VPN</b> on the row to
+          install the daemon (one-time per protocol) and download client config.
+        </div>
+        <input type="hidden" name="connection_mode" value="public"/>
+      </div>
+
+      <!-- ── Map Coordinates ── -->
+      <div style="margin-top:10px;padding:10px;background:#1F2940;border-radius:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;color:#A5C7FF;">
+            <i class="bi bi-geo-alt"></i> Map Coordinates</span>
+          <button type="button" class="btn" onclick="oltCaptureGps()"
+                  data-testid="cfg-capture-gps"
+                  style="font-size:11px;padding:4px 10px;background:#312e81;color:#c7d2fe;">
+            <i class="bi bi-crosshair"></i> Capture GPS</button>
+        </div>
+        <div class="row">
+          <div class="field"><label>Latitude</label>
+            <input name="latitude" type="number" step="0.000001" value="0"
+                   data-testid="cfg-lat"/></div>
+          <div class="field"><label>Longitude</label>
+            <input name="longitude" type="number" step="0.000001" value="0"
+                   data-testid="cfg-lng"/></div>
+        </div>
+      </div>
+
+      <!-- ── WhatsApp Bot (per-OLT) ── -->
+      <div style="margin-top:10px;padding:10px;background:#1F2940;border-radius:10px;">
+        <div style="font-size:13px;font-weight:600;color:#34d399;margin-bottom:8px;">
+          <i class="bi bi-whatsapp"></i> WhatsApp Bot (Optional)
+        </div>
+        <div class="row">
+          <div class="field"><label>Instance ID</label>
+            <input name="whatsapp_instance_id" placeholder="Instance ID"
+                   data-testid="cfg-wa-inst"/></div>
+          <div class="field"><label>API Key</label>
+            <input name="whatsapp_api_key" type="password"
+                   placeholder="(unchanged)" data-testid="cfg-wa-key"/></div>
+        </div>
+        <div style="font-size:11px;color:#9aa9c7;padding-top:4px;">
+          Webhook URL: <code>https://www.autoispbilling.com/api/whatsapp/webhook</code>
+        </div>
+      </div>
+
+      <!-- ── Telegram Alerts (per-OLT) ── -->
+      <div style="margin-top:10px;padding:10px;background:#1F2940;border-radius:10px;">
+        <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:8px;">
+          <i class="bi bi-send"></i> Telegram Alerts (Optional)
+        </div>
+        <div class="row">
+          <div class="field"><label>Bot Token</label>
+            <input name="telegram_bot_token" placeholder="123456:ABC..."
+                   data-testid="cfg-tg-token"/></div>
+          <div class="field"><label>Chat ID</label>
+            <input name="telegram_chat_id" placeholder="-100123... or @channel"
+                   data-testid="cfg-tg-chat"/></div>
+        </div>
+      </div>
+
+      <!-- ── Misc ── -->
+      <div class="row" style="margin-top:10px;">
+        <div class="field"><label>Poll Interval (sec)</label>
+          <input name="poll_interval" type="number" value="60"/></div>
+        <div class="field"><label>Enabled</label>
+          <select name="enabled">
+            <option value="1">Yes</option><option value="0">No</option></select></div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn" onclick="oltClose()">Cancel</button>
+        <button type="submit" class="btn primary" data-testid="cfg-save-btn">Save OLT</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function oltToggleVpn(){
+  var mode = document.querySelector('input[name="connection_mode"]:checked');
+  document.getElementById('vpn_extra').style.display = (mode && mode.value==='vpn') ? '' : 'none';
+}
+function oltDownloadVpn(id){
+  fetch(`/api/admin/olt/olts/${id}/wg-config`, {method:'POST'})
+    .then(r => r.json().then(d => ({status: r.status, data: d})))
+    .then(({status, data: d}) => {
+      if (status === 403 && d.detail && String(d.detail).indexOf('vpn_quota_exhausted') === 0) {
+        alert('⚠ VPN limit reached\n\nYou have hit the maximum of 20 OLTs on WireGuard VPN. To add this OLT, first click "Revoke VPN" on an existing OLT row, then try again.');
+        return;
+      }
+      if (!d.ok) { alert('Failed: ' + (d.detail || 'unknown')); return; }
+      var blob = new Blob([d.client_conf], {type:'text/plain'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `olt-${id}-wg.conf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      alert('Downloaded olt-' + id + '-wg.conf.\n\nUpload this to the OLT site router and the OLT will appear at ' + d.vpn_address + '.\n\nTenant slice: ' + (d.slice_cidr || '10.50.0.0/16') + '\n\nThis OLT row\'s Host has been updated to ' + d.vpn_address + ' — refreshing.');
+      setTimeout(()=>location.reload(), 800);
+    }).catch(e=>alert('Error: '+e));
+}
+function oltRevokeVpn(id, name){
+  if (!confirm('Revoke WireGuard VPN for OLT "' + name + '"?\n\nThe on-site router will instantly lose access to the platform. You can re-issue a new config later, but the old .conf file will stop working immediately.')) return;
+  fetch(`/api/admin/olt/olts/${id}/wg-revoke`, {method:'POST'})
+    .then(r=>r.json()).then(d=>{
+      if (!d.ok) { alert('Revoke failed: ' + (d.detail || 'unknown')); return; }
+      alert(d.removed ? ('VPN revoked. Peer ' + (d.pubkey_prefix||'') + '… removed from the tunnel.') : 'No peer to revoke.');
+      setTimeout(()=>location.reload(), 600);
+    }).catch(e=>alert('Error: '+e));
+}
+// __S44D__  Modal open/save with full field support.
+function oltVpnTypeChange(){
+  const t = document.querySelector('select[name="vpn_type"]').value;
+  const ep   = document.getElementById('vpn_ep_wrap');
+  const up   = document.getElementById('vpn_userpass_wrap');
+  const wg   = document.getElementById('vpn_wg_extra');
+  const oth  = document.getElementById('vpn_other_extra');
+  const cm   = document.querySelector('input[name="connection_mode"]');
+  ep.style.display = (t === 'none') ? 'none' : '';
+  up.style.display = (['openvpn','l2tp_ipsec','pptp'].includes(t)) ? '' : 'none';
+  wg.style.display = (t === 'wireguard') ? '' : 'none';
+  oth.style.display = (['openvpn','l2tp_ipsec','pptp'].includes(t)) ? '' : 'none';
+  if (cm) cm.value = (t === 'none') ? 'public' : 'vpn';
+}
+function oltCaptureGps(){
+  if (!navigator.geolocation){
+    alert('Geolocation not supported by this browser.'); return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      document.querySelector('input[name="latitude"]').value  = pos.coords.latitude.toFixed(6);
+      document.querySelector('input[name="longitude"]').value = pos.coords.longitude.toFixed(6);
+    },
+    (err) => alert('GPS error: ' + err.message),
+    {enableHighAccuracy:true, timeout:8000});
+}
+function oltOpen(o){
+  const m = document.getElementById('olt_modal');
+  const f = document.getElementById('olt_form');
+  f.reset();
+  document.getElementById('olt_modal_title').textContent = o ? 'Edit OLT' : 'Add New OLT';
+  // Re-default checkboxes (form.reset wipes them when no defaultChecked attr)
+  for (const cb of f.querySelectorAll('input[type="checkbox"]')) cb.checked = true;
+  if (o){
+    f.id.value = o.id;
+    const textKeys = ['name','vendor','model','host','snmp_port','snmp_community',
+      'snmp_version','cli_port','cli_username','location','poll_interval',
+      'enabled','telnet_port','ssh_port','web_port','pon_port_count',
+      'uplink_port_count','olt_tech','scan_profile','latitude','longitude',
+      'telegram_bot_token','telegram_chat_id','whatsapp_instance_id',
+      'vpn_type','vpn_username','vpn_endpoint'];
+    for (const k of textKeys){
+      if (f[k] !== undefined && o[k] !== undefined && o[k] !== null)
+        f[k].value = o[k];
+    }
+    // Alert checkboxes (1=on,0=off)
+    for (const k of ['alert_unit_offline','alert_signal_critical',
+                     'alert_signal_warning','alert_high_power','alert_uplink_down']){
+      if (f[k]) f[k].checked = !!(o[k] ?? 1);
+    }
+  } else {
+    f.id.value = '';
+  }
+  oltVpnTypeChange();
+  m.style.display = 'flex';
+}
+function oltClose(){ document.getElementById('olt_modal').style.display='none'; }
+async function oltSave(){
+  const f = document.getElementById('olt_form');
+  const fd = new FormData(f); const obj = {};
+  for (const [k,v] of fd.entries()) obj[k] = v;
+  const id = obj.id; delete obj.id;
+  // Alert checkboxes — FormData only includes them when checked; default 0
+  for (const k of ['alert_unit_offline','alert_signal_critical',
+                   'alert_signal_warning','alert_high_power','alert_uplink_down']){
+    obj[k] = (obj[k] !== undefined) ? 1 : 0;
+  }
+  for (const k of ['snmp_port','cli_port','telnet_port','ssh_port','web_port',
+                   'pon_port_count','uplink_port_count',
+                   'poll_interval','enabled']){
+    if (obj[k] !== undefined) obj[k] = parseInt(obj[k]||'0', 10);
+  }
+  for (const k of ['latitude','longitude']){
+    if (obj[k] !== undefined) obj[k] = parseFloat(obj[k]||'0');
+  }
+  if (!obj.cli_password) delete obj.cli_password;
+  if (!obj.vpn_password) delete obj.vpn_password;
+  if (!obj.whatsapp_api_key) delete obj.whatsapp_api_key;
+  obj.cli_port = obj.telnet_port || obj.cli_port || 23;
+  const url = id ? `/api/admin/olt/olts/${id}` : `/api/admin/olt/olts`;
+  const method = id ? 'PATCH' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify(obj)});
+  if (!r.ok){
+    const txt = await r.text();
+    let msg = txt;
+    try { const j = JSON.parse(txt); msg = j.detail || j.message || txt; } catch {}
+    alert('Save failed: ' + msg); return;
+  }
+  oltClose(); location.reload();
+}
+async function oltWgStatus(id){
+  try {
+    const r = await fetch(`/api/admin/olt/olts/${id}/wg-status`);
+    const d = await r.json();
+    if (!d.ok && d.status !== 'never_registered'){
+      alert('Status check failed: ' + (d.message || JSON.stringify(d))); return;
+    }
+    let icon = 'ℹ️';
+    if (d.status === 'connected') icon = '✅';
+    else if (d.status === 'stale') icon = '⚠️';
+    else if (d.status === 'never' || d.status === 'never_registered') icon = '❌';
+    const ageS = d.handshake_age_sec != null
+      ? `${Math.floor(d.handshake_age_sec/60)}m ${d.handshake_age_sec%60}s ago` : 'never';
+    const rxMb = (d.rx_bytes || 0) / 1048576;
+    const txMb = (d.tx_bytes || 0) / 1048576;
+    alert(`${icon} VPN status: ${d.status}\n\n` +
+          `Peer: ${d.pubkey_prefix || '—'}\n` +
+          `Tunnel IP: ${d.vpn_address || '—'}\n` +
+          `Endpoint (seen): ${d.endpoint || '— never connected —'}\n` +
+          `Last handshake: ${ageS}\n` +
+          `RX / TX: ${rxMb.toFixed(2)} MB  /  ${txMb.toFixed(2)} MB\n\n` +
+          (d.message || ''));
+  } catch(e){
+    alert('Status check error: ' + e.message);
+  }
+}
+async function oltDelete(id){
+  if (!confirm('Delete this OLT and all its ONUs/alerts?')) return;
+  const r = await fetch(`/api/admin/olt/olts/${id}`, {method:'DELETE'});
+  if (r.ok) location.reload(); else alert('Delete failed');
+}
+async function saveSettings(){
+  const f = document.getElementById('settings_form');
+  const fd = new FormData(f); const obj = {};
+  for (const [k,v] of fd.entries()) obj[k] = v;
+  for (const numK of ['rx_warn_dbm','rx_crit_dbm','fiber_cut_pct','fiber_cut_min',
+       'poll_interval','wa_enabled','email_enabled']){
+    obj[numK] = parseFloat(obj[numK]||'0');
+  }
+  obj.fiber_cut_min = parseInt(obj.fiber_cut_min||'0');
+  obj.poll_interval = parseInt(obj.poll_interval||'0');
+  obj.wa_enabled = parseInt(obj.wa_enabled);
+  obj.email_enabled = parseInt(obj.email_enabled);
+  const r = await fetch('/api/admin/olt/settings',
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify(obj)});
+  if (r.ok) alert('Settings saved');
+  else alert('Save failed: '+await r.text());
+}
+</script>
+{% endblock %}

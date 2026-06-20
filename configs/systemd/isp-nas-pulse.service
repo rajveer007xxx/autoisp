@@ -1,0 +1,13 @@
+[Unit]
+Description=ISP Billing — NAS Health Pulse (60s TCP reachability → nas_devices.last_status)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/ispbilling/scripts/nas_health_pulse.py
+StandardOutput=journal
+StandardError=journal
+Nice=10
+User=root

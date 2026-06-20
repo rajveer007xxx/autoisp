@@ -1,0 +1,112 @@
+"""s60K_ZTP — Background GenieACS watcher worker.
+
+Runs every N minutes via systemd timer (or cron). Scans GenieACS NBI for
+recently-informed devices, matches them against ztp_onu_customer_mapping,
+and triggers config push for any new matches.
+
+Designed to be safe to run concurrently with the live admin portal — uses
+the same DB connection pool via olt_routes.engine.
+
+Run with:
+    cd /opt/ispbilling/admin-portal &&
+    /opt/ispbilling/venv/bin/python3 ztp_watcher_cron.py
+"""
+import os, sys, time, json
+
+# Load env vars from /etc/ispbilling.env BEFORE importing olt_routes
+# (the SQLAlchemy engine is built at import-time from DATABASE_URL).
+try:
+    with open("/etc/ispbilling.env") as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln or ln.startswith("#") or "=" not in ln:
+                continue
+            k, v = ln.split("=", 1)
+            os.environ.setdefault(k, v.strip().strip('"').strip("'"))
+except Exception:
+    pass
+
+sys.path.insert(0, '/opt/ispbilling/admin-portal')
+
+_LOG = "/var/log/autoispbilling/ztp-watcher.log"
+try:
+    os.makedirs(os.path.dirname(_LOG), exist_ok=True)
+except Exception:
+    pass
+
+
+def _log(msg: str) -> None:
+    try:
+        with open(_LOG, "a") as fh:
+            fh.write(f"[{int(time.time())}] {msg}\n")
+    except Exception:
+        pass
+    print(msg, flush=True)
+
+
+def main():
+    from olt_routes import engine as eng
+    from ztp_engine import ZTPEngine
+    import urllib.request, urllib.parse, base64
+
+    # Discover all tenants with a configured genieacs_url. SELECT DISTINCT
+    # — `olt_settings` can have duplicate rows per tenant (legacy).
+    with eng.begin() as conn:
+        tenants = conn.exec_driver_sql(
+            "SELECT DISTINCT ON (company_id) "
+            "  company_id, genieacs_url, genieacs_username, "
+            "  genieacs_password FROM olt_settings "
+            "WHERE genieacs_url IS NOT NULL AND genieacs_url != '' "
+            "ORDER BY company_id, ctid"
+        ).fetchall()
+
+    total_matched = total_seen = 0
+    for t in tenants:
+        cid, url, user, pw = t
+        url = (url or "").rstrip("/")
+        if not url:
+            continue
+        auth_hdr = None
+        if user:
+            tok = base64.b64encode(
+                f"{user}:{pw or ''}".encode()).decode()
+            auth_hdr = "Basic " + tok
+        try:
+            req = urllib.request.Request(
+                url + "/devices?projection=_id,_deviceId,_lastInform")
+            if auth_hdr:
+                req.add_header("Authorization", auth_hdr)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                devices = json.loads(
+                    r.read(2_000_000).decode("utf-8", "ignore"))
+        except Exception as e:
+            _log(f"cid={cid} NBI fetch failed: {e}")
+            continue
+
+        zte = ZTPEngine(cid, actor="watcher_cron")
+        matched = 0
+        for d in devices or []:
+            di = d.get("_deviceId") or {}
+            info = {
+                "SerialNumber": di.get("_SerialNumber"),
+                "ProductClass": di.get("_ProductClass"),
+                "OUI": di.get("_OUI"),
+                "Manufacturer": di.get("_Manufacturer"),
+            }
+            res = zte.acs_match_and_push(d.get("_id") or "", info)
+            if res.get("matched"):
+                matched += 1
+        total_matched += matched
+        total_seen += len(devices or [])
+        _log(f"cid={cid} devices={len(devices or [])} matched={matched}")
+
+    _log(f"watcher run complete: total_seen={total_seen} "
+         f"total_matched={total_matched}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        _log(f"watcher fatal: {e}")
+        sys.exit(1)

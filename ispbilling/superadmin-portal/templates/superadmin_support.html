@@ -1,0 +1,255 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Support Tickets - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Support Tickets<small>View and respond to admin support requests</small></h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Support Tickets</h3>
+        </div>
+        <div class="box-body">
+            <form id="filterForm" class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:</label>
+                    <select id="filterStatus" class="form-control">
+                        <option value="">All</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Priority:</label>
+                    <select id="filterPriority" class="form-control">
+                        <option value="">All</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">Critical</option>
+                    </select>
+                </div>
+                <button type="button" id="applyFilter" class="btn btn-primary">Apply Filter</button>
+                <button type="button" id="clearFilter" class="btn btn-default">Clear</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Support Tickets</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table id="supportTable" class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Ticket No</th>
+                            <th>Company</th>
+                            <th>Admin</th>
+                            <th>Category</th>
+                            <th>Priority</th>
+                            <th>Subject</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="supportTableBody">
+                        <tr><td colspan="9" class="text-center">Loading support tickets...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="modal fade" id="viewSupportModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Support Ticket Details</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Ticket No:</strong> <span id="modalTicketNo"></span></p>
+                        <p><strong>Company:</strong> <span id="modalCompanyName"></span></p>
+                        <p><strong>Admin:</strong> <span id="modalAdminName"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Category:</strong> <span id="modalCategory"></span></p>
+                        <p><strong>Priority:</strong> <span id="modalPriority"></span></p>
+                        <p><strong>Status:</strong> <span id="modalStatus"></span></p>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-md-12">
+                        <p><strong>Subject:</strong> <span id="modalSubject"></span></p>
+                        <p><strong>Description:</strong></p>
+                        <p id="modalDescription" style="white-space: pre-wrap;"></p>
+                    </div>
+                </div>
+                <hr>
+                <h4>Conversation History</h4>
+                <div id="conversationHistory" style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;"></div>
+                <hr>
+                <h4>Reply to Support Ticket</h4>
+                <div class="form-group">
+                    <label>Your Response:</label>
+                    <textarea id="replyMessage" class="form-control" rows="4" placeholder="Type your response here..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Update Status:</label>
+                    <select id="replyStatus" class="form-control">
+                        <option value="">Keep Current Status</option>
+                        <option value="Open">Open</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="sendReplyBtn">Send Reply</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// jQuery guard - ensure jQuery is loaded
+if (!window.jQuery) {
+    console.error('jQuery is not loaded! Superadmin Support page will not work.');
+    alert('Error: Page dependencies not loaded. Please refresh the page.');
+} else {
+    console.log('Superadmin Support page: jQuery loaded successfully');
+    
+    $(document).ready(function() {
+        console.log('Superadmin Support page: DOM ready, initializing...');
+        
+        var currentTicketId = null;
+        
+        function loadSupportTickets() {
+            console.log('Loading support tickets...');
+            var status = $('#filterStatus').val();
+            var priority = $('#filterPriority').val();
+            var params = new URLSearchParams();
+            if (status) params.append('status', status);
+            if (priority) params.append('priority', priority);
+            
+            $.ajax({
+                url: '/api/superadmin/support?' + params.toString(),
+                method: 'GET',
+                success: function(response) {
+                    console.log('Support tickets response:', response);
+                    if (response.success) {
+                        var tbody = $('#supportTableBody');
+                        tbody.empty();
+                        if (response.tickets.length === 0) {
+                            tbody.append('<tr><td colspan="9" class="text-center">No support tickets found</td></tr>');
+                            return;
+                        }
+                        response.tickets.forEach(function(ticket) {
+                            var statusBadge = ticket.status === 'Open' ? '<span class="label label-danger">Open</span>' :
+                                            ticket.status === 'In Progress' ? '<span class="label label-warning">In Progress</span>' :
+                                            ticket.status === 'Resolved' ? '<span class="label label-success">Resolved</span>' :
+                                            '<span class="label label-default">Closed</span>';
+                            var priorityBadge = ticket.priority === 'Low' ? '<span class="label label-info">Low</span>' :
+                                              ticket.priority === 'Medium' ? '<span class="label label-primary">Medium</span>' :
+                                              ticket.priority === 'High' ? '<span class="label label-warning">High</span>' :
+                                              '<span class="label label-danger">Critical</span>';
+                            var row = '<tr><td>' + ticket.ticket_no + '</td><td>' + ticket.company_name + '</td><td>' + ticket.admin_name + '</td><td>' + ticket.category + '</td><td>' + priorityBadge + '</td><td>' + ticket.subject.substring(0, 40) + (ticket.subject.length > 40 ? '...' : '') + '</td><td>' + statusBadge + '</td><td>' + new Date(ticket.created_at).toLocaleString('en-GB') + '</td><td><button class="btn btn-sm btn-primary view-support-btn" data-id="' + ticket.id + '">View & Reply</button></td></tr>';
+                            tbody.append(row);
+                        });
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading support tickets:', status, error, xhr.responseJSON);
+                    var errorMsg = 'Error loading support tickets';
+                    if (xhr.status === 401) {
+                        errorMsg = 'Unauthorized - please log in again';
+                    } else if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
+                    $('#supportTableBody').html('<tr><td colspan="9" class="text-center text-danger">' + errorMsg + '</td></tr>');
+                }
+            });
+        }
+        
+        $(document).on('click', '.view-support-btn', function() {
+            currentTicketId = $(this).data('id');
+            $.ajax({
+                url: '/api/superadmin/support/' + currentTicketId,
+                method: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        var t = response.ticket;
+                        $('#modalTicketNo').text(t.ticket_no);
+                        $('#modalCompanyName').text(t.company_name);
+                        $('#modalAdminName').text(t.admin_name);
+                        $('#modalCategory').text(t.category);
+                        $('#modalPriority').text(t.priority);
+                        $('#modalStatus').text(t.status);
+                        $('#modalSubject').text(t.subject);
+                        $('#modalDescription').text(t.description);
+                        var conversationHtml = response.responses.length === 0 ? '<p class="text-muted">No responses yet</p>' : '';
+                        response.responses.forEach(function(r) {
+                            var roleClass = r.responder_role === 'superadmin' ? 'bg-info' : 'bg-warning';
+                            conversationHtml += '<div class="well well-sm ' + roleClass + '"><p><strong>' + r.responder_role.toUpperCase() + '</strong> - ' + new Date(r.created_at).toLocaleString('en-GB') + '</p><p style="white-space: pre-wrap;">' + r.message + '</p></div>';
+                        });
+                        $('#conversationHistory').html(conversationHtml);
+                        $('#replyMessage').val('');
+                        $('#replyStatus').val('');
+                        $('#viewSupportModal').modal('show');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading ticket details:', status, error, xhr.responseJSON);
+                    alert('Error loading ticket details: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : error));
+                }
+            });
+        });
+        
+        $('#sendReplyBtn').click(function() {
+            var message = $('#replyMessage').val().trim();
+            var status = $('#replyStatus').val();
+            if (!message) { alert('Please enter a response message'); return; }
+            $.ajax({
+                url: '/api/superadmin/support/' + currentTicketId + '/reply',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ message: message, status: status || undefined }),
+                success: function(response) {
+                    if (response.success) {
+                        alert('Reply sent successfully');
+                        $('#viewSupportModal').modal('hide');
+                        loadSupportTickets();
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error sending reply:', status, error, xhr.responseJSON);
+                    alert('Error sending reply: ' + (xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : error));
+                }
+            });
+        });
+        
+        $('#applyFilter').click(loadSupportTickets);
+        $('#clearFilter').click(function() { $('#filterStatus').val(''); $('#filterPriority').val(''); loadSupportTickets(); });
+        
+        console.log('Event handlers attached, loading tickets...');
+        loadSupportTickets();
+    });
+}
+</script>
+{% endblock %}

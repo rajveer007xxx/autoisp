@@ -1,0 +1,589 @@
+{% extends "base_admin.html" %}
+{% block title %}Sub-LCO Management — Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+  .slco-code-link{ text-decoration:none; }
+  .slco-code-link code{ background:#eef2ff; color:#4338ca; padding:2px 8px; border-radius:4px; cursor:pointer; }
+  .slco-code-link:hover code{ background:#4338ca; color:#fff; }
+</style>
+
+<section class="content-header">
+  <h1>Sub-LCOs <small>Franchisees / Resellers</small></h1>
+</section>
+
+<section class="content">
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title">All Sub-LCOs</h3>
+      <div class="box-tools pull-right">
+        <button type="button" class="btn btn-success" id="addSlcoOpen" data-testid="add-sub-lco-btn">
+          <i class="fa fa-plus"></i> Add Sub-LCO
+        </button>
+      </div>
+    </div>
+    <div class="box-body">
+      <table class="table table-bordered table-striped" id="slcoTable">
+        <thead>
+          <tr>
+            <th>Code</th><th>Name</th><th>Username</th>
+            <th>Email</th><th>Mobile</th>
+            <th>Comm %</th><th>Locations</th><th>Customers</th>
+            <th>Total Comm.</th><th>Status</th><th style="min-width:160px;white-space:nowrap">Actions</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="11" class="text-center">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="slcoModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header">
+      <button type="button" class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title" id="slcoModalTitle">Add Sub-LCO</h4>
+    </div>
+    <form id="slcoForm" data-testid="sub-lco-form">
+    <input type="hidden" name="id">
+    <div class="modal-body">
+      <div class="row">
+        <div class="col-sm-6 form-group"><label>Name *</label><input class="form-control" name="name" required></div>
+        <div class="col-sm-6 form-group"><label>Username *</label><input class="form-control" name="username" required></div>
+        <div class="col-sm-6 form-group"><label>Password <span id="pwLabel">*</span></label>
+          <input class="form-control" name="password" type="password" minlength="6"></div>
+        <div class="col-sm-6 form-group"><label>Commission % *</label>
+          <input class="form-control" name="commission_percent" type="number" step="0.01" min="0" max="100" value="10" required></div>
+        <div class="col-sm-6 form-group"><label>Email</label><input class="form-control" name="email" type="email"></div>
+        <div class="col-sm-6 form-group"><label>Mobile</label><input class="form-control" name="mobile"></div>
+        <div class="col-sm-12 form-group"><label>Address</label><input class="form-control" name="address"></div>
+        <div class="col-sm-6 form-group"><label>Status</label>
+          <select class="form-control" name="status"><option>Active</option><option>Deactive</option></select></div>
+      </div>
+      <hr>
+      <h4 style="margin-top:0">Assigned Locations <small>(these are the only localities the sub-LCO can add customers to)</small></h4>
+      <div id="locPicker" style="max-height:260px;overflow:auto;border:1px solid #e5e7eb;border-radius:6px;padding:10px;background:#f8fafc">
+        <span class="text-muted">Loading locations…</span>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-top:6px">Tip: select all applicable localities. Leave empty to block all add-customer attempts.</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      <button type="submit" class="btn btn-primary" data-testid="save-sub-lco-btn">Save</button>
+    </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- Reset PW Modal -->
+<div class="modal fade" id="resetPwModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <button type="button" class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title">Reset Password</h4>
+    </div>
+    <form id="resetPwForm">
+    <input type="hidden" name="id">
+    <div class="modal-body">
+      <div class="form-group"><label>New Password (min 6)</label>
+        <input class="form-control" name="password" type="password" minlength="6" required></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      <button type="submit" class="btn btn-warning">Reset</button>
+    </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- Payout Modal (unchanged) -->
+<div class="modal fade" id="payoutModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header">
+      <button type="button" class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title">Commissions · <span id="payoutSlcoLabel"></span></h4>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="payoutSlcoId">
+      <div class="row" style="margin-bottom:12px">
+        <div class="col-sm-4"><div style="font-size:12px;color:#64748b">LIFETIME</div><div style="font-size:20px;font-weight:700">&#8377; <span id="poLife">0.00</span></div></div>
+        <div class="col-sm-4"><div style="font-size:12px;color:#64748b">PAID</div><div style="font-size:20px;font-weight:700;color:#059669">&#8377; <span id="poPaid">0.00</span></div></div>
+        <div class="col-sm-4"><div style="font-size:12px;color:#64748b">PENDING</div><div style="font-size:20px;font-weight:700;color:#d97706">&#8377; <span id="poPend">0.00</span></div></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label><input type="radio" name="poFilter" value="pending" checked> Pending</label>
+        &nbsp;&nbsp;<label><input type="radio" name="poFilter" value="settled"> Settled</label>
+        &nbsp;&nbsp;<label><input type="radio" name="poFilter" value="all"> All</label>
+      </div>
+      <table class="table table-bordered table-condensed" id="payoutTable">
+        <thead>
+          <tr>
+            <th style="width:30px"><input type="checkbox" id="poCheckAll"></th>
+            <th>Date</th><th>Customer</th><th>Base</th><th>%</th>
+            <th>Commission</th><th>Status</th><th>Settled On</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="8" class="text-center">Loading…</td></tr></tbody>
+      </table>
+      <hr>
+      <h4 style="margin-top:10px">Mark selected as Paid</h4>
+      <form id="payoutForm">
+        <div class="row">
+          <div class="col-sm-3 form-group"><label>Total (selected)</label>
+            <input class="form-control" id="poTotal" readonly data-testid="payout-total"></div>
+          <div class="col-sm-3 form-group">
+            <label>Manual Amount <span class="text-muted" style="font-weight:400">(optional)</span></label>
+            <input class="form-control" name="manual_amount" id="poManualAmount" type="number" step="0.01" min="0"
+                   placeholder="Pay different amount" data-testid="payout-manual-amount">
+            <small class="text-muted">Leave blank to pay the full selected total. Enter a custom amount to pay less or more — the difference adjusts the remaining commission balance.</small>
+          </div>
+          <div class="col-sm-3 form-group"><label>Paid On</label>
+            <input class="form-control" name="paid_at" type="date"></div>
+          <div class="col-sm-3 form-group"><label>Reference</label>
+            <input class="form-control" name="reference" placeholder="UPI ref / UTR / Cheque #"></div>
+          <div class="col-sm-12 form-group"><label>Notes</label>
+            <input class="form-control" name="notes" placeholder="e.g. Apr 2026 payout, partial settlement"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      <button type="button" class="btn btn-success" id="poMarkPaidBtn" data-testid="mark-paid-btn"><i class="fa fa-check"></i> Mark as Paid</button>
+    </div>
+  </div></div>
+</div>
+
+<script>
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmt(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+var ALL_LOCATIONS = [];
+
+function loadLocations() {
+  return $.get('/api/locations/list', function(res){
+    ALL_LOCATIONS = (res && res.locations) ? res.locations
+                   : (res && res.items) ? res.items : [];
+  });
+}
+function renderLocPicker(selectedIds){
+  var set = new Set((selectedIds||[]).map(Number));
+  var $c = $('#locPicker').empty();
+  if (!ALL_LOCATIONS.length) {
+    $c.append('<span class="text-muted">No locations configured for this company yet. Add locations from the Locations page first.</span>');
+    return;
+  }
+  ALL_LOCATIONS.forEach(function(l){
+    var id = l.id || l.location_id;
+    var checked = set.has(Number(id)) ? 'checked' : '';
+    $c.append(
+      '<label style="display:inline-block;min-width:260px;margin:4px 8px">'+
+        '<input type="checkbox" class="loc-cb" value="'+id+'" '+checked+'> '+
+        esc(l.name || l.location_name) +
+        (l.city ? ' <span class="text-muted">('+esc(l.city)+')</span>' : '') +
+      '</label>'
+    );
+  });
+}
+
+function loadSlcos(){
+  $.get('/api/admin/sub-lcos/list', function(res){
+    var $tb = $('#slcoTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $tb.append('<tr><td colspan="11" class="text-center text-muted">No sub-LCOs yet. Click <b>Add Sub-LCO</b> to create one.</td></tr>');
+      return;
+    }
+    res.items.forEach(function(s){
+      var st = (s.status||'').toLowerCase()==='active' ? 'label-success' : 'label-default';
+      var locs = (s.location_names||[]).join(', ') || '<em class="text-muted">none</em>';
+      $tb.append(
+        '<tr data-id="'+s.id+'" data-locs=\''+JSON.stringify(s.location_ids||[]).replace(/'/g,'&apos;')+'\'>'+
+        '<td><a class="slco-code-link" href="/admin/sub-lcos/'+s.id+'/details" data-testid="slco-detail-'+s.id+'" title="View detailed profile"><code>'+esc(s.sub_lco_code)+'</code></a></td>'+
+        '<td>'+esc(s.name)+'</td>'+
+        '<td>'+esc(s.username)+'</td>'+
+        '<td>'+esc(s.email)+'</td>'+
+        '<td>'+esc(s.mobile)+'</td>'+
+        '<td>'+s.commission_percent.toFixed(2)+'%</td>'+
+        '<td style="font-size:12px;max-width:220px">'+locs+'</td>'+
+        '<td>'+s.customers_count+'</td>'+
+        '<td>&#8377; '+fmt(s.commission_total)+'</td>'+
+        '<td><span class="label '+st+'">'+esc(s.status)+'</span></td>'+
+        '<td style="white-space:nowrap">'+
+          '<button class="btn btn-xs btn-success act-payout" data-testid="payout-sub-lco-'+s.id+'" title="View / Settle commissions"><i class="fa fa-money-bill"></i></button> '+
+          '<button class="btn btn-xs btn-primary act-edit" data-testid="edit-sub-lco-'+s.id+'"><i class="fa fa-pencil"></i></button> '+
+          '<button class="btn btn-xs btn-warning act-pw" data-testid="reset-pw-'+s.id+'"><i class="fa fa-key"></i></button> '+
+          '<button class="btn btn-xs" data-slco-lock-btn="'+s.id+'" data-testid="lock-sub-lco-'+s.id+'" onclick="openLockFor('+s.id+', \''+esc(s.name).replace(/\'/g,"\\'")+'\')" title="Lock / Unlock"><i class="bi bi-unlock"></i></button> '+
+          '<button class="btn btn-xs btn-danger act-del" data-testid="delete-sub-lco-'+s.id+'"><i class="fa fa-trash"></i></button>'+
+        '</td></tr>'
+      );
+    });
+  });
+}
+
+function openCreateModal(){
+  $('#slcoModalTitle').text('Add Sub-LCO');
+  var f = $('#slcoForm')[0];
+  f.id.value = ''; f.name.value=''; f.username.value=''; f.password.value='';
+  f.commission_percent.value = 10;
+  f.email.value=''; f.mobile.value=''; f.address.value='';
+  f.status.value='Active';
+  f.username.disabled = false;
+  f.password.required = true;
+  $('#pwLabel').text('*');
+  renderLocPicker([]);
+  $('#slcoModal').modal('show');
+}
+function openEditModal(tr){
+  $('#slcoModalTitle').text('Edit Sub-LCO');
+  var cells = tr.find('td');
+  var locs = JSON.parse(tr.attr('data-locs').replace(/&apos;/g,"'") || '[]');
+  var f = $('#slcoForm')[0];
+  f.id.value = tr.data('id');
+  f.name.value = cells.eq(1).text();
+  f.username.value = cells.eq(2).text();
+  f.username.disabled = true;
+  f.password.value = '';
+  f.password.required = false;
+  $('#pwLabel').text('(leave blank to keep)');
+  f.commission_percent.value = parseFloat(cells.eq(5).text()) || 0;
+  f.email.value = cells.eq(3).text();
+  f.mobile.value = cells.eq(4).text();
+  f.status.value = cells.eq(9).text().trim();
+  renderLocPicker(locs);
+  $('#slcoModal').modal('show');
+}
+
+$(function(){
+  loadLocations().always(loadSlcos);
+
+  $('#addSlcoOpen').on('click', openCreateModal);
+
+  $('#slcoForm').on('submit', function(e){
+    e.preventDefault();
+    var data = Object.fromEntries(new FormData(this));
+    data.commission_percent = parseFloat(data.commission_percent||0);
+    data.location_ids = $('#locPicker .loc-cb:checked').map(function(){ return parseInt(this.value); }).get();
+    if (!data.password) delete data.password;
+    var id = data.id; delete data.id;
+    var url = id ? ('/api/admin/sub-lcos/'+id+'/update') : '/api/admin/sub-lcos/create';
+    $.ajax({url:url, method:'POST',
+      contentType:'application/json', data:JSON.stringify(data)})
+     .done(function(r){
+       if(r.success){
+         $('#slcoModal').modal('hide');
+         loadSlcos();
+         if (!id) alert('Created: '+(r.sub_lco_code||''));
+       } else alert(r.message||'Failed');
+     }).fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+
+  $('#slcoTable').on('click', '.act-edit', function(){
+    openEditModal($(this).closest('tr'));
+  });
+
+  $('#slcoTable').on('click', '.act-pw', function(){
+    var id = $(this).closest('tr').data('id');
+    $('#resetPwForm')[0].id.value = id;
+    $('#resetPwForm')[0].password.value = '';
+    $('#resetPwModal').modal('show');
+  });
+  $('#resetPwForm').on('submit', function(e){
+    e.preventDefault();
+    var data = Object.fromEntries(new FormData(this));
+    var id = data.id;
+    $.ajax({url:'/api/admin/sub-lcos/'+id+'/reset-password', method:'POST',
+      contentType:'application/json',
+      data:JSON.stringify({password:data.password})})
+     .done(function(r){
+       if(r.success){ $('#resetPwModal').modal('hide'); alert('Password reset.'); }
+       else alert(r.message||'Failed');
+     }).fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+  $('#slcoTable').on('click', '.act-del', function(){
+    if(!confirm('Delete this Sub-LCO? They must have no active customers.')) return;
+    var id = $(this).closest('tr').data('id');
+    $.ajax({url:'/api/admin/sub-lcos/'+id+'/delete', method:'POST',
+      contentType:'application/json', data:'{}'})
+     .done(function(r){ if(r.success) loadSlcos(); else alert(r.message); })
+     .fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+
+  // ---- Payouts modal ----
+  function poUpdateTotal(){
+    var sum = 0;
+    $('#payoutTable tbody input.po-cb:checked').each(function(){
+      sum += parseFloat($(this).data('amt')||0);
+    });
+    $('#poTotal').val('₹ '+sum.toFixed(2));
+  }
+  function loadPayoutList(){
+    var sid = $('#payoutSlcoId').val();
+    var status = $('input[name=poFilter]:checked').val();
+    $.get('/api/admin/sub-lcos/'+sid+'/commissions?status='+status, function(res){
+      $('#poLife').text(Number(res.total||0).toFixed(2));
+      $('#poPaid').text(Number(res.paid||0).toFixed(2));
+      $('#poPend').text(Number(res.pending||0).toFixed(2));
+      var $tb = $('#payoutTable tbody').empty();
+      if (!res.success || !res.items.length) {
+        $tb.append('<tr><td colspan="8" class="text-center text-muted">No records</td></tr>');
+        poUpdateTotal(); return;
+      }
+      res.items.forEach(function(c){
+        var cb = c.payout_status === 'Pending'
+          ? '<input type="checkbox" class="po-cb" value="'+c.id+'" data-amt="'+c.commission_amount+'">'
+          : '<i class="fa fa-lock text-muted" title="Already settled"></i>';
+        var st = c.payout_status==='Settled' ? 'label-success' : 'label-warning';
+        $tb.append('<tr>'+
+          '<td>'+cb+'</td>'+
+          '<td>'+esc((c.created_at||'').substring(0,16).replace('T',' '))+'</td>'+
+          '<td><code>'+esc(c.customer_id)+'</code> '+esc(c.customer_name)+'</td>'+
+          '<td>&#8377; '+fmt(c.base_amount)+'</td>'+
+          '<td>'+c.commission_percent.toFixed(2)+'%</td>'+
+          '<td><b>&#8377; '+fmt(c.commission_amount)+'</b></td>'+
+          '<td><span class="label '+st+'">'+esc(c.payout_status)+'</span></td>'+
+          '<td>'+esc((c.settled_at||'').substring(0,10))+'</td>'+
+          '</tr>');
+      });
+      poUpdateTotal();
+    });
+  }
+  $('#slcoTable').on('click', '.act-payout', function(){
+    var tr = $(this).closest('tr');
+    var id = tr.data('id');
+    var name = tr.find('td').eq(1).text();
+    var code = tr.find('td').eq(0).text();
+    $('#payoutSlcoId').val(id);
+    $('#payoutSlcoLabel').text(name+' ('+code+')');
+    var f = $('#payoutForm')[0];
+    f.paid_at.value = new Date().toISOString().substring(0,10);
+    f.reference.value=''; f.notes.value=''; $('#poTotal').val('');
+    $('#poCheckAll').prop('checked', false);
+    $('input[name=poFilter][value=pending]').prop('checked', true);
+    $('#payoutModal').modal('show');
+    loadPayoutList();
+  });
+  $(document).on('change', 'input[name=poFilter]', loadPayoutList);
+  $('#payoutTable').on('change', '.po-cb', poUpdateTotal);
+  $('#poCheckAll').on('change', function(){
+    $('#payoutTable .po-cb').prop('checked', this.checked);
+    poUpdateTotal();
+  });
+  $('#poMarkPaidBtn').on('click', function(){
+    var sid = $('#payoutSlcoId').val();
+    var ids = $('#payoutTable .po-cb:checked').map(function(){ return parseInt(this.value); }).get();
+    if (!ids.length) { alert('Select at least one pending commission.'); return; }
+    // __S38T_MANUAL_PAYOUT__ — surface the manual amount + confirmation.
+    var manualRaw = ($('#poManualAmount').val() || '').trim();
+    var manualAmt = manualRaw ? parseFloat(manualRaw) : null;
+    if (manualRaw && (isNaN(manualAmt) || manualAmt < 0)) {
+      alert('Manual Amount must be a non-negative number.'); return;
+    }
+    var totalSel = parseFloat(($('#poTotal').val() || '').replace(/[^\d.]/g, '')) || 0;
+    if (manualAmt !== null && Math.abs(manualAmt - totalSel) > 0.005) {
+      var diff = (manualAmt - totalSel).toFixed(2);
+      var verb = (manualAmt > totalSel) ? 'OVERPAY' : 'PARTIALLY SETTLE';
+      if (!confirm('You are entering a manual amount of \u20B9' + manualAmt.toFixed(2) +
+                    ' against a selected commission of \u20B9' + totalSel.toFixed(2) +
+                    '.\nDifference: \u20B9' + diff +
+                    '\n\nThis will ' + verb +
+                    ' the selected commissions and the difference will adjust the running ' +
+                    'commission balance for this Sub-LCO. Proceed?')) {
+        return;
+      }
+    }
+    if (!confirm('Mark '+ids.length+' commission(s) as Settled?')) return;
+    var f = $('#payoutForm')[0];
+    $.ajax({url:'/api/admin/sub-lcos/'+sid+'/payouts', method:'POST',
+      contentType:'application/json',
+      data: JSON.stringify({
+        commission_ids: ids,
+        paid_at: f.paid_at.value || undefined,
+        reference: f.reference.value,
+        notes: f.notes.value,
+        manual_amount: manualAmt,
+      })})
+     .done(function(r){
+       if (r.success) {
+         alert(r.message);
+         loadPayoutList(); loadSlcos();
+       } else alert(r.message || 'Failed');
+     }).fail(function(x){ alert((x.responseJSON&&x.responseJSON.message)||'Failed'); });
+  });
+});
+</script>
+
+<!-- phase28-lock-modal: Sub-LCO Lock feature -->
+<div class="modal fade" id="lockSetPwModal" tabindex="-1" role="dialog" data-testid="lock-setpw-modal">
+  <div class="modal-dialog" role="document"><div class="modal-content">
+    <div class="modal-header"><button type="button" class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title"><i class="bi bi-key-fill"></i> Set Sub-LCO Lock Password</h4></div>
+    <div class="modal-body">
+      <p style="color:#475569;font-size:13px">This password will be required every time you lock or unlock a Sub-LCO. Choose something unique — it cannot be recovered.</p>
+      <div id="oldPwRow" style="display:none;margin-bottom:10px">
+        <label>Existing password</label>
+        <input id="lockOldPw" type="password" class="form-control" data-testid="lock-old-pw">
+      </div>
+      <label>New password (min 4 chars)</label>
+      <input id="lockNewPw" type="password" class="form-control" data-testid="lock-new-pw">
+      <label style="margin-top:8px">Confirm password</label>
+      <input id="lockNewPw2" type="password" class="form-control" data-testid="lock-new-pw2">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="lockSetPwSubmit()" data-testid="lock-setpw-submit">Save</button>
+      <button class="btn btn-default" data-dismiss="modal">Cancel</button>
+    </div>
+  </div></div>
+</div>
+
+<div class="modal fade" id="lockToggleModal" tabindex="-1" role="dialog" data-testid="lock-toggle-modal">
+  <div class="modal-dialog" role="document"><div class="modal-content">
+    <div class="modal-header"><button type="button" class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title"><i class="bi bi-shield-lock"></i> <span id="lockToggleTitle">Confirm</span></h4></div>
+    <div class="modal-body">
+      <p id="lockToggleMsg" style="color:#475569;font-size:14px"></p>
+      <!-- _v4729_DOT_WARN  DoT-compliance warning required on Sub-LCO lock/unlock. -->
+      <div data-testid="lock-dot-warning" style="margin:12px 0;padding:12px 14px;border:1px solid #fca5a5;background:#FEF2F2;border-radius:10px;color:#7f1d1d;font-size:13px;line-height:1.55">
+        <div style="font-weight:700;margin-bottom:4px"><i class="bi bi-exclamation-triangle-fill" style="color:#b91c1c"></i> DoT Compliance Warning</div>
+        <p style="margin:0 0 6px">Locking / unlocking a Sub-LCO can affect KYC, billing visibility and traffic logs that you are required to keep under the <b>Department of Telecommunications</b> licensing conditions (Unified License / ISP License). Any consequence of an incorrect lock or unlock action (CAF/KYC gaps, billing disputes, regulatory enquiry) is the sole responsibility of the <b>Admin / License-holder</b>.</p>
+        <p style="margin:0">This feature is a convenience tool provided by Auto ISP Billing. <b>Auto ISP Billing is not a party to your DoT licence</b> and accepts no liability for any operational, contractual or regulatory outcome arising from your use of this lock/unlock control.</p>
+      </div>
+      <label>Lock password</label>
+      <input id="lockTogglePw" type="password" class="form-control" data-testid="lock-toggle-pw">
+      <p style="color:#94a3b8;font-size:12px;margin-top:8px">During the lock period, customers under this Sub-LCO continue working normally. They are only hidden from your admin view.</p>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:12px;color:#475569">
+        <input type="checkbox" id="lockDotAck" data-testid="lock-dot-ack" style="margin-top:3px">
+        <span>I acknowledge the DoT-compliance warning above and accept full responsibility as the Admin / License-holder.</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-warning" onclick="lockToggleSubmit()" data-testid="lock-toggle-submit" id="lockToggleSubmitBtn"><i class="bi bi-check2"></i> Confirm</button>
+      <button class="btn btn-default" data-dismiss="modal">Cancel</button>
+    </div>
+  </div></div>
+</div>
+
+<script>
+// _v4729_  Reset DoT-ack checkbox + Confirm-button state every time the modal opens.
+document.addEventListener('show.bs.modal', function(e){
+  if (e.target && e.target.id === 'lockToggleModal') {
+    var ack = document.getElementById('lockDotAck');
+    var btn = document.getElementById('lockToggleSubmitBtn');
+    if (ack) { ack.checked = false; }
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.style.cursor='not-allowed'; }
+    if (ack) {
+      ack.onchange = function(){
+        if (!btn) return;
+        btn.disabled = !ack.checked;
+        btn.style.opacity = ack.checked ? '1' : '0.55';
+        btn.style.cursor  = ack.checked ? 'pointer' : 'not-allowed';
+      };
+    }
+  }
+});
+// Phase-28 lock state cache
+window._lockState = {password_set:false, locked_ids:[]};
+window._lockTarget = null; // {id, name}
+async function _refreshLockState(){
+  try {
+    const r = await fetch('/api/admin/lock/state', {credentials:'include'});
+    const d = await r.json();
+    if (d && d.success) {
+      window._lockState.password_set = !!d.password_set;
+      window._lockState.locked_ids = d.locked_ids || [];
+    }
+  } catch(e){}
+  _decorateLockButtons();
+}
+function _decorateLockButtons(){
+  document.querySelectorAll('[data-slco-lock-btn]').forEach(function(btn){
+    const id = parseInt(btn.getAttribute('data-slco-lock-btn'));
+    const isLocked = window._lockState.locked_ids.indexOf(id) >= 0;
+    const wantState = isLocked ? '1' : '0';
+    if (btn.dataset.lockState === wantState) return; // idempotent — no DOM mutation
+    btn.dataset.lockState = wantState;
+    const html = isLocked
+      ? '<i class="bi bi-lock-fill" style="color:#dc2626"></i>'
+      : '<i class="bi bi-unlock"></i>';
+    if (btn.innerHTML !== html) btn.innerHTML = html;
+    const t = isLocked ? 'Sub-LCO is LOCKED · click to unlock' : 'Lock this Sub-LCO';
+    if (btn.title !== t) btn.title = t;
+  });
+}
+window.openLockFor = function(slcoId, slcoName){
+  window._lockTarget = {id: parseInt(slcoId), name: slcoName||('#'+slcoId)};
+  if (!window._lockState.password_set) {
+    // Force the password setup modal first
+    document.getElementById('oldPwRow').style.display = 'none';
+    document.getElementById('lockNewPw').value = '';
+    document.getElementById('lockNewPw2').value = '';
+    $('#lockSetPwModal').modal('show');
+    return;
+  }
+  const isLocked = window._lockState.locked_ids.indexOf(window._lockTarget.id) >= 0;
+  const action = isLocked ? 'Unlock' : 'Lock';
+  document.getElementById('lockToggleTitle').textContent = action + ' ' + window._lockTarget.name;
+  document.getElementById('lockToggleMsg').textContent =
+    (isLocked
+      ? 'Unlocking will restore the visibility of all customers under this Sub-LCO and their employees, including any data generated during the lock period.'
+      : 'Locking will hide all customers under this Sub-LCO (and customers added by their employees) from your admin view. Their service continues normally.');
+  document.getElementById('lockTogglePw').value = '';
+  $('#lockToggleModal').modal('show');
+};
+async function lockSetPwSubmit(){
+  const pw = document.getElementById('lockNewPw').value;
+  const pw2 = document.getElementById('lockNewPw2').value;
+  const old = document.getElementById('lockOldPw').value;
+  if (pw.length < 4 || pw !== pw2) {
+    alert('Password must be at least 4 chars and match.'); return;
+  }
+  const r = await fetch('/api/admin/lock/set-password', {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password:pw, confirm:pw2, old_password:old})
+  });
+  const d = await r.json();
+  if (d.success){ alert('Password saved.'); $('#lockSetPwModal').modal('hide');
+    await _refreshLockState();
+    // Re-open the toggle modal for the originally clicked Sub-LCO
+    if (window._lockTarget) window.openLockFor(window._lockTarget.id, window._lockTarget.name);
+  } else alert(d.message||'Failed');
+}
+async function lockToggleSubmit(){
+  if (!window._lockTarget) return;
+  const pw = document.getElementById('lockTogglePw').value;
+  if (!pw) { alert('Enter password.'); return; }
+  const r = await fetch('/api/admin/lock/sub-lco/' + window._lockTarget.id, {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({password:pw})
+  });
+  const d = await r.json();
+  if (d.success){ $('#lockToggleModal').modal('hide');
+    await _refreshLockState();
+  } else alert(d.message || 'Failed');
+}
+// Decorate buttons after the existing render. Hook into DOMContentLoaded + a
+// MutationObserver in case rows are rendered async.
+document.addEventListener('DOMContentLoaded', function(){
+  _refreshLockState();
+  let _decorTimer = null;
+  let _decorating = false;
+  const tgt = document.querySelector('table');
+  if (tgt) {
+    const obs = new MutationObserver(function(muts){
+      if (_decorating) return;
+      // Ignore mutations whose target is one of our buttons (we caused them).
+      if (muts.every(function(m){
+            return (m.target && m.target.closest && m.target.closest('[data-slco-lock-btn]'));
+          })) return;
+      clearTimeout(_decorTimer);
+      _decorTimer = setTimeout(function(){
+        _decorating = true;
+        try { _decorateLockButtons(); } finally { _decorating = false; }
+      }, 80);
+    });
+    obs.observe(tgt, {childList:true, subtree:true});
+  }
+});
+</script>
+
+{% endblock %}

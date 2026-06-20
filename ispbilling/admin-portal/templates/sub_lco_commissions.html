@@ -1,0 +1,98 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}Commissions — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Commissions <small>Ledger &amp; payout status</small></h1>
+</section>
+
+<section class="content">
+<div class="stat-grid">
+  <div class="stat amber" data-testid="stat-commission-total">
+    <div class="lbl">Lifetime Commission</div>
+    <div class="val">&#8377; <span id="stLife">{{ '%.2f' % stats.commission_total }}</span></div>
+  </div>
+  <div class="stat green" data-testid="stat-commission-paid">
+    <div class="lbl">Paid / Settled</div>
+    <div class="val">&#8377; <span id="stPaid">0.00</span></div>
+  </div>
+  <div class="stat rose" data-testid="stat-commission-pending">
+    <div class="lbl">Pending Payout</div>
+    <div class="val">&#8377; <span id="stPend">0.00</span></div>
+  </div>
+  <div class="stat cyan">
+    <div class="lbl">Your Rate</div>
+    <div class="val">{{ '%.2f' % sub_lco.commission_percent }}%</div>
+  </div>
+</div>
+
+<div class="box">
+  <div class="box-header with-border">
+    <h3 class="box-title">Recent Commissions</h3>
+    <div class="box-tools pull-right">
+      <a class="btn btn-sm btn-primary" href="/api/sub-lco/commissions/export.csv" data-testid="slco-export-csv-btn"><i class="fa fa-download"></i> Export CSV</a>
+    </div>
+  </div>
+  <div class="box-body">
+    <div class="table-responsive">
+      <table class="table table-striped" id="comTable">
+        <thead>
+          <tr><th>Date</th><th>Customer ID</th><th>Customer</th>
+              <th>Base Amount</th><th>%</th><th>Commission</th>
+              <th>Status</th><th>Settled On</th><th>Note</th><th>Receipt</th></tr>
+        </thead>
+        <tbody><tr><td colspan="10" class="text-center text-muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmt(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtIST(s){
+  if(!s) return '';
+  var iso = String(s).replace(' ','T');
+  if(!/(?:Z|[+\-]\d{2}:?\d{2})$/.test(iso)) iso += 'Z';
+  var d = new Date(iso); if(isNaN(d.getTime())) return String(s).substring(0,16).replace('T',' ');
+  var p = function(n){return n<10?'0'+n:''+n;};
+  var u = new Date(d.getTime() + (5*60+30)*60*1000);
+  // 12-hour AM/PM (IST), no 'IST' suffix per user request.
+  var h24 = u.getUTCHours();
+  var ap = h24 >= 12 ? 'PM' : 'AM';
+  var h12 = h24 % 12; if(h12 === 0) h12 = 12;
+  return p(u.getUTCDate())+'-'+p(u.getUTCMonth()+1)+'-'+u.getUTCFullYear()+' '+p(h12)+':'+p(u.getUTCMinutes())+' '+ap;
+}
+$(function(){
+  $.get('/api/sub-lco/commissions/listv2', function(res){
+    var $tb = $('#comTable tbody').empty();
+    $('#stLife').text(fmt(res.total));
+    $('#stPaid').text(fmt(res.paid));
+    $('#stPend').text(fmt(res.pending));
+    if(!res.success || !res.items.length){
+      $tb.append('<tr><td colspan="10" class="text-center text-muted">No commissions earned yet. Commissions post automatically when customers pay.</td></tr>');
+      return;
+    }
+    res.items.forEach(function(c){
+      var statusCls = (c.status==='Settled') ? 'label-success' : 'label-warning';
+      var receiptCell = '<span class="text-muted">—</span>';
+      if (c.payout_id){
+        receiptCell = '<a class="btn btn-xs btn-default" href="/api/sub-lco/payouts/'+c.payout_id+'/receipt" target="_blank" title="Download receipt" data-testid="slco-receipt-'+c.id+'"><i class="fa fa-download"></i> Receipt</a>';
+      }
+      $tb.append('<tr>'+
+        '<td>'+esc(fmtIST(c.created_at))+'</td>'+
+        '<td><code>'+esc(c.customer_id)+'</code></td>'+
+        '<td>'+esc(c.customer_name)+'</td>'+
+        '<td>&#8377; '+fmt(c.base_amount)+'</td>'+
+        '<td>'+c.commission_percent.toFixed(2)+'%</td>'+
+        '<td><b>&#8377; '+fmt(c.commission_amount)+'</b></td>'+
+        '<td><span class="label '+statusCls+'">'+esc(c.status)+'</span></td>'+
+        '<td>'+esc(fmtIST(c.settled_at))+'</td>'+
+        '<td>'+esc(c.note)+'</td>'+
+        '<td>'+receiptCell+'</td></tr>');
+    });
+  });
+});
+</script>
+{% endblock %}

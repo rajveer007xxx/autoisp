@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/favicon.png">
+<title>Pricing - AutoISPBilling</title>
+<meta name="description" content="Simple, transparent pricing for ISPs running on AutoISPBilling. Pick a plan that scales with your customer base.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --brand-500:#3d5afe; --brand-600:#3147c8; --ink-900:#0b1330;
+    --ink-700:#3a456b; --ink-500:#6b7494; --soft:#f5f7fc; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',sans-serif;color:var(--ink-900);background:var(--soft);line-height:1.6}
+  .nav-bar{background:#fff;border-bottom:1px solid #e6eaf6;padding:14px 0;
+    position:sticky;top:0;z-index:50}
+  .container{max-width:1180px;margin:0 auto;padding:0 24px}
+  /* _S39R5I_PRICING_NAV */
+  .nav-bar .nav-wrap{display:flex;align-items:center;gap:32px;padding:6px 0}
+  .nav-bar .brand img{height:40px}
+  .nav-bar .nav-links{margin-left:auto;display:flex;gap:30px;list-style:none;align-items:center}
+  .nav-bar .nav-links a{color:var(--ink-700);text-decoration:none;font-weight:500;font-size:15px;
+    padding:8px 4px;transition:color .15s}
+  .nav-bar .nav-links a:hover{color:var(--brand-500)}
+  .nav-bar .cta a{background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;
+    padding:10px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;
+    white-space:nowrap;display:inline-block;line-height:1.2}
+  .nav-bar .cta a:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(61,90,254,.3)}
+  .hero{padding:64px 0 24px;text-align:center}
+  .eyebrow{display:inline-block;background:rgba(61,90,254,.08);color:var(--brand-500);
+    font-size:12px;font-weight:600;padding:6px 16px;border-radius:99px;
+    text-transform:uppercase;letter-spacing:.7px}
+  .hero h1{font-family:'Space Grotesk';font-size:clamp(2rem,4vw,3rem);
+    margin:18px 0 12px;letter-spacing:-.02em;color:var(--ink-900)}
+  .hero p{font-size:18px;color:var(--ink-500);max-width:680px;margin:0 auto}
+  .pkg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+    gap:24px;padding:48px 0 80px}
+  .pkg{background:#fff;border-radius:18px;padding:32px 28px;
+    box-shadow:0 4px 30px rgba(15,23,42,.06);position:relative;transition:transform .25s,box-shadow .25s;
+    border:1px solid #e6eaf6}
+  .pkg:hover{transform:translateY(-4px);box-shadow:0 10px 40px rgba(61,90,254,.18);border-color:rgba(61,90,254,.3)}
+  .pkg.popular{border:2px solid var(--brand-500);box-shadow:0 10px 50px rgba(61,90,254,.2)}
+  .pkg.popular::before{content:"Most popular";position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+    background:var(--brand-500);color:#fff;padding:5px 14px;border-radius:99px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+  .pkg-icon{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#6366f1,#3d5afe);
+    display:grid;place-items:center;color:#fff;font-size:26px;margin-bottom:18px}
+  .pkg-name{font-family:'Space Grotesk';font-size:22px;font-weight:700;margin-bottom:6px}
+  .pkg-desc{font-size:14px;color:var(--ink-500);margin-bottom:18px;min-height:42px}
+  .pkg-price{display:flex;align-items:baseline;gap:6px;margin-bottom:6px}
+  .pkg-price .amt{font-family:'Space Grotesk';font-size:42px;font-weight:800;color:var(--ink-900)}
+  .pkg-price .per{color:var(--ink-500);font-size:14px}
+  .pkg-gst{font-size:12px;color:var(--ink-500);margin-bottom:22px}
+  .pkg-feats{list-style:none;padding:0;margin:0 0 26px;border-top:1px dashed #e6eaf6;padding-top:20px}
+  .pkg-feats li{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--ink-700);padding:6px 0}
+  .pkg-feats li i{color:#16a34a;flex-shrink:0;font-size:16px;margin-top:2px}
+  .pkg-cta{display:block;text-align:center;background:var(--brand-500);color:#fff;
+    padding:13px;border-radius:11px;text-decoration:none;font-weight:700;font-size:14px;
+    transition:background .15s,transform .15s}
+  .pkg-cta:hover{background:var(--brand-600);transform:translateY(-1px);color:#fff}
+  .pkg.popular .pkg-cta{background:linear-gradient(135deg,var(--brand-500),#7c3aff)}
+  .empty-state{text-align:center;padding:80px 24px;color:var(--ink-500)}
+  .empty-state i{font-size:64px;color:#cbd5e1;margin-bottom:16px}
+  .faq-mini{background:#fff;padding:60px 0 80px;border-top:1px solid #e6eaf6}
+  .faq-mini h2{text-align:center;font-family:'Space Grotesk';font-size:32px;margin-bottom:36px}
+  .faq-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px}
+  @media(max-width:720px){.faq-grid{grid-template-columns:1fr}}
+  .faq-grid h4{font-size:16px;margin-bottom:6px;color:var(--ink-900)}
+  .faq-grid p{color:var(--ink-500);font-size:14px}
+  footer{background:#08112a;color:rgba(203,211,230,.8);padding:40px 0;text-align:center;font-size:14px}
+  footer a{color:#cbd3e6;text-decoration:none;margin:0 10px}
+  footer a:hover{color:#fff}
+
+    /* _S39R5U_MOBILE_NAV_ — mobile hamburger + slide-down menu */
+    @media (max-width: 900px){
+      .site-nav .nav-links, .nav-bar .nav-links,
+      .site-nav .nav-cta, .nav-bar .cta { display: none !important; }
+      .nav-toggle-mobile { display: inline-flex !important; }
+    }
+    .nav-toggle-mobile { display: none; background: transparent; border: 0;
+      color: #2b3552; font-size: 1.6rem; padding: 6px 10px; cursor: pointer;
+      align-items: center; }
+    .mobile-menu-public { display: none; position: absolute; top: 100%;
+      left: 16px; right: 16px; background: #fff; border-radius: 12px;
+      box-shadow: 0 14px 32px rgba(11,18,36,.12); padding: 14px 18px;
+      flex-direction: column; gap: 10px; margin-top: 8px; z-index: 60;
+      border: 1px solid #e4e8f3; }
+    .mobile-menu-public.open { display: flex; }
+    .mobile-menu-public a { color: #2b3552; font-weight: 500; padding: 10px 4px;
+      border-bottom: 1px solid #eef0f7; text-decoration: none; font-size: 14px; }
+    .mobile-menu-public a:last-child { border-bottom: 0; }
+</style>
+    <link rel="stylesheet" href="/static/css/site-header.css"> <!-- _S39R5K_GLOBAL_ -->
+    <style>/* _S39R5K_GLOBAL_ 80% desktop zoom */
+      @media (min-width: 992px){ html { zoom: 0.8; } }
+    </style>
+<!-- _S40zμ_  Profanity shield -->
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+</head>
+<body>
+<nav class="nav-bar">
+  <div class="container nav-wrap">
+    <a class="brand" href="/"><img src="/static/img/autoispbilling-logo-wide.png" alt="AutoISPBilling"></a>
+    <ul class="nav-links">
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/#how">How it works</a></li>
+      <li><a href="/pricing">Pricing</a></li>
+      <li><a href="/#integrations">Integrations</a></li>
+      <li><a href="/contact">Contact</a></li>
+    </ul>
+    <div class="cta"><a href="/login">Sign In</a></div>
+  </div>
+
+        <button class="nav-toggle-mobile" id="navToggleMobileE_NAV_" aria-label="Menu" data-tag="_S39R5U_MOBILE_NAV_"><i class="bi bi-list"></i></button>
+        <div class="mobile-menu-public" id="mobileMenuPublicE_NAV_">
+          <a href="/#features">Features</a>
+          <a href="/#how">How it works</a>
+          <a href="/#integrations">Integrations</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/#demo">Request Demo</a>
+          <a href="/contact">Contact</a>
+          <a href="/login"><i class="bi bi-box-arrow-in-right"></i> Sign In</a>
+        </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <span class="eyebrow"><i class="bi bi-tag-fill"></i> Pricing</span>
+    <h1>Simple, transparent pricing for every ISP</h1>
+    <p>From a 7-day trial to enterprise-grade plans — pick what fits your customer base today and upgrade as you grow. All plans include core billing, Mikrotik / RADIUS automation, and 24/7 support.</p>
+  </div>
+</section>
+
+<section class="container">
+  {% if packages and packages|length > 0 %}
+    <div class="pkg-grid" data-testid="pricing-grid">
+      {% for p in packages %}
+        <div class="pkg {% if p.package_name == 'Pro' %}popular{% endif %}"
+             data-testid="pricing-card-{{ p.id }}">
+          <div class="pkg-icon"><i class="bi bi-{{ p.icon }}"></i></div>
+          <div class="pkg-name">{{ p.package_name }}</div>
+          <div class="pkg-desc">{{ p.description or 'Tailored for growing ISPs ready to automate.' }}</div>
+          <div class="pkg-price">
+            {% if p.package_price == 0 %}
+              <span class="amt">Free</span><span class="per">/ trial</span>
+            {% else %}
+              <span class="amt">&#x20B9;{{ '{:,.0f}'.format(p.package_price) }}</span>
+              <span class="per">/ month</span>
+            {% endif %}
+          </div>
+          {% if p.package_price > 0 %}
+            <div class="pkg-gst">+ {{ p.igst_rate or 18 }}% GST · &#x20B9;{{ '{:,.0f}'.format(p.price_with_gst) }} all-inclusive</div>
+          {% else %}
+            <div class="pkg-gst">7-day free trial — no credit card required</div>
+          {% endif %}
+          <ul class="pkg-feats">
+            {% for f in p.features %}
+              <li><i class="bi bi-check-circle-fill"></i> {{ f }}</li>
+            {% endfor %}
+          </ul>
+          <a class="pkg-cta" href="/#demo" data-testid="pricing-cta-{{ p.id }}">
+            {% if p.package_price == 0 %}Start Free Trial{% else %}Request a Demo{% endif %} <i class="bi bi-arrow-right"></i>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state" data-testid="pricing-empty">
+      <i class="bi bi-box-seam"></i>
+      <h3>Plans coming soon</h3>
+      <p>Our packages will appear here shortly. In the meantime, talk to us for a custom quote.</p>
+      <a class="pkg-cta" style="display:inline-block;margin-top:20px;padding:12px 28px" href="/contact">Contact Sales</a>
+    </div>
+  {% endif %}
+</section>
+
+<section class="faq-mini">
+  <div class="container">
+    <h2>Pricing FAQ</h2>
+    <div class="faq-grid">
+      <div>
+        <h4 data-tag="_S39R5G_FAQ">Are there any hidden fees?</h4>
+        <p>No platform fee surprises. The plan price is what you pay. GST is shown separately on each plan as required.
+        <strong>WhatsApp message charges and online-payment gateway charges are billed separately</strong> at actuals — pay only for what you actually use.</p>
+      </div>
+      <div>
+        <h4>Can I change my plan later?</h4>
+        <p>Yes — upgrade or downgrade any time. Pro-rated adjustments are reflected on your next invoice.</p>
+      </div>
+      <div>
+        <h4>Do you offer a free trial?</h4>
+        <p>Yes — every new ISP starts on a 7-day Trial plan with full access to billing, RADIUS and Mikrotik features.</p>
+      </div>
+      <div>
+        <h4>What about onboarding & migration?</h4>
+        <p>We provide one-on-one onboarding and CSV / Excel import for your existing customer base — at no extra cost.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>© 2026 AutoISPBilling. All rights reserved.</p>
+    <p style="margin-top:10px">
+      <a href="/">Home</a> · <a href="/pricing">Pricing</a> ·
+      <a href="/contact">Contact</a> · <a href="/privacy_policy">Privacy</a> ·
+      <a href="/terms_of_service">Terms</a> ·
+      <a href="/sitemap" data-testid="footer-sitemap-link-pricing">Site Map</a>
+    </p>
+  </div>
+</footer>
+
+<script data-tag="_S39R5U_MOBILE_NAV_">
+(function(){
+  var sfx = "E_NAV_";
+  var btn = document.getElementById('navToggleMobile' + sfx);
+  var menu = document.getElementById('mobileMenuPublic' + sfx);
+  if (btn && menu) {
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    menu.querySelectorAll('a').forEach(function(a){
+      a.addEventListener('click', function(){ menu.classList.remove('open'); });
+    });
+    document.addEventListener('click', function(ev){
+      if (!menu.contains(ev.target) && !btn.contains(ev.target)) menu.classList.remove('open');
+    });
+  }
+})();
+</script>
+</body>
+</html>

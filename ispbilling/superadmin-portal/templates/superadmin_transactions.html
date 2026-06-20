@@ -1,0 +1,279 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Transaction History - Superadmin{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap.min.css">
+<style>
+    .action-btn { margin: 2px; padding: 5px 10px; font-size: 12px; }
+    .filter-card .form-group { margin-bottom: 10px; }
+    .filter-card label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color:#475569; font-weight:600; margin-bottom:4px; }
+    .filter-card .form-control { height: 38px; border-radius: 8px; }
+    .filter-actions .btn { min-width: 110px; }
+    #filterSummary .chip { display:inline-block; background:#eef2ff; color:#3730a3; padding:3px 10px; border-radius: 999px; font-size: 12px; margin:2px 4px 2px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Transaction History<small>Admin subscription invoices and payments</small></h1>
+</section>
+
+<section class="content">
+    <div class="box filter-card">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="fa fa-filter"></i> Filters</h3>
+        </div>
+        <div class="box-body">
+            <form id="txnFilterForm" onsubmit="return applyFilters(event);">
+                <div class="row">
+                    <div class="col-md-3 col-sm-6">
+                        <div class="form-group">
+                            <label for="f_txn_type">Type</label>
+                            <select id="f_txn_type" class="form-control">
+                                <option value="">All</option>
+                                <option value="renewal">Renewal</option>
+                                <option value="payment">Payment</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="form-group">
+                            <label for="f_payment_method">Payment Method</label>
+                            <select id="f_payment_method" class="form-control">
+                                <option value="">All</option>
+                                <option value="Cash">Cash</option>
+                                <option value="UPI">UPI</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Card">Card</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="form-group">
+                            <label for="f_date_from">From Date</label>
+                            <input type="date" id="f_date_from" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="form-group">
+                            <label for="f_date_to">To Date</label>
+                            <input type="date" id="f_date_to" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-sm-6">
+                        <div class="form-group">
+                            <label for="f_admin">Admin / Company</label>
+                            <input type="text" id="f_admin" class="form-control" placeholder="Name or company ID">
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-sm-3 col-xs-6">
+                        <div class="form-group">
+                            <label for="f_amount_min">Min Amount (₹)</label>
+                            <input type="number" min="0" step="0.01" id="f_amount_min" class="form-control" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-sm-3 col-xs-6">
+                        <div class="form-group">
+                            <label for="f_amount_max">Max Amount (₹)</label>
+                            <input type="number" min="0" step="0.01" id="f_amount_max" class="form-control" placeholder="No limit">
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-sm-12 filter-actions" style="display:flex; align-items:flex-end; gap:8px;">
+                        <button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> Apply</button>
+                        <button type="button" class="btn btn-default" onclick="resetFilters();"><i class="fa fa-undo"></i> Reset</button>
+                    </div>
+                </div>
+                <div id="filterSummary" class="text-muted" style="margin-top:6px;"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Transactions</h3>
+        </div>
+        <div class="box-body">
+            <table id="transactionsTable" class="table table-bordered table-striped" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Invoice Number</th>
+                        <th>Admin Name</th>
+                        <th>Company Name</th>
+                        <th>Mobile Number</th>
+                        <th>Transaction Type</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap.min.js"></script>
+<script>
+var txnTable;
+function currentFilters() {
+    return {
+        txn_type: $('#f_txn_type').val() || '',
+        payment_method: $('#f_payment_method').val() || '',
+        date_from: $('#f_date_from').val() || '',
+        date_to: $('#f_date_to').val() || '',
+        admin: $('#f_admin').val() || '',
+        amount_min: $('#f_amount_min').val() || '',
+        amount_max: $('#f_amount_max').val() || ''
+    };
+}
+function renderFilterSummary() {
+    var f = currentFilters();
+    var parts = [];
+    if (f.txn_type) parts.push('Type: <strong>' + f.txn_type + '</strong>');
+    if (f.payment_method) parts.push('Method: <strong>' + f.payment_method + '</strong>');
+    if (f.date_from) parts.push('From: <strong>' + f.date_from + '</strong>');
+    if (f.date_to) parts.push('To: <strong>' + f.date_to + '</strong>');
+    if (f.admin) parts.push('Admin: <strong>' + f.admin + '</strong>');
+    if (f.amount_min) parts.push('Min: <strong>₹' + f.amount_min + '</strong>');
+    if (f.amount_max) parts.push('Max: <strong>₹' + f.amount_max + '</strong>');
+    var html = parts.length ? parts.map(function(p){ return '<span class="chip">' + p + '</span>'; }).join(' ') : '';
+    $('#filterSummary').html(html);
+}
+function applyFilters(e) { if (e) e.preventDefault(); renderFilterSummary(); if (txnTable) txnTable.ajax.reload(); return false; }
+function resetFilters() {
+    $('#txnFilterForm')[0].reset();
+    $('#f_txn_type, #f_payment_method').val('');
+    renderFilterSummary();
+    if (txnTable) txnTable.ajax.reload();
+}
+
+$(document).ready(function() {
+    txnTable = $('#transactionsTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: {
+            url: '/api/superadmin/transactions',
+            dataSrc: 'data',
+            data: function(d) { return $.extend({}, d, currentFilters()); },
+            error: function(xhr, error, thrown) {
+                console.error('DataTables Ajax error:', xhr.status, xhr.responseText);
+                var errorMsg = 'Error loading transactions: ';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg += xhr.responseJSON.error;
+                } else {
+                    errorMsg += xhr.status + ' - ' + thrown;
+                }
+                alert(errorMsg);
+            }
+        },
+        columns: [
+            { data: 'invoice_number' },
+            { data: 'admin_name' },
+            { data: 'company_name' },
+            { data: 'mobile_number' },
+            { data: 'transaction_type' },
+            { 
+                data: 'amount',
+                render: function(data) {
+                    return '₹' + Math.round(data || 0).toLocaleString('en-IN');
+                }
+            },
+            { 
+                data: 'transaction_date',
+                render: function(data) {
+                    if (!data || data === 'N/A') return 'N/A';
+                    try {
+                        return new Date(data).toLocaleDateString('en-GB');
+                    } catch(e) {
+                        return data;
+                    }
+                }
+            },
+            {
+                data: null,
+                orderable: false,
+                render: function(data, type, row) {
+                    var actions = '';
+                    
+                    if (row.transaction_type === 'renewal' && row.invoice_id) {
+                        // Invoice actions
+                        actions += '<a href="#" onclick="downloadInvoice(' + row.invoice_id + ', \'' + row.company_id + '\'); return false;" title="Download Invoice"><i class="fa fa-download text-primary" style="font-size: 16px; margin: 0 5px;"></i></a> ';
+                        actions += '<a href="#" onclick="resendInvoice(' + row.invoice_id + ', \'' + row.company_id + '\'); return false;" title="Resend Invoice"><i class="fa fa-envelope text-info" style="font-size: 16px; margin: 0 5px;"></i></a> ';
+                        actions += '<a href="#" onclick="sendWhatsApp(\'' + row.mobile_number + '\', ' + row.invoice_id + '); return false;" title="Send via WhatsApp"><i class="fa fa-whatsapp text-success" style="font-size: 16px; margin: 0 5px;"></i></a>';
+                    } else if (row.transaction_type === 'payment' && row.id) {
+                        // Payment receipt actions
+                        actions += '<a href="#" onclick="downloadPaymentReceipt(' + row.id + '); return false;" title="Download Receipt"><i class="fa fa-download text-primary" style="font-size: 16px; margin: 0 5px;"></i></a> ';
+                        actions += '<a href="#" onclick="resendPaymentReceipt(' + row.id + '); return false;" title="Resend Receipt"><i class="fa fa-envelope text-info" style="font-size: 16px; margin: 0 5px;"></i></a>';
+                    } else {
+                        actions += '<span class="text-muted">N/A</span>';
+                    }
+                    
+                    return actions;
+                }
+            }
+        ],
+        order: [[6, 'desc']]
+    });
+});
+
+function downloadInvoice(invoiceId, companyId) {
+    window.open('/api/superadmin/invoices/' + invoiceId + '/download', '_blank');
+}
+
+function resendInvoice(invoiceId, companyId) {
+    if (confirm('Resend invoice via email?')) {
+        $.ajax({
+            url: '/api/superadmin/invoices/' + invoiceId + '/resend',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ company_id: companyId }),
+            success: function(response) {
+                alert(response.message || 'Invoice sent successfully!');
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to send invoice'));
+            }
+        });
+    }
+}
+
+function sendWhatsApp(mobileNumber, invoiceId) {
+    var message = 'Your invoice #' + invoiceId + ' is ready. Please check your email for details.';
+    var whatsappUrl = 'https://wa.me/' + mobileNumber.replace(/[^0-9]/g, '') + '?text=' + encodeURIComponent(message);
+    window.open(whatsappUrl, '_blank');
+}
+
+function downloadPaymentReceipt(transactionId) {
+    window.open('/api/superadmin/payments/' + transactionId + '/receipt/download', '_blank');
+}
+
+function resendPaymentReceipt(transactionId) {
+    if (confirm('Resend payment receipt via email?')) {
+        $.ajax({
+            url: '/api/superadmin/payments/' + transactionId + '/receipt/resend',
+            type: 'POST',
+            contentType: 'application/json',
+            success: function(response) {
+                alert(response.message || 'Receipt sent successfully!');
+            },
+            error: function(xhr) {
+                var errorMsg = 'Error: ';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg += xhr.responseJSON.message;
+                } else if (xhr.status === 404) {
+                    errorMsg += 'Receipt PDF not found. It may not have been generated yet.';
+                } else {
+                    errorMsg += 'Failed to send receipt';
+                }
+                alert(errorMsg);
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

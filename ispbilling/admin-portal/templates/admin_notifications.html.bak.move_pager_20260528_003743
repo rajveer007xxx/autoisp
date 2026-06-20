@@ -1,0 +1,162 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Notifications - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+  <h1>Notifications <small>All recent activity across your ISP</small></h1>
+</section>
+
+<section class="content">
+  <div class="row">
+    <div class="col-md-3 col-sm-6 col-xs-12">
+      <div class="info-box"><span class="info-box-icon bg-green"><i class="fa fa-money"></i></span>
+        <div class="info-box-content"><span class="info-box-text">Payments (30d)</span>
+          <span class="info-box-number" id="nStatPayments" data-testid="nstat-payments">—</span></div></div></div>
+    <div class="col-md-3 col-sm-6 col-xs-12">
+      <div class="info-box"><span class="info-box-icon bg-blue"><i class="fa fa-file-text"></i></span>
+        <div class="info-box-content"><span class="info-box-text">Invoices (30d)</span>
+          <span class="info-box-number" id="nStatInvoices" data-testid="nstat-invoices">—</span></div></div></div>
+    <div class="col-md-3 col-sm-6 col-xs-12">
+      <div class="info-box"><span class="info-box-icon bg-red"><i class="fa fa-exclamation"></i></span>
+        <div class="info-box-content"><span class="info-box-text">Complaints (30d)</span>
+          <span class="info-box-number" id="nStatComplaints" data-testid="nstat-complaints">—</span></div></div></div>
+    <div class="col-md-3 col-sm-6 col-xs-12">
+      <div class="info-box"><span class="info-box-icon bg-purple"><i class="fa fa-life-ring"></i></span>
+        <div class="info-box-content"><span class="info-box-text">Support (30d)</span>
+          <span class="info-box-number" id="nStatSupport" data-testid="nstat-support">—</span></div></div></div>
+  </div>
+
+  <div class="box">
+    <div class="box-header with-border">
+      <h3 class="box-title">All Notifications</h3>
+      <div class="box-tools">
+        <div class="btn-group" role="group" aria-label="type-filter">
+          <button type="button" class="btn btn-sm btn-default active" data-ftype="">All</button>
+          <button type="button" class="btn btn-sm btn-default" data-ftype="payment">Payments</button>
+          <button type="button" class="btn btn-sm btn-default" data-ftype="invoice">Invoices</button>
+          <button type="button" class="btn btn-sm btn-default" data-ftype="customer">Customers</button>
+          <button type="button" class="btn btn-sm btn-default" data-ftype="complaint">Complaints</button>
+          <button type="button" class="btn btn-sm btn-default" data-ftype="support">Support</button>
+        </div>
+      </div>
+    </div>
+    <div class="box-body">
+      <div class="s32-notif-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:10px;">
+        <div>
+          <label style="margin-right:6px;font-weight:600;">Show</label>
+          <select id="s32NotifPageSize" class="form-control" style="display:inline-block;width:auto;padding:6px 12px;">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="-1">All</option>
+          </select>
+          <span style="margin-left:6px;">per page</span>
+        </div>
+        <div id="s32NotifInfo" style="font-size:13px;color:#6b7280;"></div>
+        <div class="btn-group" role="group" aria-label="pager">
+          <button type="button" class="btn btn-default btn-sm" id="s32NotifPrev" data-testid="notif-prev">‹ Prev</button>
+          <button type="button" class="btn btn-default btn-sm" id="s32NotifNext" data-testid="notif-next">Next ›</button>
+        </div>
+      </div>
+
+      <div class="list-group" id="s32NotifList" data-testid="notif-list">
+        <div class="text-muted" style="padding:20px;text-align:center;">Loading…</div>
+      
+      <!-- __S55C_NOTIF_PAGER_BOTTOM__ — bottom pagination duplicate -->
+      <div class="s32-notif-footer-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px;padding-top:12px;border-top:1px solid rgba(96,165,250,.20);">
+        <div id="s32NotifInfoBottom" style="font-size:13px;color:#94A3B8;"></div>
+        <div class="btn-group" role="group" aria-label="pager-bottom">
+          <button type="button" class="btn btn-default btn-sm" id="s32NotifPrevBottom" data-testid="notif-prev-bot">‹ Prev</button>
+          <button type="button" class="btn btn-default btn-sm" id="s32NotifNextBottom" data-testid="notif-next-bot">Next ›</button>
+        </div>
+      </div>
+
+</div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  var ALL = [];
+  var filterType = '';
+  function esc(s){ return $('<div/>').text(s == null ? '' : s).html(); }
+
+  function loadSummary(){
+    $.get('/api/admin/notifications/summary').done(function(j){
+      if (!j || !j.success) return;
+      $('#nStatPayments').text(j.payments || 0);
+      $('#nStatInvoices').text(j.invoices || 0);
+      $('#nStatComplaints').text(j.complaints || 0);
+      $('#nStatSupport').text(j.support || 0);
+    });
+  }
+  function loadFeed(){
+    $.get('/api/admin/notifications/feed', { limit: 500, days: 365 }).done(function(j){
+      if (!j || !j.success) return;
+      ALL = j.items || [];
+      renderList();
+    }).fail(function(){
+      $('#s32NotifList').html('<div class="text-danger" style="padding:20px;text-align:center;">Failed to load notifications</div>');
+    });
+  }
+
+  var pageSize = 20, page = 1;
+  function filteredItems(){
+    if (!filterType) return ALL;
+    return ALL.filter(function(i){ return i.type === filterType; });
+  }
+  function renderList(){
+    var items = filteredItems();
+    var total = items.length;
+    pageSize = parseInt($('#s32NotifPageSize').val(), 10);
+    if (pageSize === -1) pageSize = total || 1;
+    var pages = Math.max(1, Math.ceil(total / pageSize));
+    if (page > pages) page = pages;
+    var start = (page - 1) * pageSize;
+    var end = Math.min(start + pageSize, total);
+    var slice = items.slice(start, end);
+    var html = '';
+    if (!slice.length) {
+      html = '<div class="text-muted" style="padding:24px;text-align:center;">No notifications for this filter.</div>';
+    } else {
+      slice.forEach(function(it){
+        var goodAgo = (window.e1FmtAgo ? window.e1FmtAgo(it.ts) : '') || it.ago || '';
+        html += '<a href="' + esc(it.url || '#') + '" class="list-group-item" style="display:flex;gap:12px;align-items:flex-start;">' +
+                  '<span style="width:30px;text-align:center;color:' + esc(it.color || '#6366f1') + ';font-size:16px;"><i class="fa ' + esc(it.icon || 'fa-bell') + '"></i></span>' +
+                  '<span style="flex:1;">' +
+                    '<h4 class="list-group-item-heading" style="margin:0 0 2px;font-size:14px;color:#F1F5F9;">' + esc(it.title) + '</h4>' +
+                    (it.subtitle ? '<p class="list-group-item-text" style="margin:0;color:#CBD5E1;font-size:12.5px;">' + esc(it.subtitle) + '</p>' : '') +
+                    '<small class="text-muted" style="color:#94A3B8;">' + esc(goodAgo) + '</small>' +
+                  '</span>' +
+                  '<span class="label label-default" style="text-transform:capitalize;align-self:center;">' + esc(it.type) + '</span>' +
+                '</a>';
+      });
+    }
+    $('#s32NotifList').html(html);
+    var infoText = total ? ('Showing ' + (start+1) + '–' + end + ' of ' + total + '  ·  Page ' + page + ' / ' + pages) : '0 notifications';
+    $('#s32NotifInfo').text(infoText);
+    $('#s32NotifInfoBottom').text(infoText);
+    $('#s32NotifPrev, #s32NotifPrevBottom').prop('disabled', page <= 1);
+    $('#s32NotifNext, #s32NotifNextBottom').prop('disabled', page >= pages);
+  }
+
+  $('#s32NotifPageSize').on('change', function(){ page = 1; renderList(); });
+  $('#s32NotifPrev').on('click', function(){ if (page > 1) { page--; renderList(); } });
+  $('#s32NotifNext').on('click', function(){ page++; renderList(); });
+  $('#s32NotifPrevBottom').on('click', function(){ if (page > 1) { page--; renderList(); window.scrollTo(0,0); } });
+  $('#s32NotifNextBottom').on('click', function(){ page++; renderList(); window.scrollTo(0,0); });
+  $('[data-ftype]').on('click', function(){
+    $('[data-ftype]').removeClass('active');
+    $(this).addClass('active');
+    filterType = $(this).data('ftype') || '';
+    page = 1; renderList();
+  });
+
+  loadSummary();
+  loadFeed();
+})();
+</script>
+{% endblock %}

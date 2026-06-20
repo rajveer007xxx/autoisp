@@ -1,0 +1,10 @@
+[Unit]
+Description=ISP daily SQLite backup
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ispbilling/cron/backup_cron.py
+WorkingDirectory=/opt/ispbilling/superadmin-portal
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/ispbilling.env

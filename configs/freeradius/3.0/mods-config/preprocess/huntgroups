@@ -1,0 +1,9 @@
+# Auto ISP Billing huntgroups (s36b7)
+# Dispatches NAS-Port-Type to policy buckets so admins can write
+# per-method policies (throttling, ACLs, authorize filters).
+#
+# These three Huntgroup names match the auth_type values used by our
+# CompanySettings + admin_users UI.
+isp-pppoe-session    NAS-Port-Type == Virtual
+isp-hotspot-session  NAS-Port-Type == Wireless-802.11
+isp-ethernet-session NAS-Port-Type == Ethernet

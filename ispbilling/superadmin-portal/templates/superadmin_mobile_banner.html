@@ -1,0 +1,122 @@
+{% extends "base_superadmin.html" %}
+{% block title %}Mobile App Banner{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Mobile App Login Banner <small>shown once-per-day on the AutoISPBilling mobile app</small></h1>
+</section>
+<section class="content">
+  <div class="row">
+    <div class="col-md-7">
+      <div class="box box-primary">
+        <div class="box-header with-border"><h3 class="box-title">Push a new banner</h3></div>
+        <div class="box-body">
+          <form id="banner-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <label>Title <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="title" required maxlength="120" placeholder="e.g. Diwali Mega Offer — 20% OFF">
+            </div>
+            <div class="form-group">
+              <label>Message / Description</label>
+              <textarea class="form-control" name="message" rows="3" maxlength="600" placeholder="Short marketing copy shown below the title"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Banner Image (PNG / JPG, recommended 800×440)</label>
+              <input type="file" name="image" accept="image/*" id="banner-image">
+              <p class="help-block">OR paste an image URL below if you already host the image.</p>
+              <input type="url" class="form-control" name="image_url" id="banner-image-url" placeholder="https://...">
+            </div>
+            <div class="form-group">
+              <label>Click-through link (optional)</label>
+              <input type="url" class="form-control" name="link_url" placeholder="https://www.autoispbilling.com/offers">
+            </div>
+            <div class="row">
+              <div class="col-sm-6 form-group">
+                <label>Start date (optional)</label>
+                <input type="date" class="form-control" name="start_date">
+              </div>
+              <div class="col-sm-6 form-group">
+                <label>End date (optional)</label>
+                <input type="date" class="form-control" name="end_date">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-inline">
+                <input type="checkbox" name="is_popup" checked> Show as popup on login screen
+              </label>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-megaphone-fill"></i> Push to Mobile App</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-5">
+      <div class="box box-info">
+        <div class="box-header with-border"><h3 class="box-title">Currently active</h3></div>
+        <div class="box-body" id="active-banners">
+          <p class="text-muted">Loading…</p>
+        </div>
+        <div class="box-footer">
+          <button class="btn btn-danger btn-block" id="clear-all"><i class="bi bi-x-circle-fill"></i> Remove ALL active banners</button>
+          <p class="help-block" style="margin-top:8px">Once removed, the popup will <strong>not</strong> appear in the mobile app until you push a new one.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+async function refreshActive() {
+  const box = document.getElementById('active-banners');
+  try {
+    const r = await fetch('/api/superadmin/mobile-banner', { credentials: 'same-origin' });
+    const j = await r.json();
+    if (!j.items || !j.items.length) {
+      box.innerHTML = '<p class="text-muted">No active banner. The mobile app login screen will show nothing.</p>';
+      return;
+    }
+    box.innerHTML = j.items.map(b => `
+      <div class="well well-sm" style="margin-bottom:8px">
+        ${b.image_url ? `<img src="${b.image_url}" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-bottom:6px">` : ''}
+        <strong>${b.title}</strong>
+        ${b.message ? `<p style="margin:4px 0;color:#555">${b.message}</p>` : ''}
+        ${b.link_url ? `<a href="${b.link_url}" target="_blank" rel="noopener">${b.link_url}</a><br>` : ''}
+        <small class="text-muted">id #${b.id} • ${b.is_popup ? 'popup' : 'inline'} • created ${b.created_at || ''}</small>
+        <button class="btn btn-xs btn-danger pull-right" onclick="removeBanner(${b.id})"><i class="bi bi-trash"></i></button>
+      </div>`).join('');
+  } catch (e) {
+    box.innerHTML = '<p class="text-danger">Failed to load active banners.</p>';
+  }
+}
+
+async function removeBanner(id) {
+  if (!confirm('Remove this banner?')) return;
+  await fetch('/api/superadmin/mobile-banner/' + id, { method: 'DELETE', credentials: 'same-origin' });
+  refreshActive();
+}
+
+document.getElementById('clear-all').addEventListener('click', async () => {
+  if (!confirm('Deactivate ALL banners? The mobile app will stop showing the popup.')) return;
+  await fetch('/api/superadmin/mobile-banner/clear', { method: 'POST', credentials: 'same-origin' });
+  refreshActive();
+});
+
+document.getElementById('banner-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (!fd.get('is_popup')) fd.set('is_popup', '');
+  else fd.set('is_popup', '1');
+  const r = await fetch('/api/superadmin/mobile-banner', { method: 'POST', body: fd, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (r.ok && j.ok) {
+    alert('Banner pushed! It will show on next mobile app open (once per day per device).');
+    e.target.reset();
+    refreshActive();
+  } else {
+    alert('Error: ' + (j.error || ('HTTP ' + r.status)));
+  }
+});
+
+refreshActive();
+</script>
+{% endblock %}

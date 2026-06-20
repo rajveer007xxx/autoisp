@@ -1,0 +1,1089 @@
+{% extends "base_admin.html" %}
+{% set active_page = 'smart_network' %}
+{% block title %}Smart Network · Topology Designer{% endblock %}
+
+{% block content %}
+<style>
+  :root{
+    --sn-bg:#0a0f1c; --sn-card:#0f172a; --sn-card-2:#111827;
+    --sn-border:#1e293b; --sn-fg:#e2e8f0; --sn-muted:#94a3b8;
+    --sn-accent:#22d3ee; --sn-accent-2:#a855f7;
+    --sn-crit:#ef4444; --sn-major:#f97316; --sn-warn:#eab308; --sn-info:#3b82f6;
+    --sn-up:#22c55e; --sn-down:#ef4444;
+    --link-eth:#22c55e; --link-fib:#eab308; --link-wir:#3b82f6;
+    --link-pon:#a855f7; --link-vlan:#10b981;
+  }
+  .sn-wrap{background:var(--sn-bg);color:var(--sn-fg);min-height:calc(100vh - 60px);
+           padding:14px;display:flex;flex-direction:column;gap:12px}
+  .sn-topbar{display:flex;align-items:center;gap:12px;background:var(--sn-card);
+             border:1px solid var(--sn-border);border-radius:12px;padding:10px 14px}
+  .sn-search{flex:1;background:#020617;border:1px solid var(--sn-border);
+             border-radius:8px;padding:8px 12px;color:var(--sn-fg);font-size:13px}
+  .sn-search:focus{outline:none;border-color:var(--sn-accent)}
+  .sn-stat{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;
+           border-radius:999px;font-size:12px;font-weight:600;background:#020617;
+           border:1px solid var(--sn-border);cursor:default}
+  .sn-stat .dot{width:7px;height:7px;border-radius:50%}
+  .sn-stat.critical{color:#fca5a5;border-color:#7f1d1d}
+  .sn-stat.major{color:#fdba74;border-color:#7c2d12}
+  .sn-stat.warning{color:#fde047;border-color:#713f12}
+  .sn-stat.info{color:#93c5fd;border-color:#1e3a8a}
+  .sn-stat.live{color:#86efac;border-color:#14532d}
+  .sn-stat.critical .dot{background:var(--sn-crit);box-shadow:0 0 8px var(--sn-crit)}
+  .sn-stat.major .dot{background:var(--sn-major)}
+  .sn-stat.warning .dot{background:var(--sn-warn)}
+  .sn-stat.info .dot{background:var(--sn-info)}
+  .sn-stat.live .dot{background:var(--sn-up);animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  .sn-actbar{display:flex;flex-wrap:wrap;gap:8px;background:var(--sn-card);
+             border:1px solid var(--sn-border);border-radius:12px;padding:10px 12px}
+  .sn-btn{display:inline-flex;align-items:center;gap:7px;background:#0b1426;
+          border:1px solid var(--sn-border);color:var(--sn-fg);font-size:13px;
+          font-weight:500;padding:7px 13px;border-radius:8px;cursor:pointer;
+          transition:.18s}
+  .sn-btn:hover{border-color:var(--sn-accent);transform:translateY(-1px);
+                box-shadow:0 4px 12px rgba(34,211,238,.18)}
+  .sn-btn.primary{background:linear-gradient(135deg,#0ea5e9,#3b82f6);
+                  border-color:transparent;color:#fff}
+  .sn-btn.accent{background:linear-gradient(135deg,#a855f7,#6366f1);
+                 border-color:transparent;color:#fff}
+  .sn-btn.success{background:linear-gradient(135deg,#10b981,#22c55e);
+                  border-color:transparent;color:#fff}
+  .sn-btn.danger{background:#7f1d1d;border-color:#991b1b;color:#fecaca}
+  .sn-btn[disabled]{opacity:.5;cursor:not-allowed}
+
+  .sn-filters{display:flex;flex-wrap:wrap;gap:7px}
+  .sn-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+           border-radius:999px;background:#0b1426;border:1px solid var(--sn-border);
+           color:var(--sn-fg);font-size:12px;cursor:pointer;transition:.15s}
+  .sn-chip:hover{border-color:var(--sn-accent)}
+  .sn-chip.active{background:rgba(34,211,238,.16);border-color:var(--sn-accent);
+                  color:var(--sn-accent)}
+
+  /* Main grid: canvas + right panels */
+  .sn-grid{display:grid;grid-template-columns:1fr 320px;gap:12px;flex:1;min-height:560px}
+  .sn-canvas-wrap{background:var(--sn-card);border:1px solid var(--sn-border);
+                  border-radius:12px;position:relative;overflow:hidden;min-height:560px}
+  #snCanvas{width:100%;height:100%;display:block;cursor:grab;background:
+       radial-gradient(circle at 25% 30%, #1e293b 0%, transparent 40%),
+       radial-gradient(circle at 80% 70%, #1e1b4b 0%, transparent 50%),#0a0f1c}
+  #snCanvas.dragging{cursor:grabbing}
+  #snCanvas .node{cursor:move;transition:filter .15s}
+  #snCanvas .node:hover{filter:drop-shadow(0 0 10px var(--sn-accent))}
+  #snCanvas .node.selected rect.bg{stroke:var(--sn-accent);stroke-width:2}
+  #snCanvas .node .icon{font-size:28px}
+  #snCanvas .node text{fill:var(--sn-fg);font-size:11px;font-weight:600;
+                       pointer-events:none}
+  #snCanvas .node .meta{fill:var(--sn-muted);font-size:9px;font-weight:400}
+  #snCanvas .link{stroke-width:2;fill:none;pointer-events:stroke;cursor:pointer;
+                  transition:stroke-width .15s}
+  #snCanvas .link:hover{stroke-width:4}
+  #snCanvas .link.ethernet{stroke:var(--link-eth)}
+  #snCanvas .link.fiber{stroke:var(--link-fib)}
+  #snCanvas .link.wireless{stroke:var(--link-wir);stroke-dasharray:8 4}
+  #snCanvas .link.pon{stroke:var(--link-pon);stroke-dasharray:8 4}
+  #snCanvas .link.vlan{stroke:var(--link-vlan);stroke-dasharray:4 4}
+  #snCanvas .link.lag{stroke:var(--link-vlan);stroke-width:4}
+  #snCanvas .link.pending{stroke:#fbbf24;stroke-width:3;stroke-dasharray:6 4}
+
+  .sn-canvas-tools{position:absolute;left:14px;top:14px;display:flex;
+                   flex-direction:column;gap:6px;z-index:10}
+  .sn-tool{width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+           background:rgba(15,23,42,.85);border:1px solid var(--sn-border);
+           border-radius:8px;color:var(--sn-fg);cursor:pointer;font-size:14px;
+           backdrop-filter:blur(8px)}
+  .sn-tool:hover{border-color:var(--sn-accent);color:var(--sn-accent)}
+  .sn-tool.active{background:rgba(34,211,238,.2);border-color:var(--sn-accent);
+                  color:var(--sn-accent)}
+
+  .sn-link-legend{position:absolute;left:14px;bottom:14px;display:flex;flex-wrap:wrap;
+                  gap:12px;background:rgba(15,23,42,.85);border:1px solid var(--sn-border);
+                  border-radius:8px;padding:8px 12px;font-size:11px;backdrop-filter:blur(8px)}
+  .sn-leg{display:flex;align-items:center;gap:6px;color:var(--sn-muted)}
+  .sn-leg .bar{width:24px;height:2px}
+
+  /* Right side panels */
+  .sn-side{display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:78vh}
+  .sn-panel{background:var(--sn-card);border:1px solid var(--sn-border);
+            border-radius:12px;padding:14px}
+  .sn-panel h4{font-size:14px;font-weight:700;color:var(--sn-fg);margin:0 0 12px;
+               display:flex;align-items:center;justify-content:space-between}
+  .sn-panel h4 .closer{cursor:pointer;color:var(--sn-muted);font-size:18px;
+                       background:none;border:none}
+  .sn-row{display:flex;justify-content:space-between;padding:6px 0;
+          border-bottom:1px dashed #1e293b;font-size:12px}
+  .sn-row:last-child{border-bottom:none}
+  .sn-row .k{color:var(--sn-muted)}
+  .sn-row .v{color:var(--sn-fg);font-weight:600}
+  .sn-row .v.up{color:var(--sn-up)}
+  .sn-row .v.down{color:var(--sn-down)}
+  .sn-dev-card{display:flex;align-items:center;gap:10px;padding:8px;
+               background:#020617;border-radius:8px;margin-bottom:10px}
+  .sn-dev-card .ic{width:38px;height:38px;border-radius:8px;background:var(--sn-accent);
+                   display:flex;align-items:center;justify-content:center;font-size:18px;color:#0a0f1c}
+  .sn-dev-card .nm{font-weight:600}
+  .sn-dev-card .ip{color:var(--sn-muted);font-size:11px;font-family:monospace}
+
+  /* Manual add devices strip + bottom area */
+  .sn-bottom{display:grid;grid-template-columns:280px 1fr 1fr 240px 240px;gap:12px}
+  @media (max-width:1500px){.sn-bottom{grid-template-columns:1fr 1fr}}
+  .sn-pal{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .sn-pal-item{display:flex;flex-direction:column;align-items:center;gap:4px;
+               padding:8px 4px;background:#020617;border:1px solid var(--sn-border);
+               border-radius:8px;cursor:grab;transition:.15s;font-size:10px;
+               color:var(--sn-muted);text-align:center}
+  .sn-pal-item:hover{border-color:var(--sn-accent);color:var(--sn-fg);
+                     transform:translateY(-2px)}
+  .sn-pal-item:active{cursor:grabbing}
+  .sn-pal-item .ic{font-size:22px;color:var(--sn-accent)}
+  .sn-pal-item.dragging{opacity:.4}
+
+  /* Alerts table */
+  .sn-alerts-table{width:100%;border-collapse:collapse;font-size:11px}
+  .sn-alerts-table th{color:var(--sn-muted);font-weight:500;text-align:left;
+                      padding:6px 8px;border-bottom:1px solid var(--sn-border)}
+  .sn-alerts-table td{padding:6px 8px;border-bottom:1px solid #1e293b;color:var(--sn-fg)}
+  .sn-sev{font-weight:700;text-transform:uppercase;font-size:10px}
+  .sn-sev.critical{color:var(--sn-crit)}
+  .sn-sev.major{color:var(--sn-major)}
+  .sn-sev.warning{color:var(--sn-warn)}
+  .sn-sev.info{color:var(--sn-info)}
+
+  /* Notification channels */
+  .sn-notif-row{display:flex;align-items:center;justify-content:space-between;
+                padding:8px;background:#020617;border-radius:8px;margin-bottom:6px}
+  .sn-notif-row .ch{display:flex;align-items:center;gap:8px;font-size:12px}
+  .sn-notif-row .actions{display:flex;gap:6px}
+  .sn-en{font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px}
+  .sn-en.on{background:#064e3b;color:#a7f3d0}
+  .sn-en.off{background:#7f1d1d;color:#fecaca}
+
+  /* Mini map */
+  #snMini{width:100%;height:120px;background:#020617;border:1px solid var(--sn-border);
+          border-radius:8px;cursor:pointer}
+
+  /* Modal */
+  .sn-mask{position:fixed;inset:0;background:rgba(2,6,23,.75);backdrop-filter:blur(4px);
+           display:none;z-index:1000;align-items:center;justify-content:center}
+  .sn-mask.active{display:flex}
+  .sn-modal{background:var(--sn-card);border:1px solid var(--sn-border);
+            border-radius:12px;padding:22px;width:min(520px,90vw);max-height:85vh;
+            overflow-y:auto}
+  .sn-modal h3{font-size:16px;font-weight:700;margin:0 0 14px}
+  .sn-modal label{display:block;font-size:11px;color:var(--sn-muted);
+                  text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px}
+  .sn-modal input,.sn-modal select,.sn-modal textarea{
+    width:100%;background:#020617;border:1px solid var(--sn-border);
+    border-radius:6px;padding:8px 10px;color:var(--sn-fg);font-size:13px}
+  .sn-modal .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sn-modal .footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+
+  .sn-catalog{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;max-height:300px;
+              overflow-y:auto;margin-top:8px}
+  .sn-cat-item{display:flex;align-items:center;gap:8px;padding:8px;background:#020617;
+               border:1px solid var(--sn-border);border-radius:6px;cursor:pointer;font-size:11px}
+  .sn-cat-item:hover{border-color:var(--sn-accent)}
+  .sn-cat-item .ic{font-size:20px;color:var(--sn-accent)}
+
+  /* Toast */
+  .sn-toast{position:fixed;right:20px;bottom:20px;background:var(--sn-card);
+            border:1px solid var(--sn-accent);border-radius:8px;padding:10px 14px;
+            color:var(--sn-fg);font-size:13px;z-index:2000;
+            box-shadow:0 8px 24px rgba(0,0,0,.4);
+            transform:translateY(100px);opacity:0;transition:.25s;max-width:380px}
+  .sn-toast.show{transform:translateY(0);opacity:1}
+  .sn-toast.error{border-color:var(--sn-crit)}
+  .sn-toast.success{border-color:var(--sn-up)}
+</style>
+
+<div class="sn-wrap" data-testid="smart-network-root">
+
+  <!-- Top status bar -->
+  <div class="sn-topbar">
+    <input type="text" class="sn-search" id="snSearch" placeholder="🔍  Search anything (device, IP, model, port, link…)" data-testid="smartnet-search">
+    <div class="sn-stat critical" data-testid="stat-critical"><span class="dot"></span><span id="cntCrit">0</span> Critical</div>
+    <div class="sn-stat major" data-testid="stat-major"><span class="dot"></span><span id="cntMaj">0</span> Major</div>
+    <div class="sn-stat warning" data-testid="stat-warning"><span class="dot"></span><span id="cntWarn">0</span> Warning</div>
+    <div class="sn-stat info" data-testid="stat-info"><span class="dot"></span><span id="cntInfo">0</span> Info</div>
+    <div class="sn-stat live" data-testid="stat-live"><span class="dot"></span> Live <span id="snClock" style="margin-left:6px;font-family:monospace">--:--:--</span></div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="sn-actbar" data-testid="smartnet-actbar">
+    <button class="sn-btn" onclick="snOpenAddDevice()" data-testid="btn-add-device"><i class="bi bi-plus-circle"></i> Add Device</button>
+    <button class="sn-btn" onclick="snStartLinkMode()" data-testid="btn-add-link"><i class="bi bi-link-45deg"></i> Add Link</button>
+    <button class="sn-btn primary" onclick="snAutoDiscover()" data-testid="btn-auto-discover"><i class="bi bi-search"></i> Auto Discover</button>
+    <button class="sn-btn success" onclick="snConnectLinkPrompt()" data-testid="btn-connect-link"><i class="bi bi-bezier2"></i> Connect Link</button>
+    <button class="sn-btn" onclick="snOpenSfp()" data-testid="btn-add-sfp"><i class="bi bi-cpu"></i> Add SFP/Module</button>
+    <button class="sn-btn accent" onclick="snAiSvg()" data-testid="btn-ai-svg"><i class="bi bi-stars"></i> AI Generate SVG</button>
+    <button class="sn-btn" onclick="snAutoLayout()" data-testid="btn-layout"><i class="bi bi-grid-3x3-gap"></i> Layout</button>
+    <button class="sn-btn" onclick="snToggleMap()" data-testid="btn-map-view"><i class="bi bi-map"></i> Map View</button>
+    <button class="sn-btn" onclick="snListView()" data-testid="btn-list-view"><i class="bi bi-list-ul"></i> List View</button>
+    <button class="sn-btn" onclick="snExport()" data-testid="btn-export"><i class="bi bi-download"></i> Export</button>
+  </div>
+
+  <!-- Filters -->
+  <div class="sn-actbar">
+    <div class="sn-filters" data-testid="smartnet-filters">
+      <span class="sn-chip active" data-filter="all" onclick="snSetFilter(this)" data-testid="filter-all">All</span>
+      <span class="sn-chip" data-filter="router" onclick="snSetFilter(this)" data-testid="filter-router"><i class="bi bi-router"></i> Router</span>
+      <span class="sn-chip" data-filter="switch" onclick="snSetFilter(this)" data-testid="filter-switch"><i class="bi bi-hdd-network"></i> Switch</span>
+      <span class="sn-chip" data-filter="olt" onclick="snSetFilter(this)" data-testid="filter-olt"><i class="bi bi-broadcast-pin"></i> OLT</span>
+      <span class="sn-chip" data-filter="media_converter" onclick="snSetFilter(this)"><i class="bi bi-cpu"></i> Media Converter</span>
+      <span class="sn-chip" data-filter="wireless" onclick="snSetFilter(this)"><i class="bi bi-wifi"></i> Wireless</span>
+      <span class="sn-chip" data-filter="tower" onclick="snSetFilter(this)"><i class="bi bi-broadcast"></i> Tower</span>
+      <span class="sn-chip" data-filter="antenna" onclick="snSetFilter(this)"><i class="bi bi-broadcast-pin"></i> Antenna</span>
+      <span class="sn-chip" data-filter="onu" onclick="snSetFilter(this)"><i class="bi bi-hdd-network-fill"></i> ONU</span>
+      <span class="sn-chip" data-filter="other" onclick="snSetFilter(this)"><i class="bi bi-three-dots"></i> Other</span>
+    </div>
+  </div>
+
+  <!-- Main canvas grid -->
+  <div class="sn-grid">
+    <div class="sn-canvas-wrap" id="snCanvasWrap">
+      <svg id="snCanvas" preserveAspectRatio="xMidYMid meet" data-testid="smartnet-canvas">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+          </marker>
+        </defs>
+        <g id="snLinks"></g>
+        <g id="snNodes"></g>
+      </svg>
+      <!-- Canvas tools (left floating) -->
+      <div class="sn-canvas-tools">
+        <button class="sn-tool" onclick="snZoom(1.2)" title="Zoom in" data-testid="zoom-in"><i class="bi bi-zoom-in"></i></button>
+        <button class="sn-tool" onclick="snZoom(0.83)" title="Zoom out" data-testid="zoom-out"><i class="bi bi-zoom-out"></i></button>
+        <button class="sn-tool" id="snLockBtn" onclick="snToggleLock()" title="Lock canvas"><i class="bi bi-lock"></i></button>
+        <button class="sn-tool active" onclick="snModeSet('pan')" title="Pan" id="snToolPan"><i class="bi bi-hand-index-thumb"></i></button>
+        <button class="sn-tool" onclick="snRecenter()" title="Recenter"><i class="bi bi-arrow-counterclockwise"></i></button>
+        <button class="sn-tool" onclick="snFullScreen()" title="Fullscreen"><i class="bi bi-arrows-fullscreen"></i></button>
+      </div>
+      <!-- Legend -->
+      <div class="sn-link-legend">
+        <div class="sn-leg"><span class="bar" style="background:var(--link-eth)"></span> Ethernet</div>
+        <div class="sn-leg"><span class="bar" style="background:var(--link-fib)"></span> Fiber</div>
+        <div class="sn-leg"><span class="bar" style="background:var(--link-wir);border-top:1px dashed var(--link-wir)"></span> Wireless</div>
+        <div class="sn-leg"><span class="bar" style="background:var(--link-pon);border-top:1px dashed var(--link-pon)"></span> PON</div>
+        <div class="sn-leg"><span class="bar" style="background:var(--link-vlan);border-top:1px dashed var(--link-vlan)"></span> VLAN / LAG</div>
+      </div>
+    </div>
+
+    <!-- Right side panels -->
+    <div class="sn-side">
+      <!-- Port Details -->
+      <div class="sn-panel" id="snPortPanel" style="display:none">
+        <h4>Port Details <button class="closer" onclick="snClosePort()">×</button></h4>
+        <div class="sn-dev-card" id="snPortDev"></div>
+        <div id="snPortBody"></div>
+      </div>
+
+      <!-- SFP/Module -->
+      <div class="sn-panel" id="snSfpPanel" style="display:none">
+        <h4>SFP / Module <button class="closer" onclick="snCloseSfp()">×</button></h4>
+        <div id="snSfpBody"></div>
+      </div>
+
+      <!-- Default: device picker / catalog -->
+      <div class="sn-panel" id="snCatalogPanel">
+        <h4>Device Library</h4>
+        <input class="sn-search" id="snCatSearch" placeholder="Search any device…" style="margin-bottom:10px" data-testid="catalog-search">
+        <div style="font-size:11px;color:var(--sn-muted);margin-bottom:6px">Popular Devices</div>
+        <div class="sn-catalog" id="snCatPopular"></div>
+        <div style="font-size:11px;color:var(--sn-muted);margin:10px 0 6px">All Brands</div>
+        <div class="sn-catalog" id="snCatAll"></div>
+        <button class="sn-btn primary" style="width:100%;margin-top:10px" onclick="snOpenAddCatalog()" data-testid="add-custom-device"><i class="bi bi-plus"></i> Add Custom Device</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom panel -->
+  <div class="sn-bottom">
+    <!-- Manual add palette -->
+    <div class="sn-panel">
+      <h4>Manual Add Devices</h4>
+      <div class="sn-pal" data-testid="manual-palette">
+        <div class="sn-pal-item" draggable="true" data-type="router"><span class="ic">📡</span>Router</div>
+        <div class="sn-pal-item" draggable="true" data-type="switch"><span class="ic">🔀</span>Switch</div>
+        <div class="sn-pal-item" draggable="true" data-type="media_converter"><span class="ic">⚙️</span>Media Conv</div>
+        <div class="sn-pal-item" draggable="true" data-type="olt"><span class="ic">📦</span>OLT</div>
+        <div class="sn-pal-item" draggable="true" data-type="wireless"><span class="ic">📶</span>Wireless</div>
+        <div class="sn-pal-item" draggable="true" data-type="antenna"><span class="ic">📻</span>Antenna</div>
+        <div class="sn-pal-item" draggable="true" data-type="onu"><span class="ic">🔌</span>ONU</div>
+        <div class="sn-pal-item" draggable="true" data-type="other"><span class="ic">🧩</span>Other</div>
+      </div>
+    </div>
+
+    <!-- Live bandwidth -->
+    <div class="sn-panel">
+      <h4>Live Bandwidth Overview</h4>
+      <canvas id="snBwChart" height="120"></canvas>
+    </div>
+
+    <!-- Recent alerts -->
+    <div class="sn-panel">
+      <h4>Recent Alerts</h4>
+      <div style="max-height:140px;overflow-y:auto">
+        <table class="sn-alerts-table" data-testid="recent-alerts">
+          <thead><tr><th>Time</th><th>Severity</th><th>Message</th><th>Device</th><th>Status</th></tr></thead>
+          <tbody id="snAlerts"><tr><td colspan="5" style="text-align:center;color:var(--sn-muted)">No alerts</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Notification channels -->
+    <div class="sn-panel">
+      <h4>Notification Channels</h4>
+      <div id="snNotifBox"></div>
+    </div>
+
+    <!-- Mini map -->
+    <div class="sn-panel">
+      <h4>Topology Mini Map</h4>
+      <svg id="snMini"></svg>
+    </div>
+  </div>
+</div>
+
+<!-- Add device modal -->
+<div class="sn-mask" id="snAddDevMask">
+  <div class="sn-modal">
+    <h3 id="snAddDevTitle">Add Device</h3>
+    <label>Name *</label>
+    <input id="snDevName" placeholder="e.g. Edge Router">
+    <div class="row">
+      <div>
+        <label>Type *</label>
+        <select id="snDevType">
+          <option value="router">Router</option><option value="switch">Switch</option>
+          <option value="olt">OLT</option><option value="onu">ONU</option>
+          <option value="media_converter">Media Converter</option>
+          <option value="wireless">Wireless</option><option value="tower">Tower</option>
+          <option value="antenna">Antenna</option><option value="splitter">Splitter</option>
+          <option value="internet">Internet</option><option value="client">Client</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label>Vendor</label>
+        <input id="snDevVendor" placeholder="MikroTik">
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Model</label><input id="snDevModel" placeholder="CCR2004"></div>
+      <div><label>IP Address</label><input id="snDevIp" placeholder="10.10.10.1"></div>
+    </div>
+    <label>Location / Notes</label>
+    <input id="snDevLoc" placeholder="MDF Room — Rack 1">
+    <div class="footer">
+      <button class="sn-btn" onclick="snCloseMask('snAddDevMask')">Cancel</button>
+      <button class="sn-btn primary" onclick="snSaveDevice()" data-testid="save-device">Save Device</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add link modal -->
+<div class="sn-mask" id="snAddLinkMask">
+  <div class="sn-modal">
+    <h3>Add Link</h3>
+    <div class="row">
+      <div><label>Source Device</label><select id="snLnkSrc"></select></div>
+      <div><label>Destination Device</label><select id="snLnkDst"></select></div>
+    </div>
+    <div class="row">
+      <div><label>Source Port</label><input id="snLnkSp" placeholder="Gi1/0/24"></div>
+      <div><label>Destination Port</label><input id="snLnkDp" placeholder="Uplink 0/1"></div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Link Type</label>
+        <select id="snLnkType">
+          <option value="ethernet">Ethernet</option><option value="fiber">Fiber</option>
+          <option value="wireless">Wireless</option><option value="pon">PON</option>
+          <option value="vlan">VLAN</option><option value="lag">LAG</option>
+        </select>
+      </div>
+      <div><label>Bandwidth (Mbps)</label><input id="snLnkBw" type="number" value="1000"></div>
+    </div>
+    <label>Label</label>
+    <input id="snLnkLabel" placeholder="Uplink to Core">
+    <div class="footer">
+      <button class="sn-btn" onclick="snCloseMask('snAddLinkMask')">Cancel</button>
+      <button class="sn-btn success" onclick="snSaveLink()" data-testid="save-link">Save Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add catalog modal -->
+<div class="sn-mask" id="snCatMask">
+  <div class="sn-modal">
+    <h3>Add Custom Device to Library</h3>
+    <div class="row">
+      <div><label>Brand</label><input id="snCatBrand" placeholder="MikroTik"></div>
+      <div><label>Model</label><input id="snCatModel" placeholder="CCR2004"></div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Type</label>
+        <select id="snCatType">
+          <option value="router">Router</option><option value="switch">Switch</option>
+          <option value="olt">OLT</option><option value="onu">ONU</option>
+          <option value="media_converter">Media Converter</option>
+          <option value="wireless">Wireless</option><option value="other">Other</option>
+        </select>
+      </div>
+      <div><label>Popular?</label><select id="snCatPop"><option value="0">No</option><option value="1">Yes</option></select></div>
+    </div>
+    <label>Image URL (optional)</label>
+    <input id="snCatImg" placeholder="https://…">
+    <div class="footer">
+      <button class="sn-btn" onclick="snCloseMask('snCatMask')">Cancel</button>
+      <button class="sn-btn primary" onclick="snSaveCatalog()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// =====================================================================
+// _S60_SMART_NETWORK_  Front-end controller
+// =====================================================================
+const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+const _api = '/api/admin/smartnet';
+let SN = { devices:[], links:[], alerts:[], filter:'all', selected:null,
+           linkMode:false, linkSrc:null, locked:false, zoom:1, pan:{x:0,y:0},
+           dragNode:null, dragOff:{x:0,y:0}, panStart:null, mapMode:false };
+const TYPE_ICON = {
+  router:'📡', switch:'🔀', olt:'📦', onu:'🔌',
+  media_converter:'⚙️', wireless:'📶', tower:'📻', antenna:'📡',
+  splitter:'⚛️', internet:'☁️', client:'💻', other:'🧩'
+};
+const STATUS_COLOR = { up:'#22c55e', down:'#ef4444', warning:'#eab308', unknown:'#94a3b8' };
+
+// — Utilities —
+function $(s){ return document.querySelector(s); }
+function $$(s){ return [...document.querySelectorAll(s)]; }
+function toast(msg, kind='info'){
+  const el = document.createElement('div');
+  el.className = `sn-toast ${kind}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>el.classList.add('show'),10);
+  setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),300);},3500);
+}
+async function api(method, path, body){
+  const opts = { method, headers:{'Content-Type':'application/json'} };
+  if(body) opts.body = JSON.stringify(body);
+  const r = await fetch(_api + path, opts);
+  if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail || r.statusText); }
+  return r.json();
+}
+
+// — Topology load —
+async function snLoad(){
+  try{
+    const t = await api('GET', '/topology');
+    SN.devices = t.devices; SN.links = t.links;
+    $('#cntCrit').textContent = t.alert_counts.critical;
+    $('#cntMaj').textContent = t.alert_counts.major;
+    $('#cntWarn').textContent = t.alert_counts.warning;
+    $('#cntInfo').textContent = t.alert_counts.info;
+    snRender();
+    snRenderMini();
+  }catch(e){ toast(`Load topology: ${e.message}`, 'error'); }
+}
+
+function snFilter(d){
+  return SN.filter === 'all' || d.type === SN.filter;
+}
+
+// — Render canvas —
+function snRender(){
+  const linksG = $('#snLinks'); const nodesG = $('#snNodes');
+  linksG.innerHTML = ''; nodesG.innerHTML = '';
+  // Links first (so nodes overlay)
+  for(const l of SN.links){
+    const s = SN.devices.find(d=>d.id===l.src);
+    const t = SN.devices.find(d=>d.id===l.dst);
+    if(!s || !t) continue;
+    if(!snFilter(s) && !snFilter(t)) continue;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    path.setAttribute('x1', s.x + 50); path.setAttribute('y1', s.y + 30);
+    path.setAttribute('x2', t.x + 50); path.setAttribute('y2', t.y + 30);
+    path.setAttribute('class', `link ${l.link_type}`);
+    path.dataset.linkId = l.id;
+    path.addEventListener('click', () => snLinkClick(l));
+    linksG.appendChild(path);
+  }
+  // Nodes
+  for(const d of SN.devices){
+    if(!snFilter(d)) continue;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'node' + (SN.selected===d.id ? ' selected':''));
+    g.setAttribute('transform', `translate(${d.x},${d.y})`);
+    g.dataset.id = d.id;
+    g.innerHTML = `
+      <rect class="bg" width="100" height="60" rx="10" fill="#0f172a" stroke="${STATUS_COLOR[d.status]||'#334155'}" stroke-width="1.5"></rect>
+      <text x="50" y="22" text-anchor="middle" class="icon" font-size="20">${TYPE_ICON[d.type]||'🧩'}</text>
+      <text x="50" y="40" text-anchor="middle">${(d.name||'').slice(0,14)}</text>
+      <text x="50" y="52" text-anchor="middle" class="meta">${d.ip_address||d.model||''}</text>
+    `;
+    g.addEventListener('mousedown', (e)=>snNodeMouseDown(e,d));
+    g.addEventListener('click', (e)=>{ e.stopPropagation(); snNodeClick(d); });
+    g.addEventListener('dblclick', (e)=>{ e.stopPropagation(); snEditDevice(d); });
+    nodesG.appendChild(g);
+  }
+  // Apply pan/zoom
+  const root = $('#snCanvas');
+  root.querySelector('g#snLinks').setAttribute('transform', `translate(${SN.pan.x},${SN.pan.y}) scale(${SN.zoom})`);
+  root.querySelector('g#snNodes').setAttribute('transform', `translate(${SN.pan.x},${SN.pan.y}) scale(${SN.zoom})`);
+}
+
+function snRenderMini(){
+  const mini = $('#snMini'); mini.innerHTML = '';
+  if(!SN.devices.length){ mini.innerHTML = '<text x="50%" y="55%" text-anchor="middle" fill="#94a3b8" font-size="11">No nodes yet</text>'; return; }
+  const xs = SN.devices.map(d=>d.x), ys = SN.devices.map(d=>d.y);
+  const minX=Math.min(...xs)-50, maxX=Math.max(...xs)+150;
+  const minY=Math.min(...ys)-50, maxY=Math.max(...ys)+100;
+  const w = maxX-minX, h = maxY-minY;
+  const sx = mini.clientWidth/w, sy = mini.clientHeight/h, s = Math.min(sx,sy)*0.9;
+  // Links
+  for(const l of SN.links){
+    const a = SN.devices.find(d=>d.id===l.src);
+    const b = SN.devices.find(d=>d.id===l.dst);
+    if(!a||!b) continue;
+    const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1',(a.x-minX)*s); ln.setAttribute('y1',(a.y-minY)*s);
+    ln.setAttribute('x2',(b.x-minX)*s); ln.setAttribute('y2',(b.y-minY)*s);
+    ln.setAttribute('stroke','#475569'); ln.setAttribute('stroke-width','1');
+    mini.appendChild(ln);
+  }
+  for(const d of SN.devices){
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',(d.x-minX)*s); c.setAttribute('cy',(d.y-minY)*s);
+    c.setAttribute('r',4); c.setAttribute('fill', STATUS_COLOR[d.status]||'#22d3ee');
+    mini.appendChild(c);
+  }
+}
+
+// — Filter chips —
+function snSetFilter(el){
+  $$('.sn-filters .sn-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  SN.filter = el.dataset.filter;
+  snRender();
+}
+
+// — Node click → port panel —
+async function snNodeClick(d){
+  SN.selected = d.id; snRender();
+  if(SN.linkMode){ snHandleLinkClick(d); return; }
+  // Show port details by fetching ports list
+  try{
+    const r = await api('GET', `/devices/${d.id}/ports`);
+    if(r.ports && r.ports.length){
+      snShowPort(d, r.ports[0]);
+    }else{
+      // Fall back: show device summary
+      snShowPort(d, null);
+    }
+  }catch(e){ toast(e.message,'error'); }
+}
+
+function snShowPort(d, p){
+  $('#snPortPanel').style.display = 'block';
+  $('#snCatalogPanel').style.display = 'none';
+  $('#snPortDev').innerHTML = `
+    <div class="ic">${TYPE_ICON[d.type]||'🧩'}</div>
+    <div><div class="nm">${d.vendor||''} ${d.model||d.name}</div><div class="ip">${d.ip_address||''}</div></div>`;
+  const body = $('#snPortBody');
+  if(!p){
+    body.innerHTML = `
+      <div class="sn-row"><span class="k">Type</span><span class="v">${d.type}</span></div>
+      <div class="sn-row"><span class="k">Status</span><span class="v ${d.status}">${d.status.toUpperCase()}</span></div>
+      <div class="sn-row"><span class="k">Location</span><span class="v">${d.location||'—'}</span></div>
+      <div class="sn-row"><span class="k">Vendor</span><span class="v">${d.vendor||'—'}</span></div>
+      <div style="margin-top:10px;display:flex;gap:6px">
+        <button class="sn-btn" onclick="snEditDevice(${JSON.stringify(d).replace(/"/g,'&quot;')})"><i class="bi bi-pencil"></i> Edit</button>
+        ${CAN_EDIT?`<button class="sn-btn danger" onclick="snDeleteDevice(${d.id})"><i class="bi bi-trash"></i> Delete</button>`:''}
+      </div>`;
+    $('#snSfpPanel').style.display = 'none';
+    return;
+  }
+  body.innerHTML = `
+    <div class="sn-row"><span class="k">Port</span><span class="v">${p.port_name}</span></div>
+    <div class="sn-row"><span class="k">Status</span><span class="v ${p.status}">${(p.status||'').toUpperCase()}</span></div>
+    <div class="sn-row"><span class="k">Speed / Duplex</span><span class="v">${p.speed_mbps?Math.round(p.speed_mbps/1000)+' Gbps':'—'} / ${p.duplex||'—'}</span></div>
+    <div class="sn-row"><span class="k">Link Type</span><span class="v">${p.port_type}</span></div>
+    <div class="sn-row"><span class="k">SFP Module</span><span class="v">${p.sfp_module||'—'}</span></div>
+    <div class="sn-row"><span class="k">TX Power</span><span class="v">${p.tx_power_dbm?p.tx_power_dbm+' dBm':'—'}</span></div>
+    <div class="sn-row"><span class="k">RX Power</span><span class="v">${p.rx_power_dbm?p.rx_power_dbm+' dBm':'—'}</span></div>
+    <div class="sn-row"><span class="k">Bandwidth In</span><span class="v">${p.bw_in_mbps||0} Mbps</span></div>
+    <div class="sn-row"><span class="k">Bandwidth Out</span><span class="v">${p.bw_out_mbps||0} Mbps</span></div>
+    <div class="sn-row"><span class="k">Errors</span><span class="v">${p.errors||0}</span></div>
+    <div class="sn-row"><span class="k">Discards</span><span class="v">${p.discards||0}</span></div>
+    <button class="sn-btn primary" style="width:100%;margin-top:8px" onclick="snMoreDetails(${p.id})">More Details</button>
+  `;
+  // SFP panel
+  if(p.sfp_module){
+    $('#snSfpPanel').style.display = 'block';
+    $('#snSfpBody').innerHTML = `
+      <div class="sn-row"><span class="k">Module</span><span class="v">${p.sfp_module}</span></div>
+      <div class="sn-row"><span class="k">Vendor</span><span class="v">${p.sfp_vendor||'—'}</span></div>
+      <div class="sn-row"><span class="k">Part No.</span><span class="v">${p.sfp_partno||'—'}</span></div>
+      <div class="sn-row"><span class="k">Wavelength</span><span class="v">${p.wavelength_nm?p.wavelength_nm+' nm':'—'}</span></div>
+      <div class="sn-row"><span class="k">Distance</span><span class="v">${p.distance_km?p.distance_km+' km':'—'}</span></div>
+      <div class="sn-row"><span class="k">TX Power</span><span class="v">${p.tx_power_dbm||'—'} dBm</span></div>
+      <div class="sn-row"><span class="k">RX Power</span><span class="v">${p.rx_power_dbm||'—'} dBm</span></div>
+      <div class="sn-row"><span class="k">Temp</span><span class="v">${p.temp_c||'—'} °C</span></div>
+      <div class="sn-row"><span class="k">Voltage</span><span class="v">${p.voltage_v||'—'} V</span></div>
+      <div class="sn-row"><span class="k">Status</span><span class="v up">ACTIVE</span></div>
+      <button class="sn-btn" style="width:100%;margin-top:8px">Change Module</button>
+    `;
+  }else $('#snSfpPanel').style.display='none';
+}
+function snClosePort(){ $('#snPortPanel').style.display='none'; $('#snCatalogPanel').style.display='block'; }
+function snCloseSfp(){ $('#snSfpPanel').style.display='none'; }
+
+async function snMoreDetails(pid){
+  try{
+    const r = await api('GET', `/ports/${pid}`);
+    alert(JSON.stringify(r, null, 2));
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// — Add device modal —
+function snOpenAddDevice(){
+  if(!CAN_EDIT){ toast('Read-only — admin role required to add devices','error'); return; }
+  $('#snAddDevTitle').textContent = 'Add Device';
+  ['snDevName','snDevVendor','snDevModel','snDevIp','snDevLoc'].forEach(id=>$(`#${id}`).value='');
+  $('#snAddDevMask').classList.add('active');
+  $('#snAddDevMask').dataset.editId = '';
+}
+let _editDevDraft = null;
+function snEditDevice(d){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  $('#snAddDevTitle').textContent = 'Edit Device';
+  $('#snDevName').value = d.name;
+  $('#snDevType').value = d.type;
+  $('#snDevVendor').value = d.vendor||'';
+  $('#snDevModel').value = d.model||'';
+  $('#snDevIp').value = d.ip_address||'';
+  $('#snDevLoc').value = d.location||'';
+  $('#snAddDevMask').dataset.editId = d.id;
+  $('#snAddDevMask').classList.add('active');
+}
+async function snSaveDevice(){
+  const body = {
+    name: $('#snDevName').value.trim(),
+    type: $('#snDevType').value,
+    vendor: $('#snDevVendor').value.trim(),
+    model: $('#snDevModel').value.trim(),
+    ip_address: $('#snDevIp').value.trim(),
+    location: $('#snDevLoc').value.trim(),
+    x: 200 + Math.random()*600, y: 150 + Math.random()*300
+  };
+  if(!body.name){ toast('Name required','error'); return; }
+  const eid = $('#snAddDevMask').dataset.editId;
+  try{
+    if(eid){
+      await api('PUT', `/devices/${eid}`, body);
+      toast('Device updated','success');
+    }else{
+      await api('POST', '/devices', body);
+      toast('Device added','success');
+    }
+    snCloseMask('snAddDevMask'); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+async function snDeleteDevice(id){
+  if(!confirm('Delete this device and all its links?')) return;
+  try{
+    await api('DELETE', `/devices/${id}`);
+    toast('Device deleted','success');
+    snClosePort(); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+function snCloseMask(id){ $(`#${id}`).classList.remove('active'); }
+
+// — Add link —
+function snConnectLinkPrompt(){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  const opts = SN.devices.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+  $('#snLnkSrc').innerHTML = opts;
+  $('#snLnkDst').innerHTML = opts;
+  $('#snAddLinkMask').classList.add('active');
+}
+function snStartLinkMode(){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  SN.linkMode = true; SN.linkSrc = null;
+  toast('Click source device, then destination device','info');
+}
+function snHandleLinkClick(d){
+  if(!SN.linkSrc){
+    SN.linkSrc = d.id;
+    toast(`Source: ${d.name} — click destination`,'info');
+  }else{
+    if(d.id === SN.linkSrc){ toast('Self-loop not allowed','error'); return; }
+    snConnectLinkPrompt();
+    setTimeout(()=>{
+      $('#snLnkSrc').value = SN.linkSrc;
+      $('#snLnkDst').value = d.id;
+    },10);
+    SN.linkMode = false; SN.linkSrc = null;
+  }
+}
+async function snSaveLink(){
+  const body = {
+    src_device_id: +$('#snLnkSrc').value,
+    dst_device_id: +$('#snLnkDst').value,
+    src_port: $('#snLnkSp').value.trim(),
+    dst_port: $('#snLnkDp').value.trim(),
+    link_type: $('#snLnkType').value,
+    bandwidth_mbps: +$('#snLnkBw').value || 1000,
+    label: $('#snLnkLabel').value.trim()
+  };
+  try{
+    await api('POST', '/links', body);
+    toast('Link created','success');
+    snCloseMask('snAddLinkMask'); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+async function snLinkClick(l){
+  if(!CAN_EDIT) return;
+  if(confirm(`Delete link ${l.link_type} (${l.label||'unlabeled'})?`)){
+    try{ await api('DELETE', `/links/${l.id}`); toast('Link deleted','success'); snLoad(); }
+    catch(e){ toast(e.message,'error'); }
+  }
+}
+
+// — Auto-discover & auto-layout —
+async function snAutoDiscover(){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  toast('Discovering devices from OLT/NAS/ONU inventory…','info');
+  try{
+    const r = await api('POST', '/auto-discover', {});
+    toast(r.message,'success'); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+async function snAutoLayout(){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  try{
+    const r = await api('POST', '/auto-layout', {});
+    toast(`Auto-layout: ${r.moved} nodes repositioned`,'success');
+    snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// — AI SVG / Export —
+async function snAiSvg(){
+  try{
+    const r = await api('POST', '/ai-svg', {});
+    toast(r.message,'success');
+    window.open(r.svg_url, '_blank');
+  }catch(e){ toast(e.message,'error'); }
+}
+async function snExport(){
+  window.open(_api + '/export?fmt=json', '_blank');
+}
+
+// — Map view (toggle to lat/lon positioning) —
+function snToggleMap(){
+  SN.mapMode = !SN.mapMode;
+  toast(SN.mapMode ? 'Map view ON (positioning by lat/lon)' : 'Canvas view','info');
+  if(SN.mapMode){
+    // Project lat/lon into canvas X/Y
+    const withGeo = SN.devices.filter(d=>d.meta && d.meta.latitude!=null && d.meta.longitude!=null);
+    if(!withGeo.length){ toast('No devices have GIS coordinates yet','error'); SN.mapMode=false; return; }
+    const lats = withGeo.map(d=>d.meta.latitude), lons = withGeo.map(d=>d.meta.longitude);
+    const [latMin,latMax] = [Math.min(...lats), Math.max(...lats)];
+    const [lonMin,lonMax] = [Math.min(...lons), Math.max(...lons)];
+    for(const d of SN.devices){
+      if(d.meta && d.meta.latitude != null){
+        d.x = 100 + ((d.meta.longitude-lonMin)/(lonMax-lonMin||1))*900;
+        d.y = 100 + ((latMax-d.meta.latitude)/(latMax-latMin||1))*500;
+      }
+    }
+    snRender();
+  }else snLoad();
+}
+function snListView(){
+  // Build a quick table modal
+  const rows = SN.devices.map(d=>`<tr>
+    <td>${d.name}</td><td>${d.type}</td><td>${d.vendor||''}</td>
+    <td>${d.model||''}</td><td>${d.ip_address||''}</td>
+    <td><span class="sn-sev ${d.status==='up'?'info':'critical'}">${d.status}</span></td>
+  </tr>`).join('');
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <html><head><title>Smart Network — List View</title>
+    <style>body{font-family:system-ui;background:#0a0f1c;color:#e2e8f0;padding:20px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 12px;border-bottom:1px solid #1e293b;text-align:left}
+    th{color:#94a3b8;font-weight:600}</style></head>
+    <body><h2>Smart Network — ${SN.devices.length} devices</h2>
+    <table><thead><tr><th>Name</th><th>Type</th><th>Vendor</th><th>Model</th><th>IP</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody></table></body></html>`);
+}
+
+// — Catalog —
+async function snLoadCatalog(){
+  try{
+    const q = $('#snCatSearch').value.trim();
+    const r = await api('GET', `/catalog${q?'?q='+encodeURIComponent(q):''}`);
+    const renderItem = (it) => `
+      <div class="sn-cat-item" onclick="snAddFromCatalog(${JSON.stringify(it).replace(/"/g,'&quot;')})">
+        <span class="ic">${TYPE_ICON[it.type]||'🧩'}</span>
+        <div><div style="color:var(--sn-fg);font-weight:600">${it.brand}</div>
+        <div style="color:var(--sn-muted);font-size:10px">${it.model}</div></div>
+      </div>`;
+    $('#snCatPopular').innerHTML = r.popular.map(renderItem).join('') || '<div style="color:#94a3b8;font-size:11px">No popular devices yet</div>';
+    $('#snCatAll').innerHTML = r.items.map(renderItem).join('') || '';
+  }catch(e){ console.error(e); }
+}
+async function snAddFromCatalog(it){
+  if(!CAN_EDIT){ toast('Read-only — login as admin to add devices','error'); return; }
+  try{
+    await api('POST', '/devices', {
+      name: `${it.brand} ${it.model}`, type: it.type, vendor: it.brand,
+      model: it.model, image_url: it.image_url,
+      x: 250+Math.random()*500, y: 150+Math.random()*300
+    });
+    toast(`Added ${it.brand} ${it.model}`,'success'); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+}
+function snOpenAddCatalog(){
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  $('#snCatMask').classList.add('active');
+}
+async function snSaveCatalog(){
+  try{
+    await api('POST', '/catalog', {
+      brand: $('#snCatBrand').value.trim(),
+      model: $('#snCatModel').value.trim(),
+      type: $('#snCatType').value,
+      image_url: $('#snCatImg').value.trim(),
+      is_popular: $('#snCatPop').value === '1'
+    });
+    toast('Added to library','success');
+    snCloseMask('snCatMask'); snLoadCatalog();
+  }catch(e){ toast(e.message,'error'); }
+}
+function snOpenSfp(){
+  toast('Select a port from a device to edit its SFP/module','info');
+}
+
+// — Alerts loader —
+async function snLoadAlerts(){
+  try{
+    const r = await api('GET', '/alerts?limit=20');
+    if(!r.alerts.length){
+      $('#snAlerts').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sn-muted)">No alerts</td></tr>';
+      return;
+    }
+    $('#snAlerts').innerHTML = r.alerts.map(a=>{
+      const t = a.created_at ? new Date(a.created_at).toLocaleTimeString() : '';
+      return `<tr>
+        <td>${t}</td>
+        <td><span class="sn-sev ${a.severity}">${a.severity}</span></td>
+        <td>${a.message}</td>
+        <td>${a.device||'—'}</td>
+        <td><span style="color:${a.status==='active'?'#22c55e':'#94a3b8'}">${a.status}</span></td>
+      </tr>`;
+    }).join('');
+  }catch(e){ console.error(e); }
+}
+
+// — Notification channels —
+async function snLoadNotif(){
+  try{
+    const r = await api('GET', '/notif-channels');
+    const icons = {telegram:'📱', email:'📧', whatsapp:'💬'};
+    const html = Object.entries(r.channels).map(([ch, st])=>`
+      <div class="sn-notif-row">
+        <div class="ch"><span>${icons[ch]||'•'}</span> ${ch}
+          <span class="sn-en ${st.enabled?'on':'off'}">${st.enabled?'Enabled':'Off'}</span></div>
+        <div class="actions">
+          <button class="sn-btn" onclick="snToggleNotif('${ch}',${!st.enabled})">${st.enabled?'Disable':'Enable'}</button>
+          <button class="sn-btn primary" onclick="snTestNotif('${ch}')" data-testid="test-${ch}">Test</button>
+        </div>
+      </div>`).join('');
+    $('#snNotifBox').innerHTML = html;
+  }catch(e){ console.error(e); }
+}
+async function snToggleNotif(ch, en){
+  try{
+    await api('POST', `/notif-channels/${ch}`, {enabled: en, config: {}});
+    snLoadNotif(); toast(`${ch}: ${en?'enabled':'disabled'}`,'success');
+  }catch(e){ toast(e.message,'error'); }
+}
+async function snTestNotif(ch){
+  try{
+    const r = await api('POST', `/notif-channels/${ch}/test`, {});
+    toast(r.message,'success'); snLoadAlerts();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// — Canvas pan/zoom & drag —
+function snZoom(f){ SN.zoom = Math.max(0.3, Math.min(2.5, SN.zoom*f)); snRender(); }
+function snRecenter(){ SN.zoom=1; SN.pan={x:0,y:0}; snRender(); }
+function snToggleLock(){
+  SN.locked = !SN.locked;
+  $('#snLockBtn').innerHTML = SN.locked?'<i class="bi bi-lock-fill"></i>':'<i class="bi bi-unlock"></i>';
+  toast(SN.locked?'Canvas locked':'Canvas unlocked','info');
+}
+function snFullScreen(){
+  const el = $('#snCanvasWrap');
+  if(document.fullscreenElement) document.exitFullscreen();
+  else el.requestFullscreen?.();
+}
+function snModeSet(m){
+  $$('.sn-canvas-tools .sn-tool').forEach(t=>t.classList.remove('active'));
+  $('#snToolPan').classList.add('active');
+}
+
+const cv = $('#snCanvas');
+function snGetSvgPoint(evt){
+  const pt = cv.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(cv.getScreenCTM().inverse());
+}
+function snNodeMouseDown(evt, d){
+  if(SN.locked || SN.linkMode) return;
+  evt.stopPropagation();
+  SN.dragNode = d;
+  const p = snGetSvgPoint(evt);
+  SN.dragOff = {x: (p.x - SN.pan.x)/SN.zoom - d.x, y: (p.y - SN.pan.y)/SN.zoom - d.y};
+}
+cv.addEventListener('mousemove', (evt)=>{
+  if(SN.dragNode){
+    const p = snGetSvgPoint(evt);
+    SN.dragNode.x = (p.x - SN.pan.x)/SN.zoom - SN.dragOff.x;
+    SN.dragNode.y = (p.y - SN.pan.y)/SN.zoom - SN.dragOff.y;
+    snRender();
+  }else if(SN.panStart){
+    SN.pan.x = SN.panStartOrig.x + (evt.clientX - SN.panStart.x);
+    SN.pan.y = SN.panStartOrig.y + (evt.clientY - SN.panStart.y);
+    snRender();
+  }
+});
+cv.addEventListener('mousedown', (evt)=>{
+  if(evt.target.tagName==='svg' || evt.target.id==='snLinks' || evt.target.id==='snNodes'){
+    SN.panStart = {x:evt.clientX, y:evt.clientY};
+    SN.panStartOrig = {...SN.pan};
+    cv.classList.add('dragging');
+  }
+});
+window.addEventListener('mouseup', async ()=>{
+  cv.classList.remove('dragging');
+  if(SN.dragNode){
+    try{ await api('POST', '/devices/bulk-move', {moves:[{id:SN.dragNode.id, x:SN.dragNode.x, y:SN.dragNode.y}]}); }
+    catch(e){ /* silent */ }
+    SN.dragNode = null;
+  }
+  SN.panStart = null;
+});
+cv.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  snZoom(e.deltaY > 0 ? 0.95 : 1.05);
+}, {passive:false});
+
+// — Palette drag-drop onto canvas —
+document.querySelectorAll('.sn-pal-item').forEach(el => {
+  el.addEventListener('dragstart', (e)=>{
+    e.dataTransfer.setData('text/plain', el.dataset.type);
+    el.classList.add('dragging');
+  });
+  el.addEventListener('dragend', ()=>el.classList.remove('dragging'));
+});
+cv.addEventListener('dragover', (e)=>e.preventDefault());
+cv.addEventListener('drop', async (e)=>{
+  e.preventDefault();
+  if(!CAN_EDIT){ toast('Read-only','error'); return; }
+  const type = e.dataTransfer.getData('text/plain');
+  if(!type) return;
+  const p = snGetSvgPoint(e);
+  const x = (p.x - SN.pan.x)/SN.zoom;
+  const y = (p.y - SN.pan.y)/SN.zoom;
+  try{
+    const name = prompt(`Name for new ${type}?`, `${type.toUpperCase()}-${Date.now().toString().slice(-4)}`);
+    if(!name) return;
+    await api('POST', '/devices', {name, type, x, y});
+    toast(`Added ${type}: ${name}`,'success'); snLoad();
+  }catch(e){ toast(e.message,'error'); }
+});
+
+// — Search —
+let _searchTimer = null;
+$('#snSearch').addEventListener('input', ()=>{
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(async ()=>{
+    const q = $('#snSearch').value.trim();
+    if(!q){ snLoad(); return; }
+    try{
+      const r = await api('GET', `/search?q=${encodeURIComponent(q)}`);
+      const ids = new Set(r.devices.map(d=>d.id));
+      // Highlight matches by lowering opacity of non-matches
+      $$('#snNodes .node').forEach(n=>{
+        const id = +n.dataset.id;
+        n.style.opacity = ids.size && !ids.has(id) ? '0.25' : '1';
+      });
+    }catch(e){ console.error(e); }
+  }, 250);
+});
+
+$('#snCatSearch').addEventListener('input', ()=>{
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(snLoadCatalog, 250);
+});
+
+// — Live bandwidth chart —
+let _bwChart = null;
+async function snLoadBw(){
+  try{
+    const r = await api('GET', '/bandwidth?minutes=60');
+    const ctx = document.getElementById('snBwChart').getContext('2d');
+    if(_bwChart){
+      _bwChart.data.labels = r.labels;
+      _bwChart.data.datasets[0].data = r.in_mbps;
+      _bwChart.data.datasets[1].data = r.out_mbps;
+      _bwChart.update('none');
+    }else{
+      _bwChart = new Chart(ctx, {
+        type:'line',
+        data:{ labels: r.labels, datasets:[
+          {label:'In (Mbps)',  data: r.in_mbps,  borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.18)', fill:true, tension:.3, pointRadius:0},
+          {label:'Out (Mbps)', data: r.out_mbps, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,.18)', fill:true, tension:.3, pointRadius:0}
+        ]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{labels:{color:'#cbd5e1',boxWidth:12}}},
+          scales:{
+            x:{ticks:{color:'#94a3b8',font:{size:10}},grid:{color:'#1e293b'}},
+            y:{ticks:{color:'#94a3b8',font:{size:10}},grid:{color:'#1e293b'}}
+          }
+        }
+      });
+    }
+  }catch(e){ console.error(e); }
+}
+
+// — Clock —
+function snClockTick(){
+  $('#snClock').textContent = new Date().toLocaleTimeString();
+}
+
+// — Boot —
+snLoad();
+snLoadCatalog();
+snLoadAlerts();
+snLoadNotif();
+snLoadBw();
+snClockTick();
+setInterval(snClockTick, 1000);
+setInterval(snLoadAlerts, 30000);
+setInterval(snLoadBw, 60000);
+setInterval(snLoad, 60000);
+</script>
+{% endblock %}

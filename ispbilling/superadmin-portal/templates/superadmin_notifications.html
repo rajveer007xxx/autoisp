@@ -1,0 +1,293 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Notifications - Superadmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .notification-item {
+        padding: 15px;
+        border-bottom: 1px solid #f4f4f4;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .notification-item:hover {
+        background: #f9f9f9;
+    }
+    .notification-item.unread {
+        background: #e8f4f8;
+        border-left: 3px solid #3c8dbc;
+    }
+    .notification-icon {
+        font-size: 24px;
+        margin-right: 15px;
+        width: 40px;
+        text-align: center;
+    }
+    .notification-icon.info { color: #3c8dbc; }
+    .notification-icon.success { color: #00a65a; }
+    .notification-icon.warning { color: #f39c12; }
+    .notification-icon.error { color: #dd4b39; }
+    .notification-content {
+        flex: 1;
+    }
+    .notification-title {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .notification-message {
+        color: #666;
+        font-size: 14px;
+    }
+    .notification-time {
+        color: #999;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+    .filter-section {
+        background: #f9f9f9;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+    .notification-list {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Notifications<small>System notifications and alerts</small></h1>
+</section>
+
+<section class="content">
+    <div class="box box-primary">
+        <div class="box-header with-border">
+            <h3 class="box-title">Notifications</h3>
+            <div class="box-tools pull-right">
+                <button type="button" class="btn btn-sm btn-success" id="markAllReadBtn">
+                    <i class="fa fa-check"></i> Mark All as Read
+                </button>
+                <button type="button" class="btn btn-sm btn-default" id="refreshBtn">
+                    <i class="fa fa-refresh"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="box-body">
+            <!-- Filters -->
+            <div class="filter-section">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label>Type</label>
+                        <select class="form-control input-sm" id="filterType">
+                            <option value="">All Types</option>
+                            <option value="info">Info</option>
+                            <option value="success">Success</option>
+                            <option value="warning">Warning</option>
+                            <option value="error">Error</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Status</label>
+                        <select class="form-control input-sm" id="filterStatus">
+                            <option value="">All</option>
+                            <option value="unread">Unread</option>
+                            <option value="read">Read</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Related To</label>
+                        <select class="form-control input-sm" id="filterEntity">
+                            <option value="">All</option>
+                            <option value="admin">Admin</option>
+                            <option value="transaction">Transaction</option>
+                            <option value="complaint">Complaint</option>
+                            <option value="support">Support</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-primary btn-sm btn-block" id="applyFiltersBtn">
+                            <i class="fa fa-filter"></i> Apply Filters
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications List -->
+            <div class="notification-list" id="notificationsList">
+                <div class="text-center" style="padding: 20px;">
+                    <i class="fa fa-spinner fa-spin"></i> Loading notifications...
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    var autoRefreshInterval;
+    
+    // Load notifications on page load
+    loadNotifications();
+    
+    // Auto-refresh every 30 seconds
+    autoRefreshInterval = setInterval(function() {
+        loadNotifications(true); // Silent refresh
+    }, 30000);
+    
+    function loadNotifications(silent) {
+        if (!silent) {
+            $('#notificationsList').html('<div class="text-center" style="padding: 20px;"><i class="fa fa-spinner fa-spin"></i> Loading notifications...</div>');
+        }
+        
+        var params = [];
+        var type = $('#filterType').val();
+        var status = $('#filterStatus').val();
+        var entity = $('#filterEntity').val();
+        
+        if (type) params.push('type=' + type);
+        if (status) params.push('status=' + status);
+        if (entity) params.push('entity=' + entity);
+        
+        var url = '/api/superadmin/notifications' + (params.length ? '?' + params.join('&') : '');
+        
+        $.get(url, function(response) {
+            if (response.success) {
+                displayNotifications(response.notifications);
+            } else {
+                $('#notificationsList').html('<div class="text-center" style="padding: 20px;">Error loading notifications</div>');
+            }
+        }).fail(function() {
+            if (!silent) {
+                $('#notificationsList').html('<div class="text-center" style="padding: 20px;">Error loading notifications</div>');
+            }
+        });
+    }
+    
+    function displayNotifications(notifications) {
+        if (notifications.length === 0) {
+            $('#notificationsList').html('<div class="text-center" style="padding: 20px;">No notifications found</div>');
+            return;
+        }
+        
+        var html = '';
+        notifications.forEach(function(notif) {
+            var unreadClass = notif.is_read ? '' : 'unread';
+            var iconClass = notif.notification_type || 'info';
+            var icon = getNotificationIcon(notif.notification_type);
+            var timeAgo = getTimeAgo(notif.created_at);
+            
+            html += '<div class="notification-item ' + unreadClass + '" data-id="' + notif.id + '" data-read="' + notif.is_read + '">';
+            html += '<div style="display: flex; align-items: start;">';
+            html += '<div class="notification-icon ' + iconClass + '"><i class="fa ' + icon + '"></i></div>';
+            html += '<div class="notification-content">';
+            html += '<div class="notification-title">' + escapeHtml(notif.title) + '</div>';
+            html += '<div class="notification-message">' + escapeHtml(notif.message) + '</div>';
+            html += '<div class="notification-time">' + timeAgo;
+            if (notif.related_entity_type) {
+                html += ' • ' + notif.related_entity_type;
+            }
+            html += '</div>';
+            html += '</div>';
+            if (!notif.is_read) {
+                html += '<div><span class="label label-primary">New</span></div>';
+            }
+            html += '</div>';
+            html += '</div>';
+        });
+        
+        $('#notificationsList').html(html);
+    }
+    
+    function getNotificationIcon(type) {
+        var icons = {
+            'info': 'fa-info-circle',
+            'success': 'fa-check-circle',
+            'warning': 'fa-exclamation-triangle',
+            'error': 'fa-times-circle'
+        };
+        return icons[type] || 'fa-bell';
+    }
+    
+    function getTimeAgo(dateString) {
+        if (!dateString) return 'Unknown time';
+        
+        var date = new Date(dateString);
+        var now = new Date();
+        var seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return 'Just now';
+        if (seconds < 3600) return Math.floor(seconds / 60) + ' minutes ago';
+        if (seconds < 86400) return Math.floor(seconds / 3600) + ' hours ago';
+        if (seconds < 604800) return Math.floor(seconds / 86400) + ' days ago';
+        
+        return date.toLocaleDateString();
+    }
+    
+    function escapeHtml(text) {
+        var map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+    
+    // Click on notification to mark as read
+    $('#notificationsList').on('click', '.notification-item', function() {
+        var id = $(this).data('id');
+        var isRead = $(this).data('read');
+        
+        if (!isRead) {
+            $.ajax({
+                url: '/api/superadmin/notifications/' + id + '/read',
+                method: 'POST',
+                success: function() {
+                    loadNotifications(true);
+                }
+            });
+        }
+    });
+    
+    // Mark all as read
+    $('#markAllReadBtn').click(function() {
+        if (confirm('Mark all notifications as read?')) {
+            $.ajax({
+                url: '/api/superadmin/notifications/mark-all-read',
+                method: 'POST',
+                success: function() {
+                    alert('All notifications marked as read');
+                    loadNotifications();
+                },
+                error: function() {
+                    alert('Error marking notifications as read');
+                }
+            });
+        }
+    });
+    
+    // Refresh button
+    $('#refreshBtn').click(function() {
+        loadNotifications();
+    });
+    
+    // Apply filters
+    $('#applyFiltersBtn').click(function() {
+        loadNotifications();
+    });
+    
+    // Clear interval on page unload
+    $(window).on('beforeunload', function() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+        }
+    });
+});
+</script>
+{% endblock %}

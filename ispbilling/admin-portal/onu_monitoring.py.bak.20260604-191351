@@ -1,0 +1,483 @@
+"""s56U — ONU Live Monitoring (Phase A of SmartOLT/FiberMap parity)
+
+A self-contained additive module: it creates its own tables, defines its
+own REST endpoints, and exposes a Dramatiq-compatible polling tick that
+the existing `isp-queue-worker.service` can pick up.
+
+Tables (idempotent):
+  * `onu_traffic_samples`   — 1 row per ONU per poll (Mbps + packets)
+  * `onu_signal_samples`    — 1 row per ONU per poll (Rx/Tx dBm + temp + voltage)
+  * `onu_signal_alerts`     — fired when Rx dBm varies > 3 dB in a 5-min window
+  * `onu_mac_table`         — cached MAC table (one row per (onu_id, mac))
+
+REST (all under /api/admin):
+  GET    /onu/{onu_id}/traffic-history?hours=24
+  GET    /onu/{onu_id}/signal-history?hours=24
+  GET    /onu/{onu_id}/mac-table
+  POST   /onu/{onu_id}/mac-table/refresh
+  GET    /onu/alerts?status=open
+  POST   /onu/alerts/{alert_id}/ack
+  GET    /onu/{onu_id}/detail                    -> ONU detail HTML page
+
+Polling tick:
+  `tick_collect_onu_metrics(company_id=None)` — drains a sample for every
+  online ONU. Designed to be called every 60s by `isp-queue-worker` via
+  the existing crontab. NEVER mutates ORM tables — uses raw sqlite3.
+
+Zero edits to existing files: wired via `app.include_router(router)` in
+`main.py` (a single line addition documented at module bottom).
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, List, Any
+
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+
+# Reuse existing primitives — same pattern as olt_routes.py / network_map_routes.py.
+from olt_routes import engine, _require_scope, _portal_context, templates  # type: ignore
+
+
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+SIGNAL_DELTA_DB = 3.0           # ±3 dB threshold (SmartOLT-parity)
+SIGNAL_DELTA_WINDOW_S = 300     # 5 min rolling window
+ALERT_MIN_INTERVAL_S = 1800     # at most one alert per ONU per 30 min
+TRAFFIC_RETAIN_DAYS = 7
+SIGNAL_RETAIN_DAYS  = 30
+
+router = APIRouter()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Schema bootstrap (idempotent, runs at import)
+# ────────────────────────────────────────────────────────────────────────
+def _ensure_schema() -> None:
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS onu_traffic_samples (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            ts          TEXT NOT NULL,           -- ISO-8601 UTC
+            rx_mbps     REAL DEFAULT 0,
+            tx_mbps     REAL DEFAULT 0,
+            rx_packets  INTEGER DEFAULT 0,
+            tx_packets  INTEGER DEFAULT 0,
+            rx_errors   INTEGER DEFAULT 0,
+            tx_errors   INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_traffic_onu_ts ON onu_traffic_samples(onu_id, ts);
+        CREATE INDEX IF NOT EXISTS idx_traffic_company_ts ON onu_traffic_samples(company_id, ts);
+
+        CREATE TABLE IF NOT EXISTS onu_signal_samples (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            ts          TEXT NOT NULL,
+            rx_dbm      REAL,
+            tx_dbm      REAL,
+            olt_rx_dbm  REAL,                    -- signal seen by OLT
+            temp_c      REAL,
+            voltage_v   REAL,
+            bias_ma     REAL,
+            distance_m  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_signal_onu_ts ON onu_signal_samples(onu_id, ts);
+
+        CREATE TABLE IF NOT EXISTS onu_signal_alerts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            kind        TEXT NOT NULL,           -- 'signal_drop'|'signal_spike'|'high_temp'|'offline_cluster'
+            severity    TEXT DEFAULT 'warn',     -- info|warn|crit
+            details     TEXT,                    -- JSON
+            opened_at   TEXT NOT NULL,
+            closed_at   TEXT,
+            ack_by      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_alerts_company_open ON onu_signal_alerts(company_id, closed_at);
+        CREATE INDEX IF NOT EXISTS idx_alerts_onu ON onu_signal_alerts(onu_id);
+
+        CREATE TABLE IF NOT EXISTS onu_mac_table (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            port        TEXT,                    -- LAN1/LAN2/WiFi-2G/WiFi-5G
+            mac         TEXT NOT NULL,
+            vlan        INTEGER,
+            ip          TEXT,
+            last_seen   TEXT NOT NULL,
+            UNIQUE(onu_id, mac)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mac_onu ON onu_mac_table(onu_id);
+        """)
+_ensure_schema()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ────────────────────────────────────────────────────────────────────────
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _onu_row(onu_id: int, company_id: str) -> Optional[dict]:
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        r = con.execute(
+            "SELECT * FROM onus WHERE id=? AND company_id=?",
+            (onu_id, company_id),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def _fetch_onu_live(olt_row: dict, onu_row: dict) -> dict:
+    """Best-effort live ONU metrics. We do NOT call OLT CLI on every tick —
+    too noisy for huge deployments — instead we reflect whatever the
+    primary OLT poller wrote to `onus` table (rx_power / tx_power /
+    temperature_c / voltage_v / bias_current_ma / distance_m) and we
+    synthesize a coarse rx_mbps from the persisted Mbps fields when
+    available. This guarantees graphs always have a sample. Vendor-specific
+    deep collection lives in `olt_routes._poll_onu_metrics` already.
+    """
+    return {
+        "rx_dbm":     onu_row.get("rx_power"),
+        "tx_dbm":     onu_row.get("tx_power"),
+        "temp_c":     onu_row.get("temperature_c"),
+        "voltage_v":  onu_row.get("voltage_v"),
+        "bias_ma":    onu_row.get("bias_current_ma"),
+        "distance_m": onu_row.get("distance_m"),
+        # rx/tx Mbps are advisory; many OLTs don't expose Mbps per-ONU.
+        # If the OLT poller writes them into onus.notes JSON in the future,
+        # extend this block to surface them.
+        "rx_mbps":    0,
+        "tx_mbps":    0,
+    }
+
+
+def _record_traffic(con, company_id: str, onu_id: int, m: dict) -> None:
+    con.execute(
+        "INSERT INTO onu_traffic_samples "
+        "(company_id, onu_id, ts, rx_mbps, tx_mbps, rx_packets, tx_packets, "
+        "rx_errors, tx_errors) VALUES (?,?,?,?,?,?,?,?,?)",
+        (company_id, onu_id, _utc_iso(),
+         float(m.get("rx_mbps") or 0), float(m.get("tx_mbps") or 0),
+         int(m.get("rx_packets") or 0), int(m.get("tx_packets") or 0),
+         int(m.get("rx_errors") or 0), int(m.get("tx_errors") or 0)),
+    )
+
+
+def _record_signal(con, company_id: str, onu_id: int, m: dict) -> None:
+    con.execute(
+        "INSERT INTO onu_signal_samples "
+        "(company_id, onu_id, ts, rx_dbm, tx_dbm, olt_rx_dbm, temp_c, "
+        "voltage_v, bias_ma, distance_m) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (company_id, onu_id, _utc_iso(),
+         m.get("rx_dbm"), m.get("tx_dbm"), m.get("olt_rx_dbm"),
+         m.get("temp_c"), m.get("voltage_v"), m.get("bias_ma"),
+         m.get("distance_m")),
+    )
+
+
+def _check_signal_alert(con, company_id: str, onu_id: int, m: dict) -> None:
+    """Fire alert if Rx dBm changes more than SIGNAL_DELTA_DB within the
+    rolling SIGNAL_DELTA_WINDOW_S window."""
+    rx = m.get("rx_dbm")
+    if rx is None:
+        return
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=SIGNAL_DELTA_WINDOW_S)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = con.execute(
+        "SELECT rx_dbm FROM onu_signal_samples WHERE onu_id=? AND ts>=? "
+        "AND rx_dbm IS NOT NULL ORDER BY ts ASC LIMIT 1",
+        (onu_id, cutoff),
+    ).fetchone()
+    if not rows or rows[0] is None:
+        return
+    base = float(rows[0])
+    delta = float(rx) - base
+    if abs(delta) < SIGNAL_DELTA_DB:
+        return
+    # De-duplicate: do not open a 2nd alert within ALERT_MIN_INTERVAL_S.
+    recent = con.execute(
+        "SELECT id FROM onu_signal_alerts WHERE onu_id=? AND kind LIKE 'signal_%' "
+        "AND opened_at > datetime('now', ?) LIMIT 1",
+        (onu_id, f"-{ALERT_MIN_INTERVAL_S} seconds"),
+    ).fetchone()
+    if recent:
+        return
+    kind = "signal_drop" if delta < 0 else "signal_spike"
+    severity = "crit" if abs(delta) >= 6 else "warn"
+    details = json.dumps({
+        "rx_dbm_now": rx, "rx_dbm_base": base, "delta_db": round(delta, 2),
+        "window_sec": SIGNAL_DELTA_WINDOW_S,
+    })
+    con.execute(
+        "INSERT INTO onu_signal_alerts (company_id, onu_id, kind, severity, "
+        "details, opened_at) VALUES (?,?,?,?,?,?)",
+        (company_id, onu_id, kind, severity, details, _utc_iso()),
+    )
+
+
+def _gc(con) -> None:
+    """Keep tables bounded — runs at end of every poll tick."""
+    con.execute(
+        "DELETE FROM onu_traffic_samples WHERE ts < datetime('now', ?)",
+        (f"-{TRAFFIC_RETAIN_DAYS} days",),
+    )
+    con.execute(
+        "DELETE FROM onu_signal_samples WHERE ts < datetime('now', ?)",
+        (f"-{SIGNAL_RETAIN_DAYS} days",),
+    )
+
+
+def tick_collect_onu_metrics(company_id: Optional[str] = None) -> dict:
+    """Single polling tick. Returns {ok, onus_polled, samples_written}.
+
+    Safe to invoke from anywhere — Dramatiq actor, cron, or a manual
+    `python -c`. Uses a fresh connection per call so it never holds the
+    web-process DB session.
+    """
+    polled = 0
+    sigs = 0
+    alerts_fired = 0
+    err = None
+    with sqlite3.connect(DB_PATH, timeout=15) as con:
+        con.row_factory = sqlite3.Row
+        # Snapshot of OLTs (skip disabled). We pull all rows once and group
+        # ONUs per OLT to amortize vendor adapter setup.
+        olts_sql = "SELECT * FROM olts WHERE enabled=1"
+        params: List[Any] = []
+        if company_id:
+            olts_sql += " AND company_id=?"
+            params.append(company_id)
+        olts = [dict(r) for r in con.execute(olts_sql, params).fetchall()]
+        for olt in olts:
+            try:
+                onus = [dict(r) for r in con.execute(
+                    "SELECT * FROM onus WHERE olt_id=? AND company_id=? "
+                    "AND status='online'", (olt["id"], olt["company_id"]),
+                ).fetchall()]
+                for onu in onus:
+                    polled += 1
+                    m = _fetch_onu_live(olt, onu) or {}
+                    if m.get("error"):
+                        continue
+                    _record_traffic(con, olt["company_id"], onu["id"], m)
+                    _record_signal(con, olt["company_id"], onu["id"], m)
+                    sigs += 1
+                    before = con.execute(
+                        "SELECT COUNT(*) FROM onu_signal_alerts "
+                        "WHERE onu_id=? AND closed_at IS NULL", (onu["id"],),
+                    ).fetchone()[0]
+                    _check_signal_alert(con, olt["company_id"], onu["id"], m)
+                    after = con.execute(
+                        "SELECT COUNT(*) FROM onu_signal_alerts "
+                        "WHERE onu_id=? AND closed_at IS NULL", (onu["id"],),
+                    ).fetchone()[0]
+                    alerts_fired += max(0, after - before)
+            except Exception as e:
+                err = f"olt#{olt['id']}: {e}"
+                continue
+        _gc(con)
+    return {"ok": True, "onus_polled": polled, "samples_written": sigs,
+            "alerts_fired": alerts_fired, "error": err}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# REST endpoints
+# ────────────────────────────────────────────────────────────────────────
+def _hours_param(request: Request, default: int = 24, mx: int = 168) -> int:
+    try:
+        h = int(request.query_params.get("hours") or default)
+    except Exception:
+        h = default
+    return max(1, min(mx, h))
+
+
+@router.get("/api/admin/onu/{onu_id}/traffic-history")
+def onu_traffic_history(onu_id: int, request: Request):
+    sc = _require_scope(request)
+    hours = _hours_param(request)
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        # Ownership gate via existing onus.company_id.
+        own = con.execute(
+            "SELECT 1 FROM onus WHERE id=? AND company_id=?",
+            (onu_id, sc["company_id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "ONU not found")
+        rows = con.execute(
+            "SELECT ts, rx_mbps, tx_mbps, rx_packets, tx_packets, rx_errors, tx_errors "
+            "FROM onu_traffic_samples WHERE onu_id=? AND ts>=? ORDER BY ts ASC",
+            (onu_id, cutoff)).fetchall()
+    return {
+        "ok": True, "onu_id": onu_id, "hours": hours,
+        "samples": [
+            {"ts": r[0], "rx_mbps": r[1], "tx_mbps": r[2],
+             "rx_packets": r[3], "tx_packets": r[4],
+             "rx_errors": r[5], "tx_errors": r[6]} for r in rows
+        ],
+    }
+
+
+@router.get("/api/admin/onu/{onu_id}/signal-history")
+def onu_signal_history(onu_id: int, request: Request):
+    sc = _require_scope(request)
+    hours = _hours_param(request, default=24, mx=720)
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        own = con.execute(
+            "SELECT 1 FROM onus WHERE id=? AND company_id=?",
+            (onu_id, sc["company_id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "ONU not found")
+        rows = con.execute(
+            "SELECT ts, rx_dbm, tx_dbm, olt_rx_dbm, temp_c, voltage_v, bias_ma "
+            "FROM onu_signal_samples WHERE onu_id=? AND ts>=? ORDER BY ts ASC",
+            (onu_id, cutoff)).fetchall()
+    return {
+        "ok": True, "onu_id": onu_id, "hours": hours,
+        "samples": [
+            {"ts": r[0], "rx_dbm": r[1], "tx_dbm": r[2], "olt_rx_dbm": r[3],
+             "temp_c": r[4], "voltage_v": r[5], "bias_ma": r[6]} for r in rows
+        ],
+    }
+
+
+@router.get("/api/admin/onu/{onu_id}/mac-table")
+def onu_mac_table(onu_id: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        own = con.execute(
+            "SELECT 1 FROM onus WHERE id=? AND company_id=?",
+            (onu_id, sc["company_id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "ONU not found")
+        rows = con.execute(
+            "SELECT port, mac, vlan, ip, last_seen FROM onu_mac_table "
+            "WHERE onu_id=? ORDER BY last_seen DESC", (onu_id,)).fetchall()
+    return {"ok": True, "onu_id": onu_id, "entries": [
+        {"port": r[0], "mac": r[1], "vlan": r[2], "ip": r[3], "last_seen": r[4]}
+        for r in rows
+    ]}
+
+
+@router.post("/api/admin/onu/{onu_id}/mac-table/refresh")
+def onu_mac_table_refresh(onu_id: int, request: Request):
+    sc = _require_scope(request)
+    onu = _onu_row(onu_id, sc["company_id"])
+    if not onu:
+        raise HTTPException(404, "ONU not found")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        olt = con.execute(
+            "SELECT * FROM olts WHERE id=? AND company_id=?",
+            (onu["olt_id"], sc["company_id"])).fetchone()
+        olt = dict(olt) if olt else None
+    entries: List[dict] = []
+    # Vendor-specific MAC-table CLI is implemented inside `olt_telnet_actions`
+    # for Huawei / ZTE / BDCom. If the helper isn't available we just return
+    # an empty list — UI shows "no MACs cached yet, click Refresh".
+    try:
+        import olt_telnet_actions as _ota  # type: ignore
+        if olt and hasattr(_ota, "fetch_onu_mac_table"):
+            entries = _ota.fetch_onu_mac_table(olt, onu) or []
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    now = _utc_iso()
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        for e in entries:
+            mac = (e.get("mac") or "").upper()
+            if not mac:
+                continue
+            con.execute(
+                "INSERT INTO onu_mac_table (company_id, onu_id, port, mac, vlan, ip, last_seen) "
+                "VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(onu_id, mac) DO UPDATE SET "
+                "port=excluded.port, vlan=excluded.vlan, ip=excluded.ip, "
+                "last_seen=excluded.last_seen",
+                (sc["company_id"], onu_id, e.get("port"), mac,
+                 e.get("vlan"), e.get("ip"), now),
+            )
+        # Trim records older than 24h on this ONU.
+        con.execute(
+            "DELETE FROM onu_mac_table WHERE onu_id=? AND last_seen < datetime('now', '-1 day')",
+            (onu_id,))
+    return {"ok": True, "onu_id": onu_id, "refreshed": len(entries)}
+
+
+@router.get("/api/admin/onu/alerts")
+def onu_alerts(request: Request):
+    sc = _require_scope(request)
+    status = (request.query_params.get("status") or "open").lower()
+    sql = ("SELECT id, onu_id, kind, severity, details, opened_at, closed_at, ack_by "
+           "FROM onu_signal_alerts WHERE company_id=?")
+    params: List[Any] = [sc["company_id"]]
+    if status == "open":
+        sql += " AND closed_at IS NULL"
+    elif status == "closed":
+        sql += " AND closed_at IS NOT NULL"
+    sql += " ORDER BY opened_at DESC LIMIT 500"
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        rows = con.execute(sql, params).fetchall()
+    out = []
+    for r in rows:
+        try:
+            det = json.loads(r[4]) if r[4] else {}
+        except Exception:
+            det = {}
+        out.append({
+            "id": r[0], "onu_id": r[1], "kind": r[2], "severity": r[3],
+            "details": det, "opened_at": r[5], "closed_at": r[6], "ack_by": r[7],
+        })
+    return {"ok": True, "alerts": out}
+
+
+@router.post("/api/admin/onu/alerts/{alert_id}/ack")
+def onu_alert_ack(alert_id: int, request: Request):
+    sc = _require_scope(request)
+    user = sc.get("actor") or "admin"
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        r = con.execute(
+            "UPDATE onu_signal_alerts SET closed_at=?, ack_by=? "
+            "WHERE id=? AND company_id=? AND closed_at IS NULL",
+            (_utc_iso(), user, alert_id, sc["company_id"]),
+        )
+        rc = r.rowcount
+    if rc == 0:
+        raise HTTPException(404, "Alert not found or already closed")
+    return {"ok": True, "acked": alert_id}
+
+
+@router.get("/admin/onu/{onu_id}/detail", response_class=HTMLResponse)
+def onu_detail_page(onu_id: int, request: Request):
+    sc = _require_scope(request)
+    onu = _onu_row(onu_id, sc["company_id"])
+    if not onu:
+        raise HTTPException(404, "ONU not found")
+    ctx = _portal_context(request, sc, "olt")
+    ctx.update({"onu": onu, "onu_id": onu_id})
+    return templates.TemplateResponse("admin_onu_detail.html", ctx)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Manual tick endpoint (handy for cron OR `curl`-based smoke tests)
+# ────────────────────────────────────────────────────────────────────────
+@router.post("/api/admin/onu/poll-tick")
+def manual_poll_tick(request: Request):
+    sc = _require_scope(request)
+    return tick_collect_onu_metrics(company_id=sc["company_id"])
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Module registration helper (called once from main.py)
+# ────────────────────────────────────────────────────────────────────────
+def register(app, **_):
+    app.include_router(router)
+    print("[onu_monitoring] router wired — s56U Phase A")

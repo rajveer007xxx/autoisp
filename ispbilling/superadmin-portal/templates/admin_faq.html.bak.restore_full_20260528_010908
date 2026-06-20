@@ -1,0 +1,284 @@
+{% extends "base_superadmin.html" %}
+{% block title %}Help / FAQ — SuperAdmin{% endblock %}
+{% block content %}
+<style>
+  .sa-faq-wrap { max-width: 980px; margin: 24px auto 80px; padding: 0 20px; color: #E2E8F0; }
+  .sa-faq-title { font-size: 28px; font-weight: 800; color: #F1F5F9; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sa-faq-subtitle { color: #94A3B8; margin: 0 0 28px; font-size: 14px; }
+  .sa-faq-card {
+    background: linear-gradient(180deg, rgba(30,41,59,.85) 0%, rgba(15,23,42,.92) 100%);
+    border: 1px solid rgba(96,165,250,.25);
+    border-radius: 14px;
+    box-shadow: 0 12px 36px rgba(0,0,0,.35);
+    padding: 22px 26px;
+    margin-bottom: 18px;
+  }
+  .sa-faq-card h2 {
+    margin: 0 0 14px; font-size: 18px; font-weight: 700; color: #93C5FD;
+    letter-spacing: 0.02em; display: flex; align-items: center; gap: 10px;
+  }
+  .sa-faq-card h2 .badge {
+    background: rgba(99,102,241,.22); color: #C7D2FE; font-size: 11px;
+    padding: 2px 8px; border-radius: 999px; font-weight: 600;
+  }
+  .sa-faq-card h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 700; color: #FBBF24; letter-spacing: 0.05em; text-transform: uppercase; }
+  .sa-faq-card p, .sa-faq-card li { line-height: 1.6; color: #CBD5E1; font-size: 13.5px; }
+  .sa-faq-card ol, .sa-faq-card ul { padding-left: 22px; margin: 8px 0; }
+  .sa-faq-card ol li, .sa-faq-card ul li { margin-bottom: 6px; }
+  .sa-faq-creds {
+    background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.30);
+    border-radius: 10px; padding: 14px 16px; margin: 12px 0; font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: #FDE68A;
+  }
+  .sa-faq-creds .row { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+  .sa-faq-creds .lbl { color: #FCD34D; font-weight: 600; min-width: 90px; }
+  .sa-faq-creds code { color: #FEF3C7; background: rgba(0,0,0,.30); padding: 2px 8px; border-radius: 4px; }
+  .sa-faq-callout {
+    border-left: 3px solid #60A5FA; background: rgba(96,165,250,.10);
+    padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; color: #BFDBFE;
+    font-size: 13px;
+  }
+  .sa-faq-warning {
+    border-left: 3px solid #EF4444; background: rgba(239,68,68,.10);
+    padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; color: #FCA5A5;
+    font-size: 13px;
+  }
+  .sa-faq-card a { color: #93C5FD; text-decoration: none; border-bottom: 1px dashed rgba(147,197,253,.40); }
+  .sa-faq-card a:hover { color: #DBEAFE; border-bottom-color: #DBEAFE; }
+  .sa-faq-toc {
+    background: rgba(30,41,59,.6); border: 1px solid rgba(96,165,250,.20);
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 22px;
+  }
+  .sa-faq-toc h4 { color: #93C5FD; font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .sa-faq-toc ol { margin: 0; padding-left: 22px; }
+  .sa-faq-toc li { margin-bottom: 4px; }
+  .sa-faq-toc a { color: #E2E8F0; font-size: 13.5px; }
+  pre.sa-faq-cmd {
+    background: #0F172A; color: #A5F3FC; padding: 10px 14px; border-radius: 8px;
+    border: 1px solid rgba(34,211,238,.25); font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px; overflow-x: auto; margin: 8px 0;
+  }
+</style>
+
+<div class="sa-faq-wrap" data-testid="sa-faq-wrap">
+  <h1 class="sa-faq-title"><i class="bi bi-question-circle-fill"></i> SuperAdmin Help &amp; FAQ</h1>
+  <p class="sa-faq-subtitle">
+    Comprehensive operator guide for managing the platform —
+    including the embedded ACE / TR-069 (GenieACS) console for ONT/ONU
+    provisioning, firmware management and remote diagnostics.
+  </p>
+
+  <div class="sa-faq-toc">
+    <h4>On this page</h4>
+    <ol>
+      <li><a href="#genieacs">GenieACS (ACE/TR-069) — Full Setup &amp; Usage Guide</a></li>
+      <li><a href="#login-credentials">Login URL &amp; credentials</a></li>
+      <li><a href="#first-time-setup">First-time setup walkthrough</a></li>
+      <li><a href="#provision-onu">How to provision a new ONU/ONT</a></li>
+      <li><a href="#daily-tasks">Day-to-day operator tasks</a></li>
+      <li><a href="#troubleshooting">Troubleshooting &amp; common errors</a></li>
+      <li><a href="#api-tokens">API tokens &amp; scripting</a></li>
+      <li><a href="#security">Security recommendations</a></li>
+    </ol>
+  </div>
+
+  <div class="sa-faq-card" id="genieacs">
+    <h2><i class="bi bi-broadcast-pin"></i> GenieACS Setup &amp; Usage Guide <span class="badge">SuperAdmin only</span></h2>
+    <p>
+      GenieACS is the embedded TR-069 (ACS — Auto Configuration Server) inside
+      this platform. It is responsible for provisioning, monitoring and
+      remotely managing every ONT/ONU and CPE (router) that supports the
+      CWMP protocol. The platform talks to GenieACS through an internal
+      reverse proxy, so you should NEVER expose the GenieACS ports
+      (7547 / 7557 / 7567) to the public internet directly.
+    </p>
+    <div class="sa-faq-callout">
+      <strong>Where it runs:</strong> GenieACS runs as a systemd service on
+      the same VPS as the billing portal. Status:
+      <code>systemctl status genieacs-{cwmp,fs,ui,nbi}</code>.
+    </div>
+  </div>
+
+  <div class="sa-faq-card" id="login-credentials">
+    <h2><i class="bi bi-key-fill"></i> Login URL &amp; Credentials</h2>
+    <p>Use the credentials below to access the GenieACS web UI. These are
+       the platform's <strong>default operator credentials</strong> — change
+       them immediately on first login (see Security section).</p>
+    <div class="sa-faq-creds">
+      <div class="row"><span class="lbl">URL:</span>
+        <code>https://acs.autoispbilling.com</code>
+      </div>
+      <div class="row"><span class="lbl">Username:</span>
+        <code>admin</code>
+      </div>
+      <div class="row"><span class="lbl">Password:</span>
+        <code>Acs@AdminPass2026</code>
+      </div>
+      <div class="row"><span class="lbl">CWMP URL:</span>
+        <code>https://acs.autoispbilling.com:7547/</code>
+      </div>
+      <div class="row"><span class="lbl">NBI URL:</span>
+        <code>http://127.0.0.1:7557/</code> <em style="color:#FBBF24;">(internal only)</em>
+      </div>
+    </div>
+    <div class="sa-faq-warning">
+      <strong>Important:</strong> Treat these credentials as production-sensitive.
+      Do NOT share them with Admins, Sub-LCOs or Employees. This help page is
+      visible to SuperAdmins only. Anyone with the GenieACS password can
+      remotely reconfigure every connected ONT/ONU on the network.
+    </div>
+  </div>
+
+  <div class="sa-faq-card" id="first-time-setup">
+    <h2><i class="bi bi-rocket-takeoff-fill"></i> First-Time Setup Walkthrough</h2>
+    <ol>
+      <li><strong>Open the GenieACS UI</strong> at <a href="https://acs.autoispbilling.com" target="_blank">https://acs.autoispbilling.com</a>
+          and sign in with the credentials above.</li>
+      <li><strong>Change the default password</strong> immediately via
+          <em>Admin → Users → admin → Change Password</em>. Save the new
+          password in your password manager.</li>
+      <li><strong>Verify the CWMP listener</strong> is reachable from your
+          ONUs by SSH-ing into the VPS and running:
+          <pre class="sa-faq-cmd">curl -I https://acs.autoispbilling.com:7547/</pre>
+          You should see <code>HTTP/1.1 405 Method Not Allowed</code> — this
+          is correct (the endpoint only accepts CWMP POSTs).</li>
+      <li><strong>Confirm the four GenieACS services are running</strong>:
+          <pre class="sa-faq-cmd">systemctl status genieacs-cwmp genieacs-fs genieacs-ui genieacs-nbi
+# All four must show: Active: active (running)</pre></li>
+      <li><strong>Set the ACS URL on every ONU/ONT</strong> from its own
+          web interface or via your OLT's bulk-provision tool:
+          <code>https://acs.autoispbilling.com:7547/</code>.
+          Most TP-Link / V-SOL / D-Link units expose this under
+          <em>Management → TR-069 → ACS URL</em>.</li>
+      <li><strong>Trigger an Inform</strong> on the ONU. It should show up
+          in GenieACS UI → Devices within 60 seconds.</li>
+    </ol>
+  </div>
+
+  <div class="sa-faq-card" id="provision-onu">
+    <h2><i class="bi bi-wifi"></i> Provisioning a New ONU/ONT</h2>
+    <p>This is the recommended workflow for every new subscriber's CPE.</p>
+    <ol>
+      <li>Add the customer in the Admin Portal (Subscribers → Add). Note
+          their Subscriber ID and assigned plan.</li>
+      <li>Open the GenieACS UI and search for the ONU by serial number
+          or MAC address.</li>
+      <li>Click into the device's detail page. Under <em>Parameters</em>,
+          locate <code>InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1</code>
+          (or <code>WANIPConnection.1</code> for IPoE links).</li>
+      <li>Set the credentials:
+          <ul>
+            <li><code>Username</code> = subscriber's RADIUS username</li>
+            <li><code>Password</code> = subscriber's RADIUS password</li>
+            <li><code>Enable</code> = true</li>
+          </ul>
+      </li>
+      <li>Apply changes. GenieACS will push the configuration on the next
+          Inform (typically within 30 seconds).</li>
+      <li>Verify in the Admin Portal &gt; Online Users — the new subscriber
+          should appear with their assigned IP.</li>
+    </ol>
+    <div class="sa-faq-callout">
+      <strong>Tip:</strong> Provisioning scripts can be saved as
+      <em>Presets</em> in GenieACS UI → Admin → Presets, so the next time
+      an ONU of the same vendor connects, settings auto-apply.
+    </div>
+  </div>
+
+  <div class="sa-faq-card" id="daily-tasks">
+    <h2><i class="bi bi-calendar-check-fill"></i> Day-to-Day Operator Tasks</h2>
+    <h3>Reboot a customer's ONU remotely</h3>
+    <ol>
+      <li>Find the device in GenieACS UI.</li>
+      <li>Open Actions → <em>Reboot</em>. The device should disconnect for
+          30-60 seconds and re-Inform.</li>
+    </ol>
+    <h3>Push new Wi-Fi SSID / password to a router</h3>
+    <ol>
+      <li>Open the device detail page.</li>
+      <li>Edit <code>InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID</code>
+          and <code>.PreSharedKey.1.KeyPassphrase</code>.</li>
+      <li>Apply &amp; reboot the unit (some firmwares need a reboot).</li>
+    </ol>
+    <h3>Bulk firmware upgrade</h3>
+    <ol>
+      <li>Upload the firmware file to GenieACS UI → Admin → Files.</li>
+      <li>Create a Preset that targets the vendor/model and assigns the file
+          to <code>DownloadDiagnosticState</code>.</li>
+      <li>Apply the preset to the relevant device group.</li>
+    </ol>
+  </div>
+
+  <div class="sa-faq-card" id="troubleshooting">
+    <h2><i class="bi bi-tools"></i> Troubleshooting &amp; Common Errors</h2>
+    <h3>ONU doesn't appear in GenieACS</h3>
+    <ul>
+      <li>Verify the ACS URL on the ONU matches the CWMP listener exactly,
+          including the trailing slash.</li>
+      <li>Check the firewall: TCP 7547 inbound must be open from your
+          subscriber network.</li>
+      <li>Reboot the ONU and watch <code>journalctl -fu genieacs-cwmp</code>
+          for the Inform request.</li>
+    </ul>
+    <h3>Inform received but parameters not pushed</h3>
+    <ul>
+      <li>Open the device → <em>Tasks</em> queue and look for failed tasks.</li>
+      <li>Check the ONU's CWMP credentials in
+          <code>ManagementServer.Username</code> /
+          <code>.Password</code>. They must match what your GenieACS
+          security-realm expects.</li>
+    </ul>
+    <h3>Services not starting after reboot</h3>
+    <pre class="sa-faq-cmd">sudo systemctl restart genieacs-cwmp genieacs-fs genieacs-ui genieacs-nbi
+journalctl -u genieacs-cwmp -n 100 --no-pager</pre>
+  </div>
+
+  <div class="sa-faq-card" id="api-tokens">
+    <h2><i class="bi bi-code-slash"></i> API Tokens &amp; Scripting</h2>
+    <p>
+      The billing portal uses a server-side token to call the GenieACS NBI
+      (Northbound Interface). It is stored in:
+    </p>
+    <pre class="sa-faq-cmd">/opt/ispbilling/.acs_token  (chmod 600, owner: ispbilling)</pre>
+    <p>
+      Rotate it by generating a new token via:
+    </p>
+    <pre class="sa-faq-cmd">curl -X POST http://127.0.0.1:7557/admin/tokens \
+     -H "Content-Type: application/json" \
+     -d '{"label":"billing-portal-2026"}'</pre>
+    <p>Write the returned value into <code>/opt/ispbilling/.acs_token</code>
+       and restart <code>isp-admin</code>.</p>
+  </div>
+
+  <div class="sa-faq-card" id="security">
+    <h2><i class="bi bi-shield-lock-fill"></i> Security Recommendations</h2>
+    <ul>
+      <li><strong>Never expose the GenieACS UI publicly.</strong> Restrict
+          access via Nginx <code>allow</code>/<code>deny</code> rules to
+          your office IP range only.</li>
+      <li><strong>Rotate the admin password every 90 days.</strong></li>
+      <li><strong>Disable the default operator account</strong> once you
+          have created a per-staff account (Admin → Users).</li>
+      <li><strong>Enable TLS</strong> on port 7547 — the platform installer
+          already terminates TLS at Nginx using the same Let's Encrypt
+          cert as <code>autoispbilling.com</code>.</li>
+      <li><strong>Audit changes.</strong> GenieACS logs every push under
+          <code>/var/log/genieacs-cwmp.log</code>. Review weekly.</li>
+      <li><strong>This help page is restricted to SuperAdmins.</strong>
+          Admins, Sub-LCOs and Employees CANNOT reach
+          <code>/superadmin/faq</code> — the route is server-side gated
+          by <code>require_superadmin()</code>.</li>
+    </ul>
+  </div>
+
+  <div class="sa-faq-card">
+    <h2><i class="bi bi-life-preserver"></i> Need more help?</h2>
+    <p>
+      If you encounter a scenario not covered above, raise a ticket via
+      <a href="/superadmin/support">SuperAdmin → Support</a> or check the
+      official GenieACS docs at
+      <a href="https://github.com/genieacs/genieacs/wiki" target="_blank">https://github.com/genieacs/genieacs/wiki</a>.
+    </p>
+  </div>
+</div>
+{% endblock %}

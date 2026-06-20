@@ -1,0 +1,14 @@
+[Unit]
+Description=ISP Billing — NAS Health Check (auto-heal secret/address drift)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ispbilling/admin-portal
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/ispbilling/admin-portal:/opt/ispbilling
+EnvironmentFile=-/etc/ispbilling.env
+ExecStart=/opt/ispbilling/venv/bin/python3 /opt/ispbilling/scripts/nas_healthcheck.py
+StandardOutput=journal
+StandardError=journal
+Nice=10
+User=root

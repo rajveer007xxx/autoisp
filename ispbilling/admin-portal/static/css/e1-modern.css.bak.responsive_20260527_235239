@@ -1,0 +1,4830 @@
+/* ============================================================================
+ * E1 MODERN v2 — Telecom Operations Cloud Platform Design System
+ * Aggressive overlay that COMPLETELY transforms the existing AdminLTE/Bootstrap
+ * shell into a premium SaaS NOC experience.
+ *
+ * Strategy:
+ *  1. Redefine ALL existing CSS variables that the base templates rely on
+ *     (--bg, --surface, --primary, --sidebar-bg, etc.) so the existing inline
+ *     styles instantly adopt the new palette without needing !important.
+ *  2. Layer NEW design primitives on top (KPI cards, glass topbar, neon pills,
+ *     animated counters, sidebar search, mobile bottom nav).
+ *  3. Backend untouched. Rollback = remove one <link>.
+ * ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+
+/* =========================================================================
+ * 1.  THEME TOKENS — these REPLACE the ones defined in the base templates.
+ * ========================================================================= */
+
+:root, html, html:not(.e1-dark), body:not(.e1-dark) {
+  /* === Brand (now BLUE to match aspbilling in/isp reference) ============ */
+  --e1-brand:           #3B82F6;          /* blue-500 */
+  --e1-brand-2:         #2563EB;          /* blue-600 */
+  --e1-brand-3:         #1D4ED8;          /* blue-700 */
+  --e1-brand-soft:      #EFF6FF;
+  --e1-brand-glow:      rgba(59,130,246,0.35);
+  --e1-violet:          #8B5CF6;
+  --e1-violet-2:        #7C3AED;
+  --e1-violet-soft:     #F5F3FF;
+  --e1-cyan:            #06B6D4;
+  --e1-cyan-soft:       #ECFEFF;
+  --e1-emerald:         #10B981;
+  --e1-emerald-2:       #059669;
+  --e1-amber:           #F59E0B;
+  --e1-rose:            #EF4444;
+  --e1-pink:            #EC4899;
+  --e1-blue:            #3B82F6;
+
+  /* === Override base template tokens (light) — HIGH CONTRAST ======= */
+  --bg:                 #F4F7FB;
+  --bg-2:               #EEF2F8;
+  --surface:            #FFFFFF;
+  --surface-2:          #F8FAFC;
+  --surface-3:          #F1F5F9;
+  --sidebar-bg:         #07101F;
+  --sidebar-bg-2:       #0C1A33;
+  --sidebar-fg:         #DCE5F2;
+  --sidebar-muted:      #8A9CBC;
+  --sidebar-active:     rgba(59,130,246,0.18);
+  --sidebar-accent:     linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  --primary:            #3B82F6;
+  --primary-dark:       #2563EB;
+  --primary-soft:       #EFF6FF;
+  --success:            #10B981;
+  --success-soft:       #D1FAE5;
+  --warning:            #F59E0B;
+  --warning-soft:       #FEF3C7;
+  --danger:             #EF4444;
+  --danger-soft:        #FEE2E2;
+  --info:               #06B6D4;
+  --info-soft:          #ECFEFF;
+  --border:             #E3E8F1;
+  --border-strong:      #CBD5E1;
+  --text:               #0B1224;
+  --text-2:             #1F2937;
+  --text-3:             #374151;
+  --muted:              #6B7280;
+
+  /* === E1 native vars ============================================ */
+  --e1-bg:              var(--bg);
+  --e1-bg-2:            var(--bg-2);
+  --e1-surface:         var(--surface);
+  --e1-surface-2:       var(--surface-2);
+  --e1-surface-3:       var(--surface-3);
+  --e1-border:          var(--border);
+  --e1-border-2:        var(--border-strong);
+  --e1-text:            var(--text);
+  --e1-text-2:          var(--text-2);
+  --e1-text-3:          var(--text-3);
+  --e1-muted:           var(--muted);
+
+  /* Shape & motion */
+  --e1-r-xs:            6px;
+  --e1-r-sm:            10px;
+  --e1-r:               14px;
+  --e1-r-lg:            18px;
+  --e1-r-xl:            24px;
+  --e1-r-2xl:           32px;
+  --radius-sm:          var(--e1-r-sm);
+  --radius:             var(--e1-r);
+  --radius-lg:          var(--e1-r-lg);
+
+  --e1-shadow-xs:       0 1px 2px rgba(15,23,42,0.04);
+  --e1-shadow-sm:       0 2px 8px rgba(15,23,42,0.06);
+  --e1-shadow:          0 8px 24px rgba(15,23,42,0.07), 0 2px 6px rgba(15,23,42,0.05);
+  --e1-shadow-lg:       0 24px 56px rgba(15,23,42,0.12), 0 8px 16px rgba(15,23,42,0.06);
+  --e1-shadow-xl:       0 32px 80px rgba(15,23,42,0.14);
+  --e1-shadow-glow:     0 0 0 4px rgba(6,182,212,0.18);
+  --shadow-xs:          var(--e1-shadow-xs);
+  --shadow-sm:          var(--e1-shadow-sm);
+  --shadow:             var(--e1-shadow);
+  --shadow-lg:          var(--e1-shadow-lg);
+
+  --e1-trans:           180ms cubic-bezier(.4,0,.2,1);
+  --e1-trans-slow:      320ms cubic-bezier(.4,0,.2,1);
+
+  --e1-font:            'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont,
+                        'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --e1-font-mono:       'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+
+  --e1-header-h:        60px;
+  --e1-sidebar-w:       260px;
+  --e1-sidebar-mini-w:  72px;
+}
+
+/* === DARK THEME — toggle by adding .e1-dark to <html> ================== */
+html.e1-dark, body.e1-dark, html.e1-dark body {
+  --bg:             #050912;
+  --bg-2:           #0A1124;
+  --surface:        #0F172A;
+  --surface-2:      #131D3D;
+  --surface-3:      #1B2851;
+  --sidebar-bg:     #03070F;
+  --sidebar-bg-2:   #060B19;
+  --sidebar-fg:     #D7E1F0;
+  --sidebar-muted:  #7889A6;
+  --sidebar-active: rgba(6,182,212,0.18);
+  --primary:        #60A5FA;
+  --primary-dark:   #3B82F6;
+  --primary-soft:   rgba(59,130,246,0.14);
+  --success-soft:   rgba(16,185,129,0.14);
+  --warning-soft:   rgba(245,158,11,0.14);
+  --danger-soft:    rgba(239,68,68,0.14);
+  --info-soft:      rgba(59,130,246,0.14);
+  --border:         rgba(255,255,255,0.07);
+  --border-strong:  rgba(255,255,255,0.14);
+  --text:           #F1F5F9;
+  --text-2:         #CBD5E1;
+  --text-3:         #94A3B8;
+  --muted:          #64748B;
+  --e1-brand:       #22D3EE;
+  --e1-brand-2:     #06B6D4;
+  --e1-shadow-xs:   0 1px 2px rgba(0,0,0,0.30);
+  --e1-shadow-sm:   0 2px 10px rgba(0,0,0,0.35);
+  --e1-shadow:      0 8px 28px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.30);
+  --e1-shadow-lg:   0 28px 64px rgba(0,0,0,0.55);
+  --shadow-xs:      var(--e1-shadow-xs);
+  --shadow-sm:      var(--e1-shadow-sm);
+  --shadow:         var(--e1-shadow);
+  --shadow-lg:      var(--e1-shadow-lg);
+}
+
+/* =========================================================================
+ * 2.  GLOBAL BASE  —  typography, body background, scrollbars
+ * ========================================================================= */
+
+html, body {
+  font-family: var(--e1-font) !important;
+  font-feature-settings: 'cv02','cv11','ss01','ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+}
+body {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  position: relative;
+  font-size: 14px;
+}
+/* Ambient gradient backdrop — gives the "telecom NOC" cinematic feel */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 900px 600px at 12% -10%, rgba(6,182,212,0.07), transparent 60%),
+    radial-gradient(ellipse 800px 500px at 92% 110%, rgba(139,92,246,0.06), transparent 60%);
+}
+html.e1-dark body::before {
+  background:
+    radial-gradient(ellipse 1100px 700px at 10% -10%, rgba(6,182,212,0.14), transparent 60%),
+    radial-gradient(ellipse 900px 600px at 92% 110%, rgba(139,92,246,0.10), transparent 60%),
+    radial-gradient(circle 600px at 50% 50%, rgba(34,211,238,0.04), transparent 70%);
+}
+
+h1, h2, h3, h4, h5, h6,
+.box-title, .panel-title, .card-title, .page-header h1, .content-header h1 {
+  font-family: var(--e1-font) !important;
+  color: var(--text) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.018em;
+  line-height: 1.25;
+  margin-top: 0;
+}
+h1, .content-header h1 { font-size: 24px !important; font-weight: 800 !important; }
+h2 { font-size: 20px !important; }
+h3 { font-size: 17px !important; }
+h4, .box-title, .panel-title { font-size: 15px !important; }
+h5 { font-size: 14px !important; }
+.text-muted, .muted { color: var(--muted) !important; }
+a { color: var(--primary); transition: color var(--e1-trans); }
+a:hover { color: var(--primary-dark); text-decoration: none; }
+::selection { background: var(--primary); color: #fff; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(100,116,139,0.30);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.55); background-clip: padding-box; }
+html.e1-dark ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.18); background-clip: padding-box; }
+html.e1-dark ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.35); background-clip: padding-box; }
+
+/* =========================================================================
+ * 3.  TOP NAVBAR — sticky glassmorphism
+ * ========================================================================= */
+
+.main-header {
+  height: var(--e1-header-h) !important;
+}
+.main-header .navbar {
+  background: rgba(255,255,255,0.78) !important;
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  border-bottom: 1px solid var(--border) !important;
+  box-shadow: 0 1px 0 rgba(15,23,42,0.02);
+  height: var(--e1-header-h);
+  min-height: var(--e1-header-h);
+}
+html.e1-dark .main-header .navbar {
+  background: rgba(7,16,31,0.78) !important;
+  border-bottom-color: rgba(255,255,255,0.06) !important;
+}
+.main-header .logo {
+  background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%) !important;
+  color: #fff !important;
+  height: var(--e1-header-h) !important;
+  line-height: var(--e1-header-h) !important;
+  border: 0 !important;
+  font-weight: 800;
+}
+.main-header .logo b { color: #fff; font-weight: 800; }
+.main-header .logo .logo-mini {
+  background: var(--sidebar-accent) !important;
+  color: #fff !important;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(6,182,212,0.45);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.main-header .navbar .nav > li > a {
+  color: var(--text-2) !important;
+  font-weight: 500;
+  height: var(--e1-header-h);
+  line-height: 1;
+  display: inline-flex; align-items: center;
+  padding: 0 14px !important;
+  transition: all var(--e1-trans);
+  border-radius: 10px;
+  margin: 6px 4px;
+}
+.main-header .navbar .nav > li > a:hover {
+  background: var(--surface-3) !important;
+  color: var(--primary-dark) !important;
+}
+.main-header .sidebar-toggle {
+  color: var(--text-2) !important;
+  border-radius: 10px;
+}
+.main-header .sidebar-toggle:hover {
+  background: var(--primary-soft) !important;
+  color: var(--primary-dark) !important;
+}
+.main-header .navbar .navbar-nav > .user-menu > .dropdown-toggle {
+  padding: 6px 14px !important;
+}
+.main-header .user-image {
+  border: 2px solid var(--border) !important;
+  box-shadow: 0 0 0 2px var(--surface), 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* =========================================================================
+ * 4.  SIDEBAR — premium NOC navigation
+ * ========================================================================= */
+
+.main-sidebar, .left-side {
+  background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%) !important;
+  border-right: 0 !important;
+  box-shadow: 1px 0 0 rgba(255,255,255,0.03), 4px 0 24px rgba(0,0,0,0.18);
+  padding-top: 0 !important;
+}
+.main-sidebar::before {
+  content: '';
+  position: absolute; top: 0; right: 0; bottom: 0; width: 2px;
+  background: var(--sidebar-accent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.sidebar-menu {
+  padding: 8px 10px !important;
+}
+.sidebar-menu > li {
+  border-bottom: 0 !important;
+}
+.sidebar-menu > li.header {
+  background: transparent !important;
+  color: var(--sidebar-muted) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 16px 14px 6px !important;
+}
+.sidebar-menu > li > a {
+  color: var(--sidebar-fg) !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  margin: 1px 0;
+  border-left: 0 !important;
+  font-weight: 500;
+  font-size: 14px;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  transition: background var(--e1-trans), color var(--e1-trans), transform var(--e1-trans);
+}
+.sidebar-menu > li > a > i,
+.sidebar-menu > li > a > .fa,
+.sidebar-menu > li > a > .bi {
+  color: var(--sidebar-muted) !important;
+  width: 20px; min-width: 20px;
+  font-size: 16px !important;
+  margin: 0 !important;
+  text-align: center;
+  transition: color var(--e1-trans), transform var(--e1-trans);
+}
+.sidebar-menu > li > a:hover {
+  background: rgba(255,255,255,0.05) !important;
+  color: #FFFFFF !important;
+  transform: translateX(2px);
+}
+.sidebar-menu > li > a:hover > i,
+.sidebar-menu > li > a:hover > .bi {
+  color: var(--e1-brand) !important;
+  transform: scale(1.1);
+}
+.sidebar-menu > li.active > a,
+.sidebar-menu > li.active > a:focus,
+.sidebar-menu > li.menu-open > a {
+  background: var(--sidebar-active) !important;
+  color: #FFFFFF !important;
+  box-shadow: inset 0 0 0 1px rgba(6,182,212,0.20);
+}
+.sidebar-menu > li.active > a > i,
+.sidebar-menu > li.active > a > .bi,
+.sidebar-menu > li.menu-open > a > .bi {
+  color: var(--e1-brand) !important;
+}
+/* Active item — left dot glow */
+.sidebar-menu > li.active > a::before {
+  content: '';
+  position: absolute; left: -4px; top: 50%; transform: translateY(-50%);
+  width: 4px; height: 22px; border-radius: 4px;
+  background: var(--e1-brand);
+  box-shadow: 0 0 12px var(--e1-brand);
+}
+
+.sidebar-menu .treeview-menu {
+  padding: 4px 0 4px 8px !important;
+  margin-left: 18px;
+  border-left: 1px dashed rgba(255,255,255,0.06);
+}
+.sidebar-menu .treeview-menu > li > a {
+  color: var(--sidebar-muted) !important;
+  padding: 7px 12px !important;
+  font-size: 13px;
+  border-radius: 8px;
+  transition: all var(--e1-trans);
+}
+.sidebar-menu .treeview-menu > li > a:hover,
+.sidebar-menu .treeview-menu > li.active > a {
+  color: #FFFFFF !important;
+  background: rgba(255,255,255,0.04) !important;
+}
+.sidebar-menu .treeview-menu > li.active > a {
+  background: rgba(6,182,212,0.10) !important;
+  color: var(--e1-brand) !important;
+}
+
+/* user panel inside sidebar */
+.user-panel {
+  padding: 14px !important;
+  border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+  margin-bottom: 6px;
+}
+.user-panel .image img {
+  border: 2px solid rgba(6,182,212,0.35) !important;
+  box-shadow: 0 0 0 2px var(--sidebar-bg-2);
+}
+.user-panel .info { padding-left: 12px !important; color: var(--sidebar-fg) !important; }
+.user-panel .info p { color: #fff !important; font-weight: 600; }
+
+/* Sidebar mini-collapse mode keeps nav clean */
+.sidebar-collapse .main-sidebar {
+  width: var(--e1-sidebar-mini-w) !important;
+}
+
+/* E1 sidebar search */
+.e1-sidebar-search {
+  margin: 12px 10px 6px;
+  position: relative;
+}
+.e1-sidebar-search input {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--sidebar-fg);
+  padding: 9px 12px 9px 36px;
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+  transition: all var(--e1-trans);
+  font-family: inherit;
+}
+.e1-sidebar-search input:focus {
+  border-color: rgba(6,182,212,0.45);
+  background: rgba(6,182,212,0.06);
+  box-shadow: 0 0 0 3px rgba(6,182,212,0.10);
+}
+.e1-sidebar-search input::placeholder { color: var(--sidebar-muted); }
+.e1-sidebar-search .bi {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--sidebar-muted); font-size: 14px;
+  pointer-events: none;
+}
+.sidebar-collapse .e1-sidebar-search { display: none; }
+
+/* =========================================================================
+ * 5.  CONTENT WRAPPER
+ * ========================================================================= */
+.wrapper, .content-wrapper {
+  background: transparent !important;
+}
+.content-wrapper {
+  min-height: calc(100vh - var(--e1-header-h)) !important;
+  padding-top: 8px;
+}
+.content { padding: 18px 26px !important; }
+.content-header {
+  padding: 16px 26px 4px !important;
+  background: transparent !important;
+}
+.content-header > h1 {
+  margin: 0 !important;
+  display: flex; align-items: center; gap: 12px;
+}
+.content-header > h1 small {
+  font-size: 13px !important; color: var(--muted) !important;
+  font-weight: 500; letter-spacing: 0;
+}
+.content-header > .breadcrumb {
+  background: transparent !important;
+  padding: 8px 0 !important;
+  font-size: 12.5px;
+  border: 0 !important;
+}
+.content-header > .breadcrumb > li > a,
+.content-header > .breadcrumb > li {
+  color: var(--muted) !important;
+}
+.content-header > .breadcrumb > li.active { color: var(--text-2) !important; font-weight: 600; }
+.content-header > .breadcrumb > li + li:before { color: var(--border-strong) !important; }
+
+/* =========================================================================
+ * 6.  CARDS / BOXES / PANELS
+ * ========================================================================= */
+.box, .panel, .card {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--e1-r-lg) !important;
+  box-shadow: var(--e1-shadow-sm) !important;
+  margin-bottom: 20px;
+  overflow: hidden;
+  position: relative;
+  transition: box-shadow var(--e1-trans-slow), transform var(--e1-trans-slow), border-color var(--e1-trans-slow);
+}
+.box:hover, .panel:hover, .card:hover {
+  box-shadow: var(--e1-shadow) !important;
+  border-color: var(--border-strong) !important;
+}
+.box-header, .panel-heading, .card-header {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 16px 20px !important;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+}
+.box-header .box-title, .panel-heading .panel-title {
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  font-size: 15px !important;
+  margin: 0;
+}
+.box-body, .panel-body, .card-body { padding: 18px 20px !important; }
+.box-footer, .panel-footer, .card-footer {
+  background: var(--surface-2) !important;
+  border-top: 1px solid var(--border) !important;
+  padding: 14px 20px !important;
+}
+
+/* Variant accents */
+.box.box-primary { border-top: 3px solid var(--primary) !important; }
+.box.box-success { border-top: 3px solid var(--success) !important; }
+.box.box-info    { border-top: 3px solid var(--info) !important; }
+.box.box-warning { border-top: 3px solid var(--warning) !important; }
+.box.box-danger  { border-top: 3px solid var(--danger) !important; }
+
+/* =========================================================================
+ * 7.  KPI / SMALL-BOX  — NOC-grade stats cards
+ * ========================================================================= */
+
+.small-box {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-radius: var(--e1-r-lg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--e1-shadow-sm) !important;
+  overflow: hidden;
+  position: relative;
+  transition: transform var(--e1-trans-slow), box-shadow var(--e1-trans-slow), border-color var(--e1-trans-slow);
+  min-height: 140px;
+}
+.small-box::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: var(--primary);
+  transition: width var(--e1-trans-slow);
+}
+.small-box::after {
+  content: '';
+  position: absolute; left: 0; right: 0; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(6,182,212,0.35), transparent);
+  opacity: 0;
+  transition: opacity var(--e1-trans-slow);
+}
+.small-box:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--e1-shadow) !important;
+  border-color: var(--border-strong) !important;
+}
+.small-box:hover::before { width: 6px; }
+.small-box:hover::after  { opacity: 1; }
+
+/* Color variants — drive the accent stripe */
+.small-box.bg-aqua,
+.small-box.bg-aqua-active   { background: var(--surface) !important; color: var(--text) !important; }
+.small-box.bg-aqua::before  { background: var(--info); }
+.small-box.bg-green::before { background: var(--success); }
+.small-box.bg-blue::before  { background: var(--primary); }
+.small-box.bg-yellow::before{ background: var(--warning); }
+.small-box.bg-red::before   { background: var(--danger); }
+.small-box.bg-purple::before{ background: var(--e1-violet); }
+.small-box.bg-green, .small-box.bg-blue, .small-box.bg-yellow,
+.small-box.bg-red, .small-box.bg-purple {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+.small-box > .inner {
+  padding: 20px 22px 16px !important;
+  position: relative; z-index: 2;
+}
+.small-box > .inner > h3 {
+  font-size: 30px !important;
+  font-weight: 800 !important;
+  color: var(--text) !important;
+  margin: 0 0 4px !important;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  font-feature-settings: 'tnum';
+  font-family: var(--e1-font) !important;
+}
+.small-box > .inner > p {
+  font-size: 13px !important;
+  color: var(--text-3) !important;
+  margin: 0 !important;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  text-transform: none;
+}
+.small-box .stat-sub {
+  margin-top: 10px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+/* "chip" pills inside KPI cards */
+.small-box .chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.small-box .chip.success { background: var(--success-soft) !important; color: #047857 !important; }
+.small-box .chip.warning { background: var(--warning-soft) !important; color: #B45309 !important; }
+.small-box .chip.danger  { background: var(--danger-soft)  !important; color: #B91C1C !important; }
+.small-box .chip.info    { background: var(--info-soft)    !important; color: #1D4ED8 !important; }
+html.e1-dark .small-box .chip.success { color: #6EE7B7 !important; }
+html.e1-dark .small-box .chip.warning { color: #FCD34D !important; }
+html.e1-dark .small-box .chip.danger  { color: #FCA5A5 !important; }
+html.e1-dark .small-box .chip.info    { color: #93C5FD !important; }
+
+/* The icon — render properly with TINTED background tile (was nearly invisible before) */
+.small-box > .icon {
+  top: 18px !important; right: 18px !important;
+  width: 56px !important; height: 56px !important;
+  font-size: 28px !important;
+  display: inline-flex !important;
+  align-items: center; justify-content: center;
+  border-radius: 14px !important;
+  background: rgba(59,130,246,0.18) !important;
+  color: var(--primary) !important;
+  opacity: 1 !important;
+  transition: transform var(--e1-trans), background var(--e1-trans), box-shadow var(--e1-trans);
+  box-shadow: 0 6px 18px rgba(59,130,246,0.25), inset 0 0 0 1px rgba(59,130,246,0.30);
+}
+.small-box > .icon > i,
+.small-box > .icon > .fa,
+.small-box > .icon > .bi { font-size: 28px !important; color: inherit !important; opacity: 1 !important; }
+.small-box.bg-green > .icon { background: rgba(16,185,129,0.18) !important; color: #6EE7B7 !important; box-shadow: 0 6px 18px rgba(16,185,129,0.25), inset 0 0 0 1px rgba(16,185,129,0.30); }
+.small-box.bg-yellow > .icon { background: rgba(245,158,11,0.18) !important; color: #FCD34D !important; box-shadow: 0 6px 18px rgba(245,158,11,0.25), inset 0 0 0 1px rgba(245,158,11,0.30); }
+.small-box.bg-red > .icon { background: rgba(239,68,68,0.18) !important; color: #FCA5A5 !important; box-shadow: 0 6px 18px rgba(239,68,68,0.25), inset 0 0 0 1px rgba(239,68,68,0.30); }
+.small-box.bg-aqua > .icon { background: rgba(6,182,212,0.18) !important; color: #67E8F9 !important; box-shadow: 0 6px 18px rgba(6,182,212,0.25), inset 0 0 0 1px rgba(6,182,212,0.30); }
+.small-box.bg-purple > .icon { background: rgba(139,92,246,0.18) !important; color: #C4B5FD !important; box-shadow: 0 6px 18px rgba(139,92,246,0.25), inset 0 0 0 1px rgba(139,92,246,0.30); }
+.small-box:hover > .icon {
+  transform: scale(1.08) rotate(-3deg);
+}
+
+.small-box > a.small-box-footer {
+  background: var(--surface-2) !important;
+  color: var(--text-3) !important;
+  border-top: 1px solid var(--border) !important;
+  padding: 11px 18px !important;
+  font-size: 12.5px !important;
+  font-weight: 600;
+  display: flex !important;
+  align-items: center; justify-content: space-between;
+  transition: background var(--e1-trans), color var(--e1-trans);
+}
+.small-box > a.small-box-footer:hover {
+  color: var(--primary-dark) !important;
+  background: var(--primary-soft) !important;
+}
+
+/* =========================================================================
+ * 8.  WELCOME / HERO BANNER  — kill the legacy purple, go cyan-cinematic
+ * ========================================================================= */
+.welcome-banner {
+  background: linear-gradient(135deg, #0E7490 0%, #06B6D4 35%, #8B5CF6 100%) !important;
+  border-radius: var(--e1-r-lg) !important;
+  box-shadow: 0 20px 48px rgba(6,182,212,0.22), 0 8px 16px rgba(124,58,237,0.18) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  position: relative;
+  overflow: hidden;
+}
+.welcome-banner::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 600px 360px at 0% 0%, rgba(255,255,255,0.18), transparent 60%),
+    radial-gradient(ellipse 700px 400px at 100% 100%, rgba(34,211,238,0.30), transparent 60%) !important;
+  pointer-events: none;
+}
+.welcome-banner::after {
+  /* subtle dot grid */
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-position: 0 0;
+  opacity: 0.45;
+  pointer-events: none;
+  mask-image: linear-gradient(135deg, rgba(0,0,0,0.6), transparent 60%);
+  -webkit-mask-image: linear-gradient(135deg, rgba(0,0,0,0.6), transparent 60%);
+}
+.welcome-banner h2,
+.welcome-banner .welcome-title {
+  font-family: var(--e1-font) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em;
+  color: #FFFFFF !important;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.20);
+}
+.welcome-banner p,
+.welcome-banner .welcome-sub,
+.welcome-banner .welcome-desc,
+.welcome-banner small,
+.welcome-banner .text {
+  color: rgba(255,255,255,0.92) !important;
+  font-weight: 500;
+}
+.welcome-banner strong,
+.welcome-banner b { color: #FFFFFF !important; font-weight: 700; }
+.welcome-banner .btn {
+  background: rgba(255,255,255,0.16) !important;
+  border: 1px solid rgba(255,255,255,0.28) !important;
+  color: #fff !important;
+  backdrop-filter: blur(8px);
+  transition: all var(--e1-trans);
+  font-weight: 600 !important;
+}
+.welcome-banner .btn:hover {
+  background: rgba(255,255,255,0.28) !important;
+  transform: translateY(-1px);
+}
+.welcome-banner .btn i, .welcome-banner .btn .bi { color: #fff !important; }
+/* "YOUR PACKAGE" tile inside the welcome banner */
+.welcome-banner .package-tile,
+.welcome-banner [class*="package"] {
+  background: rgba(0,0,0,0.25) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  color: #fff !important;
+  backdrop-filter: blur(8px);
+}
+.welcome-banner .package-tile .label,
+.welcome-banner [class*="package"] .label,
+.welcome-banner [class*="package"] dt { color: rgba(255,255,255,0.72) !important; }
+.welcome-banner .package-tile .value,
+.welcome-banner [class*="package"] .value,
+.welcome-banner [class*="package"] dd { color: #FFFFFF !important; font-weight: 700; }
+
+/* =========================================================================
+ * 9.  BUTTONS — premium SaaS
+ * ========================================================================= */
+.btn {
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  padding: 9px 18px !important;
+  font-size: 13.5px !important;
+  letter-spacing: 0.005em;
+  border: 1px solid transparent !important;
+  transition: all var(--e1-trans);
+  display: inline-flex !important;
+  align-items: center; justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+.btn:focus, .btn:focus-visible {
+  outline: none !important;
+  box-shadow: var(--e1-shadow-glow) !important;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(6,182,212,0.30);
+}
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active {
+  background: linear-gradient(135deg, #0891B2 0%, #0E7490 100%) !important;
+  border-color: var(--primary-dark) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(6,182,212,0.40);
+  color: #fff !important;
+}
+.btn-success {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%) !important;
+  border-color: #059669 !important; color: #fff !important;
+  box-shadow: 0 4px 14px rgba(16,185,129,0.28);
+}
+.btn-success:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.38); }
+.btn-danger {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%) !important;
+  border-color: #DC2626 !important; color: #fff !important;
+  box-shadow: 0 4px 14px rgba(239,68,68,0.25);
+}
+.btn-danger:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(239,68,68,0.35); }
+.btn-warning {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%) !important;
+  border-color: #D97706 !important; color: #fff !important;
+}
+.btn-info {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  border-color: #2563EB !important; color: #fff !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.22);
+}
+.btn-default, .btn-secondary {
+  background: var(--surface) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text) !important;
+}
+.btn-default:hover, .btn-secondary:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--text-3) !important;
+  transform: translateY(-1px);
+}
+.btn-link { color: var(--primary) !important; padding: 5px 8px !important; }
+.btn-link:hover { color: var(--primary-dark) !important; background: var(--primary-soft); border-radius: 8px; text-decoration: none; }
+.btn-sm, .btn-xs { padding: 6px 13px !important; font-size: 12.5px !important; }
+.btn-lg { padding: 13px 24px !important; font-size: 15px !important; border-radius: 12px !important; }
+.btn-block { display: flex !important; width: 100%; }
+
+/* Button groups */
+.btn-group > .btn { box-shadow: none !important; border-radius: 8px !important; }
+.btn-group > .btn + .btn { margin-left: 4px; }
+
+/* =========================================================================
+ * 10.  FORMS  — floating-feel labels, modern focus ring
+ * ========================================================================= */
+.form-control, .input-sm, select.form-control, textarea.form-control,
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"],
+input[type="number"], input[type="search"], input[type="date"], input[type="datetime-local"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-size: 14px !important;
+  padding: 9px 13px !important;
+  height: auto !important;
+  min-height: 40px;
+  box-shadow: none !important;
+  transition: border-color var(--e1-trans), box-shadow var(--e1-trans), background var(--e1-trans);
+  font-family: var(--e1-font) !important;
+}
+.form-control:focus,
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: var(--e1-shadow-glow) !important;
+  outline: none !important;
+}
+.form-control::placeholder { color: var(--muted); opacity: 0.7; }
+.form-control[disabled], .form-control[readonly] {
+  background: var(--surface-3) !important;
+  color: var(--text-3) !important;
+  cursor: not-allowed;
+}
+label, .control-label {
+  font-weight: 600 !important;
+  color: var(--text-2) !important;
+  font-size: 13px;
+  margin-bottom: 6px;
+  letter-spacing: 0.005em;
+  font-family: var(--e1-font) !important;
+}
+.input-group-addon, .input-group-text {
+  background: var(--surface-3) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-2) !important;
+  border-radius: 10px !important;
+}
+.form-group { margin-bottom: 18px; }
+.help-block, .form-text { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+.has-error .form-control { border-color: var(--danger) !important; }
+.has-error .help-block { color: var(--danger) !important; }
+
+/* Accent colour for checkboxes/radios/range */
+input[type="checkbox"], input[type="radio"], input[type="range"] {
+  accent-color: var(--primary);
+}
+
+/* =========================================================================
+ * 11.  TABLES — Stripe/Linear style
+ * ========================================================================= */
+.table {
+  background: transparent !important;
+  margin-bottom: 0;
+  font-family: var(--e1-font) !important;
+}
+.table > thead > tr > th {
+  background: var(--surface-3) !important;
+  color: var(--text-3) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-strong) !important;
+  border-top: 0 !important;
+  padding: 12px 16px !important;
+  white-space: nowrap;
+  position: sticky; top: 0;
+}
+.table > tbody > tr > td {
+  border-top: 1px solid var(--border) !important;
+  padding: 13px 16px !important;
+  color: var(--text-2) !important;
+  font-size: 13.5px !important;
+  vertical-align: middle !important;
+}
+.table-hover > tbody > tr { transition: background var(--e1-trans); }
+.table-hover > tbody > tr:hover {
+  background: var(--primary-soft) !important;
+}
+html.e1-dark .table-hover > tbody > tr:hover {
+  background: rgba(6,182,212,0.08) !important;
+}
+.table-striped > tbody > tr:nth-of-type(odd) {
+  background: var(--surface-2) !important;
+}
+.table-bordered { border: 1px solid var(--border) !important; }
+.table-bordered > thead > tr > th,
+.table-bordered > tbody > tr > td { border-color: var(--border) !important; }
+
+/* DataTables polish */
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+  border-radius: 10px !important;
+  border: 1px solid var(--border-strong) !important;
+  padding: 7px 12px !important;
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  font-family: var(--e1-font) !important;
+  height: 36px;
+}
+.dataTables_wrapper .dataTables_filter input:focus,
+.dataTables_wrapper .dataTables_length select:focus {
+  border-color: var(--primary) !important;
+  outline: none !important;
+  box-shadow: var(--e1-shadow-glow) !important;
+}
+.dataTables_wrapper .pagination > li > a,
+.dataTables_wrapper .pagination > li > span {
+  border-radius: 8px !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text-2) !important;
+  margin: 0 2px;
+  background: var(--surface) !important;
+}
+.dataTables_wrapper .pagination > .active > a,
+.dataTables_wrapper .pagination > .active > span {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+}
+.dataTables_info, .dataTables_length, .dataTables_filter { color: var(--text-3); font-size: 13px; }
+
+/* =========================================================================
+ * 12.  STATUS PILLS / BADGES — with optional neon glow + pulse
+ * ========================================================================= */
+.label, .badge {
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
+  font-size: 11.5px !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.4;
+  text-transform: none;
+  font-family: var(--e1-font) !important;
+}
+.label-success, .badge-success { background: var(--success-soft) !important; color: #047857 !important; }
+.label-danger,  .badge-danger,
+.badge-deactive, .badge-expired { background: var(--danger-soft)  !important; color: #B91C1C !important; }
+.label-warning, .badge-warning { background: var(--warning-soft) !important; color: #B45309 !important; }
+.label-info,    .badge-info    { background: var(--info-soft)    !important; color: #1D4ED8 !important; }
+.label-primary, .badge-primary { background: var(--primary-soft) !important; color: var(--primary-dark) !important; }
+.label-default, .badge-default { background: var(--surface-3)    !important; color: var(--text-2)  !important; }
+html.e1-dark .label-success { color: #6EE7B7 !important; }
+html.e1-dark .label-danger  { color: #FCA5A5 !important; }
+html.e1-dark .label-warning { color: #FCD34D !important; }
+html.e1-dark .label-info    { color: #93C5FD !important; }
+html.e1-dark .label-primary { color: #67E8F9 !important; }
+
+/* Status pill helper (.e1-pill) */
+.e1-pill, .pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  font-family: var(--e1-font) !important;
+}
+.e1-pill::before, .pill::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+.e1-pill.online,  .pill.online,  .pill.active   { background: var(--success-soft); color: var(--success); }
+.e1-pill.offline, .pill.offline, .pill.deactive { background: var(--danger-soft);  color: var(--danger);  }
+.e1-pill.pending, .pill.pending, .pill.expired  { background: var(--warning-soft); color: var(--warning); }
+.e1-pill.info,    .pill.info                    { background: var(--info-soft);    color: var(--info);    }
+
+/* Neon pulse for "online/live" indicators */
+.e1-pill.online::before, .pill.live::before {
+  box-shadow: 0 0 0 0 rgba(16,185,129,0.45);
+  animation: e1-pulse 1.8s ease-out infinite;
+}
+@keyframes e1-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+}
+
+/* Generic dashboard chips */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+/* =========================================================================
+ * 13.  MODALS — glassmorphism, smooth
+ * ========================================================================= */
+.modal-backdrop, .modal-backdrop.in { background: #060A16 !important; opacity: 0.55 !important; }
+html.e1-dark .modal-backdrop, html.e1-dark .modal-backdrop.in { opacity: 0.78 !important; }
+.modal-content {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--e1-r-lg) !important;
+  box-shadow: var(--e1-shadow-xl) !important;
+  background: var(--surface) !important;
+  overflow: hidden;
+}
+html.e1-dark .modal-content {
+  background: rgba(15,23,42,0.94) !important;
+  backdrop-filter: saturate(180%) blur(20px);
+}
+.modal-header {
+  border-bottom: 1px solid var(--border) !important;
+  padding: 18px 22px !important;
+}
+.modal-title { color: var(--text) !important; font-weight: 700 !important; font-size: 17px !important; }
+.modal-body  { padding: 20px 22px !important; color: var(--text-2); }
+.modal-footer { border-top: 1px solid var(--border) !important; padding: 14px 22px !important; }
+.modal-header .close { color: var(--text-3); opacity: 0.7; transition: opacity var(--e1-trans); font-size: 22px; }
+.modal-header .close:hover { opacity: 1; color: var(--text); }
+
+/* =========================================================================
+ * 14.  ALERTS — softer, modern
+ * ========================================================================= */
+.alert {
+  border-radius: var(--e1-r) !important;
+  border: 1px solid transparent !important;
+  font-weight: 500;
+  padding: 14px 16px !important;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.alert-success { background: var(--success-soft) !important; color: #065F46 !important; border-color:#A7F3D0 !important; }
+.alert-danger  { background: var(--danger-soft)  !important; color: #991B1B !important; border-color:#FCA5A5 !important; }
+.alert-warning { background: var(--warning-soft) !important; color: #92400E !important; border-color:#FCD34D !important; }
+.alert-info    { background: var(--info-soft)    !important; color: #1E40AF !important; border-color:#93C5FD !important; }
+html.e1-dark .alert-success { color: #6EE7B7 !important; border-color: rgba(110,231,183,0.20) !important; }
+html.e1-dark .alert-danger  { color: #FCA5A5 !important; border-color: rgba(252,165,165,0.20) !important; }
+html.e1-dark .alert-warning { color: #FCD34D !important; border-color: rgba(252,211,77,0.20) !important; }
+html.e1-dark .alert-info    { color: #93C5FD !important; border-color: rgba(147,197,253,0.20) !important; }
+
+/* =========================================================================
+ * 15.  NAV TABS / PILLS
+ * ========================================================================= */
+.nav-tabs {
+  border-bottom: 1px solid var(--border) !important;
+  display: flex; gap: 4px;
+  flex-wrap: wrap;
+}
+.nav-tabs > li { margin-bottom: -1px; }
+.nav-tabs > li > a {
+  border: 0 !important;
+  border-radius: 10px 10px 0 0 !important;
+  color: var(--text-3) !important;
+  font-weight: 600;
+  padding: 10px 16px !important;
+  position: relative;
+  background: transparent !important;
+  transition: color var(--e1-trans);
+}
+.nav-tabs > li > a:hover {
+  background: var(--surface-3) !important;
+  color: var(--text) !important;
+}
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  background: transparent !important;
+  color: var(--primary-dark) !important;
+  border: 0 !important;
+}
+.nav-tabs > li.active > a::after {
+  content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px;
+  height: 3px; background: var(--primary); border-radius: 3px 3px 0 0;
+  box-shadow: 0 -2px 12px rgba(6,182,212,0.45);
+}
+.nav-pills > li > a {
+  border-radius: 10px !important;
+  color: var(--text-2) !important;
+  font-weight: 600;
+}
+.nav-pills > li.active > a {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+/* =========================================================================
+ * 16.  DROPDOWNS — glassy, refined
+ * ========================================================================= */
+.dropdown-menu {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--e1-shadow-lg) !important;
+  padding: 6px !important;
+  background: var(--surface) !important;
+  min-width: 180px;
+}
+html.e1-dark .dropdown-menu {
+  background: rgba(15,23,42,0.96) !important;
+  backdrop-filter: blur(14px);
+}
+.dropdown-menu > li > a {
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 13.5px;
+  color: var(--text-2) !important;
+  transition: all var(--e1-trans);
+}
+.dropdown-menu > li > a:hover {
+  background: var(--primary-soft) !important;
+  color: var(--primary-dark) !important;
+}
+html.e1-dark .dropdown-menu > li > a:hover {
+  background: rgba(6,182,212,0.10) !important;
+  color: #67E8F9 !important;
+}
+.dropdown-menu .divider { background: var(--border) !important; margin: 6px 0; }
+
+/* =========================================================================
+ * 17.  THEME TOGGLE — premium pill button injected by JS
+ * ========================================================================= */
+/* Icon-only circular button. Positioned bottom-right so it never collides
+   with the navbar user menu/notifications. */
+.e1-theme-toggle {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 9999;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: var(--e1-font);
+  cursor: pointer;
+  box-shadow: var(--e1-shadow-lg);
+  transition: all var(--e1-trans);
+}
+.e1-theme-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 14px 36px rgba(6,182,212,0.30);
+}
+.e1-theme-toggle .bi {
+  font-size: 18px;
+  transition: transform var(--e1-trans);
+}
+.e1-theme-toggle:hover .bi { transform: rotate(-15deg) scale(1.12); }
+/* hide the text label on the floating circle */
+.e1-theme-toggle span:not(.bi) { display: none; }
+html.e1-dark .e1-theme-toggle {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.14);
+}
+@media (max-width: 768px) { .e1-theme-toggle { bottom: 84px; right: 16px; width: 42px; height: 42px; } }
+
+/* =========================================================================
+ * 18.  MOBILE BOTTOM NAV — auto-built by JS for small screens
+ * ========================================================================= */
+.e1-mobile-bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1500;
+  display: none;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(15,23,42,0.08);
+  padding: 6px 4px env(safe-area-inset-bottom, 4px);
+}
+html.e1-dark .e1-mobile-bottom-nav {
+  background: rgba(7,16,31,0.92);
+  border-top-color: rgba(255,255,255,0.06);
+}
+.e1-mobile-bottom-nav-inner {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+}
+.e1-mobile-bottom-nav a {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 6px 4px;
+  text-decoration: none;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 10px;
+  transition: all var(--e1-trans);
+  min-height: 56px;
+}
+.e1-mobile-bottom-nav a .bi { font-size: 18px; margin-bottom: 3px; transition: transform var(--e1-trans); }
+.e1-mobile-bottom-nav a:hover { background: var(--primary-soft); color: var(--primary-dark); }
+.e1-mobile-bottom-nav a.active {
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+}
+.e1-mobile-bottom-nav a.active .bi { transform: scale(1.15); }
+
+@media (max-width: 767px) {
+  .e1-mobile-bottom-nav { display: block; }
+  .content-wrapper { padding-bottom: 80px !important; }
+}
+
+/* =========================================================================
+ * 19.  LOGIN / REGISTER PAGES — premium gradient hero
+ * ========================================================================= */
+.login-page, .register-page {
+  background:
+    radial-gradient(ellipse at 25% 20%, rgba(6,182,212,0.20), transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(139,92,246,0.18), transparent 55%),
+    var(--bg-2) !important;
+}
+.login-box, .register-box { width: 420px; max-width: 92vw; }
+.login-box-body, .register-box-body {
+  background: var(--surface) !important;
+  border-radius: var(--e1-r-lg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--e1-shadow-lg) !important;
+  padding: 32px !important;
+}
+.login-logo a, .register-logo a {
+  color: var(--text) !important;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: 24px;
+}
+
+/* =========================================================================
+ * 20.  MISC POLISH — tooltips, scrollbar accent, avatars, hr, code, etc.
+ * ========================================================================= */
+hr { border-top: 1px solid var(--border) !important; opacity: 1; margin: 18px 0; }
+.tooltip-inner {
+  background: #0B1224 !important;
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--e1-font) !important;
+}
+.tooltip.top  .tooltip-arrow { border-top-color: #0B1224 !important; }
+.tooltip.bottom .tooltip-arrow { border-bottom-color: #0B1224 !important; }
+.user-image, .img-circle {
+  box-shadow: 0 0 0 2px var(--surface), 0 4px 12px rgba(15,23,42,0.10);
+}
+code, kbd, pre, samp {
+  font-family: var(--e1-font-mono) !important;
+  background: var(--surface-3);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+pre {
+  padding: 14px 16px;
+  border-radius: var(--e1-r);
+  overflow-x: auto;
+}
+.table-responsive { border: 0 !important; }
+.fa-spinner, .fa-spin { color: var(--primary); }
+
+/* AdminLTE skin overrides */
+.skin-blue, .skin-blue-light, .skin-purple, .skin-black {
+  background: var(--bg) !important;
+}
+
+/* Pretty progress bars */
+.progress {
+  background: var(--surface-3) !important;
+  border-radius: 999px !important;
+  height: 8px !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+.progress-bar {
+  background: linear-gradient(90deg, #06B6D4, #8B5CF6) !important;
+  box-shadow: 0 0 12px rgba(6,182,212,0.45);
+}
+.progress-bar.progress-bar-success { background: linear-gradient(90deg, #10B981, #059669) !important; }
+.progress-bar.progress-bar-warning { background: linear-gradient(90deg, #F59E0B, #D97706) !important; }
+.progress-bar.progress-bar-danger  { background: linear-gradient(90deg, #EF4444, #DC2626) !important; }
+
+/* List groups */
+.list-group-item {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+.list-group-item.active { background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important; }
+
+/* =========================================================================
+ * 21.  ANIMATIONS  — premium subtle entrance
+ * ========================================================================= */
+@keyframes e1-fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes e1-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.box, .panel, .card, .small-box, .welcome-banner {
+  animation: e1-fade-in-up 360ms cubic-bezier(.2,.7,.2,1) both;
+}
+.small-box:nth-child(2) { animation-delay: 30ms; }
+.small-box:nth-child(3) { animation-delay: 60ms; }
+.small-box:nth-child(4) { animation-delay: 90ms; }
+.small-box:nth-child(5) { animation-delay: 120ms; }
+.box:nth-of-type(2)    { animation-delay: 60ms; }
+.box:nth-of-type(3)    { animation-delay: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Skeleton loader helper */
+.e1-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: var(--e1-r-sm);
+}
+.e1-skeleton::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  animation: e1-shimmer 1.4s linear infinite;
+}
+html.e1-dark .e1-skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+}
+@keyframes e1-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* =========================================================================
+ * 22.  RESPONSIVE TUNING
+ * ========================================================================= */
+@media (max-width: 991px) {
+  .content { padding: 14px 16px !important; }
+  .content-header { padding: 12px 16px 4px !important; }
+  .small-box > .inner > h3 { font-size: 26px !important; }
+  .small-box > .icon { width: 46px !important; height: 46px !important; font-size: 22px !important; }
+  .box-header, .panel-heading { padding: 14px 16px !important; }
+  .box-body, .panel-body { padding: 16px !important; }
+  .main-header .navbar { margin-left: 0 !important; }
+}
+@media (max-width: 767px) {
+  /* Force tables to be horizontally scrollable */
+  .box-body, .panel-body, .card-body { overflow-x: auto; }
+  /* AdminLTE collapses sidebar — keep our hero looking right */
+  .welcome-banner { padding: 18px !important; }
+  .welcome-banner h2 { font-size: 18px !important; }
+}
+@media (max-width: 540px) {
+  .small-box > .inner > h3 { font-size: 22px !important; }
+  .table > thead > tr > th, .table > tbody > tr > td { padding: 10px 11px !important; font-size: 12.5px !important; }
+  h1, .content-header h1 { font-size: 19px !important; }
+  .btn { padding: 8px 14px !important; font-size: 13px !important; }
+  .btn-sm { padding: 6px 11px !important; font-size: 12px !important; }
+}
+
+/* =========================================================================
+ * 23.  PRINT
+ * ========================================================================= */
+@media print {
+  body::before { display: none; }
+  .main-sidebar, .main-header, .e1-theme-toggle, .e1-mobile-bottom-nav,
+  .content-header > .breadcrumb, .box-tools { display: none !important; }
+  .content-wrapper { margin-left: 0 !important; padding: 0 !important; }
+  .box, .panel, .card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; }
+}
+
+/* =========================================================================
+ * 24.  E1 UTILITIES — opt-in classes for new templates
+ * ========================================================================= */
+.e1-grid { display: grid; gap: 16px; }
+.e1-grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.e1-grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.e1-grid.cols-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+@media (max-width: 991px) { .e1-grid.cols-3, .e1-grid.cols-4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 540px) { .e1-grid.cols-2, .e1-grid.cols-3, .e1-grid.cols-4 { grid-template-columns: 1fr; } }
+
+.e1-glass {
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: var(--e1-r-lg);
+}
+html.e1-dark .e1-glass {
+  background: rgba(15,23,42,0.55);
+  border-color: rgba(255,255,255,0.08);
+}
+
+/* Dark theme content text re-base (in case a page sets explicit colours) */
+html.e1-dark .box-body, html.e1-dark .panel-body,
+html.e1-dark .card-body { color: var(--text-2); }
+html.e1-dark .small-box { background: var(--surface) !important; }
+html.e1-dark .welcome-banner h2,
+html.e1-dark .welcome-banner p { color: #fff !important; }
+
+/* Hide that ugly AdminLTE "control sidebar" by default */
+.control-sidebar, .control-sidebar-bg { display: none !important; }
+.content-wrapper { margin-right: 0 !important; }
+
+/* =========================================================================
+ * 25.  HIGH-CONTRAST + MULTI-COLOR TEXT  (aspbilling in/isp style)
+ *
+ *   Fixes the "text invisible on white" bug and adds semantic colored text
+ *   per situation — IDs blue, phones teal, plans violet, amounts green/red,
+ *   names solid dark.  Heavy overrides because existing page templates set
+ *   their own (low contrast) colors with !important.
+ * ========================================================================= */
+
+/* --- BASE: force MEDIUM weight + DARK text on every cell, regardless of
+       what the per-page CSS set ---------------------------------------- */
+.table > tbody > tr > td,
+table.dataTable > tbody > tr > td,
+#usersTable tbody td,
+#plansTable tbody td,
+#sublcosTable tbody td,
+.table-bordered > tbody > tr > td,
+.box-body table td, .panel-body table td, .card-body table td {
+  color: var(--text) !important;
+  font-weight: 500 !important;
+  font-family: var(--e1-font) !important;
+}
+html.e1-dark .table > tbody > tr > td,
+html.e1-dark table.dataTable > tbody > tr > td,
+html.e1-dark #usersTable tbody td,
+html.e1-dark .box-body table td,
+html.e1-dark .panel-body table td {
+  color: #E2E8F0 !important;
+}
+
+/* Kill ALL random per-row dark backgrounds.  Force striping from our system. */
+.table > tbody > tr,
+table.dataTable > tbody > tr,
+#usersTable tbody tr {
+  background: transparent !important;
+}
+.table > tbody > tr > td,
+table.dataTable > tbody > tr > td,
+#usersTable tbody td {
+  background: var(--surface) !important;
+}
+.table > tbody > tr:nth-of-type(odd) > td,
+table.dataTable > tbody > tr:nth-of-type(odd) > td,
+#usersTable tbody tr:nth-of-type(odd) td {
+  background: var(--surface-2) !important;
+}
+.table > tbody > tr:hover > td,
+table.dataTable > tbody > tr:hover > td,
+#usersTable tbody tr:hover td {
+  background: var(--primary-soft) !important;
+}
+html.e1-dark .table > tbody > tr > td,
+html.e1-dark table.dataTable > tbody > tr > td,
+html.e1-dark #usersTable tbody td {
+  background: var(--surface) !important;
+  border-bottom-color: rgba(255,255,255,0.06) !important;
+}
+html.e1-dark .table > tbody > tr:nth-of-type(odd) > td,
+html.e1-dark table.dataTable > tbody > tr:nth-of-type(odd) > td,
+html.e1-dark #usersTable tbody tr:nth-of-type(odd) td {
+  background: rgba(255,255,255,0.025) !important;
+}
+html.e1-dark .table > tbody > tr:hover > td,
+html.e1-dark #usersTable tbody tr:hover td {
+  background: rgba(59,130,246,0.10) !important;
+}
+
+/* Override the per-page admin_users.html dark headers with our brand */
+#usersTable thead tr th {
+  background: var(--surface-3) !important;
+  background-color: var(--surface-3) !important;
+  color: var(--text-3) !important;
+  border-color: var(--border) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 10px !important;
+}
+html.e1-dark #usersTable thead tr th {
+  background: rgba(255,255,255,0.04) !important;
+  color: var(--text-3) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+}
+
+/* --- SEMANTIC TEXT COLORS --------------------------------------------
+   These cover the most common patterns we see in the existing tables. */
+
+/* Customer / Sub-LCO / ID — anything that looks like a clickable ID */
+#usersTable tbody td a,
+#sublcosTable tbody td a,
+.table a[href*="/admin/subscribers"],
+.table a[href*="/admin/sub-lco"],
+.table a[href*="/admin/customer"],
+a.customer-id, a.subscriber-id, .e1-id, code.e1-id {
+  color: var(--primary-dark) !important;
+  font-weight: 700 !important;
+  font-family: var(--e1-font-mono) !important;
+  font-size: 12.5px !important;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: color var(--e1-trans);
+}
+#usersTable tbody td a:hover,
+#sublcosTable tbody td a:hover,
+.table a[href*="/admin/subscribers"]:hover,
+a.customer-id:hover, a.subscriber-id:hover {
+  color: var(--primary) !important;
+  text-decoration: underline;
+}
+html.e1-dark #usersTable tbody td a,
+html.e1-dark #sublcosTable tbody td a,
+html.e1-dark .table a[href*="/admin/subscribers"],
+html.e1-dark a.customer-id {
+  color: #93C5FD !important;
+}
+
+/* Phone numbers — auto-color cells that look like a mobile number */
+.table td .phone, .e1-phone, a[href^="tel:"], a[href^="https://wa.me/"] {
+  color: var(--success) !important;
+  font-weight: 600 !important;
+  font-family: var(--e1-font-mono) !important;
+  font-size: 12.5px !important;
+}
+html.e1-dark .table td .phone,
+html.e1-dark .e1-phone,
+html.e1-dark a[href^="tel:"],
+html.e1-dark a[href^="https://wa.me/"] {
+  color: #6EE7B7 !important;
+}
+
+/* Amounts — currency text and amount cells */
+.e1-amount-paid, .amount-paid, td.amount-paid,
+.text-success, td .text-success { color: var(--success) !important; font-weight: 700 !important; }
+.e1-amount-due,  .amount-due,  td.amount-due,
+.text-danger,  td .text-danger { color: var(--danger) !important; font-weight: 700 !important; }
+.text-warning, td .text-warning { color: var(--warning) !important; font-weight: 700 !important; }
+.text-info,    td .text-info    { color: var(--info) !important; font-weight: 700 !important; }
+.text-primary, td .text-primary { color: var(--primary-dark) !important; font-weight: 700 !important; }
+html.e1-dark .text-success, html.e1-dark .e1-amount-paid { color: #6EE7B7 !important; }
+html.e1-dark .text-danger,  html.e1-dark .e1-amount-due  { color: #FCA5A5 !important; }
+html.e1-dark .text-warning { color: #FCD34D !important; }
+html.e1-dark .text-info { color: #67E8F9 !important; }
+html.e1-dark .text-primary { color: #93C5FD !important; }
+
+/* Plan name cells */
+.e1-plan, td.plan-name, .plan-name-cell {
+  color: var(--e1-violet-2) !important;
+  font-weight: 600 !important;
+}
+html.e1-dark .e1-plan, html.e1-dark td.plan-name {
+  color: #C4B5FD !important;
+}
+
+/* Email links */
+a[href^="mailto:"] {
+  color: var(--info) !important;
+  font-weight: 500;
+}
+html.e1-dark a[href^="mailto:"] { color: #67E8F9 !important; }
+
+/* The "Online" green text used inline in tables */
+.table td:contains("Online") { color: var(--success) !important; }
+.e1-online, td .online-indicator {
+  color: var(--success) !important;
+  font-weight: 700;
+  font-size: 12.5px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.e1-online::before, td .online-indicator::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 0 rgba(16,185,129,0.45);
+  animation: e1-pulse 1.8s ease-out infinite;
+}
+
+/* Customer NAME cell — make it solid dark + medium-bold */
+#usersTable tbody td:nth-child(3),       /* common position */
+#usersTable tbody td.customer-name-cell,
+.e1-name, td.name-cell {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  font-size: 13.5px !important;
+  letter-spacing: -0.005em;
+}
+html.e1-dark #usersTable tbody td:nth-child(3),
+html.e1-dark .e1-name { color: #F1F5F9 !important; }
+
+/* Currency amounts (₹...) — solid + tabular numerics */
+#usersTable tbody td:nth-child(7),
+#usersTable tbody td:nth-child(8),
+#usersTable tbody td:nth-child(9),
+.e1-currency, td.currency-cell {
+  font-family: var(--e1-font) !important;
+  font-feature-settings: 'tnum';
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  font-size: 13.5px !important;
+}
+html.e1-dark #usersTable tbody td:nth-child(7),
+html.e1-dark #usersTable tbody td:nth-child(8),
+html.e1-dark #usersTable tbody td:nth-child(9),
+html.e1-dark .e1-currency { color: #F1F5F9 !important; }
+
+/* Status pills already styled — but ensure the "Parked" pill stands out */
+.status-parked, .label-parked, .badge-parked {
+  background: rgba(245,158,11,0.18) !important;
+  color: var(--warning) !important;
+  font-weight: 700 !important;
+  padding: 3px 10px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  display: inline-flex; align-items: center; gap: 5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.status-parked::before, .label-parked::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+
+/* --- CARDS: round to 24 px (aspbilling rounded-3xl) ---------------------- */
+.box, .panel, .card, .small-box, .welcome-banner,
+.login-box-body, .register-box-body {
+  border-radius: 22px !important;
+}
+.box-header, .panel-heading, .card-header { border-radius: 22px 22px 0 0 !important; }
+.box-footer, .panel-footer, .card-footer { border-radius: 0 0 22px 22px !important; }
+
+/* --- DEAD ZONE FIX: per-page CSS that sets td color to gray gets nuked
+       Force any cell that contains a plain text node to use --text ----- */
+.table > tbody > tr > td span:not([class*="label"]):not([class*="badge"]):not([class*="status"]):not([class*="pill"]):not([class*="chip"]) {
+  color: inherit;
+}
+
+/* --- LOCALITY / ADDRESS columns — slightly muted but still readable -- */
+.e1-locality, td.locality-cell {
+  color: var(--text-3) !important;
+  font-weight: 500 !important;
+  font-size: 12.5px !important;
+  letter-spacing: 0.005em;
+}
+
+/* --- DATE columns — neutral, smaller, monospaced ---------------------- */
+.e1-date, td.date-cell, td:last-child {
+  font-feature-settings: 'tnum';
+}
+.e1-date { color: var(--text-3) !important; font-family: var(--e1-font-mono) !important; font-size: 12px !important; font-weight: 600 !important; }
+
+/* --- SELECTION ROW (when selectall checkbox is used) ----------------- */
+.table > tbody > tr.selected > td,
+#usersTable tbody tr.selected td { background: rgba(59,130,246,0.10) !important; }
+
+/* --- BUTTONS in tables — slightly smaller and pill ------------------ */
+.table .btn, .box-body .btn-xs, .panel-body .btn-xs {
+  border-radius: 8px !important;
+  padding: 5px 11px !important;
+  font-size: 12px !important;
+}
+
+/* --- aspbilling-style BLUE LINK on the page --------------------------------- */
+a:not(.btn):not(.label):not(.badge):not(.dropdown-toggle):not(.nav-link):not(.sidebar-menu a):not(.small-box-footer):not(.thumbnail):not(.brand-link) {
+  transition: color var(--e1-trans);
+}
+
+/* --- Make table action ICONS more colorful per action ---------------- */
+.actions-cell a, .actions-cell button, .table td.actions a {
+  transition: transform var(--e1-trans), color var(--e1-trans);
+}
+.actions-cell a:hover, .actions-cell button:hover { transform: translateY(-1px) scale(1.08); }
+.actions-cell .bi-eye, .actions-cell .fa-eye { color: var(--info) !important; }
+.actions-cell .bi-currency-rupee, .actions-cell .fa-rupee, .actions-cell .bi-cash-coin { color: var(--success) !important; }
+.actions-cell .bi-arrow-clockwise, .actions-cell .fa-refresh, .actions-cell .bi-arrow-repeat { color: var(--warning) !important; }
+.actions-cell .bi-send, .actions-cell .fa-send, .actions-cell .bi-send-fill { color: var(--primary) !important; }
+.actions-cell .bi-trash, .actions-cell .fa-trash { color: var(--danger) !important; }
+.actions-cell .bi-telephone, .actions-cell .fa-phone, .actions-cell .bi-telephone-fill { color: var(--success) !important; }
+.actions-cell .bi-chat, .actions-cell .fa-comment, .actions-cell .bi-whatsapp { color: #25D366 !important; }
+.actions-cell .bi-pencil, .actions-cell .fa-pencil, .actions-cell .bi-pencil-square { color: var(--e1-violet) !important; }
+.actions-cell .bi-download, .actions-cell .fa-download { color: var(--info) !important; }
+.actions-cell .bi-key, .actions-cell .fa-key, .actions-cell .bi-key-fill { color: var(--warning) !important; }
+
+/* --- Forms inside dark-themed modal headers ------------------------- */
+.modal-header[style*="background"] { color: #fff !important; }
+.modal-header[style*="background"] .close,
+.modal-header[style*="background"] .modal-title { color: #fff !important; }
+
+/* --- Override hard-coded #fafbfd backgrounds (admin_users.html line 224) */
+[style*="background: #fafbfd"], [style*="background:#fafbfd"] {
+  background: var(--surface-2) !important;
+}
+
+/* --- "Run Renewals Now" floating CTA — preserve but blend with brand */
+.run-renewals-cta, [class*="run-renewals"] {
+  background: linear-gradient(135deg, #F59E0B 0%, #DC2626 100%) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  box-shadow: 0 12px 32px rgba(220,38,38,0.30) !important;
+  font-weight: 700 !important;
+}
+
+/* --- SIDEBAR ACTIVE polish for new blue ------------------------------ */
+.sidebar-menu > li.active > a::before { background: var(--primary); box-shadow: 0 0 14px var(--primary); }
+.sidebar-menu > li > a:hover > i,
+.sidebar-menu > li > a:hover > .bi { color: var(--primary) !important; }
+.sidebar-menu > li.active > a > i,
+.sidebar-menu > li.active > a > .bi { color: var(--primary) !important; }
+
+/* === aspbilling in/isp style — extra-rounded glassy cards on dark mode ==== */
+html.e1-dark .box, html.e1-dark .panel, html.e1-dark .card,
+html.e1-dark .small-box {
+  background: rgba(15,23,42,0.85) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+  border-top-color: rgba(255,255,255,0.10) !important;
+  backdrop-filter: blur(8px);
+}
+html.e1-dark body { background: #020617 !important; }
+html.e1-dark body::before {
+  background:
+    radial-gradient(ellipse 1100px 700px at 10% -10%, rgba(59,130,246,0.14), transparent 60%),
+    radial-gradient(ellipse 900px 600px at 92% 110%, rgba(139,92,246,0.10), transparent 60%);
+}
+
+/* =========================================================================
+ * 26.  NO-WHITE-IN-DARK MODE — eliminate every white background leak
+ *
+ *   When dark mode is active, NOTHING should render with a white bg.
+ *   This block hammers down on inline-style whites, hard-coded modal
+ *   headers, white form elements, and per-page Bootstrap overrides.
+ * ========================================================================= */
+
+/* All known surfaces in dark mode */
+html.e1-dark .modal-content,
+html.e1-dark .modal-body,
+html.e1-dark .modal-header,
+html.e1-dark .modal-footer,
+html.e1-dark .popover,
+html.e1-dark .popover-content,
+html.e1-dark .dropdown-menu,
+html.e1-dark .tooltip-inner,
+html.e1-dark .ui-widget-content,
+html.e1-dark .ui-menu,
+html.e1-dark .select2-container--default .select2-selection,
+html.e1-dark .select2-dropdown,
+html.e1-dark .select2-results__option,
+html.e1-dark .daterangepicker,
+html.e1-dark .form-control,
+html.e1-dark input, html.e1-dark textarea, html.e1-dark select,
+html.e1-dark .box, html.e1-dark .panel, html.e1-dark .card,
+html.e1-dark .small-box, html.e1-dark .nav-tabs-custom,
+html.e1-dark .login-box-body, html.e1-dark .register-box-body {
+  background: var(--surface) !important;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+html.e1-dark .modal-content { background: #243056 !important; background-image: none !important; opacity: 1 !important; }
+html.e1-dark .modal-header  { background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important; color: #FFFFFF !important; border-bottom: 1px solid rgba(255,255,255,0.14) !important; padding: 16px 22px !important; }
+html.e1-dark .modal-footer  { background: rgba(0,0,0,0.25) !important; border-top: 1px solid rgba(255,255,255,0.10) !important; padding: 14px 22px !important; }
+html.e1-dark .modal-body    { background: transparent !important; padding: 22px 24px !important; color: #F1F5F9 !important; }
+html.e1-dark .modal-title   { color: #FFFFFF !important; font-weight: 700 !important; font-size: 17px !important; }
+html.e1-dark .modal-header .close { color: #FFFFFF !important; opacity: 0.90 !important; text-shadow: none; font-size: 24px !important; }
+html.e1-dark .modal-header .close:hover { opacity: 1 !important; color: #FCA5A5 !important; }
+/* Body text inside modal: high-contrast */
+html.e1-dark .modal-body p, html.e1-dark .modal-body span,
+html.e1-dark .modal-body label, html.e1-dark .modal-body small,
+html.e1-dark .modal-body h1, html.e1-dark .modal-body h2,
+html.e1-dark .modal-body h3, html.e1-dark .modal-body h4,
+html.e1-dark .modal-body h5, html.e1-dark .modal-body h6,
+html.e1-dark .modal-body strong, html.e1-dark .modal-body b,
+html.e1-dark .modal-body li, html.e1-dark .modal-body td,
+html.e1-dark .modal-body th, html.e1-dark .modal-body div { color: #F1F5F9 !important; }
+html.e1-dark .modal-body .text-muted, html.e1-dark .modal-body .muted,
+html.e1-dark .modal-body .help-block, html.e1-dark .modal-body .form-text { color: #94A3B8 !important; }
+
+/* Force-override INLINE styles in dark mode  — covers per-template hard-codes
+   like style="background:#4A9B9B" (teal modal header), bg:white, etc. */
+html.e1-dark [style*="background: #fff"],
+html.e1-dark [style*="background:#fff"],
+html.e1-dark [style*="background: white"],
+html.e1-dark [style*="background:white"],
+html.e1-dark [style*="background:#ffffff"],
+html.e1-dark [style*="background: #ffffff"],
+html.e1-dark [style*="background:#FFFFFF"],
+html.e1-dark [style*="background-color: #fff"],
+html.e1-dark [style*="background-color:#fff"],
+html.e1-dark [style*="background-color: white"],
+html.e1-dark [style*="background-color:white"] {
+  background: var(--surface) !important;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+/* Modal-headers that use teal/cyan/specific brand bg via inline style  —
+   convert them all to a unified deep-slate header in dark mode. */
+html.e1-dark .modal-header[style*="#4A9B9B"],
+html.e1-dark .modal-header[style*="background:#4A9B9B"],
+html.e1-dark .modal-header[style*="#0f172a"],
+html.e1-dark .modal-header[style*="background:#0f172a"],
+html.e1-dark [style*="background: #4A9B9B"],
+html.e1-dark [style*="background:#4A9B9B"] {
+  background: linear-gradient(135deg, #131D3D 0%, #1B2851 100%) !important;
+  background-color: #131D3D !important;
+  color: #F1F5F9 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* In light mode, also de-uglify the teal #4A9B9B modal headers — switch to
+   our brand gradient (blue → indigo) for consistency with the rest of the UI. */
+html:not(.e1-dark) .modal-header[style*="#4A9B9B"],
+html:not(.e1-dark) .modal-header[style*="background:#4A9B9B"],
+html:not(.e1-dark) [style*="background: #4A9B9B"],
+html:not(.e1-dark) [style*="background:#4A9B9B"] {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  background-color: #3B82F6 !important;
+  color: #FFFFFF !important;
+  border-bottom: 0 !important;
+}
+
+/* Make EVERY form input in dark mode dark, even if the page set it white */
+html.e1-dark input[type="text"],
+html.e1-dark input[type="email"],
+html.e1-dark input[type="password"],
+html.e1-dark input[type="tel"],
+html.e1-dark input[type="number"],
+html.e1-dark input[type="search"],
+html.e1-dark input[type="date"],
+html.e1-dark input[type="datetime-local"],
+html.e1-dark input[type="time"],
+html.e1-dark input[type="url"],
+html.e1-dark textarea,
+html.e1-dark select,
+html.e1-dark .form-control {
+  background: rgba(255,255,255,0.04) !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+html.e1-dark .form-control::placeholder,
+html.e1-dark input::placeholder { color: #64748B !important; }
+html.e1-dark .form-control:focus,
+html.e1-dark input:focus, html.e1-dark textarea:focus, html.e1-dark select:focus {
+  border-color: var(--primary) !important;
+  background: rgba(59,130,246,0.06) !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.15) !important;
+}
+html.e1-dark .input-group-addon, html.e1-dark .input-group-text {
+  background: rgba(255,255,255,0.04) !important;
+  border-color: rgba(255,255,255,0.10) !important;
+  color: var(--text-2) !important;
+}
+
+/* Tables in dark mode — every td gets dark regardless of per-page override */
+html.e1-dark table, html.e1-dark .table { background: transparent !important; }
+html.e1-dark .table > thead > tr > th,
+html.e1-dark table.dataTable > thead > tr > th,
+html.e1-dark #usersTable thead tr th {
+  background: rgba(255,255,255,0.04) !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  color: #94A3B8 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+html.e1-dark .table > tbody > tr > td,
+html.e1-dark table.dataTable > tbody > tr > td,
+html.e1-dark #usersTable tbody td,
+html.e1-dark .table-bordered > tbody > tr > td {
+  background: #0E1730 !important;
+  background-color: #0E1730 !important;
+  color: #E2E8F0 !important;
+  border-bottom-color: rgba(255,255,255,0.05) !important;
+}
+html.e1-dark .table > tbody > tr:nth-of-type(odd) > td,
+html.e1-dark table.dataTable > tbody > tr:nth-of-type(odd) > td,
+html.e1-dark #usersTable tbody tr:nth-of-type(odd) td {
+  background: #131D3D !important;
+  background-color: #131D3D !important;
+}
+html.e1-dark .table > tbody > tr:hover > td,
+html.e1-dark #usersTable tbody tr:hover td {
+  background: rgba(59,130,246,0.10) !important;
+}
+
+/* The mobile customer detail "card" buttons (the screenshot showing
+   teal action bars on a white page) — kill the white wrapper and give
+   the buttons a unified premium look. */
+html.e1-dark .container, html.e1-dark .container-fluid,
+html.e1-dark main, html.e1-dark .content, html.e1-dark .content-wrapper {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+/* Bootstrap helpers — bg-white / bg-light must NOT show white in dark */
+html.e1-dark .bg-white, html.e1-dark .bg-light {
+  background: var(--surface) !important;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+/* Light theme: also normalize teal-action button blocks for a consistent
+   premium feel (subscriber detail page).  These currently look like the
+   2010 era buttons.  Round + soft elevation. */
+.btn[style*="background:#4A9B9B"],
+.btn[style*="background: #4A9B9B"],
+a[style*="background:#4A9B9B"], a[style*="background: #4A9B9B"],
+button[style*="background:#4A9B9B"], button[style*="background: #4A9B9B"] {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  background-color: #3B82F6 !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.20) !important;
+  border: 0 !important;
+  letter-spacing: 0.01em;
+}
+
+/* Dropdowns in dark mode */
+html.e1-dark .dropdown-menu {
+  background: rgba(15,23,42,0.98) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  backdrop-filter: blur(12px);
+}
+html.e1-dark .dropdown-menu > li > a { color: #E2E8F0 !important; }
+html.e1-dark .dropdown-menu > li > a:hover {
+  background: rgba(59,130,246,0.10) !important;
+  color: #93C5FD !important;
+}
+
+/* Top navbar in dark mode — fully solid dark, never glassy white */
+html.e1-dark .main-header .navbar { background: rgba(7,16,31,0.88) !important; }
+html.e1-dark .main-header .logo { background: #03070F !important; }
+html.e1-dark .main-header .navbar .nav > li > a { color: #CBD5E1 !important; }
+html.e1-dark .main-header .navbar .nav > li > a:hover {
+  background: rgba(255,255,255,0.04) !important;
+  color: #93C5FD !important;
+}
+html.e1-dark .main-header .sidebar-toggle { color: #CBD5E1 !important; }
+
+/* Datepicker / Daterangepicker in dark */
+html.e1-dark .daterangepicker {
+  background: #0E1730 !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  color: #E2E8F0 !important;
+}
+html.e1-dark .daterangepicker td, html.e1-dark .daterangepicker th { color: #E2E8F0 !important; }
+html.e1-dark .daterangepicker td.in-range { background: rgba(59,130,246,0.18) !important; color: #fff !important; }
+html.e1-dark .daterangepicker td.active { background: #3B82F6 !important; color: #fff !important; }
+
+/* Welcome banner in dark mode — keep it cinematic but contained */
+html.e1-dark .welcome-banner {
+  background: linear-gradient(135deg, #131D3D 0%, #1B2851 50%, #1E3A8A 100%) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+html.e1-dark .welcome-banner::before {
+  background:
+    radial-gradient(ellipse 600px 360px at 0% 0%, rgba(59,130,246,0.18), transparent 60%),
+    radial-gradient(ellipse 700px 400px at 100% 100%, rgba(139,92,246,0.22), transparent 60%) !important;
+}
+
+/* Customer subscriber detail page mobile-card buttons — normalize */
+html:not(.e1-dark) .btn-block[style*="background:#4A9B9B"],
+html:not(.e1-dark) .btn-block[style*="background: #4A9B9B"] {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.20) !important;
+  margin-bottom: 10px;
+}
+html.e1-dark .btn-block[style*="background:#4A9B9B"],
+html.e1-dark .btn-block[style*="background: #4A9B9B"] {
+  background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  padding: 12px 16px !important;
+  margin-bottom: 10px;
+}
+
+/* Theme transition smoothing — when theme switches, transition colors */
+html, body, .box, .panel, .card, .small-box, .modal-content,
+.modal-header, .modal-body, .modal-footer, .form-control,
+.main-header .navbar, .main-sidebar, .table > tbody > tr > td,
+.table > thead > tr > th, .welcome-banner, .dropdown-menu,
+.sidebar-menu > li > a {
+  transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease;
+}
+
+/* Ensure status pills remain readable on every background */
+html.e1-dark .label-success, html.e1-dark .badge-success,
+html.e1-dark .status-active { background: rgba(16,185,129,0.18) !important; color: #6EE7B7 !important; }
+html.e1-dark .label-danger,  html.e1-dark .badge-danger,
+html.e1-dark .status-deactive { background: rgba(239,68,68,0.18) !important; color: #FCA5A5 !important; }
+html.e1-dark .label-warning, html.e1-dark .badge-warning,
+html.e1-dark .status-suspended, html.e1-dark .status-parked,
+html.e1-dark .label-parked { background: rgba(245,158,11,0.18) !important; color: #FCD34D !important; }
+html.e1-dark .label-info, html.e1-dark .badge-info { background: rgba(6,182,212,0.18) !important; color: #67E8F9 !important; }
+html.e1-dark .label-primary, html.e1-dark .badge-primary { background: rgba(59,130,246,0.18) !important; color: #93C5FD !important; }
+
+/* Sidebar — always dark (good), but ensure the search input adapts */
+html.e1-dark .e1-sidebar-search input {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+}
+
+/* Floating theme toggle — match the theme */
+html.e1-dark .e1-theme-toggle {
+  background: rgba(15,23,42,0.92);
+  border-color: rgba(255,255,255,0.10);
+  color: #E2E8F0;
+}
+
+/* When localStorage isn't yet read (no js, or 1st paint), do not show
+   "wrong-coloured" content for a moment — html[data-e1-theme="dark"] is
+   set by the inline boot snippet. */
+html[data-e1-theme="dark"] {
+  background: #020617;
+  color-scheme: dark;
+}
+html[data-e1-theme="light"] {
+  background: var(--bg);
+  color-scheme: light;
+}
+
+/* SUBSCRIBER DETAIL page — make sure the body region adapts to dark mode */
+html.e1-dark .subscriber-detail,
+html.e1-dark .subscriber-info,
+html.e1-dark .info-table,
+html.e1-dark .timeline,
+html.e1-dark .ticket-block,
+html.e1-dark .stats-block {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+/* Direct Message banner / orange CTAs from screenshot 1 */
+html.e1-dark .direct-message-banner,
+html.e1-dark [class*="direct-message"],
+html.e1-dark .alert-msg-banner {
+  background: linear-gradient(135deg, #B45309 0%, #92400E 100%) !important;
+  color: #FEF3C7 !important;
+}
+
+/* iPhone-style bottom sheet (mobile bottom nav) — already dark-ready */
+html.e1-dark .e1-mobile-bottom-nav {
+  background: rgba(3,7,15,0.92) !important;
+  border-top-color: rgba(255,255,255,0.06) !important;
+}
+
+/* Last-resort guards: ANY div with class containing "white" or "light" */
+html.e1-dark div.bg-white,
+html.e1-dark div.white-bg,
+html.e1-dark section.bg-white,
+html.e1-dark section.white-bg,
+html.e1-dark aside.bg-white,
+html.e1-dark .panel-white,
+html.e1-dark .card-white {
+  background: var(--surface) !important;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+/* =========================================================================
+ * 27.  DARK-ONLY ENFORCEMENT — site is permanently dark
+ *
+ *  - Native browser elements (<select>, <option>, scrollbars) use color-scheme
+ *  - Nested cards inside modals, "white panels" inside dark modals get dark
+ *  - Hide the floating theme toggle (kept the rule earlier just-in-case)
+ *  - Sidebar search removed by JS, but suppress any leftover via CSS too
+ *  - Page footer pinned to the bottom of the content area
+ * ========================================================================= */
+
+html { color-scheme: dark !important; }
+html, body, .wrapper, .content-wrapper, .main-sidebar, .left-side,
+.main-header, .navbar { color-scheme: dark; }
+
+/* HARD-HIDE the legacy theme toggle (JS removes it too, but suppress flicker) */
+#e1-theme-toggle, .e1-theme-toggle { display: none !important; }
+
+/* HARD-HIDE the legacy sidebar search box (per user request) */
+.e1-sidebar-search { display: none !important; }
+
+/* Native <select> options — force dark popup background */
+select, .form-control[type="select"], .form-control select {
+  color-scheme: dark;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #94A3B8 50%),
+    linear-gradient(135deg, #94A3B8 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+}
+option {
+  background: #0E1730 !important;
+  background-color: #0E1730 !important;
+  color: #E2E8F0 !important;
+}
+
+/* Modal content — KILL every white surface inside modals -------------- */
+.modal-content,
+.modal .modal-dialog .modal-content,
+.modal-dialog .modal-content,
+div.modal-content,
+[class*="Modal"] .modal-content,
+[id*="Modal"] .modal-content,
+[id*="modal"] .modal-content {
+  background-color: #243056 !important;
+  background: #243056 !important;
+  background-image: none !important;
+  color: #F1F5F9 !important;
+  border: 2px solid rgba(96,165,250,0.40) !important;
+  border-radius: 18px !important;
+  box-shadow:
+    0 50px 120px rgba(0,0,0,0.80),
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 0 60px rgba(59,130,246,0.18) !important;
+  opacity: 1 !important;
+}
+.modal-content > *,
+.modal-content .panel,
+.modal-content .box,
+.modal-content .card,
+.modal-content .well,
+.modal-content > div,
+.modal-dialog > * {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: #F1F5F9 !important;
+}
+.modal-content .panel-body,
+.modal-content .box-body,
+.modal-content .card-body,
+.modal-content .modal-body { background: transparent !important; }
+
+.modal-content .panel,
+.modal-content .box,
+.modal-content .card,
+.modal-content .well {
+  border-color: rgba(255,255,255,0.10) !important;
+  box-shadow: none !important;
+}
+
+/* === MODAL Z-INDEX / BACKDROP CORRECT LAYERING ====================
+   Bootstrap 3 sometimes layers backdrops above the modal-content on
+   pages that mount their own backdrop.  Force the right stacking. */
+.modal-backdrop, .modal-backdrop.in, .modal-backdrop.show {
+  z-index: 1060 !important;
+  background-color: #000814 !important;
+  opacity: 0.78 !important;
+}
+.modal-backdrop + .modal-backdrop { display: none !important; }
+.modal, .modal.fade, .modal.in, .modal.show {
+  z-index: 1070 !important;
+  pointer-events: auto !important;
+  background: transparent !important;
+  padding-top: 90px !important;
+  padding-bottom: 20px !important;
+}
+.modal-dialog {
+  z-index: 1071 !important;
+  pointer-events: auto !important;
+  margin: 0 auto !important;
+  margin-top: 0 !important;
+}
+.modal-content {
+  z-index: 1072 !important;
+  position: relative !important;
+  pointer-events: auto !important;
+}
+.modal-content * { pointer-events: auto !important; }
+
+/* Force the top navbar to STAY BELOW any modal/dialog/popup */
+.main-header, .main-header .navbar, header.main-header {
+  z-index: 1040 !important;
+}
+
+/* === MODAL BODY SCROLLING — fix "not scrolling up/down" issue ====== */
+.modal-body {
+  max-height: calc(100vh - 240px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+}
+.modal-dialog {
+  max-height: calc(100vh - 90px);
+  display: flex;
+  flex-direction: column;
+}
+.modal-content { max-height: calc(100vh - 90px); display: flex; flex-direction: column; }
+.modal-header, .modal-footer { flex-shrink: 0; }
+.modal-body { flex: 1 1 auto; }
+@media (max-width: 768px) {
+  .modal { padding-top: 70px !important; }
+  .modal-dialog { margin: 0 10px !important; max-height: calc(100vh - 90px); }
+  .modal-content { max-height: calc(100vh - 90px); }
+  .modal-body { max-height: calc(100vh - 220px) !important; }
+}
+
+/* Inputs inside modals — explicitly dark */
+.modal-content input,
+.modal-content select,
+.modal-content textarea,
+.modal-content .form-control,
+.modal-content .input-group-addon {
+  background: rgba(255,255,255,0.04) !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+.modal-content .form-control:focus,
+.modal-content input:focus,
+.modal-content textarea:focus,
+.modal-content select:focus {
+  border-color: var(--primary) !important;
+  background: rgba(59,130,246,0.06) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important;
+}
+.modal-content label,
+.modal-content .control-label,
+.modal-content h1, .modal-content h2, .modal-content h3,
+.modal-content h4, .modal-content h5, .modal-content h6,
+.modal-content .modal-title { color: #F1F5F9 !important; }
+.modal-content p, .modal-content small, .modal-content .text-muted,
+.modal-content .help-block { color: #94A3B8 !important; }
+
+/* Nested radio-row "white card" style (Change Plan with/without Invoice) ---
+   Many forms render the description block as a white div.  Force dark. */
+.modal-content .radio-card,
+.modal-content .option-card,
+.modal-content [class*="card"] .radio,
+.modal-content .radio + label,
+.modal-content .radio-inline,
+.modal-content [class*="white"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  color: #E2E8F0 !important;
+  padding: 12px 14px !important;
+}
+
+/* Buttons inside modals — high contrast, no invisible text */
+.modal-content .btn-default,
+.modal-content .btn-secondary,
+.modal-content button[type="button"]:not(.btn-primary):not(.btn-success):not(.btn-danger):not(.btn-warning):not(.btn-info):not(.btn-link):not(.close) {
+  background: rgba(255,255,255,0.06) !important;
+  color: #F1F5F9 !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
+.modal-content .btn-default:hover {
+  background: rgba(255,255,255,0.10) !important;
+}
+
+/* "Close" / Cancel modal buttons — ensure label is white */
+.modal-content .btn[data-dismiss="modal"],
+.modal-content .btn.cancel-btn,
+.modal-footer .btn[data-dismiss="modal"] {
+  background: rgba(255,255,255,0.06) !important;
+  color: #F1F5F9 !important;
+  border-color: rgba(255,255,255,0.14) !important;
+}
+
+/* Add-Website-Block / Sub-LCO assigned-locations  white block fix --- */
+.modal-content .locality-grid,
+.modal-content .locations-grid,
+.modal-content .assigned-locations,
+.modal-content .checkbox-grid,
+.modal-content [class*="locations"],
+.modal-content [class*="localities"] {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+}
+.modal-content .locality-grid label,
+.modal-content .checkbox label,
+.modal-content .checkbox-grid label,
+.modal-content [class*="locations"] label,
+.modal-content [class*="localities"] label {
+  color: #CBD5E1 !important;
+  font-weight: 500 !important;
+}
+.modal-content .locality-grid input[type="checkbox"]:checked + label,
+.modal-content .checkbox input[type="checkbox"]:checked + label {
+  color: var(--primary) !important;
+}
+
+/* Customer list pills (Add Website Block customers list) — white→dark */
+.modal-content .customer-row,
+.modal-content .customer-list-item,
+.modal-content .selectable-row,
+.modal-content [class*="customer-item"],
+.modal-content ul.customer-list > li {
+  background: rgba(255,255,255,0.03) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+  color: #E2E8F0 !important;
+}
+.modal-content .customer-row:hover,
+.modal-content ul.customer-list > li:hover {
+  background: rgba(59,130,246,0.10) !important;
+}
+
+/* SCROLLABLE sub-panels (e.g. modal body that wraps a sub-card) ---- */
+.modal-content > .modal-body > .panel,
+.modal-content > .modal-body > .box,
+.modal-content > .modal-body > .well,
+.modal-content > .modal-body > .card,
+.modal-content > .modal-body > div[style*="background"] {
+  background: rgba(255,255,255,0.025) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* Subscriber detail page — section headers + edit pencils ------------- */
+.subscriber-info, .subscriber-card, .subscriber-details,
+[class*="subscriber-details"], [class*="address-contact"],
+[class*="address-and-contact"] {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 16px !important;
+  color: #E2E8F0 !important;
+}
+.subscriber-details h2, .subscriber-details h3,
+.subscriber-details h4, .subscriber-details h5 { color: #F1F5F9 !important; }
+
+/* Headings on subscriber page — fix invisible "Subscriber: NAME" header */
+.content-header > h1,
+.content-header h1, .page-header h1,
+h1, h2, h3, h4, h5 { color: #F1F5F9 !important; }
+h1 small, h2 small, h3 small, .content-header h1 small { color: #94A3B8 !important; }
+.breadcrumb, .breadcrumb a, .breadcrumb > li > a { color: #94A3B8 !important; }
+.breadcrumb > .active { color: #CBD5E1 !important; font-weight: 600; }
+
+/* Section subtitle cards in subscriber detail */
+.subscriber-page .info-card,
+.subscriber-page .info-section,
+.subscriber-page .box,
+.subscriber-page .panel,
+.subscriber-page .card {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* "Edit Plan" form-style modal — kill the white form container ------- */
+.modal-content form, .modal-content .form-horizontal {
+  background: transparent !important;
+}
+.modal-content fieldset, .modal-content .fieldset, .modal-content .nav-tabs-custom {
+  background: rgba(255,255,255,0.025) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+}
+
+/* Force-override hard-coded inline white styles on ANY descendant of modal */
+.modal-content [style*="background:#fff"],
+.modal-content [style*="background: #fff"],
+.modal-content [style*="background:white"],
+.modal-content [style*="background: white"],
+.modal-content [style*="background:#ffffff"],
+.modal-content [style*="background: #ffffff"],
+.modal-content [style*="background-color:#fff"],
+.modal-content [style*="background-color: #fff"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  color: #E2E8F0 !important;
+}
+
+/* FOOTER fix — pin to bottom of page via position:fixed (see §33 for full rules) */
+footer, .main-footer, .content-footer, .page-footer {
+  background: transparent !important;
+  color: var(--muted) !important;
+  font-size: 12.5px !important;
+}
+.main-footer a { color: var(--text-3); }
+/* NOTE: removed previous flex-column approach on .wrapper — it conflicted
+   with AdminLTE's absolute-positioned sidebar.  See §33 for sticky footer
+   via position:fixed. */
+
+/* Customer subscriber list (Add Website Block) — make rows readable */
+.modal-content .customer-pick-row,
+.modal-content .ip-pill,
+.modal-content [class*="status-active"],
+.modal-content [class*="status-expired"],
+.modal-content .status-pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+
+/* Dropdown OPEN state of <select> — Chrome/Webkit popup is OS-native and
+   not styleable, but `color-scheme: dark` makes it render dark.
+   Make the closed-state caret visible. */
+html.e1-dark select { color: #F1F5F9 !important; }
+
+/* Bootstrap-Toggle / iCheck / Switchery — accent the primary blue */
+.toggle.btn-primary, .toggle-on.btn-primary { background: var(--primary) !important; }
+
+/* Loading skeleton in dark */
+.e1-skeleton { background: rgba(255,255,255,0.04) !important; }
+
+/* AdminLTE skin overrides for dark-only */
+.skin-blue, .skin-blue-light, .skin-purple, .skin-black {
+  background: var(--bg) !important;
+}
+
+/* Welcome banner h2 text override (sometimes overridden by per-page CSS) */
+.welcome-banner h2, .welcome-banner .welcome-title,
+.welcome-banner p { color: #FFFFFF !important; }
+
+/* Specific fix for subscriber page header "Subscriber: NAME" being white-on-light */
+.content-header > h1 > strong,
+.content-header > h1 > span,
+.content-header > h1 > b { color: #F1F5F9 !important; }
+
+/* Status pills inside content-header */
+.content-header .label, .content-header .badge,
+.content-header .e1-pill { font-size: 11.5px; padding: 4px 10px; }
+
+/* Direct-message banner / orange callout — keep orange but lower brightness */
+.direct-message-banner, [class*="direct-message"], .alert-msg-banner {
+  background: linear-gradient(135deg, #C2410C 0%, #9A3412 100%) !important;
+  color: #FFEDD5 !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 14px !important;
+}
+
+/* "View All Alerts" link inside the banner — visible orange-cream */
+.direct-message-banner a, [class*="direct-message"] a {
+  color: #FED7AA !important;
+  text-decoration: underline;
+}
+
+/* Empty / blank panels inside subscriber detail — give them visible borders */
+.empty-card, .placeholder-card {
+  background: rgba(255,255,255,0.02) !important;
+  border: 1px dashed rgba(255,255,255,0.10) !important;
+}
+
+/* Right-rail action stack on subscriber detail — make the dark-on-dark
+   "View Payments" / "Online Payments" buttons readable */
+.subscriber-actions .btn-default,
+[class*="subscriber-actions"] .btn-default,
+.subscriber-right .btn-outline,
+.subscriber-right .btn {
+  background: rgba(255,255,255,0.04) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(59,130,246,0.30) !important;
+}
+.subscriber-actions .btn-default:hover {
+  background: rgba(59,130,246,0.12) !important;
+  border-color: var(--primary) !important;
+}
+
+/* Ensure dropdown list shown when a search-select renders a popup is dark */
+ul.dropdown-menu, .ui-autocomplete, .typeahead-list {
+  background: #0E1730 !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  color: #E2E8F0 !important;
+}
+ul.dropdown-menu > li > a, .ui-autocomplete .ui-menu-item-wrapper {
+  color: #E2E8F0 !important;
+}
+ul.dropdown-menu > li > a:hover, .ui-autocomplete .ui-menu-item-wrapper.ui-state-active {
+  background: rgba(59,130,246,0.14) !important;
+  color: #93C5FD !important;
+}
+
+/* "Add Sub-LCO" / "Add Customer" floating green/blue buttons — fine, but
+   ensure their dropdown panels are dark */
+.btn-group.open .dropdown-menu { background: #0E1730 !important; }
+
+/* ----- Cancel buttons globally — fix invisible "Cancel" text ----- */
+.btn-cancel, button.cancel,
+button[data-dismiss="modal"]:not(.close),
+.btn[data-bs-dismiss="modal"]:not(.close) {
+  background: rgba(255,255,255,0.06) !important;
+  background-color: rgba(255,255,255,0.06) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+}
+
+/* === FINAL MODAL CONTRAST GUARANTEES ============================== */
+
+/* Native select INSIDE modal — visible bg + caret + hover */
+.modal-content select, .modal-content select.form-control {
+  background: rgba(255,255,255,0.06) !important;
+  background-color: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  color: #F1F5F9 !important;
+  font-weight: 500 !important;
+  min-height: 44px !important;
+  padding: 10px 36px 10px 14px !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #93C5FD 50%),
+    linear-gradient(135deg, #93C5FD 50%, transparent 50%) !important;
+  background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 13px) calc(50% - 2px) !important;
+  background-size: 6px 6px, 6px 6px !important;
+  background-repeat: no-repeat !important;
+}
+.modal-content select:focus { border-color: #60A5FA !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.20) !important; }
+.modal-content select option {
+  background: #1B2851 !important;
+  background-color: #1B2851 !important;
+  color: #F1F5F9 !important;
+}
+
+/* === WIZARD STEP NAV (Configure Load Balancing — Step 1/4) ========= */
+.wizard-step, .step-indicator, .wizard-steps li, [class*="wizard-step"],
+.steps-progress li, .stepper li {
+  color: #94A3B8 !important;
+}
+.wizard-step.active, .step-indicator.active,
+.wizard-steps li.active, [class*="wizard-step"].active,
+.steps-progress li.active, .stepper li.active {
+  color: #93C5FD !important;
+  font-weight: 700;
+}
+.wizard-step.completed, .step-indicator.completed {
+  color: #6EE7B7 !important;
+}
+
+/* === Wizard "Back / Cancel / Next / Apply" footer buttons ========== */
+.modal-footer .btn,
+.wizard-footer .btn {
+  min-height: 42px;
+  padding: 10px 22px !important;
+  font-weight: 600 !important;
+}
+.modal-footer .btn-default,
+.wizard-footer .btn-default {
+  background: rgba(255,255,255,0.08) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+}
+.modal-footer .btn-default:hover {
+  background: rgba(255,255,255,0.14) !important;
+  border-color: rgba(255,255,255,0.30) !important;
+}
+
+/* === RANGE SLIDERS (HTML5 input[type=range]) ======================= */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.10) !important;
+  border-radius: 999px;
+  outline: none;
+  border: 0 !important;
+  margin: 12px 0;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 4px 12px rgba(59,130,246,0.45);
+  cursor: pointer;
+  transition: transform 150ms ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); }
+input[type="range"]::-moz-range-thumb {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 4px 12px rgba(59,130,246,0.45);
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-track {
+  background: rgba(255,255,255,0.10);
+  height: 6px;
+  border-radius: 999px;
+}
+
+/* === Toggle switches (Bootstrap-Toggle / .switch / custom) ========== */
+.switch, .toggle, .form-switch, [class*="switch-"] input[type="checkbox"] {
+  cursor: pointer;
+}
+.switch input:checked + .slider,
+.toggle-on, .form-switch .form-check-input:checked {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  border-color: #2563EB !important;
+}
+.slider, .toggle-off {
+  background: rgba(255,255,255,0.10) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+}
+
+/* === Bootstrap-Datetimepicker / Flatpickr ========================== */
+.bootstrap-datetimepicker-widget, .flatpickr-calendar,
+.datepicker, .pickadate {
+  background: #1B2851 !important;
+  border: 1px solid rgba(96,165,250,0.20) !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 24px 56px rgba(0,0,0,0.55) !important;
+}
+.bootstrap-datetimepicker-widget table td,
+.flatpickr-day, .datepicker td {
+  color: #E2E8F0 !important;
+}
+.bootstrap-datetimepicker-widget table td.day:hover,
+.flatpickr-day:hover, .datepicker td:hover {
+  background: rgba(59,130,246,0.18) !important;
+  color: #93C5FD !important;
+}
+.flatpickr-day.selected, .datepicker td.active,
+.bootstrap-datetimepicker-widget td.active {
+  background: #3B82F6 !important; color: #FFFFFF !important;
+}
+
+/* === Select2 dropdown (used in many modals) ======================== */
+.select2-container--default .select2-selection--single,
+.select2-container--default .select2-selection--multiple {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  color: #F1F5F9 !important;
+  min-height: 44px !important;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+}
+.select2-container--default .select2-selection__rendered { color: #F1F5F9 !important; line-height: 30px !important; }
+.select2-container--default .select2-selection__placeholder { color: #94A3B8 !important; }
+.select2-dropdown {
+  background: #1B2851 !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  color: #F1F5F9 !important;
+}
+.select2-container--default .select2-results__option { color: #F1F5F9 !important; padding: 8px 12px !important; }
+.select2-container--default .select2-results__option--highlighted[aria-selected],
+.select2-container--default .select2-results__option:hover {
+  background: rgba(59,130,246,0.18) !important;
+  color: #93C5FD !important;
+}
+.select2-search--dropdown .select2-search__field {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  color: #F1F5F9 !important;
+  border-radius: 8px !important;
+}
+
+/* === Iziitoast / Toastr / Swal ==================================== */
+.swal2-popup { background: #1B2851 !important; color: #F1F5F9 !important; border: 1px solid rgba(96,165,250,0.25) !important; }
+.swal2-title, .swal2-content, .swal2-html-container { color: #F1F5F9 !important; }
+.swal2-actions .swal2-confirm { background: #3B82F6 !important; }
+.swal2-actions .swal2-cancel { background: rgba(255,255,255,0.10) !important; color: #F1F5F9 !important; border: 1px solid rgba(255,255,255,0.18) !important; }
+
+/* === jQuery-UI Autocomplete ======================================= */
+.ui-autocomplete, .ui-menu, .ui-widget-content {
+  background: #1B2851 !important;
+  border: 1px solid rgba(96,165,250,0.25) !important;
+  color: #F1F5F9 !important;
+}
+.ui-menu-item-wrapper, .ui-menu-item a { color: #F1F5F9 !important; padding: 8px 12px !important; }
+.ui-state-active, .ui-menu-item-wrapper.ui-state-active {
+  background: rgba(59,130,246,0.18) !important;
+  color: #93C5FD !important;
+  border: 0 !important;
+}
+
+/* === Last-resort: any element INSIDE modal with light bg gets darkened === */
+.modal-content [style*="background: #fff"],
+.modal-content [style*="background:#fff"],
+.modal-content [style*="background: white"],
+.modal-content [style*="background:white"],
+.modal-content [style*="background: #f"],
+.modal-content [style*="background:#f"],
+.modal-content [style*="background-color: #fff"],
+.modal-content [style*="background-color:#fff"],
+.modal-content [style*="background-color: white"],
+.modal-content [style*="background-color:white"],
+.modal-content [style*="background-color: #f"],
+.modal-content [style*="background-color:#f"] {
+  background: rgba(255,255,255,0.05) !important;
+  background-color: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #F1F5F9 !important;
+}
+
+/* Ensure ALL text inside modal is at least #E2E8F0 (visible) */
+.modal-content, .modal-content * { color: #F1F5F9; }
+.modal-content [style*="color: #0"],
+.modal-content [style*="color:#0"],
+.modal-content [style*="color: #1"],
+.modal-content [style*="color:#1"],
+.modal-content [style*="color: #2"],
+.modal-content [style*="color:#2"],
+.modal-content [style*="color: #3"],
+.modal-content [style*="color:#3"],
+.modal-content [style*="color: #4"],
+.modal-content [style*="color:#4"],
+.modal-content [style*="color: black"],
+.modal-content [style*="color:black"] {
+  color: #F1F5F9 !important;
+}
+
+/* SVG icons inside modal */
+.modal-content svg, .modal-content i.fa, .modal-content i.bi {
+  color: inherit !important;
+  fill: currentColor;
+}
+
+/* Form section dividers / subtitles inside modal */
+.modal-content fieldset legend,
+.modal-content .section-title,
+.modal-content .form-section-title,
+.modal-content h5.section,
+.modal-content h6.section {
+  color: #93C5FD !important;
+  font-weight: 700 !important;
+  font-size: 13.5px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(96,165,250,0.20) !important;
+  padding-bottom: 8px;
+  margin: 16px 0 12px;
+}
+
+/* "Next ›" wizard button — primary brand */
+.modal-footer .btn-primary.next-btn,
+.modal-footer .wizard-next,
+.modal .next-step,
+.wizard .next-step {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  box-shadow: 0 6px 18px rgba(6,182,212,0.30) !important;
+}
+.modal-footer .btn-success.apply-btn,
+.modal .apply-btn, .modal .submit-btn {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%) !important;
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  box-shadow: 0 6px 18px rgba(16,185,129,0.30) !important;
+}
+
+/* Native body never accidentally white */
+html, body { background-color: #020617 !important; }
+
+/* Override legacy purple #667eea gradients used in welcome banners on
+   Complaints, WhatsApp Campaign, Lead Pipeline, etc. */
+[style*="#667eea"], [style*="667eea"],
+[style*="background:linear-gradient(135deg, #667eea"],
+[style*="background: linear-gradient(135deg, #667eea"],
+[style*="background:linear-gradient(135deg,#667eea"],
+[style*="background:linear-gradient(to right, #667eea"] {
+  background: linear-gradient(135deg, #0E7490 0%, #06B6D4 35%, #8B5CF6 100%) !important;
+  background-color: #0891B2 !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+/* Force the secondary purple #764ba2 (used as second-stop in many banners) */
+[style*="#764ba2"], [style*="764ba2"] {
+  background: linear-gradient(135deg, #0E7490 0%, #06B6D4 35%, #8B5CF6 100%) !important;
+  background-color: #1E40AF !important;
+  color: #FFFFFF !important;
+}
+
+/* =========================================================================
+ * 28.  PAGE-SPECIFIC DARK FIXES  (subscriber detail + others)
+ *
+ *  admin_subscriber.html ships its own .card-s, .kv, .du-row, .sub-top
+ *  classes with hard-coded slate-900 colors that are invisible on dark bg.
+ *  Override them here, never touching the backend.
+ * ========================================================================= */
+
+/* Subscriber detail page — subscriber name & status row */
+.sub-top h1, .sub-top h2, .sub-top h3 { color: #F1F5F9 !important; }
+.sub-top .status-line { color: #94A3B8 !important; }
+.sub-breadcrumb { color: #94A3B8 !important; }
+.sub-breadcrumb a { color: #93C5FD !important; }
+
+/* Tab strip */
+.sub-tabs { border-bottom: 1px solid rgba(255,255,255,0.06) !important; }
+.sub-tabs a { color: #94A3B8 !important; }
+.sub-tabs a.active { color: #93C5FD !important; border-bottom-color: #3B82F6 !important; }
+.sub-tabs a:hover { background: rgba(59,130,246,0.10) !important; color: #93C5FD !important; }
+.sub-tabs .edit-btn { color: #94A3B8 !important; }
+.sub-tabs .edit-btn:hover { color: #93C5FD !important; }
+
+/* Sub cards */
+.card-s {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 14px !important;
+}
+.card-s h4 { color: #F1F5F9 !important; font-weight: 700 !important; }
+.card-s h4 .edit-pencil { color: #94A3B8 !important; }
+.card-s h4 .edit-pencil:hover { color: var(--primary) !important; }
+
+/* Quick-action buttons in the left rail (Reset MAC, etc.) */
+.qa-btn {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.18) !important;
+  padding: 11px 14px !important;
+}
+.qa-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(59,130,246,0.30) !important; }
+
+/* Direct Message orange card — keep orange but tame for dark */
+.dm-card {
+  background: linear-gradient(135deg, #C2410C 0%, #9A3412 100%) !important;
+  color: #FFEDD5 !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+}
+.dm-card a, .dm-card .view-alerts { color: #FED7AA !important; }
+
+/* Online/Offline pills already styled — but ensure visibility */
+.online-pill { background: rgba(16,185,129,0.20) !important; color: #6EE7B7 !important; }
+.offline-pill { background: rgba(148,163,184,0.20) !important; color: #CBD5E1 !important; }
+
+/* Data Usage rows */
+.du-title { color: #94A3B8 !important; }
+.du-title i { color: #93C5FD !important; }
+.du-range { color: #64748B !important; }
+.du-row { color: #CBD5E1 !important; border-bottom: 1px solid rgba(255,255,255,0.04) !important; }
+.du-row strong { color: #F1F5F9 !important; }
+.du-total strong { color: #93C5FD !important; }
+
+/* Key/Value rows (Subscriber Details fields) */
+.kv dt { color: #94A3B8 !important; }
+.kv dd { color: #F1F5F9 !important; font-weight: 500 !important; }
+
+/* Yes/No pill badges */
+.yes-badge { background: rgba(16,185,129,0.20) !important; color: #6EE7B7 !important; }
+.no-badge  { background: rgba(239,68,68,0.18) !important;  color: #FCA5A5 !important; }
+
+/* Right-rail action stack (Change Package / Renew / etc.) */
+.subscriber-actions, .right-actions, [class*="right-actions"] {
+  background: transparent !important;
+}
+.subscriber-actions .btn,
+.right-actions .btn,
+[class*="right-actions"] .btn {
+  background: rgba(255,255,255,0.04) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(59,130,246,0.30) !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+}
+.subscriber-actions .btn:hover,
+.right-actions .btn:hover {
+  background: rgba(59,130,246,0.12) !important;
+  border-color: var(--primary) !important;
+}
+
+/* Terminate Subscriber — red */
+.btn-terminate, .terminate-btn,
+.subscriber-actions .btn-danger,
+.right-actions .btn-danger {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%) !important;
+  color: #fff !important;
+  border: 0 !important;
+}
+
+/* View Balance / View Payments / Online Payments — visible buttons */
+.view-balance, .view-payments, .online-payments,
+a[href*="view-balance"], a[href*="view-payments"], a[href*="online-payments"] {
+  background: rgba(255,255,255,0.04) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+/* Current Package badge / row */
+.current-package, [class*="current-package"] {
+  color: #F1F5F9 !important;
+}
+.current-package strong { color: #93C5FD !important; }
+
+/* Tickets section */
+.ticket-block, .tickets-card, .tickets-section {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 14px !important;
+  color: #CBD5E1 !important;
+}
+
+/* Audit Trail / KYC Documents / Connection tab content */
+.audit-trail, .kyc-docs, .connection-tab,
+[class*="audit-trail"], [class*="kyc-docs"] {
+  color: #CBD5E1 !important;
+}
+.audit-trail .timestamp, .audit-trail .by-who { color: #94A3B8 !important; }
+
+/* Aggressive nuking — any inline color: #0f172a / #1f2937 / #334155 / #475569
+   that the page tried to set will now be overridden because we already
+   nuked --text. But some pages use inline style="color:#0f172a" directly. */
+[style*="color: #0f172a"], [style*="color:#0f172a"] { color: #F1F5F9 !important; }
+[style*="color: #1f2937"], [style*="color:#1f2937"] { color: #E2E8F0 !important; }
+[style*="color: #334155"], [style*="color:#334155"] { color: #CBD5E1 !important; }
+[style*="color: #475569"], [style*="color:#475569"] { color: #94A3B8 !important; }
+[style*="color: #64748b"], [style*="color:#64748b"] { color: #94A3B8 !important; }
+
+/* Inline background: #fff in form rows / labels */
+.box-body [style*="background: #fff"],
+.box-body [style*="background:#fff"],
+.panel-body [style*="background: #fff"],
+.panel-body [style*="background:#fff"],
+form [style*="background: #fff"],
+form [style*="background:#fff"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  color: #E2E8F0 !important;
+}
+
+/* Sub-LCO Edit form / Sub-LCO assigned-locations panel ----------- */
+[class*="assigned-loc"], .assigned-locations, .locations-list,
+.locality-multi-select, .locations-checklist {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+}
+[class*="assigned-loc"] label,
+.assigned-locations label,
+.locations-list label { color: #CBD5E1 !important; }
+[class*="assigned-loc"] input[type="checkbox"]:checked + label,
+.assigned-locations input[type="checkbox"]:checked + label { color: #93C5FD !important; }
+
+/* "Auto Renew" / yes/no pills inside the kv list */
+.kv .yes-badge, .kv .no-badge {
+  font-size: 11px !important; padding: 2px 8px !important; border-radius: 999px !important;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+/* === Last universal safety net ========================================
+   ANY element painted in #0f172a / #1f2937 (the slate-900/800 family the
+   old portal used for "dark text on light bg") gets converted to a light
+   color via attribute selectors — even if not in inline-style. */
+
+[class*="text-dark"], [class*="text-slate-900"] { color: #F1F5F9 !important; }
+[class*="text-slate-800"] { color: #E2E8F0 !important; }
+[class*="text-slate-700"] { color: #CBD5E1 !important; }
+[class*="text-slate-600"], [class*="text-slate-500"] { color: #94A3B8 !important; }
+
+/* Final pass: empty / placeholder text */
+.empty-state, .empty-msg, [class*="empty-state"] {
+  color: #64748B !important;
+}
+
+/* =========================================================================
+ * 29.  NUCLEAR WHITE-BG ELIMINATOR
+ *
+ *  Targets every conceivable way templates have hard-coded a white/light
+ *  background:
+ *    - inline style attributes
+ *    - per-page CSS classes (.form-section, .section-fup, .card-s, etc.)
+ *    - utility classes from various frameworks
+ *  Plus pins the footer to the bottom of the viewport so it never floats.
+ * ========================================================================= */
+
+/* === Inline-style whites — exhaustive list of selectors ============= */
+[style*="background: white"],
+[style*="background:white"],
+[style*="background: #fff"],
+[style*="background:#fff"],
+[style*="background: #ffffff"],
+[style*="background:#ffffff"],
+[style*="background: #FFF"],
+[style*="background:#FFF"],
+[style*="background: #f9f9f9"],
+[style*="background:#f9f9f9"],
+[style*="background: #f5f5f5"],
+[style*="background:#f5f5f5"],
+[style*="background: #fafafa"],
+[style*="background:#fafafa"],
+[style*="background: #fbfbfb"],
+[style*="background:#fbfbfb"],
+[style*="background: #fcfcfc"],
+[style*="background:#fcfcfc"],
+[style*="background-color: white"],
+[style*="background-color:white"],
+[style*="background-color: #fff"],
+[style*="background-color:#fff"],
+[style*="background-color: #ffffff"],
+[style*="background-color:#ffffff"],
+[style*="background-color: #f9f9f9"],
+[style*="background-color:#f9f9f9"],
+[style*="background-color: #f5f5f5"],
+[style*="background-color:#f5f5f5"],
+[style*="background-color: #fafafa"],
+[style*="background-color:#fafafa"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  color: #E2E8F0 !important;
+}
+
+/* If the inline-style white is on the page wrapper (.content > div with
+   style="background: white; padding: 20px"), make it the dark surface. */
+.content > [style*="background: white"],
+.content > [style*="background:white"],
+.content-wrapper > [style*="background: white"],
+.content-wrapper > [style*="background:white"],
+.content-wrapper [style*="background: white"][style*="padding"],
+.content [style*="background: white"][style*="padding"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 16px !important;
+  color: #E2E8F0 !important;
+}
+
+/* === Per-page known white-ish sections =============================== */
+.form-section,
+.section-fup, .section-night, .section-burst,
+.section-basic, .section-extras, .section-pricing {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  color: #E2E8F0 !important;
+}
+.form-section h4, .section-fup h4, .section-night h4,
+.section-burst h4, .form-section h3, .form-section h5 {
+  color: #F1F5F9 !important;
+  border-bottom-color: rgba(59,130,246,0.30) !important;
+}
+.section-fup    { background: rgba(245,158,11,0.06) !important; border-color: rgba(245,158,11,0.20) !important; }
+.section-fup h4 { color: #FCD34D !important; border-bottom-color: rgba(245,158,11,0.30) !important; }
+.section-night  { background: rgba(139,92,246,0.06) !important; border-color: rgba(139,92,246,0.20) !important; }
+.section-night h4 { color: #C4B5FD !important; border-bottom-color: rgba(139,92,246,0.30) !important; }
+.section-burst  { background: rgba(16,185,129,0.06) !important; border-color: rgba(16,185,129,0.20) !important; }
+.section-burst h4 { color: #6EE7B7 !important; border-bottom-color: rgba(16,185,129,0.30) !important; }
+
+/* Speed badges inside form-section */
+.speed-badge { background: rgba(59,130,246,0.18) !important; color: #93C5FD !important; }
+.fup-badge   { background: rgba(245,158,11,0.18) !important; color: #FCD34D !important; }
+.night-badge { background: rgba(139,92,246,0.18) !important; color: #C4B5FD !important; }
+.burst-badge { background: rgba(16,185,129,0.18) !important; color: #6EE7B7 !important; }
+
+/* The .content-header on /admin/plans had background: #fff -> nuke it */
+.content-header { background: transparent !important; background-color: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.06) !important; }
+.content-header h1, .content-header h2 { color: #F1F5F9 !important; }
+
+/* === Letter filter buttons inside employee/sub-lco pages =========== */
+.letter-btn,
+button[class*="letter"],
+.alphabet-filter button,
+.filter-letters button {
+  background: rgba(255,255,255,0.04) !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 8px !important;
+  padding: 5px 12px !important;
+  transition: all var(--e1-trans);
+}
+.letter-btn:hover, button[class*="letter"]:hover {
+  background: rgba(59,130,246,0.14) !important;
+  color: #93C5FD !important;
+  border-color: rgba(59,130,246,0.30) !important;
+}
+.letter-btn.active,
+button[class*="letter"].active,
+.letter-btn[style*="667eea"],
+button[class*="letter"][style*="667eea"] {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  color: #fff !important;
+  border: 0 !important;
+}
+
+/* === Table headers — universal force-dark, including any element that
+       hosts them via parent inline-style white ============================= */
+table thead tr, table thead tr th,
+[style*="background: white"] table thead,
+[style*="background:white"] table thead,
+[style*="background: white"] table thead tr th,
+[style*="background:white"] table thead tr th,
+[style*="background: white"] table tbody tr td,
+[style*="background:white"] table tbody tr td {
+  background: rgba(255,255,255,0.04) !important;
+  background-color: rgba(255,255,255,0.04) !important;
+  color: #94A3B8 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+table tbody tr,
+[style*="background: white"] table tbody tr td,
+[style*="background:white"] table tbody tr td {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+[style*="background: white"] table tbody tr:nth-of-type(odd) td,
+[style*="background:white"] table tbody tr:nth-of-type(odd) td {
+  background: rgba(255,255,255,0.025) !important;
+  background-color: rgba(255,255,255,0.025) !important;
+}
+[style*="background: white"] table tbody tr td,
+[style*="background:white"] table tbody tr td {
+  color: #E2E8F0 !important;
+}
+
+/* === All page wrappers — kill light bg ============================ */
+.content > .container > [style*="background"],
+.content > .container-fluid > [style*="background"] {
+  background: rgba(255,255,255,0.03) !important;
+  background-color: rgba(255,255,255,0.03) !important;
+}
+
+/* === STICKY FOOTER ============================================ */
+html, body { min-height: 100vh; }
+.wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 100vh !important;
+  position: relative;
+}
+.wrapper > .content-wrapper {
+  flex: 1 0 auto !important;
+  padding-bottom: 24px;
+  min-height: auto !important;  /* override AdminLTE's hardcoded min-height */
+}
+.wrapper > .main-footer,
+.wrapper > footer,
+.main-footer {
+  /* See §33 below for the canonical sticky-footer rules.  This block kept
+     for legacy color/typography only — positioning is in §33. */
+  background: rgba(0,0,0,0.30) !important;
+  border-top: 1px solid rgba(255,255,255,0.06) !important;
+  color: #94A3B8 !important;
+  font-size: 12.5px !important;
+  width: 100%;
+}
+.main-footer a, footer a { color: #CBD5E1 !important; }
+
+/* Make modal inputs more clearly bordered */
+.modal-content input.form-control,
+.modal-content select.form-control,
+.modal-content textarea.form-control,
+.modal-content input[type="text"],
+.modal-content input[type="email"],
+.modal-content input[type="password"],
+.modal-content input[type="number"],
+.modal-content input[type="tel"] {
+  background: rgba(255,255,255,0.05) !important;
+  background-color: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  color: #F1F5F9 !important;
+  border-radius: 10px !important;
+  min-height: 42px !important;
+  padding: 10px 13px !important;
+}
+.modal-content input.form-control:focus,
+.modal-content select.form-control:focus,
+.modal-content textarea.form-control:focus {
+  border-color: var(--primary) !important;
+  background: rgba(59,130,246,0.08) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.20) !important;
+}
+.modal-content label, .modal-content .control-label {
+  color: #CBD5E1 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  margin-bottom: 6px !important;
+}
+
+/* === MODAL CLICK-BLOCKING FIX =====================================
+   Some modals render two stacked backdrops (Bootstrap 3 + a per-template
+   one).  Force only the topmost modal backdrop to receive clicks. */
+.modal-backdrop + .modal-backdrop { display: none !important; }
+.modal.in, .modal.show {
+  z-index: 1051 !important;
+  pointer-events: auto !important;
+}
+.modal-content {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto !important;
+}
+.modal-content * { pointer-events: auto !important; }
+
+/* If a "form-section" inside the modal is rendering with `position:
+   absolute` and covering inputs, force flow layout. */
+.modal-body .form-section { position: relative !important; }
+
+/* === HINT TEXT inside forms — light gray instead of #777 ============ */
+.hint, .form-text, .help-block, small.text-muted {
+  color: #94A3B8 !important;
+}
+
+/* === Subscriber detail page — TOP card fix (the half-visible one) ==== */
+.sub-top, [class*="sub-top"], .subscriber-header {
+  background: transparent !important;
+}
+.sub-top h1, .subscriber-header h1, .content-header h1 {
+  color: #F1F5F9 !important;
+  font-weight: 800 !important;
+}
+.sub-top .status-badge, .status-pill,
+.status-online { background: rgba(16,185,129,0.20) !important; color: #6EE7B7 !important; }
+
+/* Specific override for the .info-card pattern used on subscriber & similar */
+.info-card, .data-card, .stat-card {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 14px !important;
+  color: #E2E8F0 !important;
+}
+.info-card h3, .info-card h4, .info-card h5,
+.data-card h3, .data-card h4, .data-card h5 { color: #F1F5F9 !important; }
+
+/* The light teal/cyan inline buttons (#17a2b8 etc.) on plans page header */
+[style*="#17a2b8"], [style*="background-color:#17a2b8"],
+[style*="background: #17a2b8"], [style*="background:#17a2b8"] {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  color: #fff !important;
+}
+
+/* Orange edit buttons #f39c12 — make uniform amber */
+[style*="#f39c12"], [style*="background-color:#f39c12"],
+[style*="background: #f39c12"], [style*="background:#f39c12"] {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%) !important;
+  color: #fff !important;
+}
+
+/* Red delete #dd4b39 -> uniform red */
+[style*="#dd4b39"], [style*="background-color:#dd4b39"] {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%) !important;
+  color: #fff !important;
+}
+
+/* iCheck checkboxes / radios — boxes with white bg around tick mark */
+.iradio_square-blue, .icheckbox_square-blue,
+.iradio_minimal-blue, .icheckbox_minimal-blue {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* Customer Distribution page bar chart canvases / .canvas containers */
+.canvas-wrapper, .chart-wrapper, [class*="chart-container"],
+.distribution-chart, .locality-grid-card {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 14px !important;
+}
+
+/* Track-employee page (Leaflet map container is gray by default; that's
+   fine but the page wrapper around it may be white) */
+#trackEmployeeMap, .map-wrapper, .leaflet-container {
+  background: #0E1730 !important;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.leaflet-popup-content-wrapper { background: #0E1730 !important; color: #E2E8F0 !important; }
+.leaflet-popup-tip { background: #0E1730 !important; }
+.leaflet-control { background: rgba(15,23,48,0.9) !important; color: #E2E8F0 !important; border-color: rgba(255,255,255,0.08) !important; }
+
+/* FAQ page — invisible text issue (white text on white bg) */
+.faq-page, .faq-list, .faq-item, .faq-question, .faq-answer,
+[class*="faq-"], .faq-container {
+  background: rgba(255,255,255,0.03) !important;
+  color: #E2E8F0 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+.faq-question, .faq-q {
+  color: #F1F5F9 !important;
+  font-weight: 700;
+  background: rgba(59,130,246,0.06) !important;
+  padding: 12px 14px;
+  border-radius: 10px;
+}
+.faq-answer, .faq-a {
+  color: #CBD5E1 !important;
+  padding: 10px 14px;
+}
+
+/* Complaints page — make the card stack dark */
+.complaint-card, .ticket-card, .complaints-list .item {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 12px !important;
+  color: #E2E8F0 !important;
+}
+
+/* The "Showing 1 to 1 of 1 employees" / pagination text on tables */
+.dataTables_info, .pagination-info {
+  color: #94A3B8 !important;
+}
+
+/* Make the OLT/Network/anything else with light bg dark */
+[id*="-card"], [class*="dashboard-card"], [class*="metric-card"] {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 14px;
+  color: #E2E8F0 !important;
+}
+
+/* =========================================================================
+ * 28.  GRID-LAYOUT GUARDS — per-portal Bootstrap 3 col-* survival kit
+ *
+ *   Some portals (Sub-LCO, Employee) load Bootstrap 3 grids inside content
+ *   that the DOM walker may inadvertently strip width from.  These rules
+ *   restore predictable layout so KPI cards never collapse to vertical
+ *   strips when "more cards than fit one row" is rendered.
+ * ========================================================================= */
+
+/* The base .row must always be a flex container that wraps */
+.content .row,
+.content-wrapper .row,
+section.content > .row,
+section .row,
+main .row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  margin-left: -10px !important;
+  margin-right: -10px !important;
+  align-items: stretch !important;
+}
+
+/* Each Bootstrap column gets predictable flex-basis at each breakpoint.
+   These mirror Bootstrap 3 widths but use !important so the e1 overlay
+   can't accidentally suppress them via inherited `display:block` etc.    */
+.content .row > [class*="col-"],
+section .row > [class*="col-"],
+main .row > [class*="col-"] {
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  box-sizing: border-box !important;
+  float: none !important;
+  display: block !important;
+  min-width: 0 !important;
+  margin-bottom: 16px !important;
+}
+
+/* col-xs-* — mobile first (always applies) */
+.row > .col-xs-12, .content .row > .col-xs-12, body .row > .col-xs-12 { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; display: block !important; }
+.row > .col-xs-6,  .content .row > .col-xs-6,  body .row > .col-xs-6  { flex: 0 0 50%  !important; max-width: 50%  !important; width: 50%  !important; display: block !important; }
+.row > .col-xs-4,  .content .row > .col-xs-4,  body .row > .col-xs-4  { flex: 0 0 33.333% !important; max-width: 33.333% !important; width: 33.333% !important; display: block !important; }
+.row > .col-xs-3,  .content .row > .col-xs-3,  body .row > .col-xs-3  { flex: 0 0 25%  !important; max-width: 25%  !important; width: 25%  !important; display: block !important; }
+.row > .col-xs-2,  .content .row > .col-xs-2,  body .row > .col-xs-2  { flex: 0 0 16.6667% !important; max-width: 16.6667% !important; width: 16.6667% !important; display: block !important; }
+
+@media (min-width: 768px) {
+  .row > .col-sm-12, .content .row > .col-sm-12, body .row > .col-sm-12 { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; }
+  .row > .col-sm-6,  .content .row > .col-sm-6,  body .row > .col-sm-6  { flex: 0 0 50%  !important; max-width: 50%  !important; width: 50%  !important; }
+  .row > .col-sm-4,  .content .row > .col-sm-4,  body .row > .col-sm-4  { flex: 0 0 33.333% !important; max-width: 33.333% !important; width: 33.333% !important; }
+  .row > .col-sm-3,  .content .row > .col-sm-3,  body .row > .col-sm-3  { flex: 0 0 25%  !important; max-width: 25%  !important; width: 25%  !important; }
+}
+
+@media (min-width: 992px) {
+  .row > .col-md-12, .content .row > .col-md-12, body .row > .col-md-12 { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; }
+  .row > .col-md-6,  .content .row > .col-md-6,  body .row > .col-md-6  { flex: 0 0 50%  !important; max-width: 50%  !important; width: 50%  !important; }
+  .row > .col-md-4,  .content .row > .col-md-4,  body .row > .col-md-4  { flex: 0 0 33.333% !important; max-width: 33.333% !important; width: 33.333% !important; }
+  .row > .col-md-3,  .content .row > .col-md-3,  body .row > .col-md-3  { flex: 0 0 25%  !important; max-width: 25%  !important; width: 25%  !important; }
+  .row > .col-md-2,  .content .row > .col-md-2,  body .row > .col-md-2  { flex: 0 0 16.6667% !important; max-width: 16.6667% !important; width: 16.6667% !important; }
+}
+
+@media (min-width: 1200px) {
+  .row > .col-lg-12, .content .row > .col-lg-12, body .row > .col-lg-12 { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; }
+  .row > .col-lg-6,  .content .row > .col-lg-6,  body .row > .col-lg-6  { flex: 0 0 50%  !important; max-width: 50%  !important; width: 50%  !important; }
+  .row > .col-lg-4,  .content .row > .col-lg-4,  body .row > .col-lg-4  { flex: 0 0 33.333% !important; max-width: 33.333% !important; width: 33.333% !important; }
+  .row > .col-lg-3,  .content .row > .col-lg-3,  body .row > .col-lg-3  { flex: 0 0 25%  !important; max-width: 25%  !important; width: 25%  !important; }
+  .row > .col-lg-2,  .content .row > .col-lg-2,  body .row > .col-lg-2  { flex: 0 0 16.6667% !important; max-width: 16.6667% !important; width: 16.6667% !important; }
+}
+
+/* SLCO + Employee small-box icons (.icon-bg vs .icon) — fall back nicely
+   when the per-page CSS uses an absolutely-positioned background glyph. */
+.small-box .icon-bg {
+  position: absolute !important;
+  right: 14px !important; top: 14px !important;
+  font-size: 42px !important;
+  opacity: 0.22 !important;
+  color: rgba(255,255,255,0.85) !important;
+  pointer-events: none;
+}
+html.e1-dark .small-box .icon-bg { color: rgba(96,165,250,0.40) !important; }
+
+/* Employee dashboard `bg-aqua / bg-green / bg-yellow / bg-red` legacy KPIs:
+   make sure inner number is large and visible even when the wrapper width
+   is constrained.  Min-height keeps cards uniform. */
+.small-box {
+  min-height: 130px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+.small-box > .inner { flex: 1 1 auto !important; }
+
+/* =========================================================================
+ * 29.  PER-PAGE BESPOKE TWEAKS  (Admin / SLCO / Employee specifics)
+ * ========================================================================= */
+
+/* --- ADMIN: OLT Command Center — keep its bespoke #0B0F1A canvas
+       (defined in admin_olt_dashboard.html) but ensure its tabs stay
+       clickable above e1 overlay. */
+body[data-page="admin-olt"] .olt-tabs a,
+.olt-shell .olt-tabs a {
+  position: relative; z-index: 2;
+  text-decoration: none !important;
+}
+
+/* --- ADMIN: Network GIS Map — guarantee the overlay never paints over
+       the leaflet map controls. */
+body.has-netmap #netmap-shell,
+body.has-netmap #netmap { background: #0B1226 !important; }
+body.has-netmap .nm-btn,
+body.has-netmap .nm-search,
+body.has-netmap .nm-hw-panel {
+  color: #F1F5F9 !important;
+}
+
+/* --- ADMIN/SLCO: Customer table actions cell — ensure every icon button
+       has min hit area for clickability (mobile + desktop). */
+.actions-cell a, .actions-cell button,
+td:last-child a.btn-xs, td:last-child button.btn-xs {
+  min-width: 30px !important;
+  min-height: 30px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- SLCO Dashboard welcome banner buttons — already styled inline; just
+       ensure they keep white text on dark hover. */
+.welcome-banner .welcome-actions .btn,
+.welcome-banner .welcome-actions a.btn {
+  color: #FFFFFF !important;
+  background: rgba(255,255,255,0.12) !important;
+  border: 1px solid rgba(255,255,255,0.30) !important;
+  font-weight: 600 !important;
+}
+.welcome-banner .welcome-actions .btn:hover {
+  background: rgba(255,255,255,0.22) !important;
+  color: #FFFFFF !important;
+}
+
+/* --- Employee Dashboard `bg-aqua/green/yellow/red` legacy AdminLTE small
+       boxes — preserve coloured accent stripe; ensure inner is readable. */
+html.e1-dark .small-box.bg-aqua,
+html.e1-dark .small-box.bg-green,
+html.e1-dark .small-box.bg-yellow,
+html.e1-dark .small-box.bg-red,
+html.e1-dark .small-box.bg-blue,
+html.e1-dark .small-box.bg-purple,
+html.e1-dark .small-box.bg-rose,
+html.e1-dark .small-box.bg-slate {
+  background: rgba(15,23,42,0.82) !important;
+  color: #F1F5F9 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+html.e1-dark .small-box .inner h3,
+html.e1-dark .small-box > .inner > h3 {
+  color: #F8FAFC !important;
+}
+html.e1-dark .small-box .inner p,
+html.e1-dark .small-box > .inner > p {
+  color: #CBD5E1 !important;
+}
+
+/* --- Modal "edit" forms — guarantee inputs always interactable */
+.modal.in .modal-content,
+.modal.show .modal-content,
+.modal-content.in {
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+.modal.in .modal-content input,
+.modal.in .modal-content select,
+.modal.in .modal-content textarea,
+.modal.in .modal-content button,
+.modal.show .modal-content input,
+.modal.show .modal-content select,
+.modal.show .modal-content textarea,
+.modal.show .modal-content button {
+  pointer-events: auto !important;
+  user-select: text !important;
+}
+
+/* --- Edit pencil click target — the small pencil icon used as edit
+       trigger inside subscriber detail / table action cells. */
+button.icon-edit, a.icon-edit,
+button[onclick*="edit" i]:not(.btn),
+a[onclick*="edit" i]:not(.btn) {
+  cursor: pointer !important;
+  background: rgba(139,92,246,0.14) !important;
+  color: #C4B5FD !important;
+  border: 1px solid rgba(139,92,246,0.30) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  display: inline-flex !important;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  transition: all .15s ease;
+}
+button.icon-edit:hover, a.icon-edit:hover {
+  background: rgba(139,92,246,0.24) !important;
+  border-color: rgba(139,92,246,0.50) !important;
+  transform: translateY(-1px);
+}
+
+/* --- Confirm/Alert popups (SweetAlert2, native dialogs) — dark themed */
+.swal2-popup, .swal2-modal {
+  background: #0E1730 !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  border-radius: 18px !important;
+}
+.swal2-title, .swal2-content, .swal2-html-container {
+  color: #F1F5F9 !important;
+}
+.swal2-actions .swal2-confirm {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-radius: 10px !important;
+}
+.swal2-actions .swal2-cancel {
+  background: rgba(255,255,255,0.10) !important;
+  color: #F1F5F9 !important;
+  border-radius: 10px !important;
+}
+.swal2-icon { border-color: rgba(255,255,255,0.25) !important; }
+
+/* --- Bootstrap Toasts (notification toasts) */
+.toast, .toast-container .toast,
+[class*="toast-"][role="alert"] {
+  background: rgba(15,23,42,0.96) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(96,165,250,0.20) !important;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.50) !important;
+}
+.toast-header {
+  background: rgba(15,23,42,0.96) !important;
+  color: #F1F5F9 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* --- Confirm "Are you sure?" inline browser confirm boxes — n/a, browser
+       native — but for in-page confirms via .confirm-box ensure dark. */
+.confirm-box, .delete-confirm, .alert-confirm {
+  background: #0E1730 !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(239,68,68,0.40) !important;
+  border-radius: 14px !important;
+  padding: 18px 22px !important;
+}
+
+/* --- Edit-in-place panes (subscriber detail "Edit Profile" pencil) */
+.edit-pane, .inline-edit, .inline-edit-pane {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(96,165,250,0.20) !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+  color: #E2E8F0 !important;
+}
+
+/* --- Per-portal sidebar branding tweaks (Sub-LCO / Employee) */
+body[data-portal="sub-lco"] .main-sidebar { border-right: 1px solid rgba(139,92,246,0.20) !important; }
+body[data-portal="employee"] .main-sidebar { border-right: 1px solid rgba(16,185,129,0.20) !important; }
+
+/* --- Dropdown menus (action menus on tables) */
+html.e1-dark .dropdown-menu.show,
+html.e1-dark .dropdown-menu.open {
+  background: rgba(14,23,48,0.98) !important;
+  border: 1px solid rgba(96,165,250,0.20) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55) !important;
+  padding: 6px !important;
+}
+html.e1-dark .dropdown-menu > li > a,
+html.e1-dark .dropdown-menu .dropdown-item {
+  color: #E2E8F0 !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 13.5px !important;
+}
+html.e1-dark .dropdown-menu > li > a:hover,
+html.e1-dark .dropdown-menu .dropdown-item:hover {
+  background: rgba(59,130,246,0.18) !important;
+  color: #93C5FD !important;
+}
+
+/* --- Tabs (Bootstrap nav-tabs used in modals or page-bodies) */
+html.e1-dark .nav-tabs {
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+}
+html.e1-dark .nav-tabs > li > a,
+html.e1-dark .nav-tabs .nav-link {
+  color: #94A3B8 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  font-weight: 600;
+  padding: 10px 16px !important;
+}
+html.e1-dark .nav-tabs > li.active > a,
+html.e1-dark .nav-tabs .nav-link.active {
+  color: #93C5FD !important;
+  background: rgba(59,130,246,0.10) !important;
+  border: 1px solid rgba(96,165,250,0.30) !important;
+  border-bottom-color: transparent !important;
+  border-radius: 10px 10px 0 0 !important;
+}
+html.e1-dark .nav-tabs > li > a:hover,
+html.e1-dark .nav-tabs .nav-link:hover {
+  color: #93C5FD !important;
+  background: rgba(59,130,246,0.06) !important;
+}
+
+/* --- File-upload custom buttons — make Browse buttons consistent */
+input[type="file"]::-webkit-file-upload-button {
+  background: rgba(255,255,255,0.10) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255,255,255,0.20) !important;
+  border-radius: 8px !important;
+  padding: 6px 12px !important;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: 10px;
+  transition: background .15s ease;
+}
+input[type="file"]::-webkit-file-upload-button:hover {
+  background: rgba(59,130,246,0.25) !important;
+}
+
+/* --- Mobile responsiveness for KPI grids: at narrow widths use 2-up */
+@media (max-width: 575px) {
+  .content .row > [class*="col-"],
+  section .row > [class*="col-"] {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+}
+@media (min-width: 576px) and (max-width: 991px) {
+  .content .row > .col-md-3,
+  .content .row > .col-lg-3 {
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+    width: 50% !important;
+  }
+}
+
+/* =========================================================================
+ * 30.  MODAL CONTRAST HARDENING  — BULLETPROOF visibility & clickability
+ *
+ *   Many per-page inline <style> blocks declare:
+ *     .form-section { background: #f8f9fa }      ← light grey
+ *     .form-group label { color: #555 }          ← dark grey
+ *     .muted { color: #6c757d }                  ← grey text
+ *   These render as near-invisible on the dark modal canvas.  The rules
+ *   below FORCE high-contrast rendering of EVERY element inside an open
+ *   modal so users can always read, edit and click.
+ *
+ *   Combined with the JS walker now skipping modal subtrees entirely,
+ *   modals are guaranteed solid + high-contrast.
+ * ========================================================================= */
+
+/* Solid, opaque modal-content with stronger visual weight.  No transparency.
+ * NOTE: `.modal` itself has no background — the dimmed backdrop is done by
+ * `.modal-backdrop` alone (z-index 10500).  Doubling that here caused the
+ * "dim wash" appearance users complained about. */
+.modal,
+.modal.fade,
+.modal.in,
+.modal.show {
+  background: transparent !important;
+}
+.modal-content,
+[role="dialog"] > .modal-content,
+.modal-dialog > .modal-content {
+  background: #1B2952 !important;
+  background-color: #1B2952 !important;
+  background-image: none !important;
+  color: #F1F5F9 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  border: 1.5px solid rgba(96, 165, 250, 0.45) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 80px rgba(59, 130, 246, 0.22) !important;
+}
+
+/* All descendants inside .modal-content default to high-contrast text */
+.modal-content,
+.modal-content *:not(i):not(svg):not(path) {
+  color: #F1F5F9;
+}
+
+/* Modal body MUST stay opaque — never let walker or per-page CSS make
+   inner sub-cards transparent. */
+.modal-content > .modal-body,
+.modal .modal-body,
+.modal-body {
+  background: transparent !important;   /* uses modal-content's solid bg */
+  color: #F1F5F9 !important;
+}
+
+/* === Inner cards / sections / wells / form-sections inside modal ===
+   These often had `background: #f8f9fa` (light grey) — we override to
+   a visibly-distinct slightly-lighter slate so they stand out as
+   "sub-cards" against the modal canvas. */
+.modal-content .form-section,
+.modal-content .well,
+.modal-content .panel,
+.modal-content .panel-default,
+.modal-content .card,
+.modal-content .box,
+.modal-content .alert-info,
+.modal-content [class*="info-block"],
+.modal-content [class*="info-card"],
+.modal-content [class*="form-section"],
+.modal-content section.form-section,
+.modal-content div[class*="section"]:not(.modal-section-header) {
+  background: rgba(255, 255, 255, 0.06) !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+  border-radius: 10px !important;
+  color: #F1F5F9 !important;
+  padding: 12px 14px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Headings inside form-section / sub-cards */
+.modal-content .form-section h1,
+.modal-content .form-section h2,
+.modal-content .form-section h3,
+.modal-content .form-section h4,
+.modal-content .form-section h5,
+.modal-content .well h4,
+.modal-content .well h5,
+.modal-content .panel h4,
+.modal-content .panel-title,
+.modal-content .box-title,
+.modal-content .card-title {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+/* Labels inside modals — was `color:#555` → invisible.  Force white. */
+.modal-content label,
+.modal-content .form-group label,
+.modal-content .control-label,
+.modal-content legend,
+.modal-content fieldset > legend {
+  color: #E2E8F0 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+/* Required marker `*` — keep red but visible */
+.modal-content label .required,
+.modal-content label .text-danger,
+.modal-content label sup {
+  color: #FCA5A5 !important;
+}
+
+/* Help text / hints / muted text inside modals */
+.modal-content .muted,
+.modal-content .text-muted,
+.modal-content small.text-muted,
+.modal-content small,
+.modal-content .help-block,
+.modal-content .form-text,
+.modal-content .hint,
+.modal-content em,
+.modal-content .description,
+.modal-content p.small {
+  color: #94A3B8 !important;
+}
+
+/* === Inputs inside modals — VISIBLE BORDER, high contrast === */
+.modal-content input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.modal-content select,
+.modal-content textarea,
+.modal-content .form-control,
+.modal-content .form-select {
+  background: rgba(255, 255, 255, 0.04) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  color: #FFFFFF !important;
+  border: 1.5px solid rgba(148, 163, 184, 0.40) !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
+  padding: 10px 14px !important;
+  min-height: 44px !important;
+  line-height: 1.4 !important;
+  box-shadow: none !important;
+}
+.modal-content input:focus,
+.modal-content select:focus,
+.modal-content textarea:focus,
+.modal-content .form-control:focus {
+  border-color: #60A5FA !important;
+  background: rgba(59, 130, 246, 0.10) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.30) !important;
+  color: #FFFFFF !important;
+}
+.modal-content input::placeholder,
+.modal-content textarea::placeholder {
+  color: rgba(148, 163, 184, 0.70) !important;
+  opacity: 1 !important;
+}
+
+/* Disabled / read-only inputs — keep visible but obviously inert */
+.modal-content input[disabled],
+.modal-content input[readonly],
+.modal-content select[disabled],
+.modal-content textarea[disabled] {
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: rgba(241, 245, 249, 0.55) !important;
+  border-color: rgba(148, 163, 184, 0.20) !important;
+  cursor: not-allowed;
+}
+
+/* Native <option> dropdown items */
+.modal-content option {
+  background: #0F1A38 !important;
+  color: #F1F5F9 !important;
+}
+
+/* Checkboxes and radios inside modals — make label clickable + visible */
+.modal-content input[type="checkbox"],
+.modal-content input[type="radio"] {
+  width: 18px !important; height: 18px !important;
+  accent-color: #60A5FA !important;
+  cursor: pointer !important;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.modal-content .checkbox label,
+.modal-content .radio label,
+.modal-content label.checkbox-inline,
+.modal-content label.radio-inline {
+  color: #F1F5F9 !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+}
+
+/* === Buttons inside modals — guaranteed clickable, high contrast === */
+.modal-content .btn,
+.modal-content button,
+.modal-footer .btn,
+.modal-footer button {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  user-select: auto !important;
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  padding: 9px 18px !important;
+}
+
+/* Primary / Save / Submit buttons — bright */
+.modal-content .btn-primary,
+.modal-content .btn-success,
+.modal-content button[type="submit"],
+.modal-footer .btn-primary,
+.modal-footer .btn-success {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  color: #FFFFFF !important;
+  border: 1px solid #0891B2 !important;
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35) !important;
+}
+
+/* Cancel / Default buttons — visible secondary */
+.modal-content .btn-default,
+.modal-content .btn-secondary,
+.modal-content button[data-dismiss="modal"],
+.modal-footer .btn-default,
+.modal-footer .btn-secondary,
+.modal-footer button[data-dismiss="modal"] {
+  background: rgba(255, 255, 255, 0.10) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+.modal-content .btn-default:hover,
+.modal-footer .btn-default:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #FFFFFF !important;
+}
+
+/* === Pills / chips / role-toggles inside modals === */
+.modal-content .pill,
+.modal-content .chip,
+.modal-content .label,
+.modal-content .badge,
+.modal-content .role-pill,
+.modal-content [class*="status-pill"],
+.modal-content [class*="role-"] {
+  color: #F1F5F9 !important;
+  font-weight: 600 !important;
+}
+.modal-content .pill:not(.online):not(.offline):not(.error):not(.warn):not(.critical):not(.info):not(.unknown):not(.success):not(.danger):not(.warning),
+.modal-content .label.label-default,
+.modal-content .badge.badge-default {
+  background: rgba(148, 163, 184, 0.22) !important;
+  color: #E2E8F0 !important;
+}
+
+/* === Pre / code / cmd-output blocks inside modals === */
+.modal-content pre,
+.modal-content code,
+.modal-content .cmd-output,
+.modal-content .cli {
+  background: #0A0F1E !important;
+  color: #7EE787 !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+  font-size: 12.5px !important;
+}
+
+/* === Tables inside modals === */
+.modal-content table,
+.modal-content .table {
+  background: transparent !important;
+  color: #F1F5F9 !important;
+}
+.modal-content table thead th,
+.modal-content .table > thead > tr > th {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #CBD5E1 !important;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.20) !important;
+}
+.modal-content table tbody td,
+.modal-content .table > tbody > tr > td {
+  background: transparent !important;
+  color: #F1F5F9 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* === Modal header — guarantee the title is visible regardless of
+       inline `style="background:#XYZ"`  inline overrides === */
+.modal-header,
+.modal-content > .modal-header,
+.modal-header[style] {
+  background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important;
+  color: #FFFFFF !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 14px 14px 0 0 !important;
+  padding: 14px 22px !important;
+}
+.modal-header h1, .modal-header h2, .modal-header h3, .modal-header h4,
+.modal-header h5, .modal-header .modal-title {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+}
+.modal-header .close,
+.modal-header button.close,
+.modal-header .btn-close {
+  color: #FFFFFF !important;
+  opacity: 0.9 !important;
+  text-shadow: none !important;
+  font-size: 24px !important;
+  font-weight: 400 !important;
+  background: transparent !important;
+  border: 0 !important;
+  cursor: pointer !important;
+  padding: 0 8px !important;
+}
+.modal-header .close:hover {
+  opacity: 1 !important;
+  color: #FCA5A5 !important;
+}
+
+/* === Modal footer === */
+.modal-footer {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border-radius: 0 0 14px 14px !important;
+  padding: 14px 22px !important;
+}
+
+/* === Z-INDEX & pointer-events — guarantee modal always clickable ===
+ *
+ * Strategy:
+ *   - .modal-backdrop  → z-index 10500 (above .e1-mobile-bottom-nav 1500
+ *                                       and back-to-top FAB 9999)
+ *   - .modal           → z-index 10550 (creates its own stacking context;
+ *                                       descendants painted at 10550 globally)
+ *   - .modal-dialog    → z-index auto (NO new stacking context — paints
+ *                                       inside .modal's context naturally)
+ *   - .modal-content   → z-index auto (same — paints above backdrop because
+ *                                       it's inside .modal's 10550 context)
+ *   - pointer-events: auto on .modal so hit-testing finds modal-content
+ *                            cleanly.  Click-outside-to-close handled
+ *                            by Bootstrap's own data-dismiss="modal" on
+ *                            the .modal element (works at pointer-events
+ *                            auto because clicks on .modal-content stop
+ *                            propagation in BS3 default behaviour).
+ */
+.modal-backdrop,
+.modal-backdrop.in,
+.modal-backdrop.show {
+  z-index: 10500 !important;
+  background-color: rgba(2, 6, 23, 0.78) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+.modal,
+.modal.in,
+.modal.show {
+  z-index: 10550 !important;
+  pointer-events: auto !important;
+  background: transparent !important;
+}
+.modal-dialog {
+  z-index: auto !important;
+  pointer-events: auto !important;
+  position: relative !important;
+}
+.modal-content {
+  z-index: auto !important;
+  pointer-events: auto !important;
+  position: relative !important;
+}
+/* All modal-content descendants — buttons, inputs, anchors, icons — must
+   be clickable.  Wildcard ensures even deep-nested custom widgets work. */
+.modal-content *,
+.modal-body *,
+.modal-header *,
+.modal-footer *,
+.modal-dialog * {
+  pointer-events: auto !important;
+}
+/* Defensive: the close ("X") button MUST always be clickable */
+.modal-header .close,
+.modal-header button.close,
+.modal-header .btn-close,
+.modal .close,
+.modal [data-dismiss="modal"],
+.modal [data-bs-dismiss="modal"] {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+/* === Hide every fixed floating UI while a modal is open === */
+body.modal-open .e1-mobile-bottom-nav,
+body.modal-open #e1-back-to-top,
+body.modal-open .e1-back-to-top,
+body.modal-open [class*="back-to-top"],
+body.modal-open [id*="back-to-top"],
+body.modal-open .floating-action-btn,
+body.modal-open .fab,
+body.modal-open [class*="floating-cta"],
+body.modal-open .e1-fab,
+body.modal-open .tour-tooltip,
+body.modal-open .joyride-tooltip {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* When ONLY ONE backdrop should exist — collapse any extras stacked
+   beneath the visible one to zero opacity so they don't compound dim. */
+.modal-backdrop + .modal-backdrop {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  background: transparent !important;
+}
+
+/* Force `body.modal-open` to keep scroll-blocking but interactive */
+body.modal-open {
+  overflow: hidden !important;
+  padding-right: 0 !important;
+}
+
+/* Per-template inline-style modal-content overrides (e.g. width / height) —
+   permit those but enforce solid bg. */
+.modal-content[style*="background"],
+.modal-content[style*="opacity"] {
+  background: #1B2952 !important;
+  background-color: #1B2952 !important;
+  opacity: 1 !important;
+}
+
+/* === FINAL GUARDS: anything inside modal with inline `background: #fff` etc. === */
+.modal-content [style*="background: #fff"],
+.modal-content [style*="background:#fff"],
+.modal-content [style*="background: white"],
+.modal-content [style*="background:white"],
+.modal-content [style*="background: #f8f9fa"],
+.modal-content [style*="background:#f8f9fa"],
+.modal-content [style*="background: #f5f5f5"],
+.modal-content [style*="background:#f5f5f5"],
+.modal-content [style*="background: #fafafa"],
+.modal-content [style*="background:#fafafa"],
+.modal-content [style*="background-color: #fff"],
+.modal-content [style*="background-color:#fff"],
+.modal-content [style*="background-color: white"],
+.modal-content [style*="background-color:white"] {
+  background: rgba(255, 255, 255, 0.06) !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  color: #F1F5F9 !important;
+  border-color: rgba(96, 165, 250, 0.18) !important;
+}
+
+/* === SwAl-as-modal & custom popups (.popup, .dialog, .overlay-card) === */
+.popup-content,
+.dialog-content,
+.overlay-card,
+.custom-modal-content,
+[id*="Modal"] > [id*="content"],
+[id*="modal"] > [id*="content"] {
+  background: #1B2952 !important;
+  color: #F1F5F9 !important;
+  border: 1.5px solid rgba(96, 165, 250, 0.45) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.75) !important;
+}
+
+/* =========================================================================
+ * 34.  CUSTOM PER-PAGE MODAL CLASSES — same dark theme + z-index bump
+ * ========================================================================= */
+
+.s38w-modal-backdrop,
+.s38w-modal-backdrop.show {
+  position: fixed !important;
+  top: 0 !important; left: 0 !important;
+  right: 0 !important; bottom: 0 !important;
+  background: rgba(2, 6, 23, 0.82) !important;
+  z-index: 10500 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 40px 20px !important;
+  overflow-y: auto !important;
+}
+
+.s38w-modal {
+  background: #1B2952 !important;
+  color: #F1F5F9 !important;
+  border: 1.5px solid rgba(96, 165, 250, 0.45) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.75) !important;
+  width: 100% !important;
+  max-width: 720px !important;
+  z-index: 10570 !important;
+  position: relative !important;
+}
+
+.s38w-mod-head {
+  background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important;
+  color: #FFFFFF !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 14px 14px 0 0 !important;
+  padding: 14px 22px !important;
+}
+.s38w-mod-head h3, .s38w-mod-head h4 {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+}
+.s38w-mod-close {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  opacity: 0.9 !important;
+  border: 0 !important;
+  font-size: 24px !important;
+  cursor: pointer !important;
+}
+.s38w-mod-close:hover { color: #FCA5A5 !important; opacity: 1 !important; }
+
+.s38w-mod-body {
+  background: transparent !important;
+  color: #F1F5F9 !important;
+  padding: 18px 22px !important;
+}
+.s38w-thread {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+  color: #F1F5F9 !important;
+  border-radius: 10px !important;
+}
+.s38w-msg--me {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #D1FAE5 !important;
+  border: 1px solid rgba(16, 185, 129, 0.30) !important;
+}
+.s38w-msg--them {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(96, 165, 250, 0.20) !important;
+}
+.s38w-msg .who { color: #93C5FD !important; }
+
+.s38w-mod-foot {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.10) !important;
+  padding: 14px 22px !important;
+}
+
+.s38w-form-row label { color: #E2E8F0 !important; font-weight: 600 !important; }
+.s38w-form-row input,
+.s38w-form-row select,
+.s38w-form-row textarea {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #FFFFFF !important;
+  border: 1.5px solid rgba(148, 163, 184, 0.40) !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  min-height: 44px !important;
+}
+.s38w-form-row input:focus,
+.s38w-form-row select:focus,
+.s38w-form-row textarea:focus {
+  border-color: #60A5FA !important;
+  background: rgba(59, 130, 246, 0.10) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.30) !important;
+}
+
+.s38w-btn { border-radius: 10px !important; font-weight: 700 !important; }
+.s38w-btn--primary {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35) !important;
+}
+.s38w-btn--secondary {
+  background: rgba(255, 255, 255, 0.10) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+.s38w-btn--danger {
+  background: rgba(239, 68, 68, 0.24) !important;
+  color: #FCA5A5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+
+/* =========================================================================
+ * 35.  SOLID, FULLY OPAQUE STATUS PILLS  (no more "faded" complaint!)
+ * ========================================================================= */
+.pill.warn, span.pill.warn {
+  background: #F59E0B !important;
+  background-color: #F59E0B !important;
+  color: #1F2937 !important;
+  border: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  padding: 4px 12px !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.45), 0 2px 6px rgba(0,0,0,0.30) !important;
+}
+.pill.critical, span.pill.critical {
+  background: #EF4444 !important;
+  background-color: #EF4444 !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  padding: 4px 12px !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.50), 0 2px 6px rgba(0,0,0,0.30) !important;
+}
+.pill.info, span.pill.info {
+  background: #06B6D4 !important;
+  background-color: #06B6D4 !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  padding: 4px 12px !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.45), 0 2px 6px rgba(0,0,0,0.30) !important;
+}
+.pill.acked, .pill.ok, .pill.online, span.pill.acked, span.pill.ok {
+  background: #10B981 !important;
+  background-color: #10B981 !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  padding: 4px 12px !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45), 0 2px 6px rgba(0,0,0,0.30) !important;
+}
+.pill.open, span.pill.open {
+  background: #F59E0B !important;
+  background-color: #F59E0B !important;
+  color: #1F2937 !important;
+  border: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  padding: 4px 12px !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.45), 0 2px 6px rgba(0,0,0,0.30) !important;
+}
+
+/* =========================================================================
+ * 33.  STICKY FOOTER + ACTION ICONS VISIBILITY (2026-02-27)
+ *
+ *   User reports:
+ *     - Footer floats in middle of page on pages with sparse content
+ *     - Action-column icons (eye/pay/history/refresh/send/call/msg/file/dl/
+ *       trash) appear too dim against the dark theme — hard to see
+ *       especially in the first row
+ *     - First row "● Online" green dot was barely visible due to color
+ *       conflict with the row's row-highlight overlay
+ * ========================================================================= */
+
+/* --- 33a.  Sticky footer — span FULL viewport width (left: 0) so there's
+       no visible gap between sidebar and footer.  Footer sits above the
+       sidebar bottom edge via z-index. */
+.main-footer {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;                /* full width, edge-to-edge */
+  right: 0 !important;
+  width: 100% !important;
+  z-index: 1100 !important;          /* above sidebar (z 800/900) below modals (10500+) */
+  padding: 14px 22px !important;
+  padding-left: 252px !important;    /* offset text past sidebar (230 + 22) */
+  background: rgba(11, 17, 32, 0.96) !important;
+  color: #94A3B8 !important;
+  border-top: 1px solid rgba(96, 165, 250, 0.18) !important;
+  font-size: 13px !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+/* When sidebar is collapsed (AdminLTE adds .sidebar-collapse to body),
+   text padding slides left to match. */
+body.sidebar-collapse .main-footer {
+  padding-left: 72px !important;
+}
+/* Small screens — sidebar overlays, footer text starts at normal indent. */
+@media (max-width: 767px) {
+  .main-footer {
+    padding-left: 22px !important;
+  }
+}
+.main-footer a {
+  color: #93C5FD !important;
+  text-decoration: none !important;
+}
+.main-footer a:hover {
+  color: #BFDBFE !important;
+  text-decoration: underline !important;
+}
+.main-footer .pull-right b,
+.main-footer b {
+  color: #CBD5E1 !important;
+}
+/* Padding-bottom on content-wrapper so the last table row / pagination
+   isn't hidden behind the fixed footer. */
+.content-wrapper {
+  padding-bottom: 70px !important;
+  min-height: calc(100vh - 50px) !important;
+}
+/* Ensure the sidebar's bottom edge meets the footer's top edge cleanly */
+.main-sidebar,
+aside.main-sidebar {
+  padding-bottom: 56px !important;   /* footer height — sidebar scrollable area
+                                        doesn't get hidden under fixed footer */
+}
+
+/* --- 33b.  Action-column icons — guarantee bright + clickable.
+       Every <a class="action-btn"> or <button class="action-btn"> renders
+       with a solid tinted square hit-area so users on the dark theme
+       can see them clearly. */
+.action-icons,
+.actions-cell .action-icons,
+td.actions-cell {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  min-width: 180px !important;
+}
+.action-btn,
+a.action-btn,
+button.action-btn,
+.actions-cell a,
+.actions-cell button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(96, 165, 250, 0.20) !important;
+  color: #93C5FD !important;
+  cursor: pointer !important;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
+  padding: 0 !important;
+  text-decoration: none !important;
+}
+.action-btn svg,
+.actions-cell svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke: currentColor !important;
+  fill: none !important;
+}
+.action-btn:hover,
+.actions-cell a:hover,
+.actions-cell button:hover {
+  background: rgba(59, 130, 246, 0.22) !important;
+  border-color: rgba(96, 165, 250, 0.55) !important;
+  color: #BFDBFE !important;
+  transform: translateY(-1px);
+}
+
+/* Per-action accent tinting — keeps semantic colours but never dim */
+.action-btn[title*="View" i],
+.action-btn[title*="Open" i],
+.action-btn[title*="Details" i],
+a[href*="/profile"].action-btn {
+  color: #93C5FD !important;
+  border-color: rgba(96, 165, 250, 0.30) !important;
+}
+.action-btn[title*="Pay" i],
+.action-btn[title*="Recharge" i],
+a[href*="/pay"].action-btn,
+a[href*="/recharge"].action-btn {
+  color: #6EE7B7 !important;
+  border-color: rgba(16, 185, 129, 0.40) !important;
+  background: rgba(16, 185, 129, 0.10) !important;
+}
+.action-btn[title*="Delete" i],
+.action-btn[title*="Remove" i],
+.action-btn[data-action="delete"],
+.text-red-600.action-btn {
+  color: #FCA5A5 !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+.action-btn[title*="Delete" i]:hover,
+.action-btn[data-action="delete"]:hover {
+  background: rgba(239, 68, 68, 0.22) !important;
+  color: #FFFFFF !important;
+}
+.action-btn[title*="Renew" i],
+.action-btn[title*="Refresh" i],
+.action-btn[title*="History" i] {
+  color: #FCD34D !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+.action-btn[title*="Send" i],
+.action-btn[title*="Notif" i],
+.action-btn[title*="WhatsApp" i] {
+  color: #67E8F9 !important;
+  border-color: rgba(6, 182, 212, 0.35) !important;
+}
+
+/* --- 33c.  Online / Offline / Parked dot — always visible regardless of
+       row-highlight overlay.  Add explicit text-shadow for legibility on
+       the dark base, and bump weight + size. */
+[data-testid="user-online-state"],
+td > span:first-child[style*="color:#059669"],
+td > span:first-child[style*="color:#d97706"],
+td > span:first-child[style*="color:#9ca3af"] {
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  letter-spacing: 0.02em !important;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.40);
+}
+[data-testid="user-online-state"][style*="#059669"],
+td span[style*="color:#059669"] {
+  color: #6EE7B7 !important;
+}
+[data-testid="user-online-state"][style*="#d97706"],
+td span[style*="color:#d97706"] {
+  color: #FCD34D !important;
+}
+[data-testid="user-online-state"][style*="#9ca3af"],
+td span[style*="color:#9ca3af"] {
+  color: #94A3B8 !important;
+}
+
+/* The first row of striped tables had a row-highlight overlay that
+   dimmed the inline-styled online dot.  Force striped odd rows to
+   transparent so the text-color overrides above always win. */
+.table-striped > tbody > tr:nth-of-type(odd),
+.table-striped > tbody > tr:nth-of-type(odd) > td {
+  background-color: rgba(255, 255, 255, 0.018) !important;
+}
+.table-striped > tbody > tr:nth-of-type(even),
+.table-striped > tbody > tr:nth-of-type(even) > td {
+  background-color: rgba(255, 255, 255, 0.005) !important;
+}
+
+/* Special case: very first row in any table must NEVER be invisible.
+   Some pages set a "highlight first row" rule that darkens it; remove. */
+table tbody tr:first-child td {
+  background-color: rgba(255, 255, 255, 0.025) !important;
+}
+table tbody tr:first-child td * {
+  opacity: 1 !important;
+}
+
+/* =========================================================================
+ * 31.  INLINE-STYLE PILLS / CHIPS / SPANS INSIDE MODALS  — DARK MODE FORCE
+ *
+ *   Many templates emit pastel pills via JS, e.g.:
+ *     pill(blue,  ...) → <span style="background:#dbeafe; color:#1e40af">
+ *     pill(slate, ...) → <span style="background:#f1f5f9; color:#334155">
+ *   Dark slate/blue text on light pastel bg is technically readable, but the
+ *   pill itself blends visually with the dark modal canvas.  Force every
+ *   inline-styled pill inside an open modal to render with a brighter
+ *   high-contrast palette.
+ * ========================================================================= */
+
+.modal-content span[style*="background:#dbeafe"],
+.modal-content span[style*="background: #dbeafe"] {
+  background: rgba(59, 130, 246, 0.22) !important;
+  background-color: rgba(59, 130, 246, 0.22) !important;
+  color: #BFDBFE !important;
+  border: 1px solid rgba(59, 130, 246, 0.45) !important;
+}
+.modal-content span[style*="background:#f1f5f9"],
+.modal-content span[style*="background: #f1f5f9"] {
+  background: rgba(148, 163, 184, 0.22) !important;
+  background-color: rgba(148, 163, 184, 0.22) !important;
+  color: #E2E8F0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.45) !important;
+}
+.modal-content span[style*="background:#dcfce7"],
+.modal-content span[style*="background: #dcfce7"] {
+  background: rgba(16, 185, 129, 0.22) !important;
+  background-color: rgba(16, 185, 129, 0.22) !important;
+  color: #6EE7B7 !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+}
+.modal-content span[style*="background:#fef3c7"],
+.modal-content span[style*="background: #fef3c7"] {
+  background: rgba(245, 158, 11, 0.22) !important;
+  background-color: rgba(245, 158, 11, 0.22) !important;
+  color: #FCD34D !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+}
+.modal-content span[style*="background:#fee2e2"],
+.modal-content span[style*="background: #fee2e2"] {
+  background: rgba(239, 68, 68, 0.22) !important;
+  background-color: rgba(239, 68, 68, 0.22) !important;
+  color: #FCA5A5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+.modal-content span[style*="background:#cfe2ff"],
+.modal-content span[style*="background: #cfe2ff"] {
+  background: rgba(99, 102, 241, 0.22) !important;
+  background-color: rgba(99, 102, 241, 0.22) !important;
+  color: #A5B4FC !important;
+  border: 1px solid rgba(99, 102, 241, 0.45) !important;
+}
+.modal-content span[style*="background:#e9ecef"],
+.modal-content span[style*="background: #e9ecef"] {
+  background: rgba(148, 163, 184, 0.18) !important;
+  background-color: rgba(148, 163, 184, 0.18) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid rgba(148, 163, 184, 0.35) !important;
+}
+
+/* Force inline-style text colors (color: #xxxxxx) to be readable on dark.
+   If text color is dark slate/blue/red, replace with bright equivalent. */
+.modal-content span[style*="color:#334155"],
+.modal-content span[style*="color: #334155"],
+.modal-content [style*="color:#334155"]:not(.modal-header):not(.modal-title) {
+  color: #E2E8F0 !important;
+}
+.modal-content span[style*="color:#1e40af"],
+.modal-content span[style*="color: #1e40af"] {
+  color: #93C5FD !important;
+}
+.modal-content span[style*="color:#166534"],
+.modal-content span[style*="color: #166534"] {
+  color: #6EE7B7 !important;
+}
+.modal-content span[style*="color:#92400e"],
+.modal-content span[style*="color: #92400e"] {
+  color: #FCD34D !important;
+}
+.modal-content span[style*="color:#991b1b"],
+.modal-content span[style*="color: #991b1b"] {
+  color: #FCA5A5 !important;
+}
+.modal-content span[style*="color:#084298"],
+.modal-content span[style*="color: #084298"] {
+  color: #A5B4FC !important;
+}
+.modal-content [style*="color:#b91c1c"],
+.modal-content [style*="color: #b91c1c"] {
+  color: #FCA5A5 !important;
+}
+.modal-content [style*="color:#6c757d"],
+.modal-content [style*="color: #6c757d"] {
+  color: #94A3B8 !important;
+}
+.modal-content [style*="color:#555"],
+.modal-content [style*="color: #555"] {
+  color: #CBD5E1 !important;
+}
+
+/* Special: error/warning panels inside modals (red/yellow background) */
+.modal-content [style*="background:#fff5f5"],
+.modal-content [style*="background: #fff5f5"] {
+  background: rgba(239, 68, 68, 0.12) !important;
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  color: #FCA5A5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.30) !important;
+}
+
+/* For .modal-content code-blocks (font-family:monospace inline) */
+.modal-content code,
+.modal-content [style*="font-family:monospace"],
+.modal-content [style*="font-family: monospace"],
+.modal-content [style*="font-family:'Courier"],
+.modal-content [style*="font-family: 'Courier"] {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #93C5FD !important;
+  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  font-size: 12.5px !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+}
+
+/* =========================================================================
+ * 32.  GLOBAL CATCH-ALL  — info-row / detail-row / kv-row / k-v style
+ *
+ *   Many templates render detail-modals as labelled rows using custom
+ *   classes that the §30 selectors don't cover.  Examples seen in the wild:
+ *     .info-row + .info-label     (superadmin admin-details)
+ *     .detail-row + .detail-label (admin subscriber)
+ *     .kv-row    + .kv-key        (employee)
+ *     .row-item  + .row-label     (varies)
+ *   This block force-styles every conceivable pattern so the modal
+ *   contents are ALWAYS readable on dark.
+ * ========================================================================= */
+
+.modal-content .info-row,
+.modal-content .detail-row,
+.modal-content .kv-row,
+.modal-content .row-item,
+.modal-content .field-row,
+.modal-content .data-row,
+.modal-content .meta-row,
+.modal-content .summary-row,
+.modal-content .property-row,
+.modal-content .stat-row,
+.modal-content [class*="info-row"],
+.modal-content [class*="detail-row"],
+.modal-content [class*="kv-row"],
+.modal-content [class*="field-row"] {
+  background: rgba(255, 255, 255, 0.05) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+  border-left: 3px solid #60A5FA !important;
+  border-radius: 10px !important;
+  color: #F1F5F9 !important;
+  padding: 12px 14px !important;
+  margin-bottom: 10px !important;
+  box-shadow: none !important;
+}
+.modal-content .info-row:hover,
+.modal-content .detail-row:hover,
+.modal-content .kv-row:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-left-color: #93C5FD !important;
+}
+
+.modal-content .info-label,
+.modal-content .detail-label,
+.modal-content .kv-key,
+.modal-content .kv-label,
+.modal-content .row-label,
+.modal-content .field-label,
+.modal-content .data-label,
+.modal-content .meta-label,
+.modal-content .property-label,
+.modal-content [class*="info-label"],
+.modal-content [class*="detail-label"],
+.modal-content [class*="kv-key"],
+.modal-content [class*="field-label"] {
+  color: #93C5FD !important;
+  font-weight: 700 !important;
+  font-size: 12.5px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  margin-right: 6px;
+}
+
+.modal-content .info-value,
+.modal-content .detail-value,
+.modal-content .kv-value,
+.modal-content .row-value,
+.modal-content .field-value,
+.modal-content .data-value,
+.modal-content .meta-value,
+.modal-content .property-value {
+  color: #FFFFFF !important;
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+}
+
+/* GLOBAL: every <h1-6> inside any modal — high-contrast */
+.modal-content h1,
+.modal-content h2,
+.modal-content h3,
+.modal-content h4,
+.modal-content h5,
+.modal-content h6 {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+}
+.modal-content h4 { font-size: 15px !important; margin: 16px 0 10px !important; }
+.modal-content h5 { font-size: 14px !important; margin: 14px 0 8px !important; }
+
+/* GLOBAL: every <span> inside modal — if it doesn't have its own inline
+   color, ensure it inherits the bright text color. */
+.modal-content span:not([style*="color"]),
+.modal-content > * > span:not([style*="color"]) {
+  color: inherit !important;
+}
+
+/* GLOBAL: every <div> / <p> inside .modal-body that has its own
+   class-based light bg (like .well-sm, .alert-light, .panel-default,
+   .card-light, etc.) — force dark equivalent. */
+.modal-content .well-sm,
+.modal-content .well-lg,
+.modal-content .alert-light,
+.modal-content .alert-secondary,
+.modal-content .panel-default,
+.modal-content .panel-body,
+.modal-content .panel-info,
+.modal-content .card-light,
+.modal-content .card-default,
+.modal-content .bg-light,
+.modal-content .bg-white,
+.modal-content .bg-info-light,
+.modal-content .bg-faded {
+  background: rgba(255, 255, 255, 0.05) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: #F1F5F9 !important;
+  border: 1px solid rgba(96, 165, 250, 0.18) !important;
+  border-radius: 10px !important;
+}
+
+/* Striped tables inside modal: alternate row tinting */
+.modal-content .table-striped > tbody > tr:nth-of-type(odd) > td,
+.modal-content table.table-striped tbody tr:nth-child(odd) td {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* GLOBAL: every link <a> inside modal — bright cyan, underline on hover */
+.modal-content a:not(.btn):not(.close):not([data-dismiss]) {
+  color: #93C5FD !important;
+  text-decoration: none !important;
+}
+.modal-content a:not(.btn):not(.close):not([data-dismiss]):hover {
+  color: #BFDBFE !important;
+  text-decoration: underline !important;
+}
+
+/* GLOBAL: <strong>, <b>, .important inside modal — pure white */
+.modal-content strong,
+.modal-content b,
+.modal-content .important,
+.modal-content .key {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+/* GLOBAL: forced dark gray colors via class (text-dark, text-black, etc.) */
+.modal-content .text-dark,
+.modal-content .text-black,
+.modal-content .text-body,
+.modal-content .text-secondary {
+  color: #E2E8F0 !important;
+}
+
+/* GLOBAL: success/warning/danger text inside modal — keep semantic but bright */
+.modal-content .text-success,
+.modal-content [class*="success-text"] { color: #6EE7B7 !important; }
+.modal-content .text-warning,
+.modal-content [class*="warning-text"] { color: #FCD34D !important; }
+.modal-content .text-danger,
+.modal-content [class*="danger-text"] { color: #FCA5A5 !important; }
+.modal-content .text-info,
+.modal-content [class*="info-text"] { color: #67E8F9 !important; }
+.modal-content .text-primary { color: #93C5FD !important; }
+
+/* GLOBAL: every <hr> inside modal */
+.modal-content hr {
+  border-color: rgba(96, 165, 250, 0.20) !important;
+  border-top: 1px solid rgba(96, 165, 250, 0.20) !important;
+  margin: 14px 0 !important;
+}
+
+
+
+
+

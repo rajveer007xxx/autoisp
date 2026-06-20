@@ -1,0 +1,128 @@
+{% extends "base_admin.html" %}
+
+{% block title %}SMS Logs - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        SMS Logs
+        <small>SMS history tracking</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-aqua"><i class="fa fa-envelope"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Total Sent</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-green"><i class="fa fa-check"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Delivered</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-yellow"><i class="fa fa-clock-o"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Pending</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="info-box">
+                <span class="info-box-icon bg-red"><i class="fa fa-times"></i></span>
+                <div class="info-box-content">
+                    <span class="info-box-text">Failed</span>
+                    <span class="info-box-number">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter SMS Logs</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Status:</label>
+                    <select class="form-control">
+                        <option value="">All</option>
+                        <option value="Sent">Sent</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Failed">Failed</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Type:</label>
+                    <select class="form-control">
+                        <option value="">All</option>
+                        <option value="Payment Reminder">Payment Reminder</option>
+                        <option value="Expiry Alert">Expiry Alert</option>
+                        <option value="Promotional">Promotional</option>
+                        <option value="OTP">OTP</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary">Apply Filter</button>
+                <button type="button" class="btn btn-success"><i class="fa fa-download"></i> Export</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">SMS History</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>Mobile Number</th>
+                            <th>Customer Name</th>
+                            <th>Message Type</th>
+                            <th>Message</th>
+                            <th>Status</th>
+                            <th>Credits Used</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="7" class="text-center">No SMS logs found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="box box-info">
+        <div class="box-header with-border">
+            <h3 class="box-title">SMS Balance</h3>
+        </div>
+        <div class="box-body">
+            <p><strong>Available Credits:</strong> 0</p>
+            <p><strong>Used This Month:</strong> 0</p>
+            <button type="button" class="btn btn-primary">Recharge SMS Credits</button>
+        </div>
+    </div>
+</section>
+{% endblock %}

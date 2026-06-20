@@ -1,0 +1,96 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}Fiber Trace · {{ customer_id_str }}{% endblock %}
+{% block content %}
+<style>
+  .tr-wrap{padding:18px;background:#0b1220;min-height:calc(100vh - 70px);color:#e5e7eb;}
+  .tr-hero{padding:18px 22px;background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(148,163,184,.14);border-radius:14px;margin-bottom:18px;display:flex;align-items:center;gap:12px;}
+  .tr-hero .icon{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#22d3ee,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;}
+  .tr-hero h3{margin:0;font-size:20px;font-weight:700;}
+  .tr-hero .sub{font-size:12px;color:#94a3b8;}
+  .tr-card{background:#131c2e;border:1px solid rgba(148,163,184,.14);border-radius:14px;padding:18px;margin-bottom:18px;}
+  .tr-card h4{font-size:11px;font-weight:700;letter-spacing:.1em;color:#64748b;text-transform:uppercase;margin:0 0 12px 0;}
+  .tr-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px;}
+  .tr-stat{background:#131c2e;border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:14px;}
+  .tr-stat .v{font-size:24px;font-weight:700;color:#22d3ee;}
+  .tr-stat .l{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-top:4px;}
+  .tr-hop{display:flex;align-items:center;gap:14px;padding:14px;background:#0f172a;border-radius:10px;margin-bottom:8px;border-left:3px solid #22d3ee;}
+  .tr-hop.fiber{border-left-color:#fbbf24;background:rgba(251,191,36,.03);}
+  .tr-hop.hardware{border-left-color:#a78bfa;}
+  .tr-hop.endpoint{border-left-color:#10b981;}
+  .tr-hop.device{border-left-color:#60a5fa;}
+  .tr-hop .ic{width:38px;height:38px;border-radius:50%;background:rgba(34,211,238,.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:#22d3ee;flex-shrink:0;}
+  .tr-hop.fiber .ic{background:rgba(251,191,36,.1);color:#fbbf24;}
+  .tr-hop.hardware .ic{background:rgba(167,139,250,.1);color:#a78bfa;}
+  .tr-hop.endpoint .ic{background:rgba(16,185,129,.1);color:#10b981;}
+  .tr-hop.device .ic{background:rgba(96,165,250,.1);color:#60a5fa;}
+  .tr-hop .body{flex:1;}
+  .tr-hop .head{font-weight:700;font-size:14px;}
+  .tr-hop .meta{font-size:12px;color:#94a3b8;font-family:'JetBrains Mono','Consolas',monospace;margin-top:2px;}
+  .tr-arrow{text-align:center;color:#475569;font-size:18px;margin:0;line-height:.5;}
+  .tr-warn{padding:14px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);border-radius:10px;margin-bottom:14px;}
+  .tr-empty{padding:30px;text-align:center;color:#94a3b8;}
+</style>
+
+<div class="tr-wrap">
+  <div class="tr-hero" data-testid="trace-hero">
+    <a href="javascript:history.back()" style="color:#94a3b8;font-size:22px;text-decoration:none;"><i class="bi bi-arrow-left"></i></a>
+    <div class="icon"><i class="bi bi-diagram-3-fill"></i></div>
+    <div>
+      <h3>Fiber Path Trace</h3>
+      <div class="sub">Customer ID: <code>{{ customer_id_str }}</code></div>
+    </div>
+  </div>
+
+  {% if trace.error %}
+    <div class="tr-warn" data-testid="trace-error">
+      <i class="bi bi-exclamation-triangle"></i> {{ trace.error }}
+    </div>
+  {% else %}
+    {% if trace.stats %}
+      <div class="tr-stat-row" data-testid="trace-stats">
+        <div class="tr-stat"><div class="v">{{ trace.stats.hop_count or 0 }}</div><div class="l">Hops</div></div>
+        <div class="tr-stat"><div class="v">{{ trace.stats.total_length_m or 0 }}m</div><div class="l">Total Length</div></div>
+        <div class="tr-stat"><div class="v">{{ trace.stats.estimated_loss_db or 0 }} dB</div><div class="l">Est. Loss Budget</div></div>
+        <div class="tr-stat"><div class="v">{{ (trace.stats.rx_power_dbm or '—') }}</div><div class="l">ONU RX (dBm)</div></div>
+      </div>
+    {% endif %}
+
+    {% if trace.warnings %}
+      {% for w in trace.warnings %}
+        <div class="tr-warn"><i class="bi bi-info-circle"></i> {{ w }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="tr-card" data-testid="trace-hops-card">
+      <h4><i class="bi bi-arrow-down-up"></i> End-to-End Path</h4>
+      {% for hop in trace.hops %}
+        <div class="tr-hop {{ hop.type }}" data-testid="trace-hop-{{ loop.index }}">
+          <div class="ic"><i class="bi bi-{{ hop.icon }}"></i></div>
+          <div class="body">
+            <div class="head">{{ hop.label }}{% if hop.data.name %} · {{ hop.data.name }}{% endif %}</div>
+            <div class="meta">
+              {% if hop.data.serial %}Serial: {{ hop.data.serial }}{% endif %}
+              {% if hop.data.mac %}{% if hop.data.serial %} · {% endif %}MAC: {{ hop.data.mac }}{% endif %}
+              {% if hop.data.phone %}Phone: {{ hop.data.phone }}{% endif %}
+              {% if hop.data.plan %} · {{ hop.data.plan }}{% endif %}
+              {% if hop.data.fiber_name %}Cable: {{ hop.data.fiber_name }}{% if hop.data.length_m %} · {{ hop.data.length_m|round(1) }}m{% endif %}{% if hop.data.core_count %} · {{ hop.data.core_count }} cores{% endif %}{% endif %}
+              {% if hop.data.kind %}Type: {{ hop.data.kind }}{% endif %}
+              {% if hop.data.rx_power %} · RX: {{ '%.2f'|format(hop.data.rx_power) }} dBm{% endif %}
+              {% if hop.data.olt_name %} · OLT: {{ hop.data.olt_name }}{% endif %}
+            </div>
+          </div>
+          {% if hop.data.lat and hop.data.lng %}
+            <a class="btn btn-sm" target="_blank" rel="noopener"
+               href="https://www.google.com/maps?q={{ hop.data.lat }},{{ hop.data.lng }}"
+               style="color:#22d3ee;text-decoration:none;font-size:12px;font-weight:600;"
+               data-testid="trace-hop-map-{{ loop.index }}">
+              <i class="bi bi-geo-alt-fill"></i> Map
+            </a>
+          {% endif %}
+        </div>
+        {% if not loop.last %}<div class="tr-arrow"><i class="bi bi-chevron-down"></i></div>{% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

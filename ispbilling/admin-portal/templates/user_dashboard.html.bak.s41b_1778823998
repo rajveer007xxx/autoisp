@@ -1,0 +1,290 @@
+{% extends "base_user.html" %}
+{% block title %}Dashboard — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title">
+    <div>
+        <h1>Welcome back, {{ (customer_name or 'there').split(' ')[0] }} 👋</h1>
+        <p>Here's a quick look at your connection and account.</p>
+    </div>
+    <a href="/customer/change-package" class="btn primary"><i class="bi bi-arrow-up-right"></i> Upgrade Plan</a>
+</div>
+
+<!-- Stat tiles -->
+<div class="card-row" style="margin-bottom: 24px;">
+    <div class="card stat-tile">
+        <div class="label">Current Plan</div>
+        <div class="value accent" style="font-size:24px;">{{ plan_name|default('—') }}</div>
+        <div class="delta">₹ {{ plan_price|default('0') }} / {{ plan_validity|default('30') }} days{% if plan_service %} · {{ plan_service }}{% endif %}</div>
+    </div>
+    <div class="card stat-tile">
+        <div class="label">Plan Expiry</div>
+        <div class="value" style="font-size:22px;">{{ end_date_fmt|default('—') }}</div>
+        <div class="delta">{{ days_remaining|default('0') }} days left</div>
+    </div>
+    <div class="card stat-tile {{ 'success' if balance <= 0 else '' }}" id="balanceTile">
+        <div class="label">Balance Due</div>
+        <div class="value">₹ {{ '{:,.0f}'.format(balance|float) }}</div>
+        <div class="delta">
+            {% if balance > 0 %}
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <a href="/pay/{{ customer.customer_id }}" class="btn primary" style="padding:8px 12px;font-size:12px;flex:1;justify-content:center;" data-testid="dashboard-pay-now-btn"><i class="bi bi-credit-card-2-front"></i> Pay Now</a>
+                {% if upi_link %}
+                <a href="{{ upi_link }}" class="btn" style="padding:8px 12px;font-size:12px;flex:1;justify-content:center;background:linear-gradient(135deg,#10b981,#059669);border:none;color:#fff;" data-testid="dashboard-upi-btn"><i class="bi bi-phone"></i> UPI</a>
+                {% endif %}
+              </div>
+            {% else %}All clear ✓{% endif %}
+        </div>
+    </div>
+    <div class="card stat-tile">
+        <div class="label">Data Used (last 30 days)</div>
+        <div class="value">{{ data_used_gb|default('0') }} <span style="font-size:18px;">GB</span></div>
+        <div class="delta">↑ {{ uploaded_gb|default('0') }} GB · ↓ {{ downloaded_gb|default('0') }} GB</div>
+    </div>
+</div>
+
+<!-- Live speed graph -->
+<div class="card" style="margin-bottom: 24px;" {% if plan_download_speed %}data-plan-speed-mbps="{{ plan_download_speed }}"{% endif %}>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <h3 style="margin:0;"><i class="bi bi-activity"></i> Live Network Speed</h3>
+        <div style="display:flex;gap:18px;font-size:13px;font-weight:600;color:var(--text-mid);">
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:99px;background:#34d399;margin-right:6px;vertical-align:middle;"></span>Download <span id="speedDown" style="color:#34d399;">— Mbps</span></span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:99px;background:#a78bfa;margin-right:6px;vertical-align:middle;"></span>Upload <span id="speedUp" style="color:#a78bfa;">— Mbps</span></span>
+        </div>
+    </div>
+    <div style="height:280px;"><canvas id="speedChart"></canvas></div>
+    <div id="speedStatus" style="font-size:11px;color:var(--text-lo);margin-top:6px;">{% if is_online %}Connecting…{% else %}Connect to see live speed{% endif %}</div>
+</div>
+
+<div style="display:grid;grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <!-- Recent Invoices -->
+    <div class="card">
+        <h3><i class="bi bi-receipt"></i> Recent Invoices</h3>
+        <table>
+            <thead><tr><th>Invoice #</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody id="recentInvoicesBody">
+                {% for inv in recent_invoices|default([]) %}
+                <tr>
+                    <td>{{ inv.invoice_no }}</td>
+                    <td>{{ inv.issue_date }}</td>
+                    <td class="amount">₹ {{ '{:,.0f}'.format(inv.total_amount or 0) }}</td>
+                    <td><span class="pill {{ inv.status|lower }}">{{ inv.status }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" style="text-align:center;color:var(--text-lo);padding:30px;">No invoices yet</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/customer/invoices" style="display:inline-block;margin-top:12px;color:var(--brand-primary);font-size:13px;">View all invoices →</a>
+    </div>
+
+    <!-- Recent Payments -->
+    <div class="card">
+        <h3><i class="bi bi-cash-coin"></i> Recent Payments</h3>
+        <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>Reference</th></tr></thead>
+            <tbody>
+                {% for p in recent_payments|default([]) %}
+                <tr>
+                    <td>{{ p.paid_at }}</td>
+                    <td class="amount">₹ {{ '{:,.0f}'.format(p.amount or 0) }}</td>
+                    <td>{{ p.payment_mode }}</td>
+                    <td style="color:var(--text-lo);">{{ p.transaction_no|default('') }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" style="text-align:center;color:var(--text-lo);padding:30px;">No payments yet</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/customer/payments" style="display:inline-block;margin-top:12px;color:var(--brand-primary);font-size:13px;">View all payments →</a>
+    </div>
+</div>
+
+<!-- Contact info -->
+<div class="card">
+    <h3><i class="bi bi-headset"></i> Need Help? Contact Your Team</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:8px;">
+        {% if employee_name %}
+        <div style="padding:14px;border-radius:12px;background:rgba(14,165,233,0.06);border:1px solid rgba(14,165,233,0.15);">
+            <div style="font-size:11px;text-transform:uppercase;color:var(--text-mid);font-weight:700;letter-spacing:.06em;">Field Engineer</div>
+            <div style="font-size:16px;font-weight:600;margin:6px 0 4px;">{{ employee_name }}</div>
+            <div style="font-size:13px;color:var(--text-mid);"><i class="bi bi-telephone-fill"></i> <a href="tel:{{ employee_phone }}">{{ employee_phone|default('—') }}</a></div>
+            <div style="font-size:12px;color:var(--text-lo);"><i class="bi bi-envelope-fill"></i> {{ employee_email|default('—') }}</div>
+        </div>
+        {% endif %}
+        {% if sub_lco_name %}
+        <div style="padding:14px;border-radius:12px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.15);">
+            <div style="font-size:11px;text-transform:uppercase;color:var(--text-mid);font-weight:700;letter-spacing:.06em;">Sub-LCO (Franchisee)</div>
+            <div style="font-size:16px;font-weight:600;margin:6px 0 4px;">{{ sub_lco_name }}</div>
+            <div style="font-size:13px;color:var(--text-mid);"><i class="bi bi-telephone-fill"></i> <a href="tel:{{ sub_lco_phone }}">{{ sub_lco_phone|default('—') }}</a></div>
+            <div style="font-size:12px;color:var(--text-lo);"><i class="bi bi-envelope-fill"></i> {{ sub_lco_email|default('—') }}</div>
+        </div>
+        {% endif %}
+        <div style="padding:14px;border-radius:12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);">
+            <div style="font-size:11px;text-transform:uppercase;color:var(--text-mid);font-weight:700;letter-spacing:.06em;">Company Support</div>
+            <div style="font-size:16px;font-weight:600;margin:6px 0 4px;">{{ company_name }}</div>
+            <div style="font-size:13px;color:var(--text-mid);"><i class="bi bi-telephone-fill"></i> <a href="tel:{{ company_phone }}">{{ company_phone|default('—') }}</a></div>
+            <div style="font-size:12px;color:var(--text-lo);"><i class="bi bi-envelope-fill"></i> {{ company_email|default('—') }}</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Live speed graph — Chart.js with auto-scaling Y-axis (matches the
+// admin /admin/online-users style).  Data arrives via the customer
+// WebSocket /customer/ws/speed pushing {online, mb_up, mb_dn} every 2s.
+(function(){
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js not loaded'); return;
+    }
+    const ctxEl = document.getElementById('speedChart');
+    if(!ctxEl) return;
+    const ctx = ctxEl.getContext('2d');
+
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                { label: 'Download (Mbps)', data: [],
+                  borderColor: '#34d399',
+                  backgroundColor: 'rgba(52,211,153,0.10)',
+                  fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+                { label: 'Upload (Mbps)', data: [],
+                  borderColor: '#a78bfa',
+                  backgroundColor: 'rgba(167,139,250,0.10)',
+                  fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 250, easing: 'easeOutQuart' },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Mbps',
+                             color: '#94a3b8',
+                             font: { size: 11, weight: '700' } },
+                    grid:  { color: 'rgba(255,255,255,0.06)',
+                             drawBorder: false },
+                    ticks: { color: '#94a3b8',
+                             font: { size: 11 },
+                             maxTicksLimit: 6 }
+                },
+                x: {
+                    grid:   { display: false },
+                    ticks:  { color: '#64748b', font: { size: 10 },
+                              maxRotation: 0, autoSkip: true,
+                              maxTicksLimit: 6 }
+                }
+            },
+            plugins: {
+                legend:  { display: false },
+                tooltip: { mode: 'index', intersect: false }
+            },
+            interaction: { mode: 'index', intersect: false }
+        }
+    });
+
+    let lastUp = null, lastDn = null, lastTs = null, sampleCount = 0;
+    // s40r: cap displayed speed at PLAN_CAP_MBPS (set from plan info if
+    // present, else 2000). Anything above this is a counter-reset /
+    // PPPoE rebind glitch and is silently discarded — prevents the
+    // false 500 Mbps spike on the first sample after reconnect.
+    const PLAN_CAP_MBPS = (function(){
+        try {
+            const el = document.querySelector('[data-plan-speed-mbps]');
+            if (el) {
+                const v = parseFloat(el.getAttribute('data-plan-speed-mbps'));
+                if (v > 0) return v * 2.0;  // 2× headroom over plan
+            }
+        } catch(e){}
+        return 2000;  // safe absolute cap (well over any residential plan)
+    })();
+    const HISTORY_MAX = 60;
+    let ws = null, reconnectTimer = null;
+
+    function pad2(n){ return n < 10 ? '0' + n : '' + n; }
+    function ts(){ const d = new Date();
+        return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
+
+    function pushPoint(dn, up){
+        chart.data.labels.push(ts());
+        chart.data.datasets[0].data.push(dn);
+        chart.data.datasets[1].data.push(up);
+        if (chart.data.labels.length > HISTORY_MAX) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+            chart.data.datasets[1].data.shift();
+        }
+        chart.update('none');
+    }
+
+    function applyOffline(){
+        lastUp = lastDn = lastTs = null;
+        sampleCount = 0;
+        document.getElementById('speedDown').textContent = '0.00 Mbps';
+        document.getElementById('speedUp').textContent   = '0.00 Mbps';
+        const st = document.getElementById('speedStatus');
+        if(st) st.textContent = 'Offline — connect to see live speed';
+        const pill = document.getElementById('userOnlinePill');
+        if(pill){ pill.textContent = 'OFFLINE'; pill.className = 'online-pill offline'; }
+        pushPoint(0, 0);
+    }
+    function applyOnline(){
+        const pill = document.getElementById('userOnlinePill');
+        if(pill){ pill.textContent = 'ONLINE'; pill.className = 'online-pill online'; }
+    }
+
+    function onMessage(ev){
+        let d;
+        try { d = JSON.parse(ev.data); } catch(e){ return; }
+        const now = Date.now();
+        if(d.online === false){ applyOffline(); return; }
+        applyOnline();
+        const mbUp = d.mb_up || 0, mbDn = d.mb_dn || 0;
+        sampleCount += 1;
+        if(lastTs !== null && sampleCount >= 3){
+            // s40r: skip first 2 samples as baseline only. The very first
+            // delta after WS connect / PPPoE reconnect can be huge because
+            // the cumulative byte counter is non-zero on the first read.
+            const dt = (now - lastTs) / 1000;
+            if(dt > 0){
+                let dn = Math.max(0, ((mbDn - lastDn) * 8) / dt);
+                let up = Math.max(0, ((mbUp - lastUp) * 8) / dt);
+                // s40r: clamp to PLAN_CAP_MBPS — counter-reset / interface
+                // re-bind can yield impossible rates that crush the chart.
+                if (dn > PLAN_CAP_MBPS) dn = 0;
+                if (up > PLAN_CAP_MBPS) up = 0;
+                pushPoint(dn, up);
+                document.getElementById('speedDown').textContent = dn.toFixed(2) + ' Mbps';
+                document.getElementById('speedUp').textContent   = up.toFixed(2) + ' Mbps';
+                const st = document.getElementById('speedStatus');
+                if(st) st.textContent = 'Live · streaming via WebSocket';
+            }
+        }
+        lastUp = mbUp; lastDn = mbDn; lastTs = now;
+    }
+
+    function connect(){
+        if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
+        const proto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+        const url = proto + '//' + location.host + '/customer/ws/speed';
+        try { ws = new WebSocket(url); }
+        catch(e){ reconnectTimer = setTimeout(connect, 5000); return; }
+        ws.onmessage = onMessage;
+        ws.onclose = () => {
+            applyOffline();
+            const st = document.getElementById('speedStatus');
+            if(st) st.textContent = 'Reconnecting…';
+            reconnectTimer = setTimeout(connect, 3000);
+        };
+        ws.onerror = () => { try { ws.close(); } catch(e){} };
+    }
+
+    connect();
+})();
+</script>
+{% endblock %}

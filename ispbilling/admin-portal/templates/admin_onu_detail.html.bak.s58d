@@ -1,0 +1,824 @@
+{% extends layout_template|default("base_admin.html") %}
+{# s57D — ONU detail page redesign (SmartOLT-style hero + KPI + provisioning) #}
+{% block title %}ONU · {{ onu.name or onu.serial or onu.id }}{% endblock %}
+
+{% block content %}
+<style>
+  /* _S57D_ONU_DETAIL_  Dark-themed SmartOLT-style layout */
+  :root{
+    --sd-bg: #0b1220;
+    --sd-bg-2: #111827;
+    --sd-card: #131c2e;
+    --sd-card-2: #18233a;
+    --sd-border: rgba(148,163,184,.14);
+    --sd-text: #e5e7eb;
+    --sd-text-dim: #94a3b8;
+    --sd-label: #64748b;
+    --sd-accent: #22d3ee;
+    --sd-accent-2: #6366f1;
+    --sd-good: #10b981;
+    --sd-warn: #f59e0b;
+    --sd-bad:  #ef4444;
+  }
+  .sd-wrap{padding:18px;background:var(--sd-bg);min-height:calc(100vh - 70px);color:var(--sd-text);}
+
+  /* Hero header */
+  .sd-hero{display:flex;align-items:center;gap:12px;padding:18px 22px;
+           background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);
+           border:1px solid var(--sd-border);border-radius:14px;margin-bottom:18px;}
+  .sd-hero .back{font-size:22px;color:var(--sd-text-dim);text-decoration:none;}
+  .sd-hero .back:hover{color:var(--sd-accent);}
+  .sd-hero .icon{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,var(--sd-accent),var(--sd-accent-2));
+                 display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;}
+  .sd-hero .title{font-size:22px;font-weight:700;letter-spacing:.02em;}
+  .sd-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;
+           font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;}
+  .sd-pill.online{background:rgba(16,185,129,.18);color:#34d399;border:1px solid rgba(16,185,129,.35);}
+  .sd-pill.offline{background:rgba(239,68,68,.18);color:#f87171;border:1px solid rgba(239,68,68,.35);}
+  .sd-pill.unknown,.sd-pill.disabled{background:rgba(148,163,184,.18);color:#cbd5e1;border:1px solid rgba(148,163,184,.35);}
+  .sd-pill.prov{background:rgba(34,211,238,.15);color:#67e8f9;border:1px solid rgba(34,211,238,.35);}
+  .sd-hero .right{margin-left:auto;display:flex;gap:8px;}
+  .sd-btn{padding:8px 14px;border-radius:8px;font-weight:600;font-size:13px;
+          background:#1e293b;color:#e5e7eb;border:1px solid var(--sd-border);
+          cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;}
+  .sd-btn:hover{background:#243149;color:#fff;}
+  .sd-btn.primary{background:linear-gradient(135deg,var(--sd-accent),var(--sd-accent-2));color:#fff;border:0;}
+  .sd-btn.warn{background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;border:0;}
+  .sd-btn.danger{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:0;}
+  .sd-btn.success{background:linear-gradient(135deg,#10b981,#0ea5e9);color:#fff;border:0;}
+
+  /* KPI tiles row */
+  .sd-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px;}
+  .sd-kpi{background:var(--sd-card);border:1px solid var(--sd-border);border-radius:14px;
+          padding:18px;position:relative;overflow:hidden;}
+  .sd-kpi .lbl{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--sd-label);
+               text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+  .sd-kpi .val{font-size:32px;font-weight:700;letter-spacing:-0.02em;line-height:1;}
+  .sd-kpi .unit{font-size:13px;color:var(--sd-text-dim);margin-top:6px;}
+  .sd-kpi .sub{font-size:12px;color:var(--sd-text-dim);margin-top:6px;}
+  .sd-kpi.signal .val{color:#fbbf24;}
+  .sd-kpi.up .val{color:#34d399;}
+  .sd-kpi.down .val{color:#60a5fa;}
+  .sd-kpi.olt .val{font-size:20px;color:var(--sd-accent);}
+
+  /* Section card */
+  .sd-section{background:var(--sd-card);border:1px solid var(--sd-border);border-radius:14px;
+              padding:18px;margin-bottom:18px;}
+  .sd-section h4{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--sd-label);
+                 text-transform:uppercase;margin:0 0 14px 0;display:flex;align-items:center;gap:6px;}
+  .sd-grid-4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+  .sd-field .k{font-size:11px;color:var(--sd-label);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;}
+  .sd-field .v{font-size:15px;color:var(--sd-text);font-weight:600;font-family:'JetBrains Mono','Consolas',monospace;}
+
+  /* Customer card */
+  .sd-cust{display:flex;align-items:center;gap:14px;}
+  .sd-cust .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#22d3ee);
+                   display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:18px;}
+  .sd-cust .name{font-size:17px;font-weight:700;color:var(--sd-text);}
+  .sd-cust .meta{font-size:13px;color:var(--sd-text-dim);}
+
+  /* Tabs row */
+  .sd-tabs{display:flex;gap:4px;background:#0f172a;padding:6px;border-radius:10px;margin-bottom:14px;flex-wrap:wrap;}
+  .sd-tab{flex:1;text-align:center;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px;
+          font-weight:600;color:var(--sd-text-dim);transition:all .15s;display:inline-flex;align-items:center;
+          justify-content:center;gap:6px;border:0;background:transparent;}
+  .sd-tab.active{background:linear-gradient(135deg,#1e293b,#0f172a);color:var(--sd-accent);
+                 box-shadow:0 2px 12px rgba(34,211,238,.15);}
+  .sd-tab:hover{color:var(--sd-text);}
+  .sd-tab-content{display:none;}
+  .sd-tab-content.active{display:block;}
+
+  /* Chart canvas wrap */
+  .sd-chart-wrap{background:#0a0f1c;border-radius:10px;padding:18px;min-height:420px;}
+
+  /* Re-style table to fit dark theme */
+  table.sd-mac{width:100%;border-collapse:collapse;color:var(--sd-text);}
+  table.sd-mac th{font-size:11px;color:var(--sd-label);text-transform:uppercase;letter-spacing:.05em;
+                  text-align:left;padding:10px;border-bottom:1px solid var(--sd-border);}
+  table.sd-mac td{padding:10px;border-bottom:1px solid var(--sd-border);font-family:'JetBrains Mono','Consolas',monospace;font-size:13px;}
+  .sd-empty{padding:30px;text-align:center;color:var(--sd-text-dim);font-size:13px;}
+
+  /* Action cards (Restore / Lifecycle) */
+  .sd-card-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:900px){.sd-card-row{grid-template-columns:1fr;}}
+</style>
+
+<div class="sd-wrap">
+
+  {# ─────── HERO HEADER ─────── #}
+  <div class="sd-hero" data-testid="onu-hero">
+    <a href="/admin/olt/onus" class="back" data-testid="onu-back" title="Back to ONU list">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <div class="icon"><i class="bi bi-hdd-network-fill"></i></div>
+    <div>
+      <div class="title" data-testid="onu-title">
+        {{ onu.serial or onu.mac or ('ONU #' ~ onu.id) }}
+      </div>
+      <div style="font-size:12px;color:var(--sd-text-dim);">
+        ID #{{ onu.id }} · PON {{ onu.pon_port_index or '—' }} · Index {{ onu.onu_index or '—' }}
+      </div>
+    </div>
+    <span class="sd-pill {{ onu.status or 'unknown' }}" data-testid="onu-status">
+      <i class="bi bi-circle-fill" style="font-size:8px;"></i> {{ (onu.status or 'unknown')|upper }}
+    </span>
+    {% if onu.tr069_registered_at or onu.tr069_enabled %}
+      <span class="sd-pill prov" data-testid="onu-acs"><i class="bi bi-shield-check"></i> Provisioned</span>
+    {% endif %}
+    <div class="right">
+      <a class="sd-btn success" target="_blank" rel="noopener" data-testid="onu-trace-fiber" href="/admin/trace/{{ customer.customer_id if customer else '' }}" {% if not customer %}style="opacity:.45;pointer-events:none;" title="Link a customer to this ONU first."{% endif %}><i class="bi bi-diagram-3-fill"></i> Trace Fiber Path</a>
+      <!-- _S57E_TRACE_HERO_ -->
+      <a href="/admin/olt/onus" class="sd-btn" data-testid="onu-edit-cli">
+        <i class="bi bi-terminal"></i> CLI Edit
+      </a>
+      <button class="sd-btn primary" data-testid="onu-remote-access" onclick="document.getElementById('tab-actions').scrollIntoView({behavior:'smooth'});"><i class="bi bi-broadcast"></i> Quick Actions</button>
+    </div>
+  </div>
+
+  {# ─────── KPI TILES ROW ─────── #}
+  <div class="sd-kpis">
+    <div class="sd-kpi signal" data-testid="kpi-signal-level">
+      <div class="lbl"><i class="bi bi-activity"></i> Signal Level</div>
+      <div class="val" data-testid="kpi-signal-value">
+        {% if onu.rx_power is not none %}{{ '%.1f' % onu.rx_power }}{% else %}—{% endif %}
+      </div>
+      <div class="unit">dBm RX</div>
+    </div>
+    <div class="sd-kpi up" data-testid="kpi-uplink">
+      <div class="lbl"><i class="bi bi-arrow-up-right-circle"></i> Uplink</div>
+      <div class="val" data-testid="kpi-uplink-value">
+        {% if last_traf and last_traf.up_mbps is not none %}{{ last_traf.up_mbps }}{% else %}—{% endif %}
+      </div>
+      <div class="unit">Mbps</div>
+    </div>
+    <div class="sd-kpi down" data-testid="kpi-downlink">
+      <div class="lbl"><i class="bi bi-arrow-down-right-circle"></i> Downlink</div>
+      <div class="val" data-testid="kpi-downlink-value">
+        {% if last_traf and last_traf.down_mbps is not none %}{{ last_traf.down_mbps }}{% else %}—{% endif %}
+      </div>
+      <div class="unit">Mbps</div>
+    </div>
+    <div class="sd-kpi olt" data-testid="kpi-olt-port">
+      <div class="lbl"><i class="bi bi-hdd-rack"></i> OLT / Port</div>
+      <div class="val">{{ olt.name if olt else '—' }}</div>
+      <div class="unit">Port {{ onu.pon_port_index or '—' }}</div>
+    </div>
+  </div>
+
+  {# ─────── PROVISIONING DETAILS ─────── #}
+  <div class="sd-section" data-testid="provisioning-card">
+    <h4><i class="bi bi-gear-wide-connected"></i> Provisioning Details</h4>
+    <div class="sd-grid-4">
+      <div class="sd-field" data-testid="prov-tcont">
+        <div class="k">T-CONT</div>
+        <div class="v">TCONT-{{ onu.pon_port_index or 0 }}-{{ '%03d' % (onu.onu_index or 0) }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-gemport">
+        <div class="k">GEM Port</div>
+        <div class="v">GEM-{{ onu.pon_port_index or 0 }}-{{ 1000 + (onu.onu_index or 0) }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-flow">
+        <div class="k">Flow ID</div>
+        <div class="v">FLOW-{{ onu.pon_port_index or 0 }}-{{ 2000 + (onu.onu_index or 0) }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-service-port">
+        <div class="k">Service Port</div>
+        <div class="v">SP-{{ onu.pon_port_index or 0 }}-{{ 3000 + (onu.onu_index or 0) }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-vlan">
+        <div class="k">VLAN</div>
+        <div class="v">{{ onu.wan_vlan or '—' }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-wan-mode">
+        <div class="k">WAN Mode</div>
+        <div class="v">{{ (onu.wan_mode or 'pppoe')|upper }}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-distance">
+        <div class="k">Distance</div>
+        <div class="v">{% if onu.distance_m %}{{ onu.distance_m }} m{% else %}—{% endif %}</div>
+      </div>
+      <div class="sd-field" data-testid="prov-mac">
+        <div class="k">MAC</div>
+        <div class="v">{{ onu.mac or '—' }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ─────── ASSIGNED CUSTOMER ─────── #}
+  <div class="sd-section" data-testid="customer-card">
+    <h4><i class="bi bi-person-vcard"></i> Assigned Customer</h4>
+    {% if customer %}
+      <div class="sd-cust">
+        <div class="avatar">{{ (customer.name or '?')[:1]|upper }}</div>
+        <div style="flex:1;">
+          <div class="name" data-testid="customer-name">{{ customer.name or 'Unnamed' }}</div>
+          <div class="meta">
+            {% if customer.phone %}<i class="bi bi-telephone"></i> {{ customer.phone }} &nbsp;·&nbsp;{% endif %}
+            {% if customer.plan %}<i class="bi bi-stack"></i> {{ customer.plan }}{% endif %}
+            &nbsp;·&nbsp;Customer ID: <code>{{ customer.customer_id }}</code>
+          </div>
+        </div>
+        {% if customer.lat and customer.lng %}
+          <button class="sd-btn" onclick="window.open('https://www.google.com/maps?q={{ customer.lat }},{{ customer.lng }}','_blank')" data-testid="customer-map">
+            <i class="bi bi-map"></i> Map
+          </button>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="sd-empty" data-testid="customer-unassigned">
+        <i class="bi bi-person-x" style="font-size:24px;display:block;margin-bottom:6px;"></i>
+        No customer linked to this ONU yet. Link from the
+        <a href="/admin/unmapped-onus" style="color:var(--sd-accent);">Unmapped ONUs</a> page.
+      </div>
+    {% endif %}
+  </div>
+
+  {# ─────── DEVICE CONFIGURATION TABS ─────── #}
+  <div class="sd-section" data-testid="device-config-card">
+    <h4><i class="bi bi-sliders"></i> Device Configuration</h4>
+
+    <div class="sd-tabs" role="tablist">
+      <button class="sd-tab active" data-tab="tab-signal"  data-testid="tab-signal"  onclick="sdSwitchTab(this,'tab-signal')">
+        <i class="bi bi-graph-up"></i> Signal History
+      </button>
+      <button class="sd-tab" data-tab="tab-traffic" data-testid="tab-traffic" onclick="sdSwitchTab(this,'tab-traffic')">
+        <i class="bi bi-bar-chart"></i> Traffic
+      </button>
+      <button class="sd-tab" data-tab="tab-mac"     data-testid="tab-mac"     onclick="sdSwitchTab(this,'tab-mac')">
+        <i class="bi bi-list-ul"></i> MAC Table
+      </button>
+      <button class="sd-tab" data-tab="tab-wifi"    data-testid="tab-wifi"    onclick="sdSwitchTab(this,'tab-wifi')">
+        <i class="bi bi-wifi"></i> WiFi
+      </button>
+      <button class="sd-tab" data-tab="tab-wan"     data-testid="tab-wan"     onclick="sdSwitchTab(this,'tab-wan')">
+        <i class="bi bi-globe"></i> WAN
+      </button>
+      <button class="sd-tab" data-tab="tab-acs"     data-testid="tab-acs"     onclick="sdSwitchTab(this,'tab-acs')">
+        <i class="bi bi-shield-check"></i> ACS / TR-069
+      </button>
+      <button class="sd-tab" data-tab="tab-alerts"  data-testid="tab-alerts"  onclick="sdSwitchTab(this,'tab-alerts')">
+        <i class="bi bi-bell"></i> Alerts
+      </button>
+    </div>
+
+    {# Signal #}
+    <div id="tab-signal" class="sd-tab-content active">
+      <div class="sd-chart-wrap">
+        <canvas id="signalChart" height="380"></canvas>
+      </div>
+    </div>
+
+    {# Traffic #}
+    <div id="tab-traffic" class="sd-tab-content">
+      <div class="sd-chart-wrap">
+        <canvas id="trafficChart" height="380"></canvas>
+      </div>
+    </div>
+
+    {# MAC #}
+    <div id="tab-mac" class="sd-tab-content">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <button class="sd-btn primary" onclick="loadMacs()" data-testid="mac-refresh">
+          <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+        <span id="mac-count" style="color:var(--sd-text-dim);font-size:13px;"></span>
+      </div>
+      <div id="mac-tbody-wrap">
+        <table class="sd-mac">
+          <thead><tr><th>MAC Address</th><th>VLAN</th><th>Last Seen</th><th>Source</th></tr></thead>
+          <tbody id="mac-tbody"><tr><td colspan="4" class="sd-empty">Click "Refresh" to fetch live MAC table.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    {# WiFi #}
+    <div id="tab-wifi" class="sd-tab-content">
+      <div class="sd-grid-4">
+        <div class="sd-field"><div class="k">SSID (2.4 GHz)</div><div class="v">{{ onu.wifi_ssid or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Password (2.4 GHz)</div><div class="v">{{ '••••••••' if onu.wifi_password else '—' }}</div></div>
+        <div class="sd-field"><div class="k">SSID (5 GHz)</div><div class="v">{{ onu.wifi_ssid_5g or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Password (5 GHz)</div><div class="v">{{ '••••••••' if onu.wifi_password_5g else '—' }}</div></div>
+        <div class="sd-field"><div class="k">Radio 2.4 GHz</div><div class="v">{{ 'ON' if onu.wifi_radio_24_enabled else 'OFF' }}</div></div>
+        <div class="sd-field"><div class="k">Radio 5 GHz</div><div class="v">{{ 'ON' if onu.wifi_radio_5_enabled else 'OFF' }}</div></div>
+      </div>
+      <div style="margin-top:14px;color:var(--sd-text-dim);font-size:13px;">
+        <i class="bi bi-info-circle"></i>
+        Edit Wi-Fi from the
+        <a href="/admin/olt/onus" style="color:var(--sd-accent);">ONU list</a>
+        action menu (Wi-Fi modal).
+      </div>
+    </div>
+
+    {# WAN #}
+    <div id="tab-wan" class="sd-tab-content">
+      <div class="sd-grid-4">
+        <div class="sd-field"><div class="k">Mode</div><div class="v">{{ (onu.wan_mode or 'pppoe')|upper }}</div></div>
+        <div class="sd-field"><div class="k">VLAN</div><div class="v">{{ onu.wan_vlan or '—' }}</div></div>
+        <div class="sd-field"><div class="k">PPPoE Username</div><div class="v">{{ onu.wan_username or '—' }}</div></div>
+        <div class="sd-field"><div class="k">PPPoE Password</div><div class="v">{{ '••••••••' if onu.wan_password else '—' }}</div></div>
+        <div class="sd-field"><div class="k">Static IP</div><div class="v">{{ onu.wan_static_ip or onu.wan_ip or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Netmask</div><div class="v">{{ onu.wan_netmask or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Gateway</div><div class="v">{{ onu.wan_gateway or '—' }}</div></div>
+        <div class="sd-field"><div class="k">DNS</div><div class="v">{{ onu.wan_dns or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Status</div><div class="v">{{ onu.wan_status or 'unknown' }}</div></div>
+      </div>
+    </div>
+
+    {# ACS #}
+    <div id="tab-acs" class="sd-tab-content">
+      <div class="sd-grid-4">
+        <div class="sd-field"><div class="k">TR-069 Enabled</div><div class="v">{{ 'YES' if onu.tr069_enabled else 'NO' }}</div></div>
+        <div class="sd-field"><div class="k">Last ACS Inform</div><div class="v">
+          {% if onu.last_acs_inform %}{{ onu.last_acs_inform.strftime('%Y-%m-%d %H:%M') if onu.last_acs_inform.__class__.__name__ == 'datetime' else onu.last_acs_inform }}{% else %}—{% endif %}
+        </div></div>
+        <div class="sd-field"><div class="k">Registered At</div><div class="v">{{ onu.tr069_registered_at or '—' }}</div></div>
+        <div class="sd-field"><div class="k">Last Reachable</div><div class="v">{{ onu.last_seen or '—' }}</div></div>
+      </div>
+      {% if not onu.tr069_registered_at %}
+        <div style="margin-top:14px;padding:14px;border-radius:10px;background:rgba(245,158,11,.1);color:#fbbf24;border:1px solid rgba(245,158,11,.25);">
+          <i class="bi bi-exclamation-triangle"></i>
+          ONU has never reported to GenieACS.
+          <button class="sd-btn warn" style="margin-left:10px;" onclick="acsBootstrap()" data-testid="acs-bootstrap-btn">
+            <i class="bi bi-lightning-charge-fill"></i> Bootstrap via OLT CLI
+          </button>
+        </div>
+      {% endif %}
+    </div>
+
+    {# Alerts #}
+    <div id="tab-alerts" class="sd-tab-content">
+      <div id="alerts-list">
+        <div class="sd-empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  {# ─────── INVENTORY + RESTORE (existing s57B/s57C cards re-skinned) ─────── #}
+  <div class="sd-card-row">
+    <div class="sd-section" data-testid="onu-lifecycle-card">
+      <h4><i class="bi bi-box-seam"></i> Inventory &amp; Lifecycle</h4>
+      <div class="sd-grid-4">
+        <div class="sd-field" data-testid="kpi-firmware">
+          <div class="k">Firmware</div><div class="v">{{ onu.firmware_version or '—' }}</div>
+        </div>
+        <div class="sd-field" data-testid="kpi-vendor-model">
+          <div class="k">Vendor / Model</div>
+          <div class="v">{{ onu.vendor or '—' }}{% if onu.model %} · {{ onu.model }}{% endif %}</div>
+        </div>
+        <div class="sd-field" data-testid="kpi-installation">
+          <div class="k">Installation</div>
+          <div class="v">
+            {% if onu.installation_date %}{{ onu.installation_date.strftime('%Y-%m-%d') if onu.installation_date.__class__.__name__ == 'datetime' else onu.installation_date }}{% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="sd-field" data-testid="kpi-warranty">
+          <div class="k">Warranty</div>
+          <div class="v">
+            {% if onu.warranty_until %}{{ onu.warranty_until.strftime('%Y-%m-%d') if onu.warranty_until.__class__.__name__ == 'datetime' else onu.warranty_until }}{% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sd-section" data-testid="onu-restore-card">
+      <h4><i class="bi bi-arrow-counterclockwise"></i> Factory-Reset Recovery</h4>
+      <p style="font-size:13px;color:var(--sd-text-dim);margin:0 0 12px 0;">
+        Re-apply the last saved Wi-Fi / WAN config (taken on every successful push).
+      </p>
+      <button class="sd-btn warn" data-testid="onu-restore-btn" onclick="restoreOnuConfig()">
+        <i class="bi bi-shield-check"></i> Restore Last Known Good
+      </button>
+      <pre id="onu-restore-output" data-testid="onu-restore-output"
+           style="display:none;background:#0a0f1c;color:#a5f3fc;padding:10px;border-radius:8px;margin-top:10px;font-size:11px;max-height:240px;overflow:auto;border:1px solid var(--sd-border);"></pre>
+    </div>
+  </div>
+
+</div>
+
+
+  {# ─────── _S58C_ACTIONS_ — every ONU action wired to existing endpoints ─────── #}
+  <div class="sd-section" id="tab-actions" data-testid="onu-actions-card">
+    <h4><i class="bi bi-lightning-charge-fill"></i> ONU Actions</h4>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px;">
+      <button class="sd-btn" data-testid="act-wifi-edit"           onclick="openWifiModal()"><i class="bi bi-wifi"></i> Edit Wi-Fi</button>
+      <button class="sd-btn" data-testid="act-wan-edit"            onclick="openWanModal()"><i class="bi bi-router"></i> Edit WAN</button>
+      <button class="sd-btn" data-testid="act-tr069-push"          onclick="actTr069Push()"><i class="bi bi-cloud-arrow-up"></i> Push TR-069 (OLT CLI)</button>
+      <button class="sd-btn" data-testid="act-tr069-clear"         onclick="actTr069Clear()"><i class="bi bi-cloud-slash"></i> Clear TR-069</button>
+      <button class="sd-btn primary" data-testid="act-ztp"         onclick="actZTP()"><i class="bi bi-magic"></i> Zero-Touch Provision</button>
+      <button class="sd-btn warn" data-testid="act-factory-reset"  onclick="actFactoryReset()"><i class="bi bi-arrow-counterclockwise"></i> Factory Reset + Provision</button>
+      <button class="sd-btn" data-testid="act-acs-diag"            onclick="actAcsDiag()"><i class="bi bi-bandaid"></i> ACS Diagnostic</button>
+      <button class="sd-btn" data-testid="act-genieacs-push"       onclick="actGenieAcsPush()"><i class="bi bi-arrow-up-square"></i> Push to GenieACS</button>
+      <button class="sd-btn" data-testid="act-refresh-params"      onclick="actRefreshParams()"><i class="bi bi-arrow-clockwise"></i> Refresh Parameters</button>
+      <button class="sd-btn" data-testid="act-connected-devices"   onclick="actConnectedDevices()"><i class="bi bi-pc-display"></i> Connected Devices</button>
+      <button class="sd-btn" data-testid="act-change-lan-ip"       onclick="openLanIpModal()"><i class="bi bi-diagram-2"></i> Change LAN IP</button>
+      <button class="sd-btn" data-testid="act-speedtest"           onclick="actSpeedtest()"><i class="bi bi-speedometer2"></i> Run Speedtest</button>
+      <button class="sd-btn" data-testid="act-tr069-diag"          onclick="actTr069Diag()"><i class="bi bi-clipboard-data"></i> TR-069 Diagnostic</button>
+    </div>
+    <pre id="action-output" data-testid="action-output"
+         style="display:none;margin-top:14px;background:#0a0f1c;color:#a5f3fc;padding:12px;border-radius:8px;font-size:11px;line-height:1.45;max-height:320px;overflow:auto;border:1px solid var(--sd-border);white-space:pre-wrap;"></pre>
+  </div>
+
+  {# Wi-Fi modal #}
+  <div class="modal fade" id="wifiModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;">
+        <div class="modal-header"><h5 class="modal-title">Edit Wi-Fi</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">SSID (2.4 GHz)</label><input id="wf_ssid_24" class="form-control" data-testid="wf-ssid-24"></div>
+            <div class="col-md-6"><label class="form-label">Password (2.4 GHz)</label><input id="wf_pass_24" class="form-control" data-testid="wf-pass-24"></div>
+            <div class="col-md-6"><label class="form-label">SSID (5 GHz)</label><input id="wf_ssid_5"  class="form-control" data-testid="wf-ssid-5"></div>
+            <div class="col-md-6"><label class="form-label">Password (5 GHz)</label><input id="wf_pass_5" class="form-control" data-testid="wf-pass-5"></div>
+            <div class="col-md-6"><label class="form-label">Radio 2.4 GHz</label><select id="wf_r24" class="form-control" data-testid="wf-r24"><option value="">— no change —</option><option value="1">ON</option><option value="0">OFF</option></select></div>
+            <div class="col-md-6"><label class="form-label">Radio 5 GHz</label><select id="wf_r5" class="form-control" data-testid="wf-r5"><option value="">— no change —</option><option value="1">ON</option><option value="0">OFF</option></select></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" data-testid="wf-save" onclick="saveWifi()">Save & Push</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# WAN modal #}
+  <div class="modal fade" id="wanModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;">
+        <div class="modal-header"><h5 class="modal-title">Edit WAN</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Mode</label><select id="wn_mode" class="form-control" data-testid="wn-mode"><option value="pppoe">PPPoE</option><option value="dhcp">DHCP</option><option value="static">STATIC</option><option value="bridge">BRIDGE</option></select></div>
+            <div class="col-md-4"><label class="form-label">VLAN</label><input id="wn_vlan" type="number" class="form-control" data-testid="wn-vlan"></div>
+            <div class="col-md-4"><label class="form-label">Service Name</label><input id="wn_svc"  class="form-control" data-testid="wn-svc"></div>
+            <div class="col-md-6"><label class="form-label">PPPoE Username</label><input id="wn_user" class="form-control" data-testid="wn-user"></div>
+            <div class="col-md-6"><label class="form-label">PPPoE Password</label><input id="wn_pass" class="form-control" data-testid="wn-pass"></div>
+            <div class="col-md-6"><label class="form-label">Static IP</label><input id="wn_ip"  class="form-control" data-testid="wn-ip"></div>
+            <div class="col-md-6"><label class="form-label">Netmask</label><input id="wn_mask" class="form-control" data-testid="wn-mask"></div>
+            <div class="col-md-6"><label class="form-label">Gateway</label><input id="wn_gw"   class="form-control" data-testid="wn-gw"></div>
+            <div class="col-md-6"><label class="form-label">DNS</label><input id="wn_dns"  class="form-control" data-testid="wn-dns"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" data-testid="wn-save" onclick="saveWan()">Save & Push</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# LAN IP modal #}
+  <div class="modal fade" id="lanIpModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;">
+        <div class="modal-header"><h5 class="modal-title">Change LAN IP</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label">LAN IP</label><input id="li_ip"  class="form-control" placeholder="192.168.1.1" data-testid="li-ip"></div>
+          <div class="mb-3"><label class="form-label">Subnet Mask</label><input id="li_mask" class="form-control" placeholder="255.255.255.0" data-testid="li-mask"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" data-testid="li-save" onclick="saveLanIp()">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+window.ONU_ID = {{ onu_id }};
+
+// ── Tab switcher
+function sdSwitchTab(btn, target){
+  document.querySelectorAll('.sd-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sd-tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(target).classList.add('active');
+  // Lazy-load alerts on first open.
+  if (target === 'tab-alerts' && !window._sdAlertsLoaded){
+    window._sdAlertsLoaded = true;
+    loadAlerts();
+  }
+}
+
+// ── Charts (signal + traffic)
+let signalChart = null, trafficChart = null;
+
+async function loadSignalChart(){
+  try {
+    const r = await fetch('/api/admin/onu/' + ONU_ID + '/signal-history?hours=24');
+    const j = await r.json();
+    const labels = (j.samples || []).map(s => (s.ts || '').replace('T', ' ').slice(11, 16));
+    const rx     = (j.samples || []).map(s => s.rx_dbm);
+    const tx     = (j.samples || []).map(s => s.tx_dbm);
+    const ctx = document.getElementById('signalChart').getContext('2d');
+    if (signalChart) signalChart.destroy();
+    signalChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'RX Power (dBm)', data: rx, borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251,191,36,.1)', tension: .25, pointRadius: 0, borderWidth: 2 },
+          { label: 'TX Power (dBm)', data: tx, borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,.08)', tension: .25, pointRadius: 0, borderWidth: 2 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#cbd5e1' } } },
+        scales: {
+          y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.08)' }, title: { display: true, text: 'dBm', color: '#94a3b8' } },
+          x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { color: 'rgba(148,163,184,.05)' } }
+        }
+      }
+    });
+  } catch (e){ console.error('signal chart', e); }
+}
+
+async function loadTrafficChart(){
+  try {
+    const r = await fetch('/api/admin/onu/' + ONU_ID + '/traffic-history?hours=24');
+    const j = await r.json();
+    const labels = (j.samples || []).map(s => (s.ts || '').replace('T', ' ').slice(11, 16));
+    const rx_mbps = (j.samples || []).map(s => +(s.rx_mbps || 0));
+    const tx_mbps = (j.samples || []).map(s => +(s.tx_mbps || 0));
+    const ctx = document.getElementById('trafficChart').getContext('2d');
+    if (trafficChart) trafficChart.destroy();
+    trafficChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Downlink (Mbps)', data: rx_mbps, borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96,165,250,.1)', tension: .25, pointRadius: 0, borderWidth: 2, fill: true },
+          { label: 'Uplink (Mbps)',   data: tx_mbps, borderColor: '#34d399',
+            backgroundColor: 'rgba(52,211,153,.08)', tension: .25, pointRadius: 0, borderWidth: 2, fill: true },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#cbd5e1' } } },
+        scales: {
+          y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,.08)' }, title: { display: true, text: 'Mbps', color: '#94a3b8' } },
+          x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { color: 'rgba(148,163,184,.05)' } }
+        }
+      }
+    });
+  } catch (e){ console.error('traffic chart', e); }
+}
+
+// ── MAC table
+async function loadMacs(){
+  try {
+    const r = await fetch('/api/admin/onu/' + ONU_ID + '/mac-table');
+    const j = await r.json();
+    const macs = j.macs || [];
+    document.getElementById('mac-count').textContent = macs.length + ' MAC address' + (macs.length === 1 ? '' : 'es');
+    const tbody = document.getElementById('mac-tbody');
+    if (!macs.length){
+      tbody.innerHTML = '<tr><td colspan="4" class="sd-empty">No MAC addresses learned yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = macs.map(m => '<tr>' +
+      '<td>' + (m.mac || '—') + '</td>' +
+      '<td>' + (m.vlan || '—') + '</td>' +
+      '<td>' + (m.last_seen || '—') + '</td>' +
+      '<td>' + (m.source || '—') + '</td>' +
+      '</tr>').join('');
+  } catch (e){
+    document.getElementById('mac-tbody').innerHTML = '<tr><td colspan="4" class="sd-empty">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+// ── Alerts
+async function loadAlerts(){
+  try {
+    const r = await fetch('/api/admin/onu/' + ONU_ID + '/alerts');
+    const j = await r.json();
+    const wrap = document.getElementById('alerts-list');
+    const alerts = j.alerts || [];
+    if (!alerts.length){
+      wrap.innerHTML = '<div class="sd-empty">No active alerts on this ONU.</div>';
+      return;
+    }
+    wrap.innerHTML = alerts.map(a => {
+      const sev = (a.severity || 'info').toLowerCase();
+      const c = sev === 'critical' ? '#ef4444' : sev === 'major' ? '#f59e0b' : sev === 'minor' ? '#facc15' : '#60a5fa';
+      return '<div style="padding:12px;border-left:3px solid ' + c +
+             ';background:rgba(255,255,255,.02);margin-bottom:8px;border-radius:6px;">' +
+             '<div style="font-weight:600;color:' + c + ';font-size:13px;">' +
+             (a.kind || 'event').toUpperCase() + ' · ' + sev.toUpperCase() + '</div>' +
+             '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">' +
+             (a.message || '') + '</div>' +
+             '<div style="font-size:11px;color:#64748b;margin-top:4px;">' +
+             (a.opened_at || '') + '</div></div>';
+    }).join('');
+  } catch (e){
+    document.getElementById('alerts-list').innerHTML = '<div class="sd-empty">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── ACS Bootstrap (calls the existing endpoint).
+async function acsBootstrap(){
+  const btn = document.querySelector('[data-testid="acs-bootstrap-btn"]');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Bootstrapping…';
+  try {
+    const r = await fetch('/api/admin/olt/onus/' + ONU_ID + '/tr069-cli-push', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
+    });
+    const j = await r.json();
+    alert(j.ok ? '\u2705 ACS Bootstrap pushed. ONU should report within 60 s.'
+               : '\u26A0 Bootstrap failed: ' + (j.error || 'unknown'));
+  } catch (e){
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Bootstrap via OLT CLI';
+  }
+}
+
+// ── Restore (from s57B endpoint).
+async function restoreOnuConfig(){
+  const out = document.getElementById('onu-restore-output');
+  out.style.display = 'block';
+  out.textContent = 'Restoring…';
+  try {
+    const r = await fetch('/api/admin/olt/onu-restore/' + ONU_ID, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    });
+    const j = await r.json();
+    out.textContent = JSON.stringify(j, null, 2);
+    out.style.color = j.ok ? '#a7f3d0' : '#fda4af';
+  } catch (e){
+    out.textContent = 'Network error: ' + e.message;
+    out.style.color = '#fda4af';
+  }
+}
+
+
+// _S58C_ACTIONS_  Wire every existing ONU endpoint to a button.
+function _show(o){
+  const el = document.getElementById('action-output');
+  el.style.display='block';
+  el.style.color = (o && o.ok) ? '#a7f3d0' : '#fda4af';
+  el.textContent = (typeof o === 'string') ? o : JSON.stringify(o, null, 2);
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+}
+async function _do(method, url, body){
+  const opts = {method, credentials:'same-origin',
+    headers: body ? {'Content-Type':'application/json'} : {}};
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(url, opts);
+    let j;
+    try { j = await r.json(); } catch(_) { j = {ok:false, error: r.statusText, status:r.status}; }
+    if (!j.ok && !('ok' in j)) j.ok = r.ok;
+    return j;
+  } catch (e) {
+    return {ok:false, error: e.message};
+  }
+}
+
+// — TR-069 / ACS ———————————————————————————————————————————————————
+async function actTr069Push(){
+  if (!confirm('Push the TR-069 ACS URL to this ONU via the OLT CLI?\n\nUses the GenieACS URL from System Config. Works on factory-reset ONUs.')) return;
+  _show('Pushing TR-069 ACS URL via OLT CLI…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/tr069-cli-push`, {}));
+}
+async function actTr069Clear(){
+  if (!confirm('Clear the TR-069 ACS URL from this ONU?')) return;
+  _show('Clearing TR-069 ACS URL…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/tr069-cli-clear`, {}));
+}
+async function actZTP(){
+  if (!confirm('Zero-Touch Provision this ONU?\n\nWill push:\n  1) WAN config\n  2) Wi-Fi config\n  3) TR-069 ACS URL\nvia the OLT CLI. Works on factory-reset CPEs.')) return;
+  _show('Running Zero-Touch Provision…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/zero-touch-provision`, {}));
+}
+async function actFactoryReset(){
+  if (!confirm('FACTORY-RESET this ONU and re-provision it?\n\nAll local settings (Wi-Fi, LAN, WAN) will be wiped, then the saved profile is pushed back.\n\nContinue?')) return;
+  _show('Factory-resetting and re-provisioning…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/factory-reset-and-provision`, {}));
+}
+async function actAcsDiag(){
+  _show('Running ACS diagnostic…');
+  _show(await _do('GET', `/api/admin/olt/onus/${ONU_ID}/acs-diagnostic`));
+}
+async function actGenieAcsPush(){
+  _show('Pushing latest config to GenieACS…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/genieacs-push`, {}));
+}
+async function actTr069Diag(){
+  _show('Running TR-069 diagnostic…');
+  _show(await _do('GET', `/api/admin/olt/onus/${ONU_ID}/tr069-diag`));
+}
+
+// — RPC (live CPE) ——————————————————————————————————————————————
+async function actRefreshParams(){
+  _show('Refreshing CPE parameters (this may take 10-30 s)…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/rpc/refresh-params`, {}));
+}
+async function actConnectedDevices(){
+  _show('Fetching connected devices from CPE…');
+  const j = await _do('GET', `/api/admin/olt/onus/${ONU_ID}/rpc/connected-devices`);
+  if (j && j.ok && Array.isArray(j.devices)){
+    const lines = j.devices.length
+      ? j.devices.map((d,i)=>`${String(i+1).padStart(2)}. ${d.host || d.hostname || '?'}  ${d.ip||'-'}  ${d.mac||'-'}  ${d.interface||''}`).join('\n')
+      : 'No clients reported.';
+    _show({ok:true, count:j.devices.length, devices:lines});
+  } else {
+    _show(j);
+  }
+}
+async function actSpeedtest(){
+  if (!confirm('Run a TR-143 speedtest from the CPE? This usually takes 30-60 s.')) return;
+  _show('Running speedtest (may take 30-60 s)…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/rpc/speedtest`, {}));
+}
+
+// — Wi-Fi modal ————————————————————————————————————————————————
+function openWifiModal(){
+  document.getElementById('wf_ssid_24').value = {{ (onu.wifi_ssid or '')|tojson }};
+  document.getElementById('wf_ssid_5').value  = {{ (onu.wifi_ssid_5g or '')|tojson }};
+  document.getElementById('wf_pass_24').value = '';
+  document.getElementById('wf_pass_5').value  = '';
+  document.getElementById('wf_r24').value = '';
+  document.getElementById('wf_r5').value  = '';
+  new bootstrap.Modal(document.getElementById('wifiModal')).show();
+}
+async function saveWifi(){
+  const payload = {};
+  const v = id => document.getElementById(id).value.trim();
+  if (v('wf_ssid_24')) payload.ssid          = v('wf_ssid_24');
+  if (v('wf_pass_24')) payload.password      = v('wf_pass_24');
+  if (v('wf_ssid_5'))  payload.ssid_5g       = v('wf_ssid_5');
+  if (v('wf_pass_5'))  payload.password_5g   = v('wf_pass_5');
+  if (v('wf_r24') !== '') payload.radio_24_enabled = parseInt(v('wf_r24'),10);
+  if (v('wf_r5')  !== '') payload.radio_5_enabled  = parseInt(v('wf_r5'),10);
+  bootstrap.Modal.getInstance(document.getElementById('wifiModal')).hide();
+  _show('Saving Wi-Fi & pushing to CPE…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/wifi`, payload));
+}
+
+// — WAN modal ——————————————————————————————————————————————————
+function openWanModal(){
+  document.getElementById('wn_mode').value = {{ (onu.wan_mode or 'pppoe')|tojson }};
+  document.getElementById('wn_vlan').value = {{ (onu.wan_vlan or '')|tojson }};
+  document.getElementById('wn_svc').value  = {{ (onu.wan_service_name or '')|tojson }};
+  document.getElementById('wn_user').value = {{ (onu.wan_username or '')|tojson }};
+  document.getElementById('wn_pass').value = '';
+  document.getElementById('wn_ip').value   = {{ (onu.wan_static_ip or '')|tojson }};
+  document.getElementById('wn_mask').value = {{ (onu.wan_netmask or '')|tojson }};
+  document.getElementById('wn_gw').value   = {{ (onu.wan_gateway or '')|tojson }};
+  document.getElementById('wn_dns').value  = {{ (onu.wan_dns or '')|tojson }};
+  new bootstrap.Modal(document.getElementById('wanModal')).show();
+}
+async function saveWan(){
+  const v = id => document.getElementById(id).value.trim();
+  const payload = {
+    mode:      v('wn_mode'),
+    vlan:      v('wn_vlan')  ? parseInt(v('wn_vlan'),10) : null,
+    service_name: v('wn_svc'),
+    username:  v('wn_user'),
+    static_ip: v('wn_ip'),
+    netmask:   v('wn_mask'),
+    gateway:   v('wn_gw'),
+    dns:       v('wn_dns'),
+  };
+  if (v('wn_pass')) payload.password = v('wn_pass');
+  bootstrap.Modal.getInstance(document.getElementById('wanModal')).hide();
+  _show('Saving WAN & pushing to CPE…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/wan`, payload));
+}
+
+// — LAN IP modal ———————————————————————————————————————————————
+function openLanIpModal(){
+  document.getElementById('li_ip').value   = '';
+  document.getElementById('li_mask').value = '255.255.255.0';
+  new bootstrap.Modal(document.getElementById('lanIpModal')).show();
+}
+async function saveLanIp(){
+  const ip   = document.getElementById('li_ip').value.trim();
+  const mask = document.getElementById('li_mask').value.trim();
+  if (!ip){ alert('LAN IP is required'); return; }
+  bootstrap.Modal.getInstance(document.getElementById('lanIpModal')).hide();
+  _show('Changing LAN IP…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/rpc/lan-ip`, {ip, mask}));
+}
+
+// ── Init.
+document.addEventListener('DOMContentLoaded', () => {
+  loadSignalChart();
+  loadTrafficChart();
+});
+</script>
+
+{% endblock %}

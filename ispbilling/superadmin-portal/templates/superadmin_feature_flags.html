@@ -1,0 +1,96 @@
+{% extends "base_superadmin.html" %}
+{% block title %}Feature Flags - Superadmin{% endblock %}
+{% block content %}
+<style>
+.ff-card{background:#fff;border-radius:14px;padding:18px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;position:sticky;top:0;z-index:10;}
+table td{padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;text-align:center;}
+table td:first-child, table th:first-child{text-align:left;}
+.toggle{position:relative;display:inline-block;width:44px;height:22px;}
+.toggle input{opacity:0;width:0;height:0;}
+.slider{position:absolute;cursor:pointer;inset:0;background:#cbd5e1;border-radius:22px;transition:.2s;}
+.slider:before{content:"";position:absolute;height:18px;width:18px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s;}
+.toggle input:checked + .slider{background:#10b981;}
+.toggle input:checked + .slider:before{transform:translateX(22px);}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+.feat-tag{font-size:11px;color:#64748b;font-weight:600;}
+.search-box{padding:8px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;width:300px;}
+</style>
+
+<section class="content-header">
+  <h1>Feature Flags<small>Enable / disable features per Admin company</small></h1>
+</section>
+
+<section class="content">
+  <div class="ff-card">
+    <h3 style="margin:0 0 12px;display:flex;align-items:center;gap:10px;">
+      <i class="bi bi-toggles2" style="color:#6366f1"></i> Per-Company Feature Toggles
+      <input id="searchBox" class="search-box" placeholder="Search by company name / id…" style="margin-left:auto;" oninput="render()" data-testid="ff-search" />
+    </h3>
+    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">
+      <b style="color:#ef4444;">SMS</b> is OFF by default for new admins (opt-in). Other features are ON by default.
+      Each toggle takes effect immediately — admin/sub-LCO/employee will see the menu disappear and endpoints return 403.
+    </p>
+    <div id="ffTable" style="max-height:70vh;overflow:auto;"><div class="empty">Loading…</div></div>
+  </div>
+</section>
+
+<script>
+let _all=[];
+const FLAGS=[
+  {key:'sms_enabled', label:'SMS Center', icon:'💬'},
+  {key:'whatsapp_enabled', label:'WhatsApp Campaigns', icon:'📱'},
+  {key:'dns_filter_enabled', label:'DNS Filter', icon:'🛡️'},
+  {key:'outage_detector_enabled', label:'Outage Detector', icon:'⚠️'},
+  {key:'self_upgrade_enabled', label:'Self-Upgrade', icon:'⬆️'},
+  {key:'referrals_enabled', label:'Referrals', icon:'🎁'},
+  {key:'lead_crm_enabled', label:'Lead CRM', icon:'📋'},
+  {key:'multilang_enabled', label:'Multi-language', icon:'🌐'},
+];
+
+async function load(){
+  const r=await fetch('/api/superadmin/feature-flags',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){document.getElementById('ffTable').innerHTML='<div class="empty">Forbidden</div>';return;}
+  _all=d.items;
+  render();
+}
+function render(){
+  const q=(document.getElementById('searchBox').value||'').toLowerCase();
+  const items=_all.filter(x=>!q||((x.company_name||'').toLowerCase().includes(q)||(x.company_id||'').toLowerCase().includes(q)||(x.admin_username||'').toLowerCase().includes(q)));
+  if(items.length===0){document.getElementById('ffTable').innerHTML='<div class="empty">No companies match</div>';return;}
+  document.getElementById('ffTable').innerHTML=`
+    <table><thead><tr>
+      <th>Company</th>
+      ${FLAGS.map(f=>`<th title="${f.label}">${f.icon}<br><span class="feat-tag">${f.label}</span></th>`).join('')}
+    </tr></thead><tbody>
+    ${items.map(x=>`
+      <tr data-testid="ff-row-${x.company_id}">
+        <td><b>${x.company_name}</b><br><small style="color:#64748b">ID: ${x.company_id} · ${x.admin_username}</small></td>
+        ${FLAGS.map(f=>`
+          <td>
+            <label class="toggle" data-testid="ff-toggle-${x.company_id}-${f.key}">
+              <input type="checkbox" ${x[f.key]?'checked':''}
+                onchange="toggle('${x.company_id}','${f.key}',this.checked)" />
+              <span class="slider"></span>
+            </label>
+          </td>`).join('')}
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function toggle(cid,key,val){
+  const body={}; body[key]=val;
+  const r=await fetch('/api/superadmin/feature-flags/'+cid,{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!d.success){alert(d.message); load();}
+  else {
+    // Update local cache so the row stays correct without full reload
+    const item=_all.find(x=>x.company_id===cid);
+    if(item) item[key]=val;
+  }
+}
+load();
+</script>
+{% endblock %}

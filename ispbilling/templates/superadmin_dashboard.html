@@ -1,0 +1,129 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Dashboard - Superadmin{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Dashboard<small>Control panel</small></h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-lg-3 col-xs-6">
+            <div class="small-box bg-aqua">
+                <div class="inner">
+                    <h3>{{ total_admins }}</h3>
+                    <p>Total Admins</p>
+                </div>
+                <div class="icon"><i class="fa fa-users"></i></div>
+                <a href="/superadmin/admins" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-xs-6">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>{{ active_admins }}</h3>
+                    <p>Active Admins</p>
+                </div>
+                <div class="icon"><i class="fa fa-check-circle"></i></div>
+                <a href="/superadmin/admins?status=Active" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-xs-6">
+            <div class="small-box bg-yellow">
+                <div class="inner">
+                    <h3>{{ deactive_admins }}</h3>
+                    <p>Deactive Admins</p>
+                </div>
+                <div class="icon"><i class="fa fa-pause-circle"></i></div>
+                <a href="/superadmin/admins?status=Deactive" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-xs-6">
+            <div class="small-box bg-red">
+                <div class="inner">
+                    <h3>{{ suspended_admins }}</h3>
+                    <p>Deleted Admins</p>
+                </div>
+                <div class="icon"><i class="fa fa-ban"></i></div>
+                <a href="/superadmin/deleted-admins" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-lg-6 col-xs-12">
+            <div class="box box-primary">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Total Dues</h3>
+                </div>
+                <div class="box-body">
+                    <h2>₹{{ total_dues|round|int }}</h2>
+                    <p>Outstanding balance from all admins</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6 col-xs-12">
+            <div class="box box-success">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Total Payments</h3>
+                </div>
+                <div class="box-body">
+                    <h2>₹{{ total_payments|round|int }}</h2>
+                    <p>Total payments received</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-xs-12">
+            <div class="box">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Recent Admins</h3>
+                </div>
+                <div class="box-body">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                            <tr>
+                                <th>Company ID</th>
+                                <th>Company Name</th>
+                                <th>Admin Name</th>
+                                <th>Email</th>
+                                <th>Mobile</th>
+                                <th>Status</th>
+                                <th>End Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for admin in recent_admins %}
+                            <tr>
+                                <td>{{ admin.company_id }}</td>
+                                <td>{{ admin.company_name }}</td>
+                                <td>{{ admin.admin_name }}</td>
+                                <td>{{ admin.admin_email }}</td>
+                                <td>{{ admin.admin_mobile }}</td>
+                                <td>
+                                    {% if admin.status == 'Active' %}
+                                        <span class="label label-success">Active</span>
+                                    {% elif admin.status == 'Suspended' %}
+                                        <span class="label label-danger">Suspended</span>
+                                    {% else %}
+                                        <span class="label label-warning">Deactive</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ admin.end_date.strftime('%d-%m-%Y') if admin.end_date else 'N/A' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

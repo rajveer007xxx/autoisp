@@ -1,0 +1,112 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Track Employee - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Track Employee
+        <small>Employee activity tracking</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Activity</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Employee:</label>
+                    <select class="form-control">
+                        <option value="">All Employees</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Activity Type:</label>
+                    <select class="form-control">
+                        <option value="">All Activities</option>
+                        <option value="login">Login</option>
+                        <option value="customer">Customer Management</option>
+                        <option value="payment">Payment Collection</option>
+                        <option value="complaint">Complaint Resolution</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary">Apply Filter</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Employee Activity Log</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Employee ID</th>
+                            <th>Employee Name</th>
+                            <th>Activity</th>
+                            <th>Description</th>
+                            <th>Timestamp</th>
+                            <th>IP Address</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" class="text-center">No activity logs found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Employee Performance</h3>
+        </div>
+        <div class="box-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="box box-primary">
+                        <div class="box-header with-border">
+                            <h3 class="box-title">Top Performers</h3>
+                        </div>
+                        <div class="box-body">
+                            <p class="text-center text-muted">No data available</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="box box-success">
+                        <div class="box-header with-border">
+                            <h3 class="box-title">Payment Collections</h3>
+                        </div>
+                        <div class="box-body">
+                            <p class="text-center text-muted">No data available</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="box box-warning">
+                        <div class="box-header with-border">
+                            <h3 class="box-title">Complaint Resolution</h3>
+                        </div>
+                        <div class="box-body">
+                            <p class="text-center text-muted">No data available</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

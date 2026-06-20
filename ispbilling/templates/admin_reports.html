@@ -1,0 +1,139 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Reports - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Reports
+        <small>Analytics and reports</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-aqua">
+                <div class="inner">
+                    <h3>0</h3>
+                    <p>Total Customers</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-users"></i>
+                </div>
+                <a href="#" class="small-box-footer">View Report <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>₹0</h3>
+                    <p>Total Revenue</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-money"></i>
+                </div>
+                <a href="#" class="small-box-footer">View Report <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-yellow">
+                <div class="inner">
+                    <h3>0</h3>
+                    <p>Pending Payments</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-clock-o"></i>
+                </div>
+                <a href="#" class="small-box-footer">View Report <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-red">
+                <div class="inner">
+                    <h3>0</h3>
+                    <p>Complaints</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-exclamation-triangle"></i>
+                </div>
+                <a href="#" class="small-box-footer">View Report <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Generate Custom Report</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-horizontal">
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Report Type:</label>
+                    <div class="col-sm-10">
+                        <select class="form-control">
+                            <option value="">Select Report Type</option>
+                            <option value="revenue">Revenue Report</option>
+                            <option value="customer">Customer Report</option>
+                            <option value="payment">Payment Report</option>
+                            <option value="complaint">Complaint Report</option>
+                            <option value="plan">Plan Wise Report</option>
+                            <option value="location">Location Wise Report</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Date Range:</label>
+                    <div class="col-sm-5">
+                        <input type="date" class="form-control" placeholder="Start Date">
+                    </div>
+                    <div class="col-sm-5">
+                        <input type="date" class="form-control" placeholder="End Date">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="col-sm-2 control-label">Format:</label>
+                    <div class="col-sm-10">
+                        <select class="form-control">
+                            <option value="pdf">PDF</option>
+                            <option value="excel">Excel</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-sm-offset-2 col-sm-10">
+                        <button type="submit" class="btn btn-primary">Generate Report</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Recent Reports</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Report Name</th>
+                            <th>Type</th>
+                            <th>Date Range</th>
+                            <th>Generated At</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" class="text-center">No reports generated yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

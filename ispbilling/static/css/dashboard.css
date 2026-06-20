@@ -1,0 +1,92 @@
+/* Dashboard Custom Styles */
+.service-toggle {
+    margin-bottom: 20px;
+}
+
+.service-toggle .btn {
+    padding: 10px 30px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.dashboard-tiles {
+    margin-top: 20px;
+}
+
+.info-box {
+    min-height: 120px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.info-box-icon {
+    border-radius: 5px 0 0 5px;
+}
+
+.info-box-content {
+    padding: 10px 15px;
+}
+
+.info-box-text {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.info-box-number {
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.progress-description {
+    font-size: 12px;
+    color: #777;
+}
+
+/* Custom colors for tiles */
+.bg-teal {
+    background-color: #17a2b8 !important;
+    color: #fff !important;
+}
+
+.bg-lime {
+    background-color: #cddc39 !important;
+    color: #333 !important;
+}
+
+.bg-orange {
+    background-color: #ff9800 !important;
+    color: #fff !important;
+}
+
+.bg-purple {
+    background-color: #9c27b0 !important;
+    color: #fff !important;
+}
+
+.bg-navy {
+    background-color: #001f3f !important;
+    color: #fff !important;
+}
+
+.bg-maroon {
+    background-color: #d81b60 !important;
+    color: #fff !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .info-box {
+        margin-bottom: 15px;
+    }
+    
+    .info-box-number {
+        font-size: 24px;
+    }
+    
+    .service-toggle .btn {
+        padding: 8px 20px;
+        font-size: 14px;
+    }
+}

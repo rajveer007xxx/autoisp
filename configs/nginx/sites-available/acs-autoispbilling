@@ -1,0 +1,107 @@
+# GenieACS reverse proxy — TR-069 (CWMP) endpoint + ACS UI.
+# DNS A: acs.autoispbilling.com -> 185.199.53.93
+#
+# Public surfaces:
+#   https://acs.autoispbilling.com/cwmp        — what ONUs talk to (TR-069)
+#   https://acs.autoispbilling.com/             — GenieACS UI (admin login)
+#   https://acs.autoispbilling.com/ui/api/      — GenieACS UI API (internal)
+#   https://acs.autoispbilling.com/files/       — TR-069 file server (firmware push)
+#
+# NBI (port 7557) is NOT exposed publicly — admin app talks to it on
+# 127.0.0.1 only.
+
+# 1) HTTP -> HTTPS redirect (also serves Let's Encrypt http-01 challenges)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name acs.autoispbilling.com;
+
+    # Allow ACME challenges before TLS is up
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # __s56d_cwmp_http__ : TR-069 CPEs (cheap EPON ONUs) almost never
+    # follow HTTP->HTTPS redirects and many don't support TLS at all.
+    # Reverse-proxy plain-HTTP POST requests straight to GenieACS-CWMP.
+    # All Inform / TransferComplete messages are POST, so we key on the
+    # request method and pass everything else through to the HTTPS
+    # redirect (for browsers).
+    location / {
+        # Send CWMP SOAP traffic (POST) to GenieACS on 7547. The
+        # GenieACS-CWMP listener accepts any URL path for Informs.
+        if ($request_method = POST) {
+            proxy_pass http://127.0.0.1:7547;
+            break;
+        }
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout  60s;
+        proxy_send_timeout  60s;
+        client_max_body_size 8m;
+        client_body_buffer_size 256k;
+
+        # Browsers (GET/HEAD/etc) → HTTPS UI as before.
+        return 301 https://$host$request_uri;
+    }
+}
+
+# 2) HTTPS — main vhost
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name acs.autoispbilling.com;
+
+    # _S39R5L_ACS_TLS — issued via certbot once DNS propagates
+    ssl_certificate     /etc/letsencrypt/live/acs.autoispbilling.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/acs.autoispbilling.com/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    # ONUs send TR-069 SOAP requests to /cwmp. GenieACS-CWMP listens on
+    # 7547 internally and returns SOAP/HTTP. We pass body through verbatim.
+    location /cwmp {
+        proxy_pass http://127.0.0.1:7547;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout  60s;
+        proxy_send_timeout  60s;
+        # ONUs sometimes send chunky SOAP bodies — increase buffer.
+        client_max_body_size 8m;
+        client_body_buffer_size 256k;
+    }
+
+    # File-server endpoint: GenieACS pushes firmware / config files via 7567.
+    location /files/ {
+        proxy_pass http://127.0.0.1:7567/;
+        proxy_set_header Host $host;
+        client_max_body_size 256m;     # firmware images can be big
+        proxy_read_timeout  300s;
+    }
+
+    # GenieACS UI (port 7577) — admin web interface.
+    # We expose it on the root so users can hit https://acs.autoispbilling.com/
+    location / {
+        proxy_pass http://127.0.0.1:7577;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket-friendly (UI uses live updates)
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_read_timeout  3600s;
+    }
+
+    # Belt-and-braces security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    nosniff                                always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin"      always;
+}

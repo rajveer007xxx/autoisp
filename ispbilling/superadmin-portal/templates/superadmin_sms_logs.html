@@ -1,0 +1,82 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Message Logs - Superadmin{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Message Logs<small>WhatsApp / SMS delivery history</small></h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Messaging Logs</h3>
+            <div class="box-tools pull-right">
+                <select id="smsStatusFilter" class="form-control input-sm" style="width:auto;display:inline-block;">
+                    <option value="">All Statuses</option>
+                    <option value="sent">Sent</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="failed">Failed</option>
+                </select>
+                <button class="btn btn-sm btn-default" id="refreshSmsLogsBtn">
+                    <i class="fa fa-refresh"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="box-body table-responsive">
+            <table id="smsLogsTable" class="table table-striped table-hover" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>Sent At</th>
+                        <th>Recipient</th>
+                        <th>Phone</th>
+                        <th>Template</th>
+                        <th>Status</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    var table = $('#smsLogsTable').DataTable({ order: [[0, 'desc']] });
+
+    function fmtDateTime(iso) {
+        if (!iso) return '';
+        var d = new Date(iso);
+        var pad = function(n){ return String(n).padStart(2,'0'); };
+        return pad(d.getDate()) + '-' + pad(d.getMonth()+1) + '-' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function loadSmsLogs() {
+        var status = $('#smsStatusFilter').val() || '';
+        var url = '/api/superadmin/sms/logs' + (status ? ('?status=' + encodeURIComponent(status)) : '');
+        table.clear();
+        $.getJSON(url, function(resp) {
+            if (!resp || !resp.success) return;
+            (resp.logs || []).forEach(function(r) {
+                table.row.add([
+                    fmtDateTime(r.sent_at),
+                    (r.recipient_type || '') + (r.recipient_id ? ' ('+r.recipient_id+')' : ''),
+                    r.recipient_phone || '',
+                    r.template_name || '',
+                    r.status || '',
+                    r.error_message || ''
+                ]);
+            });
+            table.draw();
+        });
+    }
+
+    $('#refreshSmsLogsBtn').on('click', loadSmsLogs);
+    $('#smsStatusFilter').on('change', loadSmsLogs);
+    loadSmsLogs();
+});
+</script>
+{% endblock %}

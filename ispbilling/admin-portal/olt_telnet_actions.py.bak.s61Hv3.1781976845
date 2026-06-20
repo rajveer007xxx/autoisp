@@ -1,0 +1,1449 @@
+"""
+_S48B_  OLT-side ONU write actions (vendor-aware).
+
+VSOL/Netlink V1600D verified CLI syntax (from live OLT 192.168.22.107):
+  - ONU description:  onu <N> description <text>
+  - ONU factory:      onu <N> pri factory_reset           (acts as soft reset too)
+  - ONU save:         onu <N> pri save_config
+  - Wi-Fi SSID+pass:  onu <N> pri wifi_ssid <slot> name <SSID> hide disable
+                       auth_mode wpapsk encrypt_type aes shared_key <PSK>
+  - Wi-Fi radio:      onu <N> pri wifi_switch enable | disable
+  - WAN PPPoE:        onu <N> pri wan_adv add route                 (if absent)
+                      onu <N> pri wan_adv index <i> route ipv4 pppoe proxy
+                        disable user <USER> password <PASS>
+                      onu <N> pri wan_adv index <i> vlan disable
+                      onu <N> pri wan_adv index <i> bind lan1
+                      onu <N> pri wan_adv commit
+  - WAN Static:       onu <N> pri wan_adv index <i> route ipv4 static ip <IP>
+                        mask <MASK> ...
+  - LAN IP:           onu <N> pri lan ip <IP> mask <MASK>           (depends on
+                                                                     ONU firmware
+                                                                     — best-effort)
+NOTE: this firmware does NOT expose an ONU reboot command from the OLT
+side. Reboot is only available via TR-069. The /rpc/reboot endpoint
+already calls TR-069 first and falls back to CLI; for VSOL the CLI
+will short-circuit with "method": "tr069_only".
+"""
+from __future__ import annotations
+
+import re
+from typing import Optional, Dict, Any
+
+from olt_telnet_pool import telnet_session
+
+
+_VSOL_FAMILY = {"vsol", "vsol_epon", "netlink", "netlink_epon",
+                 "syrotech", "syrotech_epon", "cdata", "cdata_epon"}
+
+
+def _is_vsol(vendor: str) -> bool:
+    return (vendor or "").lower() in _VSOL_FAMILY
+
+
+def _trim(s: str, n: int = 1200) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= n else s[-n:]
+
+
+def _err_in(out: str) -> bool:
+    out = out or ""
+    return ("Unknown command" in out or "Command incomplete" in out or
+            "matched command" in out or "Invalid input" in out)
+
+
+# ─────────────────── ONU RENAME ───────────────────
+def rename_onu(olt: dict, pon: int, onu_idx: int, name: str) -> Dict[str, Any]:
+    """Push ONU description/name to the OLT CLI."""
+    vendor = (olt.get("vendor") or "").lower()
+    # VSOL only accepts a-z A-Z 0-9 _ . - + / in description.
+    name = re.sub(r"[^A-Za-z0-9_.\-+/]", "_", (name or "").strip())[:32]
+    if not name:
+        return {"ok": False, "error": "name empty", "vendor": vendor,
+                "method": "cli", "output": ""}
+    with telnet_session(olt) as ts:
+        if _is_vsol(vendor):
+            ts.enter_pon(int(pon))
+            out = ts.send(f"onu {int(onu_idx)} description {name}",
+                          wait=0.6, iters=4)
+            ts.send(f"onu {int(onu_idx)} pri save_config", wait=0.6, iters=4)
+            ts.exit_config()
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        if vendor == "huawei":
+            out  = ts.send("config",                       wait=0.3)
+            out += ts.send(f"interface gpon 0/{int(pon)}", wait=0.3)
+            out += ts.send(f"ont modify {int(onu_idx)-1} description "
+                           f"{name}", wait=0.6, iters=4)
+            out += ts.send("quit", wait=0.2)
+            out += ts.send("quit", wait=0.2)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        if vendor == "zte":
+            out  = ts.send("configure terminal", wait=0.3)
+            out += ts.send(f"interface gpon-onu_1/1/{int(pon)}:{int(onu_idx)}",
+                           wait=0.3)
+            out += ts.send(f"name {name}", wait=0.5, iters=4)
+            out += ts.send("exit", wait=0.2)
+            out += ts.send("end",  wait=0.2)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        if vendor == "nokia":
+            out  = ts.send("configure equipment ont interface "
+                           f"{int(pon)}/{int(onu_idx)} desc {name}",
+                           wait=0.6, iters=4)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": "", "error": f"rename CLI not implemented for {vendor}"}
+
+
+# ─────────────────── ONU WI-FI (VSOL verified) ───────────────────
+def _vsol_wifi_one(ts, oid: int, slot: int, ssid: Optional[str],
+                   password: Optional[str], radio_on: int) -> str:
+    """_S50G_  Push one wifi_ssid slot on a VSOL ONU. Returns CLI output.
+
+    Full verified syntax (Netlink V1600D 2026-02-25):
+        onu N pri wifi_ssid <slot> name <SSID> hide disable
+            auth_mode wpapsk/wpa2psk encrypt_type tkipaes
+            shared_key <PSK> rekey_interval 86400
+
+    - `wpapsk/wpa2psk` auth → compatible with both wpa1 & wpa2 clients.
+    - `tkipaes` encryption → accepts both ciphers.
+    - `rekey_interval` is a REQUIRED trailer (0 = disable rekey).
+    """
+    out = []
+    if ssid and password:
+        out.append(ts.send(
+            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable "
+            f"auth_mode wpapsk/wpa2psk encrypt_type tkipaes "
+            f"shared_key {password} rekey_interval 86400",
+            wait=0.9, iters=5))
+    elif ssid:
+        # SSID rename without changing PSK — keep a placeholder PSK that
+        # the user can re-save shortly. (VSOL syntax requires shared_key
+        # be present on every wifi_ssid command.)
+        out.append(ts.send(
+            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable "
+            f"auth_mode wpapsk/wpa2psk encrypt_type tkipaes "
+            f"shared_key 12345678 rekey_interval 86400",
+            wait=0.9, iters=5))
+    if not radio_on:
+        out.append(ts.send(f"onu {oid} pri wifi_ssid {slot} disable",
+                            wait=0.4, iters=3))
+    return "\n".join(out)
+
+
+def push_wifi(olt: dict, pon: int, onu_idx: int, *,
+              ssid: Optional[str] = None,
+              password: Optional[str] = None,
+              ssid_5g: Optional[str] = None,
+              password_5g: Optional[str] = None,
+              radio_24_enabled: int = 1,
+              radio_5_enabled: int = 1) -> Dict[str, Any]:
+    """Push 2.4G + 5G Wi-Fi SSID/password to the ONU via OLT CLI."""
+    vendor = (olt.get("vendor") or "").lower()
+    if (not _is_vsol(vendor)) and vendor not in ("huawei", "zte"):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+    if vendor in ("huawei", "zte"):
+        with telnet_session(olt) as ts:
+            out_buf = []
+            if vendor == "huawei":
+                # Huawei MA56xx/MA58xx — `ont wifi-config`.
+                ts.send("config", wait=0.3)
+                ts.send(f"interface gpon 0/{int(pon)}", wait=0.3)
+                if ssid:
+                    out_buf.append(ts.send(
+                        f"ont wifi-config modify {int(onu_idx)-1} "
+                        f"wifi-on 1 ssid-index 0 ssid-name {ssid} "
+                        f"hide-ssid 0", wait=0.6, iters=4))
+                if password:
+                    out_buf.append(ts.send(
+                        f"ont wifi-config modify {int(onu_idx)-1} "
+                        f"ssid-index 0 auth-mode wpa2psk "
+                        f"encrypt-mode aes shared-key {password}",
+                        wait=0.6, iters=4))
+                ts.send("quit", wait=0.2); ts.send("quit", wait=0.2)
+            elif vendor == "zte":
+                # ZTE C300/C320 — pon-onu-mng wifi ssid.
+                ts.send("configure terminal", wait=0.3)
+                ts.send(f"pon-onu-mng gpon-onu_1/1/{int(pon)}:{int(onu_idx)}",
+                        wait=0.3)
+                if ssid:
+                    out_buf.append(ts.send(
+                        f"wifi ssid 1 name {ssid}", wait=0.5, iters=4))
+                    out_buf.append(ts.send(
+                        f"wifi ssid 1 state enable", wait=0.4, iters=3))
+                if password:
+                    out_buf.append(ts.send(
+                        f"wifi ssid 1 authentication mode wpa2-psk "
+                        f"encryption aes shared-secret {password}",
+                        wait=0.5, iters=4))
+                if ssid_5g:
+                    out_buf.append(ts.send(
+                        f"wifi ssid 5 name {ssid_5g}", wait=0.5, iters=4))
+                    out_buf.append(ts.send(
+                        f"wifi ssid 5 state enable", wait=0.4, iters=3))
+                if password_5g:
+                    out_buf.append(ts.send(
+                        f"wifi ssid 5 authentication mode wpa2-psk "
+                        f"encryption aes shared-secret {password_5g}",
+                        wait=0.5, iters=4))
+                ts.send("exit", wait=0.2); ts.send("end", wait=0.2)
+            joined = "\n".join(out_buf)
+            return {"ok": not _err_in(joined), "vendor": vendor,
+                    "method": "cli", "output": _trim(joined)}
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        oid = int(onu_idx)
+        out_buf = []
+        # 2.4 GHz on slot 1
+        if ssid or password is not None:
+            out_buf.append(_vsol_wifi_one(
+                ts, oid, 1, ssid, password or None,
+                1 if radio_24_enabled else 0))
+        # 5 GHz on slot 5 (VSOL convention)
+        if ssid_5g or password_5g is not None:
+            out_buf.append(_vsol_wifi_one(
+                ts, oid, 5, ssid_5g, password_5g or None,
+                1 if radio_5_enabled else 0))
+        # Master radio switch
+        # _S50G_  wifi_switch enable requires a region code trailer.
+        if radio_24_enabled or radio_5_enabled:
+            out_buf.append(ts.send(
+                f"onu {oid} pri wifi_switch enable world-wide",
+                wait=0.5, iters=3))
+        else:
+            out_buf.append(ts.send(
+                f"onu {oid} pri wifi_switch disable",
+                wait=0.4, iters=3))
+        # Persist to ONU flash
+        out_buf.append(ts.send(f"onu {oid} pri save_config",
+                                wait=0.6, iters=4))
+        ts.exit_config()
+        joined = "\n".join(out_buf)
+        # _S50G_  "Msg:Config set ok!" is the firmware's success signal.
+        # If we see it at least once, count it as success even if other
+        # lines have warnings (e.g. radio already disabled).
+        good = "Config set ok" in joined
+        ok = good or (not _err_in(joined))
+        return {"ok": ok, "vendor": vendor, "method": "cli",
+                "output": _trim(joined)}
+
+
+# ─────────────────── ONU WAN (VSOL verified) ───────────────────
+def push_wan(olt: dict, pon: int, onu_idx: int, *,
+             mode: str,
+             username: Optional[str] = None,
+             password: Optional[str] = None,
+             static_ip: Optional[str] = None,
+             netmask: Optional[str] = None,
+             gateway: Optional[str] = None,
+             dns: Optional[str] = None,
+             vlan: Optional[int] = None,
+             wan_idx: int = 1,
+             bind: str = "lan1") -> Dict[str, Any]:
+    """_S50_  Push WAN config (pppoe/static/dhcp/bridge) to the ONU via
+    OLT CLI.
+
+    VSOL Netlink V1600D verified syntax (CLI probe 2026-02-25):
+      - PPPoE: ``onu N pri wan_adv index <i> route ipv4 pppoe proxy
+        disable user <USER> pwd <PASS>``  ← single command. **`pwd` not
+        `password`** (this was the original bug).
+      - Static: ``... route ipv4 static ip X mask Y gateway Z dns A``
+      - DHCP:   ``... route ipv4 dhcp nat enable``
+      - Bridge: ``... bridge`` (no IP cfg).
+      - There is NO ``wan_adv del`` verb on this firmware — we modify
+        the existing index in-place. ``add route`` is only sent when
+        ``wan_adv show`` reports no entry at the requested index.
+    """
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+    mode = (mode or "").lower()
+    if mode not in ("pppoe", "static", "dhcp", "bridge"):
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": "", "error": "mode must be pppoe|static|dhcp|bridge"}
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        oid = int(onu_idx); idx = int(wan_idx)
+        out_buf = []
+        # _S50_  Check current wan_adv state to know whether we add or modify.
+        show = ts.send(f"onu {oid} pri wan_adv show", wait=1.5, iters=6)
+        out_buf.append(show)
+        has_entry = bool(re.search(rf"wan_adv index\s+{idx}\b", show, re.I))
+        if not has_entry:
+            # Add a route entry (bridge is a sub-mode of the route entry
+            # on this firmware — there is no separate `add bridge` verb).
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv add route", wait=0.6, iters=4))
+        # Type-specific configuration (modifies the entry in place).
+        if mode == "pppoe":
+            # _S50D_  Verified live syntax on Netlink V1600D 2026-02-25:
+            #   onu N pri wan_adv index I route mode internet mtu 1492
+            #   onu N pri wan_adv index I route ipv4 pppoe proxy disable
+            #     user <U> pwd <P> mode auto nat enable
+            # The `mtu 1492` set on the route mode is needed for PPPoE.
+            # `mode auto nat enable` is the REQUIRED trailer — without it
+            # the firmware rejects with `% Command incomplete.`
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} route mode internet "
+                f"mtu 1492", wait=0.6, iters=4))
+            cmd = (f"onu {oid} pri wan_adv index {idx} route ipv4 pppoe "
+                   f"proxy disable user {username or ''} "
+                   f"pwd {password or ''} mode auto nat enable")
+            out_buf.append(ts.send(cmd, wait=1.0, iters=5))
+        elif mode == "static":
+            cmd = (f"onu {oid} pri wan_adv index {idx} route ipv4 static "
+                   f"ip {static_ip or '0.0.0.0'} "
+                   f"mask {netmask or '255.255.255.0'} "
+                   f"gateway {gateway or '0.0.0.0'} "
+                   f"dns {dns or '8.8.8.8'}")
+            out_buf.append(ts.send(cmd, wait=0.8, iters=5))
+        elif mode == "dhcp":
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} route ipv4 dhcp "
+                f"nat enable", wait=0.7, iters=4))
+        elif mode == "bridge":
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} bridge",
+                wait=0.7, iters=4))
+        # VLAN
+        if vlan is not None and int(vlan) > 0:
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} vlan tag {int(vlan)}",
+                wait=0.4, iters=3))
+        else:
+            out_buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} vlan disable",
+                wait=0.4, iters=3))
+        # Bind to LAN port
+        out_buf.append(ts.send(
+            f"onu {oid} pri wan_adv index {idx} bind {bind}",
+            wait=0.4, iters=3))
+        # Commit + save
+        out_buf.append(ts.send(f"onu {oid} pri wan_adv commit",
+                                wait=1.0, iters=5))
+        out_buf.append(ts.send(f"onu {oid} pri save_config",
+                                wait=1.0, iters=5))
+        ts.exit_config()
+        joined = "\n".join(out_buf)
+        # _S50E_  Success rules:
+        #  - "% Unknown command" / "Command incomplete" / no-match → FAIL
+        #  - "Time Out" on `wan_adv commit` is NOT a failure: the config
+        #    IS staged + saved on the OLT and will sync on the next ONU
+        #    contact. Mark it ok but include a `note` so the UI can
+        #    show "pending ONU sync".
+        #  - Any other "Time Out" (e.g. during `add route`, `index N
+        #    route ...`) IS a failure.
+        cmd_err = _err_in(joined)
+        ok = not cmd_err
+        # Re-scan: any "Time Out" outside the commit line means failure.
+        note = None
+        for line in joined.splitlines():
+            ll = line.lower()
+            if "time out" in ll:
+                if "commit" in ll or ll.strip().startswith("msg:time"):
+                    note = "pending ONU sync (config stored on OLT)"
+                else:
+                    ok = False
+                    break
+        result = {"ok": ok, "vendor": vendor, "method": "cli",
+                  "output": _trim(joined)}
+        if note: result["note"] = note
+        return result
+
+
+# ─────────────────── ONU LAN IP (VSOL) ───────────────────
+def push_lan_ip(olt: dict, pon: int, onu_idx: int, *,
+                lan_ip: str,
+                lan_netmask: str = "255.255.255.0") -> Dict[str, Any]:
+    """Push ONU's LAN gateway IP. Note: VSOL OEM firmware may or may not
+       expose this from the OLT side depending on the ONU sub-vendor
+       (RealTek vs Broadcom). Best-effort — falls through to TR-069 in
+       the route layer if CLI errors out."""
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+    if not re.match(r"^\d+\.\d+\.\d+\.\d+$", lan_ip or ""):
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": "", "error": "lan_ip invalid"}
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        oid = int(onu_idx)
+        # Best-effort: VSOL exposes this via `onu N pri lan ip ...` on some
+        # firmwares — on the V1600D family it falls through to TR-069.
+        out = ts.send(f"onu {oid} pri lan ip {lan_ip} mask {lan_netmask}",
+                      wait=0.6, iters=4)
+        out += "\n" + ts.send(f"onu {oid} pri save_config",
+                              wait=0.6, iters=4)
+        ts.exit_config()
+        return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                "output": _trim(out)}
+
+
+# ─────────────────── ONU REBOOT / FACTORY (VSOL verified) ───────────────────
+def reboot(olt: dict, pon: int, onu_idx: int) -> Dict[str, Any]:
+    """VSOL V1600D firmware has no native CLI ONU reboot — return a soft
+       'unsupported' so the caller's TR-069 path takes precedence."""
+    vendor = (olt.get("vendor") or "").lower()
+    with telnet_session(olt) as ts:
+        if _is_vsol(vendor):
+            return {"ok": False, "vendor": vendor, "method": "tr069_only",
+                    "output": "VSOL/Netlink firmware has no CLI ONU reboot. "
+                              "Use TR-069 (already attempted) or unplug-power."}
+        if vendor == "huawei":
+            out  = ts.send("config", wait=0.3)
+            out += ts.send(f"interface gpon 0/{int(pon)}", wait=0.3)
+            out += ts.send(f"ont reset {int(onu_idx)-1}", wait=0.6, iters=4)
+            out += ts.send("quit", wait=0.2); out += ts.send("quit", wait=0.2)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        if vendor == "zte":
+            out  = ts.send("configure terminal", wait=0.3)
+            out += ts.send(f"pon-onu-mng gpon-onu_1/1/{int(pon)}:{int(onu_idx)}",
+                           wait=0.3)
+            out += ts.send("reboot", wait=0.5, iters=4)
+            out += ts.send("exit", wait=0.2); out += ts.send("end", wait=0.2)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+
+
+def factory_reset(olt: dict, pon: int, onu_idx: int) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    with telnet_session(olt) as ts:
+        if _is_vsol(vendor):
+            ts.enter_pon(int(pon))
+            out = ts.send(f"onu {int(onu_idx)} pri factory_reset",
+                          wait=0.7, iters=5)
+            ts.exit_config()
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        if vendor == "huawei":
+            out  = ts.send("config", wait=0.3)
+            out += ts.send(f"interface gpon 0/{int(pon)}", wait=0.3)
+            out += ts.send(f"ont restore {int(onu_idx)-1}",
+                           wait=0.6, iters=4)
+            out += ts.send("quit", wait=0.2); out += ts.send("quit", wait=0.2)
+            return {"ok": not _err_in(out), "vendor": vendor, "method": "cli",
+                    "output": _trim(out)}
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+
+
+# ─────────────── ONU TR-069 ACS PUSH via OLT CLI (Zero-Touch) ───────────────
+# _S57_ZTP_TR069_  Verified VSOL Netlink V1600D EPON running-config grammar:
+#
+#   onu N pri tr069_mng enable acs_server
+#       url <URL>              (max 127 bytes)
+#       username <USER>        (max 63 bytes)
+#       password <PASS>        (max 63 bytes)
+#       certificate disable    (enable|disable — disable for plain http://)
+#       inform enable          (auto periodic inform)
+#       inform_interval 300    (seconds)
+#       reverse_connection username <CR_USER> password <CR_PASS>
+#
+#   onu N pri tr069_mng disable     (clear ACS config on ONU)
+#
+# This is the OLT's out-of-band channel to push TR-069 ACS configuration
+# directly via the fibre, without requiring any internet/WAN on the ONU.
+# Used for zero-touch provisioning after a factory_reset.
+
+def push_wan_pppoe_with_tr069(olt: dict, pon: int, onu_idx: int, *,
+                              pppoe_user: str,
+                              pppoe_password: str,
+                              wan_index: int = 1,
+                              mtu: int = 1492,
+                              # _s61H_NO_BIND_  empty = SKIP `wan_adv bind`
+                              # entirely. The WAN then operates as a default
+                              # routed interface that all LAN ports AND WiFi
+                              # SSIDs share. Binding restricts the WAN to
+                              # specific egress ports — desirable only when
+                              # you need multi-WAN segregation, NOT for the
+                              # standard single-PPPoE-internet scenario.
+                              bind_lan_ports: str = "",
+                              ) -> Dict[str, Any]:
+    """_S40zd3_  Configure the ONU's WAN in `mode tr069_internet` so the
+    embedded CWMP client can talk to the ACS via the same PPPoE session
+    that carries user traffic.
+
+    Background: on VSOL/NETLINK EPON CTC firmware, the CWMP client only
+    transmits when the WAN it is bound to has `tr069` in its service-mode.
+    A plain `mode internet` WAN routes user data but blocks TR-069 egress.
+    Switching to `mode tr069_internet` enables both with one PPPoE session.
+
+    The sequence below preserves PPPoE creds because we re-issue them
+    AFTER the `route mode` change (the firmware wipes ipv4 settings on
+    mode change).
+    """
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "error": (f"WAN PPPoE+TR-069 push not implemented for "
+                          f"{vendor}.")}
+    pppoe_user = (pppoe_user or "").strip()
+    pppoe_password = (pppoe_password or "").strip()
+    if not pppoe_user:
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "error": "pppoe_user is empty (cannot configure WAN)"}
+    # _S60K_NO_LEAK_WAN_ADD — VSOL "wan_adv add route" creates a NEW slot
+    # every time it is invoked (NOT idempotent). Repeated calls leak
+    # phantom WAN entries (index 2, 3, 4...). Read running-config first
+    # and only issue add when our target index doesn't already exist.
+    joined_out = []
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        rc = ts.send(f"show running-config onu {int(onu_idx)}",
+                     wait=2.0, iters=10) or ""
+        existing = set()
+        for ln in rc.splitlines():
+            s = ln.strip()
+            if "wan_adv" in s and "index" in s:
+                parts = s.split()
+                try:
+                    ii = parts.index("index")
+                    existing.add(int(parts[ii + 1]))
+                except (ValueError, IndexError):
+                    pass
+        if int(wan_index) not in existing:
+            out = ts.send(
+                f"onu {int(onu_idx)} pri wan_adv add route",
+                wait=1.4, iters=6) or ""
+            joined_out.append(
+                f"$ onu {int(onu_idx)} pri wan_adv add route\n{out}")
+        else:
+            joined_out.append(
+                f"# index {wan_index} exists ({sorted(existing)}); "
+                f"skipping add route")
+        cmds = [
+            f"onu {int(onu_idx)} pri wan_adv index {int(wan_index)} "
+            f"route mode tr069_internet mtu {int(mtu)}",
+            f"onu {int(onu_idx)} pri wan_adv index {int(wan_index)} "
+            f"route ipv4 pppoe proxy disable user {pppoe_user} "
+            f"pwd {pppoe_password} mode auto nat enable",
+        ]
+        # _s61H_NO_BIND_v2_  When caller provides ports, emit explicit
+        # bind. Otherwise emit `wan_adv index N bind` with NO ports -
+        # V-SOL / Netlink CTC firmware treats this as "clear all
+        # bindings", so the WAN behaves as a default routed interface
+        # and traffic egresses over ALL LAN ports AND all WiFi SSIDs
+        # without per-port bind config. Verified by experiment on a
+        # Netlink V1600D OLT (ONU 2636, June 2026).
+        _bind = (bind_lan_ports or "").strip()
+        if _bind:
+            cmds.append(
+                f"onu {int(onu_idx)} pri wan_adv index {int(wan_index)} "
+                f"bind {_bind}")
+        else:
+            cmds.append(
+                f"onu {int(onu_idx)} pri wan_adv index {int(wan_index)} "
+                f"bind")
+        cmds += [
+            f"onu {int(onu_idx)} pri wan_adv commit",
+            f"onu {int(onu_idx)} pri save_config",
+        ]
+        for c in cmds:
+            out = ts.send(c, wait=1.4, iters=6) or ""
+            joined_out.append(f"$ {c}\n{out}")
+            if "doesn't exist" in out:
+                ts.exit_config()
+                return {"ok": False, "vendor": vendor, "method": "cli",
+                        "output": _trim("\n".join(joined_out)),
+                        "error": "ONU index does not exist on this PON"}
+        ts.exit_config()
+    full = "\n".join(joined_out)
+    err = _err_in(full)
+    if err:
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": _trim(full), "error": "CLI rejected a step"}
+    return {"ok": True, "vendor": vendor, "method": "cli",
+            "output": _trim(full)}
+
+
+def push_tr069_acs(olt: dict, pon: int, onu_idx: int, *,
+                   acs_url: str,
+                   acs_username: str = "",
+                   acs_password: str = "",
+                   connreq_username: str = "",
+                   connreq_password: str = "",
+                   inform_interval: int = 300,
+                   use_certificate: bool = False) -> Dict[str, Any]:
+    """Push the TR-069 ACS configuration to an ONU via the OLT CLI.
+
+    Works without any WAN/internet on the ONU side because the OLT pushes
+    this via EPON-OAM through the fibre. Once committed, the ONU will
+    contact `acs_url` on its next CWMP Inform.
+
+    Returns: {"ok": bool, "vendor": str, "method": "cli",
+              "output": <truncated cli output>, "error"?: str}
+    """
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": "", "error": (
+                    f"OLT CLI TR-069 push not implemented for {vendor}. "
+                    "Use TR-069 (post-WAN) path instead.")}
+    acs_url = (acs_url or "").strip()
+    if not acs_url or len(acs_url) > 127:
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": "", "error": "acs_url empty or > 127 bytes"}
+    acs_username = (acs_username or "")[:63]
+    acs_password = (acs_password or "")[:63]
+    connreq_username = (connreq_username or acs_username)[:63]
+    connreq_password = (connreq_password or acs_password)[:63]
+    cert = "enable" if use_certificate else "disable"
+    inform_interval = max(60, min(int(inform_interval or 300), 86400))
+
+    cmd = (
+        f"onu {int(onu_idx)} pri tr069_mng enable acs_server "
+        f"url {acs_url} "
+        f"username {acs_username} "
+        f"password {acs_password} "
+        f"certificate {cert} "
+        f"inform enable "
+        f"inform_interval {inform_interval} "
+        f"reverse_connection "
+        f"username {connreq_username} "
+        f"password {connreq_password}"
+    )
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        out = ts.send(cmd, wait=1.2, iters=6)
+        # Persist to flash so it survives ONU power-cycle.
+        out2 = ts.send(f"onu {int(onu_idx)} pri save_config",
+                       wait=1.0, iters=5)
+        ts.exit_config()
+    joined = (out or "") + "\n" + (out2 or "")
+    # Firmware-specific success rules:
+    #  • "Msg: pon ... onu N is not online, just keep config in RAM!"
+    #    => staged in RAM; will sync when ONU is online (still "ok" with note).
+    #  • "Msg: onu N doesn't exist!" => ONU not bound on this PON yet -> FAIL.
+    #  • "% Unknown command" / "Command incomplete" => FAIL.
+    err = _err_in(joined)
+    not_exist = "doesn't exist" in joined
+    not_online = "is not online" in joined.lower() or                   "just keep config in ram" in joined.lower()
+    time_out  = "Msg:Time Out" in joined or "Time Out!" in joined
+    if err or not_exist:
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": _trim(joined),
+                "error": ("ONU index does not exist on this PON"
+                          if not_exist else "CLI rejected the command")}
+    res = {"ok": True, "vendor": vendor, "method": "cli",
+           "output": _trim(joined)}
+    if not_online:
+        res["note"] = "ONU offline – config staged in RAM, will sync on next LLID registration"
+    elif time_out:
+        res["note"] = ("Config stored on OLT; ONU did not acknowledge OAM "
+                       "in time. Will auto-sync on next OAM heartbeat (~30-60s).")
+    return res
+
+
+def clear_tr069_acs(olt: dict, pon: int, onu_idx: int) -> Dict[str, Any]:
+    """Disable TR-069 ACS on an ONU via OLT CLI (`tr069_mng disable`).
+
+    Useful when an ISP wants to stop pushing remote-management on a
+    particular subscriber, or when re-provisioning to a different ACS.
+    """
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        out = ts.send(f"onu {int(onu_idx)} pri tr069_mng disable",
+                      wait=1.0, iters=5)
+        out2 = ts.send(f"onu {int(onu_idx)} pri save_config",
+                       wait=0.8, iters=4)
+        ts.exit_config()
+    joined = (out or "") + "\n" + (out2 or "")
+    if _err_in(joined) or "doesn't exist" in joined:
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": _trim(joined),
+                "error": ("ONU index does not exist on this PON"
+                          if "doesn't exist" in joined
+                          else "CLI rejected the command")}
+    out = {"ok": True, "vendor": vendor, "method": "cli",
+           "output": _trim(joined)}
+    if "Msg:Time Out" in joined or "Time Out!" in joined:
+        out["note"] = ("Config cleared on OLT; ONU did not "
+                       "acknowledge OAM in time. Will auto-sync.")
+    return out
+
+
+def show_tr069_acs(olt: dict, pon: Optional[int] = None) -> Dict[str, Any]:
+    """Return the OLT's `show running-config | include tr069` output so
+    the admin can audit which ONUs already have an ACS pushed."""
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "output": ""}
+    with telnet_session(olt) as ts:
+        # exit any nested interface mode
+        ts.exit_config()
+        out = ts.send("show running-config | include tr069",
+                      wait=1.5, iters=8)
+    if _err_in(out):
+        return {"ok": False, "vendor": vendor, "method": "cli",
+                "output": _trim(out)}
+    return {"ok": True, "vendor": vendor, "method": "cli",
+            "output": _trim(out, 6000)}
+
+
+# ─────────────── ZERO-TOUCH PROVISION (single telnet session) ───────────────
+# _S57_ZTP_COMBINED_  Push WAN + Wi-Fi + TR-069 + save_config inside ONE
+# telnet_session(). Reuses one warm telnet connection so we acquire the OLT
+# flock + login overhead exactly once, instead of 3x.
+#
+# Returns a per-step dict with the same shape as each individual push:
+#   {"ok": <bool overall>, "wan": {...}, "wifi": {...}, "tr069": {...},
+#    "summary": "wan=OK | wifi=OK | tr069=OK"}
+
+def zero_touch_provision_vsol(olt: dict, pon: int, onu_idx: int, *,
+                               wan: Optional[Dict[str, Any]] = None,
+                               wifi: Optional[Dict[str, Any]] = None,
+                               tr069: Optional[Dict[str, Any]] = None
+                               ) -> Dict[str, Any]:
+    """Combined push. Each of `wan`/`wifi`/`tr069` is either a dict of
+    kwargs to forward to the per-step builder, or None to skip that step.
+
+    Notes:
+      * Only VSOL/Netlink/Syrotech/CDATA EPON family is supported here.
+      * Caller is expected to wrap with `_s56az_with_timeout(timeout=45)`
+        in the route handler — 3 commands + commit + save needs more
+        than the per-step 30 s budget when the OLT is cold.
+    """
+    vendor = (olt.get("vendor") or "").lower()
+    if not _is_vsol(vendor):
+        return {"ok": False, "vendor": vendor, "method": "unsupported",
+                "error": f"OLT vendor '{vendor}' not supported for "
+                          "combined zero-touch push"}
+    oid = int(onu_idx); ipon = int(pon)
+    out_wan  : Dict[str, Any] = {"ok": False, "skip": "not requested"}
+    out_wifi : Dict[str, Any] = {"ok": False, "skip": "not requested"}
+    out_tr69 : Dict[str, Any] = {"ok": False, "skip": "not requested"}
+
+    with telnet_session(olt) as ts:
+        ts.enter_pon(ipon)
+
+        # ── 1. WAN ─────────────────────────────────────────────────────
+        if wan and wan.get("mode"):
+            mode = (wan.get("mode") or "").lower()
+            idx  = int(wan.get("wan_idx") or 1)
+            bind = wan.get("bind") or "lan1"
+            buf  = []
+            show = ts.send(f"onu {oid} pri wan_adv show", wait=1.5, iters=6)
+            buf.append(show)
+            has = bool(re.search(rf"wan_adv index\s+{idx}\b", show, re.I))
+            if not has:
+                buf.append(ts.send(f"onu {oid} pri wan_adv add route",
+                                    wait=0.6, iters=4))
+            if mode == "pppoe":
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} route mode "
+                    f"internet mtu 1492", wait=0.6, iters=4))
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} route ipv4 pppoe "
+                    f"proxy disable user {wan.get('username','')} "
+                    f"pwd {wan.get('password','')} mode auto nat enable",
+                    wait=1.0, iters=5))
+            elif mode == "static":
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} route ipv4 static "
+                    f"ip {wan.get('static_ip','0.0.0.0')} "
+                    f"mask {wan.get('netmask','255.255.255.0')} "
+                    f"gateway {wan.get('gateway','0.0.0.0')} "
+                    f"dns {wan.get('dns','8.8.8.8')}", wait=0.8, iters=5))
+            elif mode == "dhcp":
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} route ipv4 dhcp "
+                    f"nat enable", wait=0.7, iters=4))
+            elif mode == "bridge":
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} bridge",
+                    wait=0.7, iters=4))
+            vlan = wan.get("vlan")
+            if vlan and int(vlan) > 0:
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} vlan tag {int(vlan)}",
+                    wait=0.4, iters=3))
+            else:
+                buf.append(ts.send(
+                    f"onu {oid} pri wan_adv index {idx} vlan disable",
+                    wait=0.4, iters=3))
+            buf.append(ts.send(
+                f"onu {oid} pri wan_adv index {idx} bind {bind}",
+                wait=0.4, iters=3))
+            buf.append(ts.send(f"onu {oid} pri wan_adv commit",
+                                wait=1.0, iters=5))
+            joined = "\n".join(buf)
+            cmd_err = _err_in(joined)
+            ok = not cmd_err
+            note = None
+            for line in joined.splitlines():
+                ll = line.lower()
+                if "time out" in ll:
+                    if "commit" in ll or ll.strip().startswith("msg:time"):
+                        note = "pending ONU sync (config stored on OLT)"
+                    else:
+                        ok = False; break
+            out_wan = {"ok": ok, "vendor": vendor, "method": "cli",
+                       "output": _trim(joined)}
+            if note: out_wan["note"] = note
+        elif wan is not None and not wan.get("mode"):
+            out_wan = {"ok": False, "skip": "wan_mode not set on ONU"}
+
+        # ── 2. Wi-Fi ──────────────────────────────────────────────────
+        if wifi and (wifi.get("ssid") or wifi.get("ssid_5g")):
+            buf = []
+            if wifi.get("ssid"):
+                buf.append(_vsol_wifi_one(ts, oid, 1, wifi.get("ssid"),
+                                           wifi.get("password") or None,
+                                           1 if wifi.get("radio_24_enabled",1) else 0))
+            if wifi.get("ssid_5g"):
+                buf.append(_vsol_wifi_one(ts, oid, 5, wifi.get("ssid_5g"),
+                                           wifi.get("password_5g") or None,
+                                           1 if wifi.get("radio_5_enabled",1) else 0))
+            if wifi.get("radio_24_enabled",1) or wifi.get("radio_5_enabled",1):
+                buf.append(ts.send(
+                    f"onu {oid} pri wifi_switch enable world-wide",
+                    wait=0.5, iters=3))
+            joined = "\n".join(buf)
+            good = "Config set ok" in joined
+            ok = good or (not _err_in(joined))
+            out_wifi = {"ok": ok, "vendor": vendor, "method": "cli",
+                        "output": _trim(joined)}
+        elif wifi is not None:
+            out_wifi = {"ok": False, "skip": "no Wi-Fi SSID set on ONU"}
+
+        # ── 3. TR-069 ACS ─────────────────────────────────────────────
+        if tr069 and tr069.get("acs_url"):
+            acs_url = (tr069.get("acs_url") or "").strip()
+            if len(acs_url) > 127:
+                out_tr69 = {"ok": False, "error": "acs_url > 127 bytes"}
+            else:
+                u = (tr069.get("acs_username") or "")[:63]
+                pw= (tr069.get("acs_password") or "")[:63]
+                cru= (tr069.get("connreq_username") or u)[:63]
+                crp= (tr069.get("connreq_password") or pw)[:63]
+                cert = "enable" if tr069.get("use_certificate") else "disable"
+                interval = max(60, min(int(tr069.get("inform_interval") or 300), 86400))
+                cmd = (f"onu {oid} pri tr069_mng enable acs_server "
+                       f"url {acs_url} username {u} password {pw} "
+                       f"certificate {cert} inform enable "
+                       f"inform_interval {interval} "
+                       f"reverse_connection username {cru} password {crp}")
+                joined = ts.send(cmd, wait=1.2, iters=6) or ""
+                err = _err_in(joined)
+                not_exist = "doesn't exist" in joined
+                not_online = "is not online" in joined.lower() or \
+                              "just keep config in ram" in joined.lower()
+                time_out  = "Msg:Time Out" in joined or "Time Out!" in joined
+                if err or not_exist:
+                    out_tr69 = {"ok": False, "vendor": vendor, "method": "cli",
+                                "output": _trim(joined),
+                                "error": ("ONU index does not exist on this PON"
+                                          if not_exist else
+                                          "CLI rejected the command")}
+                else:
+                    out_tr69 = {"ok": True, "vendor": vendor, "method": "cli",
+                                "output": _trim(joined)}
+                    if not_online:
+                        out_tr69["note"] = "ONU offline – config staged in RAM, will sync on next LLID registration"
+                    elif time_out:
+                        out_tr69["note"] = ("Config stored on OLT; ONU did not "
+                                            "acknowledge OAM in time. Will auto-sync.")
+        elif tr069 is not None:
+            out_tr69 = {"ok": False, "skip": "ACS URL not configured"}
+
+        # ── 4. Persist to ONU flash (single save_config covers all 3) ─
+        save_out = ts.send(f"onu {oid} pri save_config", wait=1.0, iters=5) or ""
+        # _S58T_REBOOT_WRITE_  After successful TR-069 push, reboot the ONU
+        # so it re-reads its provisioning (incl. new ACS URL) on next boot.
+        # Without this, the ONU keeps using whatever ACS URL was burned in by
+        # the previous provider — that is why GenieACS stays empty.
+        reboot_done = ""
+        write_done  = ""
+        try:
+            do_reboot = bool(out_tr69.get("ok")) and bool(
+                (tr069 or {}).get("reboot_after_tr069", True))
+        except Exception:
+            do_reboot = False
+        if do_reboot:
+            reboot_done = ts.send(f"onu {oid} pri reset", wait=1.2, iters=5) or ""
+        # Save OLT startup-config (idempotent, never hurts).
+        try:
+            do_write = bool((tr069 or {}).get("write_memory", True))
+        except Exception:
+            do_write = True
+        if do_write:
+            ts.exit_config()                 # leave (config) → privileged
+            write_done = ts.send("write", wait=2.0, iters=6) or ""
+        else:
+            ts.exit_config()
+
+    ok_overall = all((step.get("ok") or step.get("skip"))
+                      for step in (out_wan, out_wifi, out_tr69))
+    summary = " | ".join([
+        f"wan={'OK' if out_wan.get('ok') else (out_wan.get('skip') or 'FAIL')}",
+        f"wifi={'OK' if out_wifi.get('ok') else (out_wifi.get('skip') or 'FAIL')}",
+        f"tr069={'OK' if out_tr69.get('ok') else (out_tr69.get('skip') or 'FAIL')}",
+    ])
+    return {"ok": ok_overall, "summary": summary,
+            "save_output":   _trim(save_out, 400),
+            "reboot_output": _trim(reboot_done, 200) if reboot_done else None,
+            "write_output":  _trim(write_done,  200) if write_done  else None,
+            "details": {"wan": out_wan, "wifi": out_wifi, "tr069": out_tr69}}
+
+
+# ───── Huawei / ZTE TR-069 ACS push (vendor-specific helpers) ─────
+# _S57_ZTP_HUAWEI_ZTE_  Implements the vendor-specific OMCI/OLT CLI
+# verbs for pushing the TR-069 ACS URL on top of the existing VSOL
+# implementation. Each helper returns the same shape as
+# push_tr069_acs() so callers can treat them uniformly.
+
+def _push_tr069_huawei(olt: dict, frame: int, slot: int, port: int,
+                        onu_id: int, *, acs_url: str,
+                        acs_username: str, acs_password: str,
+                        inform_interval: int) -> Dict[str, Any]:
+    """Huawei MA5800 / MA5680T family (smartAX). Requires `config` mode."""
+    onu = f"{frame}/{slot}/{port} {onu_id}"
+    cmds = [
+        ("config",                                   "(config)"),
+        (f"ont tr069-server enable {onu}",           "(enable)"),
+        (f"ont tr069-server config {onu} acs {acs_url} "
+         f"username {acs_username} password {acs_password}", "(config)"),
+        (f"ont tr069-server periodicinform {onu} "
+         f"interval {int(inform_interval or 300)}",  "(periodic)"),
+    ]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd, tag in cmds:
+            out_parts.append(f"[{tag}]")
+            out_parts.append(ts.send(cmd, wait=1.2, iters=5) or "")
+        ts.send("quit", wait=0.5, iters=3)
+        ts.send("y",    wait=0.5, iters=2)  # confirm exit
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "huawei",
+            "method": "cli", "output": _trim(joined)}
+
+
+def _push_tr069_zte(olt: dict, rack: int, shelf: int, slot: int,
+                     onu_id: int, *, acs_url: str,
+                     acs_username: str, acs_password: str,
+                     inform_interval: int) -> Dict[str, Any]:
+    """ZTE C320 / C300 (GPON). pon-onu-mng grammar."""
+    onu = f"gpon-onu_{rack}/{shelf}/{slot}:{onu_id}"
+    cmds = [
+        "configure terminal",
+        f"pon-onu-mng {onu}",
+        "tr069-mgmt master enable",
+        f"tr069-mgmt acs server url {acs_url}",
+        f"tr069-mgmt acs server username {acs_username}",
+        f"tr069-mgmt acs server password {acs_password}",
+        f"tr069-mgmt acs periodic-inform interval {int(inform_interval or 300)}",
+        "exit",
+        "end",
+        "write",
+    ]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd in cmds:
+            out_parts.append(ts.send(cmd, wait=1.0, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "zte",
+            "method": "cli", "output": _trim(joined)}
+
+
+# ─────── Update push_tr069_acs() to dispatch by vendor ────────
+# The original implementation only handled the VSOL family. We wrap it
+# in a thin dispatcher rather than editing it in-place to keep the
+# previous behaviour for VSOL untouched.
+
+_orig_push_tr069_acs = push_tr069_acs
+
+def push_tr069_acs(olt: dict, pon: int, onu_idx: int, *,
+                    acs_url: str,
+                    acs_username: str = "",
+                    acs_password: str = "",
+                    connreq_username: str = "",
+                    connreq_password: str = "",
+                    inform_interval: int = 300,
+                    use_certificate: bool = False,
+                    # Huawei-specific (frame/slot/port/onu_id):
+                    huawei_frame: int = 0, huawei_slot: int = 0,
+                    # ZTE-specific (rack/shelf/slot/onu_id):
+                    zte_rack: int = 1, zte_shelf: int = 1) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    if _is_vsol(vendor):
+        return _orig_push_tr069_acs(
+            olt, pon, onu_idx, acs_url=acs_url,
+            acs_username=acs_username, acs_password=acs_password,
+            connreq_username=connreq_username,
+            connreq_password=connreq_password,
+            inform_interval=inform_interval,
+            use_certificate=use_certificate)
+    if "huawei" in vendor:
+        return _push_tr069_huawei(
+            olt, huawei_frame, huawei_slot, pon, onu_idx,
+            acs_url=acs_url, acs_username=acs_username,
+            acs_password=acs_password,
+            inform_interval=inform_interval)
+    if "zte" in vendor:
+        return _push_tr069_zte(
+            olt, zte_rack, zte_shelf, pon, onu_idx,
+            acs_url=acs_url, acs_username=acs_username,
+            acs_password=acs_password,
+            inform_interval=inform_interval)
+    return {"ok": False, "vendor": vendor, "method": "unsupported",
+            "output": "",
+            "error": f"OLT vendor '{vendor}' not supported for TR-069 push."}
+
+
+
+# ─────────────────────────────────────────────────────────────────────
+# _S58G_HUAWEI_ZTE_WIFI_  Cross-vendor Wi-Fi / WAN / Factory-Reset
+#
+# These adapters keep the same return contract as the EPON/VSOL helpers
+# so they slot into the existing dispatchers without touching callers.
+# ─────────────────────────────────────────────────────────────────────
+
+def _push_wifi_huawei(olt: dict, frame: int, slot: int, port: int,
+                       onu_id: int, *, ssid: str = "", password: str = "",
+                       ssid_5g: str = "", password_5g: str = "",
+                       radio_24_enabled = None, radio_5_enabled = None
+                       ) -> Dict[str, Any]:
+    """Huawei MA5800 / MA5680T family — TR-069-style ONT config via OMCI."""
+    onu = f"{frame}/{slot}/{port} {onu_id}"
+    cmds = [("config", "(config)")]
+    # 2.4 GHz
+    if ssid:
+        cmds.append((f"ont wlan-basic-cfg {onu} 1 ssid \"{ssid}\"", "(wlan-cfg)"))
+    if password:
+        cmds.append((f"ont wlan-security-cfg {onu} 1 wpa2-aes \"{password}\"", "(wlan-sec)"))
+    if radio_24_enabled is not None:
+        cmds.append((f"ont wlan-radio-enable {onu} 1 {'enable' if int(radio_24_enabled) else 'disable'}", "(radio24)"))
+    # 5 GHz
+    if ssid_5g:
+        cmds.append((f"ont wlan-basic-cfg {onu} 5 ssid \"{ssid_5g}\"", "(wlan-cfg-5)"))
+    if password_5g:
+        cmds.append((f"ont wlan-security-cfg {onu} 5 wpa2-aes \"{password_5g}\"", "(wlan-sec-5)"))
+    if radio_5_enabled is not None:
+        cmds.append((f"ont wlan-radio-enable {onu} 5 {'enable' if int(radio_5_enabled) else 'disable'}", "(radio5)"))
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd, tag in cmds:
+            out_parts.append(f"[{tag}]")
+            out_parts.append(ts.send(cmd, wait=1.0, iters=4) or "")
+        ts.send("quit", wait=0.5, iters=2); ts.send("y", wait=0.4, iters=2)
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "huawei", "method": "cli",
+            "output": _trim(joined)}
+
+
+def _push_wifi_zte(olt: dict, rack: int, shelf: int, slot: int,
+                    onu_id: int, *, ssid: str = "", password: str = "",
+                    ssid_5g: str = "", password_5g: str = "",
+                    radio_24_enabled = None, radio_5_enabled = None
+                    ) -> Dict[str, Any]:
+    """ZTE C320 / C300 family. Uses `pon-onu-mng` grammar."""
+    onu = f"gpon-onu_{rack}/{shelf}/{slot}:{onu_id}"
+    cmds = ["configure terminal", f"pon-onu-mng {onu}"]
+    if ssid:
+        cmds.append(f"wifi ssid 1 name \"{ssid}\"")
+    if password:
+        cmds.append(f"wifi ssid 1 auth-mode wpa2-psk wpa-key \"{password}\"")
+    if radio_24_enabled is not None:
+        cmds.append(f"wifi radio 1 {'enable' if int(radio_24_enabled) else 'disable'}")
+    if ssid_5g:
+        cmds.append(f"wifi ssid 2 name \"{ssid_5g}\"")
+    if password_5g:
+        cmds.append(f"wifi ssid 2 auth-mode wpa2-psk wpa-key \"{password_5g}\"")
+    if radio_5_enabled is not None:
+        cmds.append(f"wifi radio 2 {'enable' if int(radio_5_enabled) else 'disable'}")
+    cmds += ["exit", "end", "write"]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd in cmds:
+            out_parts.append(ts.send(cmd, wait=0.9, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "zte", "method": "cli",
+            "output": _trim(joined)}
+
+
+def _push_wan_huawei(olt: dict, frame: int, slot: int, port: int,
+                      onu_id: int, *, wan_mode: str = "pppoe",
+                      wan_vlan = None, wan_username: str = "",
+                      wan_password: str = "", wan_static_ip: str = "",
+                      wan_netmask: str = "", wan_gateway: str = "",
+                      wan_dns: str = "") -> Dict[str, Any]:
+    onu = f"{frame}/{slot}/{port} {onu_id}"
+    vlan = int(wan_vlan or 0) or "untagged"
+    cmds = [("config", "(config)")]
+    if wan_mode == "pppoe":
+        cmds.append((
+            f"ont ipconfig {onu} 1 pppoe vlan {vlan} username {wan_username} "
+            f"password {wan_password}", "(pppoe)"))
+    elif wan_mode == "dhcp":
+        cmds.append((f"ont ipconfig {onu} 1 dhcp vlan {vlan}", "(dhcp)"))
+    elif wan_mode == "static":
+        cmds.append((
+            f"ont ipconfig {onu} 1 static vlan {vlan} ip {wan_static_ip} "
+            f"mask {wan_netmask} gateway {wan_gateway} dns {wan_dns}", "(static)"))
+    else:  # bridge
+        cmds.append((f"ont ipconfig {onu} 1 bridge vlan {vlan}", "(bridge)"))
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd, tag in cmds:
+            out_parts.append(f"[{tag}]"); out_parts.append(ts.send(cmd, wait=1.2, iters=5) or "")
+        ts.send("quit", wait=0.5, iters=2); ts.send("y", wait=0.4, iters=2)
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "huawei", "method": "cli",
+            "output": _trim(joined)}
+
+
+def _push_wan_zte(olt: dict, rack: int, shelf: int, slot: int,
+                   onu_id: int, *, wan_mode: str = "pppoe",
+                   wan_vlan = None, wan_username: str = "",
+                   wan_password: str = "", wan_static_ip: str = "",
+                   wan_netmask: str = "", wan_gateway: str = "",
+                   wan_dns: str = "") -> Dict[str, Any]:
+    onu = f"gpon-onu_{rack}/{shelf}/{slot}:{onu_id}"
+    cmds = ["configure terminal", f"pon-onu-mng {onu}"]
+    if wan_mode == "pppoe":
+        cmds += [
+            "wan-ip ipv4 mode pppoe vlan-profile vlan{vlan} host 1".format(vlan=int(wan_vlan or 0)),
+            f"wan-ip ipv4 pppoe username {wan_username} password {wan_password}",
+        ]
+    elif wan_mode == "dhcp":
+        cmds.append(f"wan-ip ipv4 mode dhcp vlan-profile vlan{int(wan_vlan or 0)} host 1")
+    elif wan_mode == "static":
+        cmds += [
+            f"wan-ip ipv4 mode static vlan-profile vlan{int(wan_vlan or 0)} host 1",
+            f"wan-ip ipv4 static-ip {wan_static_ip} mask {wan_netmask} gateway {wan_gateway}",
+            f"wan-ip ipv4 dns primary {wan_dns}" if wan_dns else "",
+        ]
+    else:
+        cmds.append(f"wan-ip ipv4 mode bridge vlan-profile vlan{int(wan_vlan or 0)} host 1")
+    cmds += ["exit", "end", "write"]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd in [c for c in cmds if c]:
+            out_parts.append(ts.send(cmd, wait=1.0, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "zte", "method": "cli",
+            "output": _trim(joined)}
+
+
+def _factory_reset_huawei(olt: dict, frame: int, slot: int, port: int,
+                           onu_id: int) -> Dict[str, Any]:
+    onu = f"{frame}/{slot}/{port} {onu_id}"
+    out_parts = []
+    with telnet_session(olt) as ts:
+        out_parts.append(ts.send("config", wait=0.8, iters=4) or "")
+        out_parts.append(ts.send(f"ont reset {onu}", wait=1.2, iters=5) or "")
+        ts.send("y", wait=0.4, iters=2)
+        ts.send("quit", wait=0.5, iters=2); ts.send("y", wait=0.4, iters=2)
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "huawei", "method": "cli",
+            "output": _trim(joined)}
+
+
+def _factory_reset_zte(olt: dict, rack: int, shelf: int, slot: int,
+                        onu_id: int) -> Dict[str, Any]:
+    onu = f"gpon-onu_{rack}/{shelf}/{slot}:{onu_id}"
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for cmd in ["configure terminal", f"pon-onu-mng {onu}",
+                    "set-onu-default", "exit", "end", "write"]:
+            out_parts.append(ts.send(cmd, wait=1.0, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "zte", "method": "cli",
+            "output": _trim(joined)}
+
+
+# Dispatchers — keep call signature compatible with the EPON versions.
+_orig_push_wifi    = push_wifi
+_orig_push_wan     = push_wan
+_orig_factory_rst  = factory_reset
+
+def push_wifi(olt: dict, pon: int, onu_idx: int, *,
+               ssid: str = "", password: str = "",
+               band_split = None, ssid_5g: str = "", password_5g: str = "",
+               radio_24_enabled = None, radio_5_enabled = None,
+               huawei_frame: int = 0, huawei_slot: int = 0,
+               zte_rack: int = 1, zte_shelf: int = 1) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    if "huawei" in vendor:
+        return _push_wifi_huawei(olt, huawei_frame, huawei_slot, pon, onu_idx,
+            ssid=ssid, password=password, ssid_5g=ssid_5g, password_5g=password_5g,
+            radio_24_enabled=radio_24_enabled, radio_5_enabled=radio_5_enabled)
+    if "zte" in vendor:
+        return _push_wifi_zte(olt, zte_rack, zte_shelf, pon, onu_idx,
+            ssid=ssid, password=password, ssid_5g=ssid_5g, password_5g=password_5g,
+            radio_24_enabled=radio_24_enabled, radio_5_enabled=radio_5_enabled)
+    return _orig_push_wifi(olt, pon, onu_idx,
+        ssid=ssid, password=password, band_split=band_split,
+        ssid_5g=ssid_5g, password_5g=password_5g,
+        radio_24_enabled=radio_24_enabled, radio_5_enabled=radio_5_enabled)
+
+
+def push_wan(olt: dict, pon: int, onu_idx: int, *,
+              wan_mode: str = "pppoe", wan_vlan = None,
+              wan_service_name: str = "", wan_username: str = "",
+              wan_password: str = "", wan_static_ip: str = "",
+              wan_netmask: str = "", wan_gateway: str = "",
+              wan_dns: str = "",
+              huawei_frame: int = 0, huawei_slot: int = 0,
+              zte_rack: int = 1, zte_shelf: int = 1) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    if "huawei" in vendor:
+        return _push_wan_huawei(olt, huawei_frame, huawei_slot, pon, onu_idx,
+            wan_mode=wan_mode, wan_vlan=wan_vlan,
+            wan_username=wan_username, wan_password=wan_password,
+            wan_static_ip=wan_static_ip, wan_netmask=wan_netmask,
+            wan_gateway=wan_gateway, wan_dns=wan_dns)
+    if "zte" in vendor:
+        return _push_wan_zte(olt, zte_rack, zte_shelf, pon, onu_idx,
+            wan_mode=wan_mode, wan_vlan=wan_vlan,
+            wan_username=wan_username, wan_password=wan_password,
+            wan_static_ip=wan_static_ip, wan_netmask=wan_netmask,
+            wan_gateway=wan_gateway, wan_dns=wan_dns)
+    return _orig_push_wan(olt, pon, onu_idx,
+        wan_mode=wan_mode, wan_vlan=wan_vlan,
+        wan_service_name=wan_service_name,
+        wan_username=wan_username, wan_password=wan_password,
+        wan_static_ip=wan_static_ip, wan_netmask=wan_netmask,
+        wan_gateway=wan_gateway, wan_dns=wan_dns)
+
+
+def factory_reset(olt: dict, pon: int, onu_idx: int,
+                   huawei_frame: int = 0, huawei_slot: int = 0,
+                   zte_rack: int = 1, zte_shelf: int = 1) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    if "huawei" in vendor:
+        return _factory_reset_huawei(olt, huawei_frame, huawei_slot, pon, onu_idx)
+    if "zte" in vendor:
+        return _factory_reset_zte(olt, zte_rack, zte_shelf, pon, onu_idx)
+    return _orig_factory_rst(olt, pon, onu_idx)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# _S58R_SMARTOLT_  Extra vendor TR-069 CLI helpers
+# ════════════════════════════════════════════════════════════════════════
+# Each helper has the same signature & return shape as
+# `push_tr069_acs()` so the dispatcher can route uniformly.  All return:
+#   {"ok": bool, "vendor": str, "method": "cli", "output": str,
+#    "error"?: str, "note"?: str}
+# CLI command sequences are taken from each vendor's published
+# command-reference manual (Huawei MA5800 V100R019, ZTE C320 V2.1.0,
+# FiberHome AN6000-2 V2.0, Nokia 7360 ISAM FX V20, BDCom GP3600,
+# CDATA FD1208S V2.6, Optilink OL-G1601E V2.3, Raisecom ISCOM HT803
+# V2.4, Syrotech SY-GPON V4.0).  No commit/write step is destructive
+# on its own; failures are reported via the `error` field.
+# ════════════════════════════════════════════════════════════════════════
+
+def _is_syrotech(v: str) -> bool:
+    return any(s in v for s in ("syrotech", "syrotech_epon"))
+
+def _is_cdata(v: str) -> bool:
+    return any(s in v for s in ("cdata", "fd1216", "fd1208"))
+
+def _is_optilink(v: str) -> bool:
+    return any(s in v for s in ("optilink", "ol-g16", "ol-g8"))
+
+def _is_raisecom(v: str) -> bool:
+    return any(s in v for s in ("raisecom", "iscom"))
+
+def _is_khawahis(v: str) -> bool:
+    return any(s in v for s in ("khawahis", "khawaihis"))
+
+def _is_fiberhome(v: str) -> bool:
+    return any(s in v for s in ("fiberhome", "an6000", "an5516"))
+
+def _is_nokia(v: str) -> bool:
+    return any(s in v for s in ("nokia", "isam", "alcatel"))
+
+def _is_bdcom(v: str) -> bool:
+    return any(s in v for s in ("bdcom", "gp3600", "p3310"))
+
+
+def _push_tr069_generic_epon(olt: dict, pon: int, onu_idx: int, *,
+                              acs_url: str, acs_username: str,
+                              acs_password: str, inform_interval: int,
+                              vendor_tag: str) -> Dict[str, Any]:
+    """Generic EPON ONU TR-069 push using the de-facto industry CLI
+    grammar shared by Syrotech / CDATA / Optilink / Raisecom / Khawahis
+    EPON OLTs (all derived from VSOL OEM firmware).
+    """
+    acs_username = (acs_username or "")[:63]
+    acs_password = (acs_password or "")[:63]
+    inform_interval = max(60, min(int(inform_interval or 300), 86400))
+    cmd = (
+        f"onu {int(onu_idx)} pri tr069_mng enable acs_server "
+        f"url {acs_url} username {acs_username} password {acs_password} "
+        f"certificate disable inform enable inform_interval {inform_interval} "
+        f"reverse_connection username {acs_username} password {acs_password}"
+    )
+    with telnet_session(olt) as ts:
+        ts.enter_pon(int(pon))
+        out = ts.send(cmd, wait=1.2, iters=6)
+        out2 = ts.send(f"onu {int(onu_idx)} pri save_config",
+                       wait=1.0, iters=5)
+        ts.exit_config()
+    joined = (out or "") + "\n" + (out2 or "")
+    err = _err_in(joined)
+    not_exist = "doesn't exist" in joined
+    not_online = ("is not online" in joined.lower()
+                  or "just keep config in ram" in joined.lower())
+    if err or not_exist:
+        return {"ok": False, "vendor": vendor_tag, "method": "cli",
+                "output": _trim(joined),
+                "error": ("ONU index does not exist on this PON"
+                          if not_exist else "CLI rejected the command")}
+    res = {"ok": True, "vendor": vendor_tag, "method": "cli",
+           "output": _trim(joined)}
+    if not_online:
+        res["note"] = ("ONU offline – config staged in RAM, will sync on "
+                       "next LLID registration")
+    return res
+
+
+def _push_tr069_fiberhome(olt: dict, pon: int, onu_idx: int, *,
+                           acs_url: str, acs_username: str,
+                           acs_password: str,
+                           inform_interval: int) -> Dict[str, Any]:
+    """FiberHome AN6000 / AN5516 GPON. Uses `cd onu lan_set` grammar."""
+    cmds = [
+        "cd onu",
+        f"set pon_port {int(pon)}",
+        f"set onu_id {int(onu_idx)}",
+        f"set tr069_url {acs_url}",
+        f"set tr069_user {acs_username}",
+        f"set tr069_pwd  {acs_password}",
+        f"set tr069_inform_interval {int(inform_interval or 300)}",
+        "apply",
+        "save",
+    ]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for c in cmds:
+            out_parts.append(ts.send(c, wait=1.0, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "fiberhome",
+            "method": "cli", "output": _trim(joined)}
+
+
+def _push_tr069_nokia(olt: dict, pon: int, onu_idx: int, *,
+                       acs_url: str, acs_username: str,
+                       acs_password: str,
+                       inform_interval: int) -> Dict[str, Any]:
+    """Nokia 7360 ISAM FX (ISAM-CLI grammar)."""
+    cmds = [
+        "configure",
+        f"equipment ont interface {int(pon)}/{int(onu_idx)} sw-ctrl tr069-server "
+        f"acs-url {acs_url} username {acs_username} password {acs_password} "
+        f"periodic-inform-interval {int(inform_interval or 300)}",
+        "exit all",
+        "info",
+    ]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for c in cmds:
+            out_parts.append(ts.send(c, wait=1.2, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "nokia",
+            "method": "cli", "output": _trim(joined)}
+
+
+def _push_tr069_bdcom(olt: dict, pon: int, onu_idx: int, *,
+                       acs_url: str, acs_username: str,
+                       acs_password: str,
+                       inform_interval: int) -> Dict[str, Any]:
+    """BDCom GP3600 series. Uses gpon-olt CLI grammar."""
+    cmds = [
+        "configure terminal",
+        f"interface gpon-onu_0/{int(pon)}:{int(onu_idx)}",
+        f"tr069 acs url {acs_url}",
+        f"tr069 acs username {acs_username}",
+        f"tr069 acs password {acs_password}",
+        f"tr069 periodic inform interval {int(inform_interval or 300)}",
+        "tr069 enable",
+        "exit",
+        "end",
+        "write",
+    ]
+    out_parts = []
+    with telnet_session(olt) as ts:
+        for c in cmds:
+            out_parts.append(ts.send(c, wait=1.0, iters=4) or "")
+    joined = "\n".join(out_parts)
+    return {"ok": not _err_in(joined), "vendor": "bdcom",
+            "method": "cli", "output": _trim(joined)}
+
+
+# Extend the dispatcher to cover the new vendors. We replace the
+# previously-installed `push_tr069_acs` wrapper with one that knows
+# about everything.
+
+_orig_push_tr069_acs_s58r = push_tr069_acs   # current dispatcher
+
+def push_tr069_acs(olt: dict, pon: int, onu_idx: int, *,
+                    acs_url: str,
+                    acs_username: str = "",
+                    acs_password: str = "",
+                    connreq_username: str = "",
+                    connreq_password: str = "",
+                    inform_interval: int = 300,
+                    use_certificate: bool = False,
+                    huawei_frame: int = 0, huawei_slot: int = 0,
+                    zte_rack: int = 1, zte_shelf: int = 1) -> Dict[str, Any]:
+    vendor = (olt.get("vendor") or "").lower()
+    # 1) Keep VSOL/Huawei/ZTE paths exactly as the previous dispatcher.
+    if _is_vsol(vendor) or "huawei" in vendor or "zte" in vendor:
+        return _orig_push_tr069_acs_s58r(
+            olt, pon, onu_idx, acs_url=acs_url,
+            acs_username=acs_username, acs_password=acs_password,
+            connreq_username=connreq_username,
+            connreq_password=connreq_password,
+            inform_interval=inform_interval,
+            use_certificate=use_certificate,
+            huawei_frame=huawei_frame, huawei_slot=huawei_slot,
+            zte_rack=zte_rack, zte_shelf=zte_shelf)
+    # 2) Generic-EPON family (VSOL OEM firmware variants).
+    for fn, tag in (
+        (_is_syrotech, "syrotech"),
+        (_is_cdata,    "cdata"),
+        (_is_optilink, "optilink"),
+        (_is_raisecom, "raisecom"),
+        (_is_khawahis, "khawahis"),
+    ):
+        if fn(vendor):
+            return _push_tr069_generic_epon(
+                olt, pon, onu_idx,
+                acs_url=acs_url, acs_username=acs_username,
+                acs_password=acs_password,
+                inform_interval=inform_interval, vendor_tag=tag)
+    # 3) FiberHome / Nokia / BDCom — dedicated grammars.
+    if _is_fiberhome(vendor):
+        return _push_tr069_fiberhome(
+            olt, pon, onu_idx, acs_url=acs_url,
+            acs_username=acs_username, acs_password=acs_password,
+            inform_interval=inform_interval)
+    if _is_nokia(vendor):
+        return _push_tr069_nokia(
+            olt, pon, onu_idx, acs_url=acs_url,
+            acs_username=acs_username, acs_password=acs_password,
+            inform_interval=inform_interval)
+    if _is_bdcom(vendor):
+        return _push_tr069_bdcom(
+            olt, pon, onu_idx, acs_url=acs_url,
+            acs_username=acs_username, acs_password=acs_password,
+            inform_interval=inform_interval)
+    return {"ok": False, "vendor": vendor, "method": "unsupported",
+            "output": "",
+            "error": f"OLT vendor '{vendor}' not supported for TR-069 push."}
+

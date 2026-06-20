@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- E1_MODERN_OVERLAY_BOOT --><script>(function(){try{document.documentElement.classList.add("e1-dark");document.documentElement.setAttribute("data-e1-theme","dark");localStorage.setItem("e1-theme","dark");}catch(e){}})();</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ company_name|default('User Portal') }}{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{{ company_logo|default('/static/uploads/logos/default.png') }}">
+
+    <!-- Bootstrap Icons + Font -->
+    <link rel="stylesheet" href="/static/css/list_headers.css" data-tag="_S39R5A_TBL_HEADERS">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --brand-primary: {{ company_theme_color|default('#0ea5e9') }};
+            --brand-accent:  {{ company_theme_accent|default('#7c3aed') }};
+            --bg-base:       #0f172a;
+            --bg-elev:       #1e293b;
+            --bg-card:       rgba(255,255,255,0.04);
+            --text-hi:       #f1f5f9;
+            --text-mid:      #94a3b8;
+            --text-lo:       #64748b;
+            --border:        rgba(255,255,255,0.08);
+            --success:       #10b981;
+            --warn:          #f59e0b;
+            --danger:        #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: radial-gradient(ellipse at top right, rgba(124,58,237,0.15), transparent 50%),
+                        radial-gradient(ellipse at bottom left,  rgba(14,165,233,0.18), transparent 50%),
+                        var(--bg-base);
+            color: var(--text-hi);
+            min-height: 100vh;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: inherit; text-decoration: none; }
+        ::selection { background: var(--brand-primary); color: #fff; }
+
+        /* Header */
+        .user-header {
+            position: sticky; top: 0; z-index: 50;
+            background: rgba(15,23,42,0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+        .user-header-inner {
+            max-width: 1280px; margin: 0 auto;
+            padding: 14px 24px;
+            display: flex; align-items: center; gap: 16px;
+        }
+        .brand {
+            display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px;
+            min-width: 0;
+        }
+        .brand-logo {
+            flex: 0 0 auto;
+            min-width: 36px; height: 36px; padding: 0 4px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 20px rgba(14,165,233,0.25);
+            overflow: hidden;
+        }
+        .brand-logo.has-image {
+            flex: 0 0 auto;
+            background: transparent;
+            box-shadow: none;
+            padding: 0;
+            min-width: 0;
+            height: 44px;
+            max-width: 240px;
+        }
+        .brand-logo.has-image img {
+            height: 100%; width: auto; max-width: 240px;
+            object-fit: contain; display: block;
+        }
+        .brand-logo i { color: #fff; font-size: 18px; }
+        @media (max-width: 540px) {
+            .brand-logo.has-image + span { display: none; }
+            .brand-logo.has-image { max-width: 180px; }
+            .brand-logo.has-image img { max-width: 180px; }
+        }
+
+        /* Online pill */
+        .online-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 11px; border-radius: 999px;
+            font-size: 11px; font-weight: 700; letter-spacing: .4px;
+            text-transform: uppercase;
+        }
+        .online-pill.online {
+            background: rgba(16,185,129,0.15); color: #34d399;
+            border: 1px solid rgba(16,185,129,0.3);
+        }
+        .online-pill.offline {
+            background: rgba(239,68,68,0.15); color: #f87171;
+            border: 1px solid rgba(239,68,68,0.3);
+        }
+        .online-pill .dot {
+            width: 7px; height: 7px; border-radius: 999px; background: currentColor;
+            animation: pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,100% { opacity: 1; transform: scale(1); }
+            50%     { opacity: .5; transform: scale(1.3); }
+        }
+
+        .nav-pills {
+            display: flex; gap: 4px; margin-left: auto;
+        }
+        .nav-pills a {
+            padding: 8px 14px; border-radius: 8px;
+            font-size: 13px; font-weight: 500;
+            color: var(--text-mid);
+            transition: background .15s, color .15s;
+        }
+        .nav-pills a:hover { background: rgba(255,255,255,0.05); color: var(--text-hi); }
+        .nav-pills a.active {
+            background: linear-gradient(135deg, rgba(14,165,233,0.2), rgba(124,58,237,0.2));
+            color: #fff;
+            border: 1px solid rgba(14,165,233,0.3);
+        }
+
+        .user-menu {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 8px 6px 14px; border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+        }
+        .user-menu .name { font-size: 13px; font-weight: 600; }
+        .user-menu .avatar-img {width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.4);}
+        .user-menu .avatar {
+            width: 32px; height: 32px; border-radius: 999px;
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; color: #fff; font-size: 13px;
+        }
+
+        /* Main */
+        main { max-width: 1280px; margin: 32px auto 80px; padding: 0 24px; }
+
+        .page-title {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        .page-title h1 {
+            font-size: 28px; font-weight: 700; letter-spacing: -.02em;
+        }
+        .page-title p { color: var(--text-mid); font-size: 14px; margin-top: 4px; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(8px);
+        }
+        .card h3 { font-size: 14px; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+        .card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+
+        .stat-tile { padding: 22px; }
+        .stat-tile .label { color: var(--text-mid); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+        .stat-tile .value {
+            font-size: 32px; font-weight: 800; letter-spacing: -.02em; margin-top: 8px;
+            background: linear-gradient(135deg, var(--text-hi), var(--text-mid));
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .stat-tile .value.accent {
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .stat-tile .delta { color: var(--text-lo); font-size: 12px; margin-top: 6px; }
+        .stat-tile.success .value { background: linear-gradient(135deg, #10b981, #34d399); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 18px; border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: var(--text-hi); font-size: 13px; font-weight: 600;
+            cursor: pointer; transition: all .15s;
+            text-decoration: none;
+        }
+        .btn:hover { transform: translateY(-1px); border-color: var(--brand-primary); }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
+            border: none;
+            box-shadow: 0 8px 20px rgba(14,165,233,0.25);
+        }
+        .btn.primary:hover { filter: brightness(1.1); }
+        .btn.danger { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px 14px; font-size: 13px; }
+        th { color: var(--text-mid); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--border); }
+        tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+        td.amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+        .pill { display: inline-flex; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .pill.paid { background: rgba(16,185,129,0.15); color: #34d399; }
+        .pill.unpaid { background: rgba(239,68,68,0.15); color: #f87171; }
+        .pill.partial { background: rgba(245,158,11,0.15); color: #fbbf24; }
+        .pill.sent { background: rgba(245,158,11,0.15); color: #fbbf24; }
+        .pill.generated { background: rgba(148,163,184,0.15); color: #94a3b8; }
+        .pill.pending { background: rgba(245,158,11,0.15); color: #fbbf24; }
+        .pill.resolved { background: rgba(16,185,129,0.15); color: #34d399; }
+        .pill.open { background: rgba(239,68,68,0.15); color: #f87171; }
+
+        /* Form */
+        input, select, textarea {
+            background: var(--bg-elev);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 11px 14px;
+            color: var(--text-hi); font-family: inherit; font-size: 14px;
+            width: 100%;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand-primary); box-shadow: 0 0 0 3px rgba(14,165,233,0.15); }
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--text-mid); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+
+        /* Live speed graph */
+        .speed-graph {
+            height: 180px; width: 100%;
+            background: linear-gradient(180deg, rgba(14,165,233,0.06) 0%, transparent 100%);
+            border-radius: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .nav-pills { display: none; }
+            main { padding: 0 16px; margin-top: 20px; }
+            .page-title h1 { font-size: 22px; }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- __S39I_RESPONSIVE_FIXES__ — auto-injected by Session 39I -->
+<style id="aib-responsive-fixes">
+  /* Universal table horizontal scroll on small screens */
+  .autoispbilling-table-wrap,
+  .table-responsive {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 6px;
+  }
+  .autoispbilling-table-wrap > table,
+  .table-responsive > table {
+      margin-bottom: 0;
+      /* Make sure the table can grow wider than the wrap so the
+         horizontal scrollbar actually has content to scroll. */
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+  }
+  /* Force EVERY column to stay visible inside our wrap — overrides
+     Bootstrap 3 .hidden-xs/.hidden-sm/.hidden-md and any per-page
+     @media (max-width: …) td/th { display: none } rules. The user
+     can scroll horizontally to see every column instead of having
+     them hidden on smaller screens. */
+  .autoispbilling-table-wrap > table > thead > tr > th,
+  .autoispbilling-table-wrap > table > tbody > tr > td,
+  .autoispbilling-table-wrap > table > tbody > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > td,
+  .table-responsive > table > thead > tr > th,
+  .table-responsive > table > tbody > tr > td,
+  .table-responsive > table > tbody > tr > th,
+  .table-responsive > table > tfoot > tr > th,
+  .table-responsive > table > tfoot > tr > td {
+      display: table-cell !important;
+      visibility: visible !important;
+  }
+  /* Same for the row itself in case any rule hides whole rows. */
+  .autoispbilling-table-wrap > table > tbody > tr,
+  .autoispbilling-table-wrap > table > thead > tr,
+  .autoispbilling-table-wrap > table > tfoot > tr,
+  .table-responsive > table > tbody > tr,
+  .table-responsive > table > thead > tr,
+  .table-responsive > table > tfoot > tr {
+      display: table-row !important;
+  }
+  /* Truncated cells (max-width + ellipsis) become normal-wrap so users
+     can read full content while still scrolling. */
+  @media (max-width: 991.98px) {
+      .autoispbilling-table-wrap > table td,
+      .table-responsive > table td {
+          white-space: nowrap;          /* keep on one line so column width fits */
+      }
+  }
+  /* Make any container that holds wide stuff stay inside the viewport */
+  body, html { max-width: 100%; overflow-x: hidden; }
+
+  /* Page-level fluid content (kills the "half blank white" issue) */
+  @media (max-width: 991.98px) {
+      .wrapper > .content-wrapper,
+      .wrapper > .main-footer { margin-left: 0 !important; }
+      .content-wrapper, .content {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+      }
+      .content > .row,
+      .content > .container,
+      .content > .container-fluid {
+          margin-right: 0 !important;
+          margin-left: 0 !important;
+      }
+      /* Tighter padding for mobile */
+      .content { padding: 10px !important; }
+      .box .box-body { padding: 12px !important; }
+      .box-header h3.box-title { font-size: 15px !important; }
+      .users-panel,
+      .panel,
+      .card { padding: 10px !important; }
+
+      /* Make form rows wrap nicely */
+      .form-inline .form-group { display: block !important; margin-bottom: 8px !important; }
+      .form-inline .form-control { width: 100% !important; }
+
+      /* Buttons in the user toolbar wrap to next line instead of overflow */
+      .users-panel { flex-wrap: wrap !important; }
+      .btn { white-space: normal !important; }
+
+      /* Hide secondary chrome that doesn't fit */
+      .hidden-xs-mobile, .desktop-only { display: none !important; }
+  }
+
+  /* Even smaller screens (phones in portrait) */
+  @media (max-width: 575.98px) {
+      .content { padding: 8px !important; }
+      .box .box-body { padding: 10px !important; }
+      .h1, h1 { font-size: 20px !important; }
+      .h2, h2 { font-size: 17px !important; }
+      .modal-dialog { margin: 8px !important; }
+      .modal-dialog.modal-lg-wide,
+      .modal-dialog.modal-lg { width: auto !important; max-width: 96% !important; }
+
+      /* Two-column form rows collapse to one */
+      .col-sm-6, .col-md-6, .col-lg-6 { width: 100% !important; float: none !important; }
+  }
+
+  /* Modal content also scrolls horizontally if it has a wide table */
+  .modal-body { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* Charts inside cards never overflow the card */
+  .box canvas, .card canvas { max-width: 100%; height: auto; }
+
+  /* Sticky table headers when scrolling vertically (desktop & mobile) */
+  .autoispbilling-table-wrap thead th,
+  .table-responsive thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface, #fff);
+      z-index: 5;
+  }
+</style>
+<script id="aib-responsive-fixes-js">
+(function () {
+  function wrapTable(tbl) {
+    try {
+      if (!tbl || !tbl.parentNode) return;
+      var p = tbl.parentNode;
+      // Already wrapped?
+      if (p && p.classList && (
+          p.classList.contains('autoispbilling-table-wrap') ||
+          p.classList.contains('table-responsive') ||
+          p.classList.contains('table-responsive-sm'))) {
+        return;
+      }
+      // Avoid wrapping tables inside <thead><tr>/<tfoot> (pivots) — only
+      // wrap top-level tables.
+      var wrap = document.createElement('div');
+      wrap.className = 'autoispbilling-table-wrap';
+      p.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    } catch (e) { /* silent */ }
+  }
+  function wrapAll() {
+    var tbls = document.querySelectorAll('table');
+    for (var i = 0; i < tbls.length; i++) wrapTable(tbls[i]);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrapAll);
+  } else {
+    wrapAll();
+  }
+  // Also catch dynamically-rendered tables (DataTables, AJAX list refresh).
+  try {
+    var mo = new MutationObserver(function (muts) {
+      var dirty = false;
+      for (var i = 0; i < muts.length; i++) {
+        for (var j = 0; j < muts[i].addedNodes.length; j++) {
+          var n = muts[i].addedNodes[j];
+          if (n.nodeType !== 1) continue;
+          if (n.tagName === 'TABLE') { wrapTable(n); dirty = true; }
+          else if (n.querySelectorAll) {
+            var sub = n.querySelectorAll('table');
+            for (var k = 0; k < sub.length; k++) { wrapTable(sub[k]); dirty = true; }
+          }
+        }
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) { /* MutationObserver not available — DOMContentLoaded covered the rest */ }
+})();
+</script>
+<!-- /__S39I_RESPONSIVE_FIXES__ -->
+    <style>/* _S39R5M_GLOBAL_ 80% desktop zoom + sidebar overflow fix v2 */
+      @media (min-width: 992px){
+        html { zoom: 0.8; }
+        /* Force sidebar wrapper to be sized purely by height (drop bottom:0
+           which interacts badly with html { zoom }). */
+        aside.main-sidebar,
+        .main-sidebar {
+          top: 0 !important;
+          bottom: auto !important;
+          height: 100vh !important;
+          max-height: 100vh !important;
+          padding-top: var(--topbar-h, 64px) !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+        }
+        /* Inner scrollable panel — fill available space below the topbar */
+        .main-sidebar > .sidebar,
+        aside.main-sidebar .sidebar {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+        }
+        /* Visible scrollbar against dark sidebar */
+        .main-sidebar .sidebar { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; border: 1px solid rgba(0,0,0,.2); }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      }
+    </style>
+<!-- _S40zμ_  Profanity shield -->
+<script src="/static/js/profanity-shield.js?v=1" defer></script>
+    <!-- E1_MODERN_OVERLAY_CSS -->
+    <link rel="stylesheet" href="/static/css/e1-modern.css" data-tag="e1-modern">
+</head>
+<body>
+    <header class="user-header">
+        <div class="user-header-inner">
+            <a class="brand" href="/customer/dashboard">
+                <span class="brand-logo{% if company_logo %} has-image{% endif %}">
+                    {% if company_logo %}
+                        <img src="{{ company_logo }}" alt="{{ company_name }}">
+                    {% else %}
+                        <i class="bi bi-broadcast-pin"></i>
+                    {% endif %}
+                </span>
+                <span>{{ company_name|default('My ISP') }}</span>
+            </a>
+
+            <span class="online-pill {{ 'online' if is_online else 'offline' }}" data-testid="user-online-pill" id="userOnlinePill">
+                <span class="dot"></span>
+                {{ 'Online' if is_online else 'Offline' }}
+            </span>
+
+            <nav class="nav-pills">
+                <a href="/customer/dashboard"      class="{{ 'active' if active_page == 'dashboard' }}"      data-testid="user-nav-dashboard">Dashboard</a>
+                <a href="/customer/invoices"       class="{{ 'active' if active_page == 'invoices' }}"       data-testid="user-nav-invoices">Invoices</a>
+                <a href="/customer/payments"       class="{{ 'active' if active_page == 'payments' }}"       data-testid="user-nav-payments">Payments</a>
+                {% if customer and customer.show_data_usage %}<a href="/customer/usage"          class="{{ 'active' if active_page == 'usage' }}"          data-testid="user-nav-usage">Data Usage</a>{% endif %}{# __S43V_SHOW_USAGE__ #}
+                <a href="/customer/complaints"     class="{{ 'active' if active_page == 'complaints' }}"     data-testid="user-nav-complaints">Support</a>
+                <a href="/customer/change-plan"    class="{{ 'active' if active_page == 'change_plan' or active_page == 'change_package' or active_page == 'upgrade_plan' }}" data-testid="user-nav-change-plan">Change Plan</a>
+                <a href="/customer/wifi-settings"  class="{{ 'active' if active_page == 'wifi_settings' }}"  data-testid="user-nav-wifi">WiFi Settings</a>
+                <a href="/customer/profile"        class="{{ 'active' if active_page == 'profile' }}"        data-testid="user-nav-profile">Profile</a>
+            </nav>
+
+            <div class="user-menu">
+                {# _v4730_AVATAR  Show customer photo first, fall back to initial. #}
+                {% set _cust_img = customer.photograph_path if customer and customer.photograph_path else "" %}
+                {% if _cust_img %}
+                  <img src="{{ _cust_img if _cust_img.startswith('/') or _cust_img.startswith('http') else '/' ~ _cust_img }}"
+                       class="avatar avatar-img" alt="profile"
+                       data-testid="user-avatar-img"
+                       onerror="this.outerHTML='<span class=&quot;avatar&quot; data-testid=&quot;user-avatar-letter&quot;>'+'{{ (customer_name|default('U'))[0]|upper }}'+'</span>'">
+                {% else %}
+                  <span class="avatar" data-testid="user-avatar-letter">{{ (customer_name|default('U'))[0]|upper }}</span>
+                {% endif %}
+                <span class="name" data-testid="user-name">{{ customer_name|default('Customer') }}</span>
+                <a href="#" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location='/login');return false;" title="Logout" style="color:var(--text-mid);font-size:16px;">
+                    <i class="bi bi-box-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <script>
+    // Auto-refresh online status every 30s
+    (function pollOnline(){
+        fetch('/api/customer/me/online-status').then(r=>r.json()).then(d=>{
+            const p = document.getElementById('userOnlinePill');
+            if(!p) return;
+            const dot = p.querySelector('.dot');
+            if(d && d.online){
+                p.classList.add('online'); p.classList.remove('offline');
+                p.lastChild.textContent = ' Online';
+            } else {
+                p.classList.add('offline'); p.classList.remove('online');
+                p.lastChild.textContent = ' Offline';
+            }
+        }).catch(()=>{});
+    })();
+    setInterval(()=>{ fetch('/api/customer/me/online-status').then(r=>r.json()).then(d=>{
+        const p = document.getElementById('userOnlinePill'); if(!p) return;
+        const cls = d.online ? 'online' : 'offline';
+        p.className = 'online-pill ' + cls;
+        p.lastChild.textContent = d.online ? ' Online' : ' Offline';
+    }).catch(()=>{}); }, 30000);
+    </script>
+    {% block extra_js %}{% endblock %}
+<!-- _S40zθ_  IST DD-MM-YYYY HH:MM formatter (shared across portals) -->
+<script>
+(function(){
+  if (window.__S40ZG_IST_INIT__) return; window.__S40ZG_IST_INIT__ = true;
+  function pad(n){ return n < 10 ? ('0'+n) : (''+n); }
+  // _GLOBAL_FMTIST_STR_SAFE_V1_ : fmtIST is now string-safe + null-safe.
+  function fmtIST(d){
+    if (d === null || d === undefined || d === '') return '—';
+    if (typeof d === 'string'){
+      var s = d.trim(); if (!s) return '—';
+      if (/^\d{2}-\d{2}-\d{4}(\s+\d{2}:\d{2})?(\s+IST)?$/.test(s))
+        return s.replace(/\s+IST$/,'');
+      var iso = s.indexOf('T') === -1 ? s.replace(' ','T') : s;
+      if (iso.indexOf('Z') === -1 && !/[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z';
+      var dt = new Date(iso);
+      if (!isNaN(dt.getTime())) d = dt; else return s;
+    }
+    if (!(d instanceof Date) || isNaN(d)) return '—';
+    try {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit', hour12:false });
+      const parts = fmt.formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a), {});
+      return parts.day + '-' + parts.month + '-' + parts.year + ' ' +
+             parts.hour + ':' + parts.minute;
+    } catch(_){
+      return pad(d.getUTCDate()) + '-' + pad(d.getUTCMonth()+1) + '-'
+           + d.getUTCFullYear() + ' ' + pad(d.getUTCHours()) + ':'
+           + pad(d.getUTCMinutes());
+    }
+  }
+  window.fmtIST = fmtIST;
+  const RX_ISO   = /\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g;
+  const RX_SQL   = /\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?\b/g;
+  const RX_DATE  = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+  const RX_HUMAN = /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)\b/g;
+  const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function convertIn(text){
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    out = out.replace(RX_ISO, (_, y,mo,d,h,mi)=> {
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_SQL, (_, y,mo,d,h,mi)=> {
+      // _S40zκ_ Stored as UTC by SQLAlchemy default=datetime.utcnow.
+      // Parse as UTC, render in IST.
+      const dt = new Date(Date.UTC(+y, +mo-1, +d, +h, +mi));
+      return fmtIST(dt) || _;
+    });
+    out = out.replace(RX_HUMAN, (_, d,mon,y,h,mi,ampm)=> {
+      const mon0 = MONTHS[mon.slice(0,3)] || 0;
+      let H = +h % 12;
+      if (/p/i.test(ampm)) H += 12;
+      return pad(+d) + '-' + pad(mon0+1) + '-' + y + ' ' + pad(H) + ':' + pad(+mi);
+    });
+    out = out.replace(RX_DATE, (_, y,mo,d)=> d + '-' + mo + '-' + y);
+    return out;
+  }
+  function walkAndConvert(node){
+    if (!node) return;
+    if (node.nodeType === 3){
+      const orig = node.nodeValue;
+      const conv = convertIn(orig);
+      if (conv !== orig) node.nodeValue = conv;
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'CODE'
+        || tag === 'PRE' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'SELECT') return;
+    for (let i = node.childNodes.length - 1; i >= 0; i--) {
+      walkAndConvert(node.childNodes[i]);
+    }
+  }
+  function sweep(){ try { walkAndConvert(document.body); } catch(_){} }
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(sweep, 50));
+  } else { setTimeout(sweep, 50); }
+  let sweepT;
+  const obs = new MutationObserver(() => {
+    clearTimeout(sweepT);
+    sweepT = setTimeout(sweep, 120);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+  window.__s40zgSweep = sweep;
+})();
+</script>
+<!-- /_S40zθ_ -->
+
+<!-- s41b: public-portal-style footer -->
+<style>
+  body.cust-portal-footer-host { background-color: #0b1224; }
+  .cust-footer{background:#08112a;color:#cbd3e6;padding:60px 0 22px;margin-top:48px;border-top:1px solid rgba(255,255,255,.06);}
+  .cust-footer .cf-wrap{max-width:1240px;margin:0 auto;padding:0 20px;}
+  .cust-footer .cf-grid{display:grid;grid-template-columns:1.3fr repeat(3,1fr);gap:40px;}
+  .cust-footer .cf-brand p{color:rgba(203,211,230,.8);margin:14px 0 18px;font-size:.95rem;line-height:1.6;}
+  .cust-footer .cf-brand img{height:42px;width:auto;max-width:230px;object-fit:contain;filter:brightness(0) invert(1) opacity(.92);display:block;}
+  .cust-footer .cf-col h5{color:#fff;font-size:1rem;margin:0 0 16px;font-weight:600;letter-spacing:-.01em;}
+  .cust-footer .cf-col ul{list-style:none;padding:0;margin:0;}
+  .cust-footer .cf-col li, .cust-footer .cf-col a{color:rgba(203,211,230,.8);padding:4px 0;font-size:.93rem;display:block;text-decoration:none;}
+  .cust-footer .cf-col a:hover{color:#fff;}
+  .cust-footer .cf-socials{display:flex;gap:10px;margin-top:6px;}
+  .cust-footer .cf-socials a{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.06);display:grid;place-items:center;color:#fff;transition:background .2s ease;padding:0;}
+  .cust-footer .cf-socials a:hover{background:#3d5afe;}
+  .cust-footer .cf-bottom{border-top:1px solid rgba(255,255,255,.08);margin-top:36px;padding-top:20px;text-align:center;color:rgba(203,211,230,.6);font-size:.86rem;}
+  @media (max-width:900px){.cust-footer .cf-grid{grid-template-columns:1fr 1fr;gap:28px;}}
+  @media (max-width:560px){.cust-footer .cf-grid{grid-template-columns:1fr;}}
+</style>
+<footer class="cust-footer" data-testid="customer-portal-footer">
+  <div class="cf-wrap">
+    <div class="cf-grid">
+      <div class="cf-brand">
+        <a href="https://www.autoispbilling.com/" target="_blank" rel="noopener" data-testid="footer-brand-link">
+          <img src="/static/img/autoispbilling-logo-wide.png" alt="AutoISPBilling" data-testid="footer-brand-logo"
+               onerror="this.onerror=null;this.src='/static/img/autoispbilling-logo.png';">
+        </a>
+        <p>The modern ISP operations platform &mdash; billing, CRM, support and automation in one place.</p>
+        <div class="cf-socials">
+          <a href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
+          <a href="#" aria-label="Twitter"><i class="bi bi-twitter-x"></i></a>
+          <a href="#" aria-label="LinkedIn"><i class="bi bi-linkedin"></i></a>
+          <a href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
+        </div>
+      </div>
+      <div class="cf-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="https://www.autoispbilling.com/#features" target="_blank" rel="noopener">Features</a></li>
+          <li><a href="https://www.autoispbilling.com/#how" target="_blank" rel="noopener">How it works</a></li>
+          <li><a href="https://www.autoispbilling.com/#integrations" target="_blank" rel="noopener">Integrations</a></li>
+          <li><a href="https://www.autoispbilling.com/#demo" target="_blank" rel="noopener">Request Demo</a></li>
+          <li><a href="/login">Sign In</a></li>
+          <li><a href="https://www.autoispbilling.com/sitemap" target="_blank" rel="noopener" data-testid="footer-sitemap-link">Site Map</a></li>
+        </ul>
+      </div>
+      <div class="cf-col">
+        <h5>Company</h5>
+        <ul>
+          <li><a href="https://www.autoispbilling.com/contact" target="_blank" rel="noopener">Contact Us</a></li>
+          <li><a href="https://www.autoispbilling.com/faq" target="_blank" rel="noopener">FAQ / Help</a></li>
+          <li><a href="https://www.autoispbilling.com/privacy-policy" target="_blank" rel="noopener">Privacy Policy</a></li>
+          <li><a href="https://www.autoispbilling.com/terms-of-service" target="_blank" rel="noopener">Terms of Service</a></li>
+          <li><a href="https://www.autoispbilling.com/refund-policy" target="_blank" rel="noopener">Refund Policy</a></li>
+        </ul>
+      </div>
+      <div class="cf-col">
+        <h5>Reach us</h5>
+        <ul>
+          {% if company_phone %}<li><i class="bi bi-telephone"></i> <a href="tel:{{ company_phone }}">{{ company_phone }}</a></li>{% else %}<li><i class="bi bi-telephone"></i> +91-8085868114</li>{% endif %}
+          {% if company_email %}<li><i class="bi bi-envelope"></i> <a href="mailto:{{ company_email }}">{{ company_email }}</a></li>{% else %}<li><i class="bi bi-envelope"></i> support@autoispbilling.com</li>{% endif %}
+          <li><i class="bi bi-whatsapp"></i> WhatsApp support available</li>
+          <li><i class="bi bi-clock"></i> Mon&ndash;Sat, 10 AM &ndash; 7 PM IST</li>
+        </ul>
+      </div>
+    </div>
+    <div class="cf-bottom">&copy; 2026 {{ company_name or 'Auto ISP Billing' }} &mdash; powered by <a href="https://www.autoispbilling.com/" target="_blank" rel="noopener" style="color:rgba(203,211,230,.85);text-decoration:underline;">Auto ISP Billing</a>. All rights reserved.</div>
+  </div>
+</footer>
+    <!-- E1_MODERN_OVERLAY_JS -->
+    <script defer src="/static/js/e1-modern.js"></script>
+</body>
+</html>

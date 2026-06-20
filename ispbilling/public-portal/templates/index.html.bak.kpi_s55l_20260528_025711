@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ brand_title|default('Auto ISP Billing — Telecom Cloud OS for ISPs') }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="The complete telecom cloud OS for ISPs — subscribers, billing, MikroTik / RADIUS, GPON OLT, ticketing, captive portal & realtime NOC monitoring in one platform.">
+<meta name="theme-color" content="#050810">
+<meta property="og:title" content="Auto ISP Billing — Telecom Cloud OS">
+<meta property="og:description" content="Run your ISP like a Tier-1 carrier. Automated billing, RADIUS, GPON OLT, NOC.">
+<meta property="og:type" content="website">
+<link rel="icon" href="/static/favicon.png">
+<link rel="canonical" href="https://autoispbilling.com/">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<!-- Icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+<!-- Design system -->
+<link rel="stylesheet" href="/static/css/e1-public.css?v=2">
+
+<!-- SEO sitemap link -->
+<link rel="alternate" type="application/xml" title="Sitemap" href="/sitemap.xml">
+</head>
+<body>
+
+<!-- Glassmorphism navbar -->
+<nav class="e1-nav" data-testid="public-nav">
+  <div class="e1-container">
+    <div class="e1-nav-inner">
+      <a href="/" class="e1-nav-brand" data-testid="nav-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+      </a>
+      <ul class="e1-nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+      <div class="e1-nav-cta">
+        <a href="/login" class="btn btn-ghost btn-sm" data-testid="nav-signin">Sign In</a>
+        <a href="#demo" class="btn btn-primary btn-sm" data-testid="nav-trial">Start Free Trial</a>
+      </div>
+      <button class="e1-nav-burger" aria-label="Open menu" data-testid="nav-burger">
+        <i class="bi bi-list" style="font-size:22px"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ───── HERO ───── -->
+<section class="e1-hero">
+  <div class="e1-hero-bg">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+    <span class="fiber-line" style="top:18%; left:0; width:62%;"></span>
+    <span class="fiber-line f2" style="top:44%; left:0; width:80%; animation-delay:-2s;"></span>
+    <span class="fiber-line f3" style="top:72%; left:0; width:50%; animation-delay:-4s;"></span>
+    <canvas id="e1Particles" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+  </div>
+
+  <div class="e1-container">
+    <div class="e1-hero-content">
+      <div class="e1-hero-text" data-reveal>
+        <span class="kicker"><span class="dot"></span> NOC · BILLING · RADIUS · GPON · CAPTIVE</span>
+        <h1 class="h1">
+          The Telecom Cloud OS<br>
+          <span class="text-gradient-cyan">built for modern ISPs.</span>
+        </h1>
+        <p class="lede">
+          Run subscribers, invoicing, online payments, MikroTik / RADIUS,
+          GPON OLT, captive-portal hotspots, and realtime NOC monitoring —
+          from a single cinematic operator dashboard. Trusted by ISPs across India.
+        </p>
+        <div class="e1-hero-cta">
+          <a href="#demo" class="btn btn-primary btn-lg" data-testid="hero-trial">
+            <i class="bi bi-rocket-takeoff-fill"></i> Start Free Trial
+          </a>
+          <a href="#demo" class="btn btn-ghost btn-lg" data-testid="hero-demo">
+            <i class="bi bi-play-circle"></i> Book a Demo
+          </a>
+        </div>
+        <div class="mt-40" style="display:flex;gap:28px;flex-wrap:wrap;color:var(--t-fg-mute);font-size:13px;">
+          <span><i class="bi bi-shield-check" style="color:var(--c-green)"></i> SSL · TR-069 · IPDR ready</span>
+          <span><i class="bi bi-lightning-charge-fill" style="color:var(--c-amber)"></i> Realtime alerts</span>
+          <span><i class="bi bi-people-fill" style="color:var(--c-cyan)"></i> Multi-tenant</span>
+        </div>
+      </div>
+
+      <!-- Animated dashboard preview -->
+      <div class="e1-hero-visual" data-reveal data-delay="200">
+        <div class="hv-card main">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="hv-chip"><span class="dot"></span> LIVE</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--t-fg-mute)">noc · ops</div>
+          </div>
+          <div class="hv-title">Network throughput · Gbps</div>
+          <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 0;">
+            <div class="hv-num">128.4</div>
+            <span class="hv-trend"><i class="bi bi-arrow-up-short"></i>+24%</span>
+          </div>
+          <div class="hv-line-chart"><svg id="hvLineChart" preserveAspectRatio="none"></svg></div>
+          <div class="hv-stats-row">
+            <div class="hv-stat">
+              <div class="hv-title">Active Subs</div>
+              <div class="hv-num" style="font-size:22px">12,847</div>
+              <span class="hv-trend"><i class="bi bi-arrow-up-short"></i>+182</span>
+            </div>
+            <div class="hv-stat">
+              <div class="hv-title">Fiber Health</div>
+              <div class="hv-num" style="font-size:22px;color:#34d399">98.6%</div>
+              <span class="hv-trend"><i class="bi bi-check-circle"></i> SLA met</span>
+            </div>
+          </div>
+        </div>
+        <div class="hv-card k1">
+          <div class="hv-title">Revenue today</div>
+          <div class="hv-num" style="font-size:20px;color:#fbbf24">₹2.84L</div>
+          <div class="hv-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="hv-card k2">
+          <div class="hv-title">Online devices</div>
+          <div class="hv-num" style="font-size:20px;">8,461</div>
+          <div style="font-size:11px;color:var(--c-green)"><i class="bi bi-broadcast"></i> Streaming</div>
+        </div>
+        <div class="hv-card k3" style="background:linear-gradient(165deg, rgba(239,68,68,0.18) 0%, rgba(8,12,22,0.85) 100%);border-color:rgba(239,68,68,0.35);">
+          <div class="hv-title" style="color:#fca5a5">Live alerts</div>
+          <div class="hv-num" style="font-size:22px;color:#fca5a5">3</div>
+          <div style="font-size:11px;color:#fca5a5"><i class="bi bi-exclamation-triangle"></i> ONU offline</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── Marquee strip ───── -->
+<div class="e1-marquee">
+  <div class="e1-marquee-track">
+    <span><i class="bi bi-broadcast"></i>FreeRADIUS Native</span>
+    <span><i class="bi bi-router-fill"></i>MikroTik · TP-Link · V-SOL</span>
+    <span><i class="bi bi-credit-card-2-front-fill"></i>Razorpay · PayU · Cashfree · PhonePe</span>
+    <span><i class="bi bi-whatsapp"></i>WhatsApp / SMS Alerts</span>
+    <span><i class="bi bi-broadcast-pin"></i>GPON OLT · TR-069</span>
+    <span><i class="bi bi-shield-check"></i>SOC2-ready</span>
+    <span><i class="bi bi-cpu"></i>Captive Portal · Hotspot</span>
+    <!-- Duplicate for seamless loop -->
+    <span><i class="bi bi-broadcast"></i>FreeRADIUS Native</span>
+    <span><i class="bi bi-router-fill"></i>MikroTik · TP-Link · V-SOL</span>
+    <span><i class="bi bi-credit-card-2-front-fill"></i>Razorpay · PayU · Cashfree · PhonePe</span>
+    <span><i class="bi bi-whatsapp"></i>WhatsApp / SMS Alerts</span>
+    <span><i class="bi bi-broadcast-pin"></i>GPON OLT · TR-069</span>
+    <span><i class="bi bi-shield-check"></i>SOC2-ready</span>
+    <span><i class="bi bi-cpu"></i>Captive Portal · Hotspot</span>
+  </div>
+</div>
+
+<!-- ───── FEATURE 1: Invoicing ───── -->
+<section class="feature-block" id="features">
+  <div class="e1-container">
+    <div class="feature-grid">
+      <div class="feature-text" data-reveal>
+        <span class="kicker"><span class="dot"></span> 01 · BILLING ENGINE</span>
+        <h2 class="h2">Automate invoicing, manage subscriptions, collect online payments.</h2>
+        <p class="lede">
+          Issue GST-compliant invoices automatically, run auto-renewals,
+          accept payments from 6+ Indian gateways, and follow up via
+          WhatsApp + SMS — without lifting a finger.
+        </p>
+        <ul class="feature-bullets">
+          <li><i class="bi bi-check-circle-fill"></i> One-click invoice generation with GST &amp; HSN compliance</li>
+          <li><i class="bi bi-check-circle-fill"></i> Razorpay, PayU, Cashfree, PhonePe, CCAvenue, Stripe</li>
+          <li><i class="bi bi-check-circle-fill"></i> Subscription auto-renew with grace-period &amp; suspension flows</li>
+          <li><i class="bi bi-check-circle-fill"></i> Automated reminders over WhatsApp Business API + SMS</li>
+        </ul>
+      </div>
+      <div class="feature-visual" data-reveal data-delay="200">
+        <div class="fv-invoice-pipe">
+          <div class="fv-pipe-server"><i class="bi bi-hdd-rack-fill"></i>Server</div>
+          <div class="fv-pipe-line"></div>
+          <div class="fv-pipe-mail"><i class="bi bi-envelope-paper-fill"></i>Email</div>
+          <div class="fv-pipe-line"></div>
+          <div class="fv-pipe-phone"><i class="bi bi-phone-fill"></i>Paid</div>
+        </div>
+        <div class="fv-invoice-ticker">
+          <span style="color:var(--c-cyan)">INV-2026-00481 &nbsp;·&nbsp; ₹1,499</span>
+          <span class="fv-ticker-success">PAID · 2s ago</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── FEATURE 2: Multi-portal ───── -->
+<section class="feature-block reverse">
+  <div class="e1-container">
+    <div class="feature-grid">
+      <div class="feature-text" data-reveal>
+        <span class="kicker"><span class="dot"></span> 02 · ONE PLATFORM</span>
+        <h2 class="h2">One platform, many portals — Admin, Sub-LCO, Employee, Customer.</h2>
+        <p class="lede">
+          Role-scoped portals with surgical permissions and tenant isolation.
+          Sub-LCOs manage their slice, employees run field operations, and
+          customers self-serve recharges, complaints, and KYC.
+        </p>
+        <ul class="feature-bullets">
+          <li><i class="bi bi-check-circle-fill"></i> Strict multi-tenant data scoping per company_id</li>
+          <li><i class="bi bi-check-circle-fill"></i> Employee tracking, complaint assignment, route logs</li>
+          <li><i class="bi bi-check-circle-fill"></i> Customer self-service web + Android app + WhatsApp</li>
+          <li><i class="bi bi-check-circle-fill"></i> Granular feature flags per admin per tenant</li>
+        </ul>
+      </div>
+      <div class="feature-visual" data-reveal data-delay="200">
+        <div class="fv-portals">
+          <div class="fv-portal">
+            <div class="fv-portal-head">
+              <span class="badge admin">ADMIN</span>
+              <span class="fv-portal-name">NOC Console</span>
+            </div>
+            <div class="fv-portal-body">
+              <div>Subscribers <span>12,847</span></div>
+              <div>Revenue today <span>₹2.84L</span></div>
+              <div>Tickets open <span>14</span></div>
+            </div>
+          </div>
+          <div class="fv-portal">
+            <div class="fv-portal-head">
+              <span class="badge employee">EMPLOYEE</span>
+              <span class="fv-portal-name">Field Ops</span>
+            </div>
+            <div class="fv-portal-body">
+              <div>My route <span>5 stops</span></div>
+              <div>Avg SLA <span>1.4h</span></div>
+              <div>Resolved <span>+7</span></div>
+            </div>
+          </div>
+          <div class="fv-portal">
+            <div class="fv-portal-head">
+              <span class="badge customer">CUSTOMER</span>
+              <span class="fv-portal-name">My ISP</span>
+            </div>
+            <div class="fv-portal-body">
+              <div>Plan <span>500 Mbps</span></div>
+              <div>Used <span>184 GB</span></div>
+              <div>Due in <span>4 days</span></div>
+            </div>
+          </div>
+          <div class="fv-portal">
+            <div class="fv-portal-head">
+              <span class="badge slco">SUB-LCO</span>
+              <span class="fv-portal-name">Reseller</span>
+            </div>
+            <div class="fv-portal-body">
+              <div>Sub-customers <span>284</span></div>
+              <div>Commission <span>₹8.4K</span></div>
+              <div>Renewals <span>22</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── FEATURE 3: Hotspot / Captive ───── -->
+<section class="feature-block" id="how">
+  <div class="e1-container">
+    <div class="feature-grid">
+      <div class="feature-text" data-reveal>
+        <span class="kicker"><span class="dot"></span> 03 · HOTSPOT &amp; CAPTIVE</span>
+        <h2 class="h2">Run a complete Hotspot &amp; Captive-Portal experience.</h2>
+        <p class="lede">
+          Branded captive portal, OTP-based auth, voucher selling, time/data
+          caps, and live session monitoring — packaged with FreeRADIUS so
+          you can monetize cafes, hotels, hostels and public Wi-Fi from day one.
+        </p>
+        <ul class="feature-bullets">
+          <li><i class="bi bi-check-circle-fill"></i> Branded landing page with social / OTP login</li>
+          <li><i class="bi bi-check-circle-fill"></i> Voucher-based prepaid plans (printable QR / SMS)</li>
+          <li><i class="bi bi-check-circle-fill"></i> Per-session data &amp; time caps with auto-disconnect</li>
+          <li><i class="bi bi-check-circle-fill"></i> Live session map + KYC retention for compliance</li>
+        </ul>
+      </div>
+      <div class="feature-visual" data-reveal data-delay="200">
+        <div class="fv-city">
+          <div class="fv-bldg" style="width:48px;height:140px"></div>
+          <div class="fv-bldg" style="width:64px;height:220px;position:relative;">
+            <span class="fv-wifi" style="top:-30px;left:50%;margin-left:-70px;"></span>
+            <span class="fv-wifi w2" style="top:-30px;left:50%;margin-left:-70px;"></span>
+            <span class="fv-wifi w3" style="top:-30px;left:50%;margin-left:-70px;"></span>
+          </div>
+          <div class="fv-bldg" style="width:54px;height:180px"></div>
+          <div class="fv-bldg" style="width:72px;height:260px"></div>
+          <div class="fv-bldg" style="width:46px;height:130px"></div>
+          <div class="fv-bldg" style="width:60px;height:200px"></div>
+          <div class="fv-bldg" style="width:50px;height:160px"></div>
+        </div>
+        <div class="fv-captive">
+          <div class="fv-captive-head">Captive · WiFi-247</div>
+          <div>SSID &nbsp;&nbsp;: WiFi247-Cafe</div>
+          <div>Auth &nbsp;&nbsp;: OTP</div>
+          <div>Speed &nbsp;: 50 Mbps</div>
+          <div style="color:var(--c-green);margin-top:6px;">● Connected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── FEATURE 4: MikroTik / NOC ───── -->
+<section class="feature-block reverse" id="integrations">
+  <div class="e1-container">
+    <div class="feature-grid">
+      <div class="feature-text" data-reveal>
+        <span class="kicker"><span class="dot"></span> 04 · NOC AUTOPILOT</span>
+        <h2 class="h2">Drive your MikroTik / RADIUS / GPON OLT infrastructure on autopilot.</h2>
+        <p class="lede">
+          Provision PPPoE / IPoE in one click, push QoS profiles, watch fiber
+          health, reboot ONTs remotely via TR-069, and run a NOC dashboard
+          that surfaces issues before customers call.
+        </p>
+        <ul class="feature-bullets">
+          <li><i class="bi bi-check-circle-fill"></i> FreeRADIUS bind with realtime accounting + IPDR</li>
+          <li><i class="bi bi-check-circle-fill"></i> GPON OLT (Huawei, V-SOL, BDCOM) provisioning + optical metrics</li>
+          <li><i class="bi bi-check-circle-fill"></i> TR-069 ACS for remote ONU/CPE management at scale</li>
+          <li><i class="bi bi-check-circle-fill"></i> Live network map with fiber routes &amp; outage alerts</li>
+        </ul>
+      </div>
+      <div class="feature-visual" data-reveal data-delay="200">
+        <div class="fv-noc">
+          <svg id="fvNocSvg"></svg>
+          <div class="fv-noc-overlay"><i class="bi bi-record-fill"></i> NOC · LIVE</div>
+          <div class="fv-noc-stats">
+            <div class="row"><span>OLTs</span><b style="color:#22d3ee">4</b></div>
+            <div class="row"><span>ONUs online</span><b style="color:#34d399">8,461</b></div>
+            <div class="row"><span>Avg ping</span><b style="color:#fbbf24">12 ms</b></div>
+            <div class="row"><span>Alerts</span><b style="color:#f87171">3</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── KPI counters ───── -->
+<section class="e1-sec">
+  <div class="e1-container">
+    <div class="e1-sec-header" data-reveal>
+      <span class="kicker"><span class="dot"></span> Trusted at scale</span>
+      <h2 class="h2 mt-20">Numbers that keep your NOC honest.</h2>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-card" data-reveal>
+        <div class="kpi-label">Active Subscribers</div>
+        <div class="kpi-value"><span data-counter="48000" data-suffix="+">0</span></div>
+        <div class="kpi-foot"><i class="bi bi-arrow-up-short"></i> Across India</div>
+      </div>
+      <div class="kpi-card" data-reveal data-delay="100">
+        <div class="kpi-label">Online Devices</div>
+        <div class="kpi-value"><span data-counter="312000" data-suffix="+">0</span></div>
+        <div class="kpi-foot"><i class="bi bi-broadcast"></i> Realtime</div>
+      </div>
+      <div class="kpi-card" data-reveal data-delay="200">
+        <div class="kpi-label">Uptime SLA</div>
+        <div class="kpi-value"><span data-counter="99.95" data-suffix="%" data-decimals="2">0</span></div>
+        <div class="kpi-foot"><i class="bi bi-shield-check"></i> Last 12 months</div>
+      </div>
+      <div class="kpi-card" data-reveal data-delay="300">
+        <div class="kpi-label">Tickets / day</div>
+        <div class="kpi-value"><span data-counter="2800" data-suffix="+">0</span></div>
+        <div class="kpi-foot"><i class="bi bi-lightning-charge-fill"></i> Auto-routed</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── Reviews ───── -->
+<section class="e1-sec">
+  <div class="e1-container">
+    <div class="e1-sec-header" data-reveal>
+      <span class="kicker"><span class="dot"></span> Operator stories</span>
+      <h2 class="h2 mt-20">Built with ISPs. Loved by ISPs.</h2>
+    </div>
+    <div class="review-grid">
+      <div class="review-card" data-reveal>
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">
+          “Cut down our monthly billing cycle from 4 days to 2 hours. The
+          MikroTik integration alone paid for the platform.”
+        </p>
+        <div class="review-person">
+          <div class="review-avatar">RK</div>
+          <div class="review-meta"><b>Rajeev K.</b><span>NOC Manager · Tier-2 ISP</span></div>
+        </div>
+      </div>
+      <div class="review-card" data-reveal data-delay="100">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">
+          “The captive-portal &amp; voucher engine helped us monetize 3 hotels
+          and a hospital network in under a week.”
+        </p>
+        <div class="review-person">
+          <div class="review-avatar">PS</div>
+          <div class="review-meta"><b>Priya S.</b><span>Founder · Wi-Fi Reseller</span></div>
+        </div>
+      </div>
+      <div class="review-card" data-reveal data-delay="200">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">
+          “The realtime NOC map and TR-069 control over ONUs is genuinely
+          enterprise-grade — feels like UISP for ten times less.”
+        </p>
+        <div class="review-person">
+          <div class="review-avatar">AS</div>
+          <div class="review-meta"><b>Amit S.</b><span>CTO · Regional Fiber ISP</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── CTA banner ───── -->
+<section class="e1-sec" id="demo">
+  <div class="e1-container">
+    <div class="cta-banner" data-reveal>
+      <span class="kicker"><span class="dot"></span> Ready when you are</span>
+      <h2 class="h2 mt-20">Launch your telecom cloud OS today.</h2>
+      <p class="lede">14-day free trial · no credit card · onboarded in 24 hours.</p>
+      <div class="cta-banner-actions">
+        <a href="/contact" class="btn btn-primary btn-lg" data-testid="cta-trial">
+          <i class="bi bi-rocket-takeoff-fill"></i> Start Free Trial
+        </a>
+        <a href="/contact" class="btn btn-ghost btn-lg" data-testid="cta-talk">
+          <i class="bi bi-chat-dots"></i> Talk to Sales
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── Footer ───── -->
+<footer class="e1-footer">
+  <div class="e1-container">
+    <div class="e1-footer-grid">
+      <div class="e1-footer-brand">
+        <img src="/static/img/autoispbilling-logo-wide.png" alt="Auto ISP Billing">
+        <p>Telecom Cloud OS for ISPs — billing, RADIUS, GPON, captive-portal, NOC and more. Made with ❤ for fiber operators.</p>
+      </div>
+      <div>
+        <h5>Product</h5>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#integrations">Integrations</a></li>
+          <li><a href="/pricing">Pricing</a></li>
+          <li><a href="#demo">Request Demo</a></li>
+          <li><a href="/login">Sign In</a></li>
+          <li><a href="/sitemap" data-testid="footer-sitemap-link">Site Map</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Company</h5>
+        <ul>
+          <li><a href="/contact">Contact Us</a></li>
+          <li><a href="/faq">FAQ / Help</a></li>
+          <li><a href="/privacy-policy">Privacy Policy</a></li>
+          <li><a href="/terms-of-service">Terms of Service</a></li>
+          <li><a href="/refund-policy">Refund Policy</a></li>
+          <li><a href="/account-deletion" data-testid="footer-account-deletion">Account Deletion</a></li>
+          <li><a href="/account-deletion" data-testid="footer-delete-my-account">Delete My Account</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Reach us</h5>
+        <ul>
+          <li><i class="bi bi-telephone" style="color:var(--c-cyan)"></i> {{ support_phone }}</li>
+          <li><i class="bi bi-envelope" style="color:var(--c-cyan)"></i> support@autoispbilling.com</li>
+          <li><i class="bi bi-whatsapp" style="color:var(--c-green)"></i> <a href="https://wa.me/919183218114">WhatsApp Chat</a></li>
+          <li><i class="bi bi-clock" style="color:var(--c-cyan)"></i> Mon–Sat, 10 AM – 7 PM IST</li>
+        </ul>
+      </div>
+    </div>
+    <div class="e1-footer-bottom">
+      <span>© 2026 Auto ISP Billing. All rights reserved.</span>
+      <span><a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a> · <a href="/refund-policy">Refunds</a></span>
+    </div>
+  </div>
+</footer>
+
+<script src="/static/js/e1-public.js?v=2" defer></script>
+</body>
+</html>

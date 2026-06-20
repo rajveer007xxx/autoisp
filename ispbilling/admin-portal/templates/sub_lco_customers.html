@@ -1,0 +1,179 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}User Management — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>User Management <small>My Customers</small></h1>
+</section>
+
+<section class="content">
+<div class="box">
+  <div class="box-header with-border">
+    <h3 class="box-title">Customer List</h3>
+    <div class="box-tools pull-right">
+      <a href="/sub-lco/customers/add" class="btn btn-primary" data-testid="slco-add-customer-btn"><i class="fa fa-plus"></i> Add Customer</a>
+    </div>
+  </div>
+  <div class="box-body">
+    <div class="table-responsive">
+      <table class="table table-striped" id="custTable">
+        <thead>
+          <tr>
+            <th>Customer&nbsp;ID</th><th>Name</th><th>Username</th><th>Phone</th>
+            <th>Locality</th><th>Status</th><th>End&nbsp;Date</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="8" class="text-center text-muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Reset password modal -->
+<div class="modal fade" id="pwModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><button class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title">Reset Customer Password</h4></div>
+    <form id="pwForm">
+      <input type="hidden" name="customer_id">
+      <div class="modal-body">
+        <div class="form-group"><label>Customer</label>
+          <input class="form-control" name="label" readonly></div>
+        <div class="form-group"><label>New password (min 6)</label>
+          <input class="form-control" name="password" type="password" minlength="6" required></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-warning">Reset</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- Collect Payment modal -->
+<div class="modal fade" id="payModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><button class="close" data-dismiss="modal">&times;</button>
+      <h4 class="modal-title">Collect Payment</h4></div>
+    <form id="payForm">
+      <input type="hidden" name="customer_id">
+      <div class="modal-body">
+        <div class="form-group"><label>Customer</label>
+          <input class="form-control" name="label" readonly></div>
+        <div class="form-group"><label>Amount *</label>
+          <input class="form-control" name="amount" type="number" step="0.01" min="0.01" required></div>
+        <div class="form-group"><label>Discount (optional)</label>
+          <input class="form-control" name="discount" type="number" step="0.01" min="0" value="0"></div>
+        <div class="form-group"><label>Payment Mode *</label>
+          <select class="form-control" name="payment_mode" required>
+            <option value="">-- select --</option>
+            <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+          </select></div>
+        <div class="form-group"><label>Remarks</label>
+          <input class="form-control" name="remarks"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-success" data-testid="record-payment-btn">Record Payment</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function load(){
+  $.get('/api/sub-lco/customers/list', function(res){
+    var $tb = $('#custTable tbody').empty();
+    if(!res.success || !res.items.length){
+      $tb.append('<tr><td colspan="8" class="text-center text-muted">No customers yet. Click <b>Add Customer</b>.</td></tr>');
+      return;
+    }
+    res.items.forEach(function(c){
+      var active = (c.status||'').toLowerCase()==='active';
+      $tb.append('<tr data-id="'+c.customer_id+'">'+
+        '<td><code>'+esc(c.customer_id)+'</code></td>'+
+        '<td>'+esc(c.customer_name)+'</td>'+
+        '<td>'+esc(c.username)+'</td>'+
+        '<td>'+esc(c.customer_phone)+'</td>'+
+        '<td>'+esc(c.locality)+'</td>'+
+        '<td><span class="label '+(active?'label-success':'label-default')+'">'+esc(c.status)+'</span></td>'+
+        '<td>'+esc(c.end_date)+'</td>'+
+        '<td>'+
+          '<a class="btn btn-xs btn-primary" href="/sub-lco/customers/'+encodeURIComponent(c.customer_id)+'/edit" data-testid="edit-'+c.customer_id+'"><i class="fa fa-pencil"></i></a> '+
+          '<button class="btn btn-xs btn-success act-pay" data-testid="pay-'+c.customer_id+'"><i class="fa fa-money-bill"></i> Pay</button> '+
+          '<button class="btn btn-xs '+(active?'btn-warning':'btn-success')+' act-toggle" data-testid="toggle-status-'+c.customer_id+'">'+
+             (active?'<i class="fa fa-pause"></i> Disable':'<i class="fa fa-play"></i> Enable')+'</button> '+
+          '<button class="btn btn-xs btn-info act-pw" data-testid="reset-pw-'+c.customer_id+'" data-name="'+esc(c.customer_name)+'"><i class="fa fa-key"></i></button> '+
+          '<button class="btn btn-xs btn-danger act-del" data-testid="delete-'+c.customer_id+'"><i class="fa fa-trash"></i></button>'+
+        '</td></tr>');
+    });
+  });
+}
+$(function(){
+  load();
+  $('#custTable').on('click', '.act-toggle', function(){
+    var id = $(this).closest('tr').data('id');
+    var wantActive = /Enable/.test($(this).text());
+    $.ajax({url:'/api/sub-lco/customers/'+id+'/status', method:'POST',
+      contentType:'application/json',
+      data: JSON.stringify({active: wantActive})})
+     .done(function(r){ if(r.success) load(); else alert(r.message||'Failed'); })
+     .fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+  $('#custTable').on('click', '.act-pw', function(){
+    var id = $(this).closest('tr').data('id');
+    var f = $('#pwForm')[0];
+    f.customer_id.value = id; f.label.value = id+' — '+$(this).data('name');
+    f.password.value = '';
+    $('#pwModal').modal('show');
+  });
+  $('#pwForm').on('submit', function(e){
+    e.preventDefault();
+    var d = Object.fromEntries(new FormData(this));
+    $.ajax({url:'/api/sub-lco/customers/'+d.customer_id+'/reset-password',
+      method:'POST', contentType:'application/json',
+      data: JSON.stringify({password: d.password})})
+    .done(function(r){ if(r.success){ $('#pwModal').modal('hide'); alert('Password reset.'); }
+                       else alert(r.message||'Failed'); })
+    .fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+  $('#custTable').on('click', '.act-pay', function(){
+    var tr = $(this).closest('tr');
+    var id = tr.data('id');
+    var nm = tr.find('td').eq(1).text();
+    var f = $('#payForm')[0];
+    f.customer_id.value = id; f.label.value = id+' — '+nm;
+    f.amount.value = ''; f.discount.value = '0';
+    f.payment_mode.value = ''; f.remarks.value = '';
+    $('#payModal').modal('show');
+  });
+  $('#payForm').on('submit', function(e){
+    e.preventDefault();
+    var d = Object.fromEntries(new FormData(this));
+    $.ajax({url:'/api/sub-lco/customers/'+d.customer_id+'/payment',
+      method:'POST', contentType:'application/json',
+      data: JSON.stringify({
+        amount: d.amount, discount: d.discount,
+        payment_mode: d.payment_mode, remarks: d.remarks,
+      })})
+    .done(function(r){
+      if (r.success) {
+        $('#payModal').modal('hide');
+        alert('Payment recorded: '+r.transaction_no+'\nNew balance: ₹'+Number(r.new_balance).toFixed(2));
+        load();
+      } else alert(r.message || 'Failed');
+    }).fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+  $('#custTable').on('click', '.act-del', function(){
+    if(!confirm('Move this customer to Deleted? You can ask the admin to restore.')) return;
+    var id = $(this).closest('tr').data('id');
+    $.ajax({url:'/api/sub-lco/customers/'+id+'/delete', method:'POST',
+      contentType:'application/json', data:'{}'})
+    .done(function(r){ if(r.success) load(); else alert(r.message||'Failed'); })
+    .fail(function(x){alert((x.responseJSON&&x.responseJSON.message)||'Failed');});
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,210 @@
+{% extends "base_superadmin.html" %}
+{% block title %}Profanity Violations - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<style>
+  .pv-banner{background:linear-gradient(135deg,#7f1d1d 0%,#b91c1c 100%);
+             color:#fff;padding:24px 28px;border-radius:14px;
+             margin-bottom:22px;
+             box-shadow:0 8px 28px rgba(127,29,29,.35);
+             position:relative;overflow:hidden;}
+  .pv-banner::before{content:'';position:absolute;
+             top:-30px;right:-30px;width:160px;height:160px;
+             border-radius:50%;background:rgba(255,255,255,.1);}
+  .pv-banner h2{margin:0;font-size:22px;font-weight:700;}
+  .pv-banner p{margin:6px 0 0;font-size:13px;opacity:.86;}
+  .pv-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+            gap:14px;margin-bottom:22px;}
+  .pv-stat{background:#fff;border:1px solid #e5e7eb;border-radius:12px;
+           padding:18px 20px;}
+  .pv-stat .lbl{font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+                color:#6b7280;font-weight:700;margin-bottom:6px;}
+  .pv-stat .num{font-size:30px;font-weight:800;color:#0f172a;line-height:1;}
+  .pv-stat.danger .num{color:#dc2626;}
+  .pv-stat.warn .num{color:#f59e0b;}
+  .pv-stat .sub{font-size:11px;color:#6b7280;margin-top:6px;}
+
+  .pv-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+              margin-bottom:14px;}
+  .pv-toolbar input,.pv-toolbar select{padding:8px 12px;border:1px solid #d1d5db;
+              border-radius:8px;font-size:13px;}
+  .pv-toolbar input{min-width:240px;}
+
+  .pv-table{width:100%;border-collapse:separate;border-spacing:0;
+            background:#fff;border:1px solid #e5e7eb;border-radius:12px;
+            overflow:hidden;}
+  .pv-table th{background:#f8fafc;color:#374151;font-weight:700;
+               text-transform:uppercase;letter-spacing:.04em;font-size:11px;
+               padding:12px 14px;text-align:left;
+               border-bottom:1px solid #e5e7eb;}
+  .pv-table td{padding:12px 14px;border-bottom:1px solid #f3f4f6;
+               font-size:13px;color:#1f2937;vertical-align:top;}
+  .pv-table tr:last-child td{border-bottom:none;}
+  .pv-table tr:hover td{background:#fafafa;}
+  .pv-role-pill{display:inline-block;padding:3px 10px;border-radius:12px;
+                font-size:10.5px;font-weight:700;letter-spacing:.05em;
+                text-transform:uppercase;}
+  .pv-role-pill.admin{background:#dbeafe;color:#1e40af;}
+  .pv-role-pill.sub_lco{background:#dcfce7;color:#166534;}
+  .pv-role-pill.employee{background:#fef3c7;color:#92400e;}
+  .pv-role-pill.customer{background:#fce7f3;color:#9d174d;}
+  .pv-role-pill.anonymous{background:#f3f4f6;color:#4b5563;}
+  .pv-word{font-family:ui-monospace,monospace;background:#fee2e2;color:#b91c1c;
+           padding:2px 8px;border-radius:6px;font-weight:700;font-size:12px;}
+  .pv-snippet{max-width:380px;color:#6b7280;font-style:italic;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+              cursor:help;}
+  .pv-empty{text-align:center;color:#9ca3af;padding:40px;font-size:14px;}
+  .pv-ip{font-family:ui-monospace,monospace;font-size:12px;color:#475569;}
+
+  /* Two-column lower section: top words / top IPs */
+  .pv-grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;
+            margin-top:22px;}
+  .pv-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;
+           padding:18px 22px;}
+  .pv-card h4{margin:0 0 14px;font-size:13px;letter-spacing:.18em;
+              text-transform:uppercase;color:#dc2626;font-weight:700;}
+  .pv-card ol{margin:0;padding-left:22px;}
+  .pv-card li{padding:6px 0;font-size:13px;color:#1f2937;}
+  .pv-card li b{color:#dc2626;}
+  @media(max-width:900px){.pv-grid2{grid-template-columns:1fr;}}
+</style>
+
+<section class="content">
+  <div class="pv-banner">
+    <h2>🛡 Profanity Violations Audit Trail</h2>
+    <p>Every blocked attempt across the entire portal — useful as
+        evidence if you need to escalate to law enforcement under IT
+        Act 2000 / IPC Sec 354A / 509.</p>
+  </div>
+
+  <div class="pv-stats" data-testid="pv-summary">
+    <div class="pv-stat danger" data-testid="pv-stat-total">
+      <div class="lbl">Total Violations</div>
+      <div class="num">{{ violations_summary.total }}</div>
+      <div class="sub">All time</div>
+    </div>
+    <div class="pv-stat warn" data-testid="pv-stat-24h">
+      <div class="lbl">Last 24 hours</div>
+      <div class="num">{{ violations_summary.last24h }}</div>
+      <div class="sub">Recent activity</div>
+    </div>
+    <div class="pv-stat" data-testid="pv-stat-7d">
+      <div class="lbl">Last 7 days</div>
+      <div class="num">{{ violations_summary.last7d }}</div>
+      <div class="sub">This week</div>
+    </div>
+    {% for role, count in violations_summary.by_role.items() %}
+      <div class="pv-stat" data-testid="pv-stat-role-{{ role }}">
+        <div class="lbl">{{ role|replace('_',' ')|title }}</div>
+        <div class="num">{{ count }}</div>
+        <div class="sub">Blocked attempts</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="pv-toolbar">
+    <form method="get" action="/superadmin/profanity-violations"
+          style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <input type="text" name="q" value="{{ query or '' }}"
+              placeholder="Search by word, IP, user ID or snippet…"
+              data-testid="pv-search">
+      <select name="role" data-testid="pv-role-filter">
+        <option value="">All roles</option>
+        <option value="admin"     {% if role_filter=='admin' %}selected{% endif %}>Admin</option>
+        <option value="sub_lco"   {% if role_filter=='sub_lco' %}selected{% endif %}>Sub-LCO</option>
+        <option value="employee"  {% if role_filter=='employee' %}selected{% endif %}>Employee</option>
+        <option value="customer"  {% if role_filter=='customer' %}selected{% endif %}>Customer</option>
+        <option value="anonymous" {% if role_filter=='anonymous' %}selected{% endif %}>Anonymous</option>
+      </select>
+      <button type="submit" class="btn btn-primary" data-testid="pv-apply">
+        <i class="bi bi-funnel"></i> Filter
+      </button>
+      <a href="/superadmin/profanity-violations" class="btn btn-default"
+         data-testid="pv-clear">Clear</a>
+      <a href="/superadmin/profanity-violations.csv?q={{ query or '' }}&role={{ role_filter or '' }}"
+         class="btn btn-success" data-testid="pv-export">
+        <i class="bi bi-download"></i> Export CSV
+      </a>
+    </form>
+  </div>
+
+  <table class="pv-table" data-testid="pv-table">
+    <thead>
+      <tr>
+        <th>When (IST)</th>
+        <th>Role</th>
+        <th>Actor</th>
+        <th>IP</th>
+        <th>Path</th>
+        <th>Word</th>
+        <th>Context Snippet</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if violations|length == 0 %}
+        <tr><td colspan="7" class="pv-empty">
+          No violations recorded — everyone's been polite so far. ✨
+        </td></tr>
+      {% endif %}
+      {% for v in violations %}
+        <tr data-testid="pv-row-{{ v.id }}">
+          <td style="white-space:nowrap;font-family:ui-monospace,monospace;font-size:12px;color:#475569">
+            {{ v.occurred_at }}
+          </td>
+          <td><span class="pv-role-pill {{ v.actor_type or 'anonymous' }}">
+                {{ (v.actor_type or 'anonymous')|replace('_',' ') }}</span></td>
+          <td>
+            <b>{{ v.actor_name or v.actor_id or '—' }}</b>
+            {% if v.actor_id and v.actor_name %}<br>
+              <small style="color:#6b7280;font-family:ui-monospace,monospace">
+                {{ v.actor_id }}</small>
+            {% endif %}
+            {% if v.company_id %}<br>
+              <small style="color:#9ca3af">co {{ v.company_id }}</small>
+            {% endif %}
+          </td>
+          <td class="pv-ip">{{ v.ip_address or '—' }}</td>
+          <td style="font-family:ui-monospace,monospace;font-size:11px;color:#475569;
+                       max-width:220px;word-break:break-all;">
+            {{ v.method }} {{ v.request_path }}
+          </td>
+          <td><span class="pv-word">{{ v.offending_word }}</span></td>
+          <td class="pv-snippet" title="{{ v.snippet or '' }}">
+            {{ v.snippet or '—' }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if violations_summary.top_words or violations_summary.top_ips %}
+  <div class="pv-grid2">
+    <div class="pv-card" data-testid="pv-top-words">
+      <h4>🔝 Top 10 Offending Words</h4>
+      {% if violations_summary.top_words %}
+        <ol>
+          {% for w in violations_summary.top_words %}
+            <li><b>{{ w.word }}</b> — {{ w.count }} occurrences</li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p style="color:#6b7280;margin:0">No data yet.</p>
+      {% endif %}
+    </div>
+    <div class="pv-card" data-testid="pv-top-ips">
+      <h4>🔝 Top 10 Offending IPs</h4>
+      {% if violations_summary.top_ips %}
+        <ol>
+          {% for i in violations_summary.top_ips %}
+            <li><b>{{ i.ip }}</b> — {{ i.count }} attempts</li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p style="color:#6b7280;margin:0">No data yet.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

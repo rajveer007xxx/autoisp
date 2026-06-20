@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.bak
+*.bak_*
+backups_fork/
+s36_rollback_archive/
+static/uploads/
+*.log
+isp_management.db
+.env
+*.sqlite
+*.sqlite-journal

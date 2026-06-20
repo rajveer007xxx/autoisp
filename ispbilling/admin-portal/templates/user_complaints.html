@@ -1,0 +1,38 @@
+{% extends "base_user.html" %}
+{% block title %}Support — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title"><div><h1>Support &amp; Complaints</h1><p>Tell us what's wrong, we'll fix it fast.</p></div></div>
+<div style="display:grid;grid-template-columns:2fr 3fr;gap:24px;">
+<div class="card"><h3><i class="bi bi-pencil-square"></i> Raise a New Ticket</h3>
+  <form id="cf" onsubmit="event.preventDefault();sendComplaint();" style="display:grid;gap:12px;">
+    <div><label>Issue Type</label>
+      <select id="cfType">
+        <option>No Internet</option><option>Slow Speed</option><option>Frequent Disconnection</option>
+        <option>Billing Question</option><option>Plan Change Request</option><option>Other</option>
+      </select>
+    </div>
+    <div><label>Describe your issue</label><textarea id="cfMsg" rows="5" required></textarea></div>
+    <button type="submit" class="btn primary"><i class="bi bi-send"></i> Submit ticket</button>
+    <div id="cfMsgOut" style="font-size:13px;"></div>
+  </form>
+</div>
+<div class="card"><h3><i class="bi bi-list-task"></i> Your Open Tickets</h3>
+<table><thead><tr><th>Ticket #</th><th>Type</th><th>Created</th><th>Status</th></tr></thead><tbody>
+{% for t in tickets|default([]) %}
+<tr><td>{{ t.ticket_no or t.id }}</td><td>{{ t.complaint_type }}</td><td>{{ t.created_at }}</td><td><span class="pill {{ 'paid' if t.status=='Resolved' else 'partial' }}">{{ t.status }}</span></td></tr>
+{% else %}<tr><td colspan="4" style="text-align:center;color:var(--text-lo);padding:30px;">No tickets yet.</td></tr>{% endfor %}
+</tbody></table>
+</div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function sendComplaint(){
+  const t=document.getElementById('cfType').value, m=document.getElementById('cfMsg').value;
+  const r=await fetch('/api/customer/me/complaint',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:t,message:m})});
+  const d=await r.json(); const o=document.getElementById('cfMsgOut');
+  o.textContent=d.message||(d.success?'Submitted ✓ — refreshing...':'Failed'); o.style.color=d.success?'#34d399':'#f87171';
+  if(d.success){ setTimeout(()=>location.reload(), 1200); }
+}
+</script>
+{% endblock %}

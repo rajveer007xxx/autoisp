@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/static/favicon.png" data-tag="_S39R5H">
+    <link rel="apple-touch-icon" href="/static/favicon.png">
+    <title>Auto ISP Billing — Complete ISP Management Solution</title>
+    <meta name="description" content="Modern billing, CRM, and automation platform built for Internet Service Providers. MikroTik, RADIUS &amp; payment-gateway ready.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root{
+            --brand-900:#0b1736;--brand-800:#112050;--brand-700:#1a2d7d;
+            --brand-500:#3d5afe;--brand-400:#5b7bff;
+            --accent-500:#00d4b4;--accent-400:#22e1c2;
+            --ink-900:#0b1224;--ink-700:#2b3552;--ink-500:#5c6785;--ink-300:#aab2c8;
+            --surface:#f6f8fc;--card:#ffffff;
+            --radius-lg:18px;--radius-md:12px;
+            --shadow-sm:0 2px 10px rgba(11,18,36,.06);
+            --shadow-md:0 10px 30px rgba(11,18,36,.08);
+            --shadow-lg:0 25px 60px rgba(11,18,36,.18);
+        }
+        *{box-sizing:border-box}
+        html,body{margin:0;padding:0;font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink-900);background:#fff;-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+        h1,h2,h3,h4{font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;letter-spacing:-.02em;margin:0}
+        p{margin:0;color:var(--ink-700);line-height:1.65}
+        a{text-decoration:none;color:inherit}
+        img{max-width:100%;display:block}
+        .container-xxl{max-width:1240px;margin:0 auto;padding:0 20px}
+        .btn{border-radius:999px;padding:.85rem 1.6rem;font-weight:600;letter-spacing:.01em;border:0;transition:transform .15s ease,box-shadow .2s ease,background .2s ease,color .2s ease;display:inline-flex;align-items:center;gap:.5rem}
+        .btn-primary-g{background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;box-shadow:0 12px 28px rgba(61,90,254,.35)}
+        .btn-primary-g:hover{transform:translateY(-2px);box-shadow:0 18px 40px rgba(61,90,254,.45);color:#fff}
+        .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.25);backdrop-filter:blur(6px)}
+        .btn-ghost:hover{background:rgba(255,255,255,.18);color:#fff}
+
+        /* NAV */
+        .site-nav{position:fixed;top:0;left:0;right:0;z-index:50;padding:10px 0;background:#fff;border-bottom:1px solid rgba(11,18,36,.06);box-shadow:0 4px 18px rgba(11,18,36,.06);transition:box-shadow .25s ease}
+        .site-nav.solid{background:#fff;box-shadow:0 6px 22px rgba(11,18,36,.10)}
+        .nav-wrap{display:flex;align-items:center;justify-content:space-between;gap:24px;position:relative}
+        .brand{display:flex;align-items:center;gap:10px;color:var(--ink-900);font-weight:700;font-size:1.15rem;text-decoration:none}
+        .brand-img{height:42px;width:auto;max-width:230px;object-fit:contain;display:block}
+        .brand-img-footer{height:46px;width:auto;max-width:240px;object-fit:contain;display:block;filter:brightness(0) invert(1) opacity(.92)}
+        .site-nav.solid .brand{color:var(--ink-900)}
+        .brand-logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--brand-500),#7c3aff);display:grid;place-items:center;color:#fff;box-shadow:var(--shadow-md)}
+        .nav-links{display:flex;align-items:center;gap:28px;list-style:none;padding:0;margin:0}
+        .nav-links a{color:var(--ink-700);font-weight:500;font-size:.95rem;text-decoration:none}
+        .site-nav.solid .nav-links a{color:var(--ink-700)}
+        .nav-links a:hover{color:var(--brand-500)}
+        .site-nav.solid .nav-links a:hover{color:var(--brand-500)}
+        .nav-cta{display:flex;gap:10px;align-items:center}
+        .nav-login{color:var(--ink-900);font-weight:600;padding:.5rem 1rem;border-radius:999px;border:1px solid rgba(11,18,36,.18);text-decoration:none}
+        .site-nav.solid .nav-login{color:var(--ink-900);border-color:rgba(11,18,36,.18)}
+        .nav-login:hover{background:rgba(11,18,36,.06)}
+        .site-nav.solid .nav-login:hover{background:rgba(11,18,36,.06)}
+        .nav-toggle{display:none;background:none;border:0;color:var(--ink-900);font-size:1.5rem}
+        .site-nav.solid .nav-toggle{color:var(--ink-900)}
+        .mobile-menu{display:none}
+        @media (max-width:991px){
+            .nav-links,.nav-cta .btn-primary-g{display:none}
+            .nav-toggle{display:inline-block}
+            .mobile-menu{display:none;position:absolute;top:100%;left:20px;right:20px;background:#fff;border-radius:var(--radius-md);box-shadow:var(--shadow-md);padding:16px 20px;flex-direction:column;gap:12px;margin-top:10px}
+            .mobile-menu.open{display:flex}
+            .mobile-menu a{color:var(--ink-900);font-weight:500;padding:10px 4px;border-bottom:1px solid #eef0f7}
+            .mobile-menu a:last-child{border-bottom:0}
+        }
+
+        /* HERO */
+        .hero{position:relative;min-height:100vh;padding:140px 0 80px;color:#fff;overflow:hidden;background:radial-gradient(1100px 600px at 85% 15%,rgba(124,58,255,.35),transparent 60%),radial-gradient(800px 500px at 10% 80%,rgba(0,212,180,.25),transparent 60%),linear-gradient(135deg,#06102e 0%,#0b1a4a 45%,#1a2d7d 100%)}
+        .hero::before{content:"";position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1920&q=60');background-size:cover;background-position:center;opacity:.2;mix-blend-mode:screen;pointer-events:none}
+        .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(6,16,46,.0) 30%,rgba(6,16,46,.6) 100%);pointer-events:none}
+        .hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:1.1fr 1fr;gap:56px;align-items:center}
+        .eyebrow{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#d5dcff;padding:.4rem .9rem;border-radius:999px;font-size:.82rem;font-weight:500;letter-spacing:.02em}
+        .eyebrow .dot{width:8px;height:8px;background:var(--accent-400);border-radius:50%;box-shadow:0 0 0 4px rgba(34,225,194,.18)}
+        .hero h1{font-size:clamp(2.2rem,4.6vw,3.7rem);line-height:1.08;margin-top:22px;background:linear-gradient(180deg,#fff,#cfd6ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+        .hero .lead{color:rgba(255,255,255,.82);font-size:1.1rem;margin:22px 0 32px;max-width:52ch}
+        .hero-cta{display:flex;flex-wrap:wrap;gap:12px}
+        .hero-stats{margin-top:44px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:540px}
+        .hero-stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:var(--radius-md);padding:14px 16px;backdrop-filter:blur(6px)}
+        .hero-stat strong{display:block;font-size:1.5rem;color:#fff;font-family:'Space Grotesk'}
+        .hero-stat span{font-size:.82rem;color:rgba(255,255,255,.7)}
+        .hero-visual{position:relative;height:520px}
+        .hv-card{position:absolute;background:rgba(17,24,60,.75);border:1px solid rgba(255,255,255,.12);border-radius:var(--radius-lg);backdrop-filter:blur(14px);box-shadow:var(--shadow-lg);overflow:hidden}
+        .hv-main{top:20px;left:8%;right:0;width:92%;height:340px}
+        .hv-main img{width:100%;height:100%;object-fit:cover;opacity:.9}
+        .hv-main::after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(61,90,254,.25),rgba(0,212,180,.15))}
+        .hv-badge{position:absolute;background:#fff;color:var(--ink-900);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow-md);display:flex;gap:12px;align-items:center}
+        .hv-badge .ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:#fff;flex:none}
+        .hv-badge .t{font-size:.78rem;color:var(--ink-500)}
+        .hv-badge .v{font-weight:700;font-size:1.05rem}
+        .hv-badge.a{bottom:20px;left:-10px;animation:float 6s ease-in-out infinite}
+        .hv-badge.a .ico{background:linear-gradient(135deg,#00d4b4,#19a8ff)}
+        .hv-badge.b{top:0;right:-8px;animation:float 7s ease-in-out -2s infinite}
+        .hv-badge.b .ico{background:linear-gradient(135deg,#7c3aff,#ff4fb6)}
+        .hv-badge.c{bottom:90px;right:-20px;animation:float 8s ease-in-out -4s infinite}
+        .hv-badge.c .ico{background:linear-gradient(135deg,#ff9133,#ffd700);color:#1b1200}
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+        @media (max-width:991px){.hero{padding-top:120px}.hero-grid{grid-template-columns:1fr;gap:40px}.hero-visual{height:380px;max-width:520px;margin:0 auto}.hv-main{height:270px}.hero-stats{max-width:100%}}
+        @media (max-width:560px){.hero-stats{grid-template-columns:repeat(3,1fr);gap:10px}.hero-stat{padding:10px}.hero-stat strong{font-size:1.15rem}}
+
+        /* TRUST */
+        .trust{padding:40px 0;border-bottom:1px solid #eef0f7;background:#fff}
+        .trust-title{text-align:center;font-size:.9rem;color:var(--ink-500);text-transform:uppercase;letter-spacing:.14em;margin-bottom:22px}
+        .trust-logos{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:40px}
+        .trust-logo{font-family:'Space Grotesk';font-weight:700;color:#8b95ad;font-size:1.2rem;letter-spacing:-.02em;opacity:.8}
+        .trust-logo i{margin-right:8px;color:var(--brand-500)}
+
+        /* SECTIONS */
+        section{padding:100px 0}
+        .s-head{text-align:center;max-width:760px;margin:0 auto 56px}
+        .s-head .eyebrow-dark{display:inline-flex;gap:8px;align-items:center;background:#eef1ff;color:var(--brand-500);padding:.4rem .9rem;border-radius:999px;font-size:.82rem;font-weight:600;margin-bottom:18px}
+        .s-head h2{font-size:clamp(1.9rem,3.4vw,2.6rem);line-height:1.15}
+        .s-head p{margin-top:14px;font-size:1.06rem}
+        .features{background:var(--surface)}
+        .feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+        .feat{background:var(--card);border-radius:var(--radius-lg);padding:28px 26px;border:1px solid #ecf0f7;transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+        .feat:hover{transform:translateY(-4px);box-shadow:var(--shadow-md);border-color:#d9dff0}
+        .feat-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-size:1.3rem;color:#fff;margin-bottom:18px;background:linear-gradient(135deg,var(--brand-500),#7c3aff)}
+        .feat:nth-child(6n+2) .feat-ico{background:linear-gradient(135deg,#00d4b4,#19a8ff)}
+        .feat:nth-child(6n+3) .feat-ico{background:linear-gradient(135deg,#ff4fb6,#7c3aff)}
+        .feat:nth-child(6n+4) .feat-ico{background:linear-gradient(135deg,#ff9133,#ffd700);color:#1b1200}
+        .feat:nth-child(6n+5) .feat-ico{background:linear-gradient(135deg,#19a8ff,#7c3aff)}
+        .feat:nth-child(6n+6) .feat-ico{background:linear-gradient(135deg,#00d4b4,#3d5afe)}
+        .feat h4{font-size:1.1rem;margin-bottom:8px}
+        .feat p{font-size:.95rem;color:var(--ink-500)}
+        @media (max-width:900px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
+        @media (max-width:560px){.feat-grid{grid-template-columns:1fr}}
+
+        .split{display:grid;grid-template-columns:1.05fr 1fr;gap:60px;align-items:center}
+        .split-visual{position:relative;border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-lg);background:#111;min-height:440px}
+        .split-visual img{width:100%;height:100%;min-height:440px;object-fit:cover;opacity:.92}
+        .split-visual::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,23,54,.1),rgba(11,23,54,.55))}
+        .split-visual .tag{position:absolute;top:18px;left:18px;background:rgba(255,255,255,.92);color:var(--ink-900);font-weight:600;font-size:.8rem;padding:.4rem .8rem;border-radius:999px;z-index:2}
+        .split h2{font-size:clamp(1.8rem,3.2vw,2.4rem)}
+        .steps{margin-top:24px;display:flex;flex-direction:column;gap:18px}
+        .step{display:flex;gap:16px;align-items:flex-start}
+        .step-num{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--brand-500),#7c3aff);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+        .step h5{font-size:1.05rem;margin-bottom:4px}
+        .step p{font-size:.95rem;color:var(--ink-500)}
+        @media (max-width:900px){.split{grid-template-columns:1fr}.split-visual,.split-visual img{min-height:320px}}
+
+        .integrations{background:linear-gradient(180deg,#0b1736 0%,#112050 100%);color:#fff;position:relative;overflow:hidden}
+        .integrations::before{content:"";position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1920&q=60');background-size:cover;background-position:center;opacity:.12}
+        .integrations .s-head h2{color:#fff}
+        .integrations .s-head p{color:rgba(255,255,255,.78)}
+        .int-grid{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:18px;max-width:900px;margin:0 auto}/* _S39R5I_INT4COL */
+        .int-tile{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:22px 10px;text-align:center;color:#e9ecf6;font-weight:600;font-family:'Space Grotesk';transition:background .2s ease,transform .2s ease}
+        .int-tile i{display:block;font-size:1.6rem;color:var(--accent-400);margin-bottom:8px}
+        .int-tile:hover{background:rgba(255,255,255,.12);transform:translateY(-3px)}
+        @media (max-width:900px){.int-grid{grid-template-columns:repeat(3,1fr)}}
+        @media (max-width:560px){.int-grid{grid-template-columns:repeat(2,1fr)}}
+
+        .bene-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+        .bene{padding:30px 22px;border-radius:var(--radius-lg);background:#fff;border:1px solid #ecf0f7;text-align:center;transition:transform .2s ease,box-shadow .2s ease}
+        .bene:hover{transform:translateY(-3px);box-shadow:var(--shadow-md)}
+        .bene i{font-size:2rem;color:var(--brand-500);margin-bottom:10px;display:block}
+        .bene strong{display:block;font-family:'Space Grotesk';font-size:2.1rem;color:var(--ink-900);letter-spacing:-.02em}
+        .bene span{display:block;margin-top:4px;color:var(--ink-500);font-size:.95rem}
+        @media (max-width:800px){.bene-grid{grid-template-columns:repeat(2,1fr)}}
+
+        .demo{background:linear-gradient(135deg,#0b1736 0%,#1a2d7d 100%);color:#fff;position:relative;overflow:hidden}
+        .demo::before{content:"";position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1920&q=60');background-size:cover;background-position:center;opacity:.1}
+        .demo-grid{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+        .demo h2{color:#fff;font-size:clamp(1.9rem,3.4vw,2.6rem)}
+        .demo p{color:rgba(255,255,255,.8);margin-top:14px;margin-bottom:22px}
+        .demo ul{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+        .demo ul li{display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.9)}
+        .demo ul li i{color:var(--accent-400)}
+        .demo-form{background:#fff;color:var(--ink-900);border-radius:var(--radius-lg);padding:30px;box-shadow:var(--shadow-lg)}
+        .demo-form .form-control,.demo-form .form-select{border-radius:12px;padding:14px 16px;border:1px solid #e4e8f3}
+        .demo-form .form-control:focus,.demo-form .form-select:focus{border-color:var(--brand-500);box-shadow:0 0 0 4px rgba(61,90,254,.15)}
+        .demo-form .form-label{font-weight:600;font-size:.88rem;color:var(--ink-700);margin-bottom:6px}
+        @media (max-width:900px){.demo-grid{grid-template-columns:1fr;gap:32px}}
+
+        footer{background:#08112a;color:#cbd3e6;padding:70px 0 24px}
+        .f-grid{display:grid;grid-template-columns:1.3fr repeat(3,1fr);gap:40px}
+        .f-brand p{color:rgba(203,211,230,.8);margin:16px 0 20px}
+        .f-col h5{color:#fff;font-size:1rem;margin-bottom:18px;font-family:'Space Grotesk'}
+        .f-col a,.f-col li{color:rgba(203,211,230,.8);display:block;padding:4px 0;font-size:.94rem}
+        .f-col a:hover{color:#fff}
+        .f-col ul{list-style:none;padding:0;margin:0}
+        .socials{display:flex;gap:10px;margin-top:10px}
+        .socials a{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.06);display:grid;place-items:center;color:#fff;transition:background .2s ease}
+        .socials a:hover{background:var(--brand-500)}
+        .f-bottom{border-top:1px solid rgba(255,255,255,.08);margin-top:40px;padding-top:20px;text-align:center;color:rgba(203,211,230,.6);font-size:.88rem}
+        @media (max-width:900px){.f-grid{grid-template-columns:1fr 1fr;gap:30px}}
+        @media (max-width:560px){.f-grid{grid-template-columns:1fr}}
+    </style>
+    <link rel="stylesheet" href="/static/css/site-header.css"> <!-- _S39R5K_GLOBAL_ -->
+    <style>/* _S39R5K_GLOBAL_ 80% desktop zoom */
+      @media (min-width: 992px){ html { zoom: 0.8; } }
+    </style>
+</head>
+<body>
+    <nav class="site-nav" id="siteNav">
+        <div class="container-xxl nav-wrap">
+            <a class="brand" href="/" aria-label="AutoISPBilling">
+                <img src="/static/img/autoispbilling-logo-wide.png" alt="AutoISPBilling" class="brand-img">
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how">How it works</a></li>
+                <li><a href="/pricing" data-tag="_S39R5E_NAV_PRICING">Pricing</a></li>
+                <li><a href="#integrations">Integrations</a></li>
+                <li><a href="#demo">Request Demo</a></li>
+                <li><a href="/contact">Contact</a></li>
+            </ul>
+            <div class="nav-cta">
+                <a href="/login" class="nav-login">Sign In</a>
+                <a href="#demo" class="btn btn-primary-g">Get Started <i class="bi bi-arrow-right"></i></a>
+                <button class="nav-toggle" id="navToggle" aria-label="Menu"><i class="bi bi-list"></i></button>
+            </div>
+            <div class="mobile-menu" id="mobileMenu" data-tag="_S39R5U_MOBILE_NAV_">
+                <a href="#features">Features</a>
+                <a href="#how">How it works</a>
+                <a href="#integrations">Integrations</a>
+                <a href="/pricing">Pricing</a>
+                <a href="#demo">Request Demo</a>
+                <a href="/contact">Contact</a>
+                <a href="/login"><i class="bi bi-box-arrow-in-right"></i> Sign In</a>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="container-xxl hero-grid">
+            <div>
+                <span class="eyebrow"><span class="dot"></span> Built for modern Internet Service Providers</span>
+                <h1 id="heroTitle" data-tag="_S39R5E_HERO_ROTATE">The all-in-one billing &amp; operations platform for your ISP</h1>
+                <p class="lead" id="heroLead">Automate invoicing, manage subscriptions, collect online payments and delight your customers — all from a single modern dashboard built for fiber, wireless and broadband providers.</p>
+                <div class="hero-cta">
+                    <a href="#demo" class="btn btn-primary-g btn-lg">Request Free Demo <i class="bi bi-arrow-right"></i></a>
+                    <a href="/login" class="btn btn-ghost btn-lg"><i class="bi bi-box-arrow-in-right"></i> Sign In</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="hero-stat"><strong>99.9%</strong><span>Platform uptime</span></div>
+                    <div class="hero-stat"><strong>24/7</strong><span>Customer support</span></div>
+                    <div class="hero-stat"><strong>70%</strong><span>Less manual work</span></div>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="hv-card hv-main">
+                    <img id="heroImg" src="https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&amp;fit=crop&amp;w=1200&amp;q=70" alt="ISP data centre and network infrastructure">
+                </div>
+                <div class="hv-badge a">
+                    <div class="ico"><i class="bi bi-wifi"></i></div>
+                    <div><div class="t">Active connections</div><div class="v">12,480</div></div>
+                </div>
+                <div class="hv-badge b">
+                    <div class="ico"><i class="bi bi-credit-card-2-front"></i></div>
+                    <div><div class="t">Payments today</div><div class="v">&#8377;3.2 L</div></div>
+                </div>
+                <div class="hv-badge c">
+                    <div class="ico"><i class="bi bi-graph-up-arrow"></i></div>
+                    <div><div class="t">MRR growth</div><div class="v">+18%</div></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="trust">
+        <div class="container-xxl">
+            <div class="trust-title">Works seamlessly with your existing stack</div>
+            <div class="trust-logos">
+                <div class="trust-logo"><i class="bi bi-router"></i>MikroTik</div>
+                <div class="trust-logo"><i class="bi bi-hdd-network"></i>Cisco</div>
+                
+                <div class="trust-logo"><i class="bi bi-shield-lock"></i>RADIUS</div>
+                
+                <div class="trust-logo"><i class="bi bi-cash-coin"></i>Razorpay</div>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <div class="container-xxl">
+            <div class="s-head">
+                <span class="eyebrow-dark"><i class="bi bi-stars"></i> Everything you need</span>
+                <h2>Powerful features, purpose-built for ISPs</h2>
+                <p>From onboarding a new customer to reconciling payments and renewing subscriptions — automate the whole journey without stitching five different tools together.</p>
+            </div>
+            <div class="feat-grid">
+                <div class="feat"><div class="feat-ico"><i class="bi bi-people-fill"></i></div><h4>Customer Management</h4><p>Rich customer profiles with service history, balances, tickets and documents in one place.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-receipt"></i></div><h4>Automated Invoicing</h4><p>GST-ready invoices generated automatically with PDF delivery over Email &amp; WhatsApp.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-arrow-repeat"></i></div><h4>Subscription Renewals</h4><p>Scheduled reminders and one-click renewals keep your recurring revenue flowing.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-credit-card-2-front"></i></div><h4>Online Payments 24/7</h4><p>Collect via UPI, cards, netbanking and wallets — reconciled automatically against invoices.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-headset"></i></div><h4>Support Tickets</h4><p>Integrated helpdesk with SLA tracking so field teams never miss a complaint.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-bar-chart-line"></i></div><h4>Reports &amp; Analytics</h4><p>Real-time dashboards for MRR, churn, outstanding and field performance.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-whatsapp"></i></div><h4>SMS &amp; WhatsApp Alerts</h4><p>Bill, payment and service notifications delivered on channels customers actually check.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-geo-alt"></i></div><h4>Field &amp; GPS Tracking</h4><p>Assign localities, track technicians and monitor service visits in real time.</p></div>
+                <div class="feat"><div class="feat-ico"><i class="bi bi-shield-lock"></i></div><h4>Enterprise Security</h4><p>256-bit SSL, role-based access, and audit-ready logs for peace of mind.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="how">
+        <div class="container-xxl split">
+            <div class="split-visual">
+                <span class="tag"><i class="bi bi-lightning-fill"></i> Go live in days, not months</span>
+                <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&amp;fit=crop&amp;w=1200&amp;q=70" alt="Server room / ISP network operations">
+            </div>
+            <div>
+                <span class="eyebrow-dark"><i class="bi bi-diagram-3"></i> How it works</span>
+                <h2>From sign-up to cash-in, effortlessly.</h2>
+                <p>A workflow battle-tested with real ISPs — built to scale from a few hundred to tens of thousands of subscribers.</p>
+                <div class="steps">
+                    <div class="step"><div class="step-num">1</div><div><h5>Onboard customers in minutes</h5><p>Digital CAF, KYC and plan selection — straight into your database.</p></div></div>
+                    <div class="step"><div class="step-num">2</div><div><h5>Automate billing &amp; reminders</h5><p>Invoices generated on schedule, delivered by email &amp; WhatsApp, with smart follow-ups.</p></div></div>
+                    <div class="step"><div class="step-num">3</div><div><h5>Collect &amp; reconcile online</h5><p>Payments posted back automatically, customers see zero waiting time.</p></div></div>
+                    <div class="step"><div class="step-num">4</div><div><h5>Grow with insights</h5><p>Track MRR, churn and field performance to make smarter decisions.</p></div></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="integrations" class="integrations">
+        <div class="container-xxl">
+            <div class="s-head">
+                <span class="eyebrow-dark" style="background:rgba(255,255,255,.08);color:#fff"><i class="bi bi-plug"></i> Integrations</span>
+                <h2>Plays well with every part of your ISP stack</h2>
+                <p>Whether you run fiber, wireless, or both — connect your routers, NAS, RADIUS and payment gateways in minutes.</p>
+            </div>
+            <div class="int-grid">
+                <div class="int-tile"><i class="bi bi-router"></i>MikroTik</div>
+                <div class="int-tile"><i class="bi bi-hdd-network"></i>Cisco</div>
+                
+                <div class="int-tile"><i class="bi bi-shield-lock"></i>RADIUS</div>
+                
+                
+                <div class="int-tile"><i class="bi bi-cash-coin"></i>Razorpay</div>
+                
+                <div class="int-tile"><i class="bi bi-whatsapp"></i>WhatsApp API</div>
+                <div class="int-tile"><i class="bi bi-envelope"></i>SMTP / Email</div>
+                <div class="int-tile"><i class="bi bi-chat-dots"></i>SMS Gateways</div>
+                <div class="int-tile"><i class="bi bi-bank"></i>UPI Banks</div>
+            </div>
+        </div>
+    </section>
+
+    <section style="background:var(--surface)">
+        <div class="container-xxl">
+            <div class="s-head">
+                <span class="eyebrow-dark"><i class="bi bi-rocket-takeoff"></i> Business impact</span>
+                <h2>Why ISPs choose Auto ISP Billing</h2>
+                <p>Results reported by operators after moving from spreadsheets and legacy tools to our platform.</p>
+            </div>
+            <div class="bene-grid">
+                <div class="bene"><i class="bi bi-clock-history"></i><strong>-70%</strong><span>Time on manual billing</span></div>
+                <div class="bene"><i class="bi bi-cash-stack"></i><strong>+28%</strong><span>Faster collections</span></div>
+                <div class="bene"><i class="bi bi-emoji-smile"></i><strong>4.8/5</strong><span>Customer satisfaction</span></div>
+                <div class="bene"><i class="bi bi-shield-check"></i><strong>100%</strong><span>GST-compliant invoices</span></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="demo" class="demo">
+        <div class="container-xxl demo-grid">
+            <div>
+                <span class="eyebrow"><span class="dot"></span> Request a free demo</span>
+                <h2>See Auto ISP Billing live with your own data.</h2>
+                <p>Tell us a bit about your ISP and we&rsquo;ll schedule a 30-minute walkthrough tailored to your workflow.</p>
+                <ul>
+                    <li><i class="bi bi-check-circle-fill"></i> Personalised walkthrough for your team</li>
+                    <li><i class="bi bi-check-circle-fill"></i> Import a sample of your customers &amp; plans</li>
+                    <li><i class="bi bi-check-circle-fill"></i> No obligation &amp; no credit card required</li>
+                </ul>
+            </div>
+            <div class="demo-form">
+                <h4 style="margin-bottom:6px">Book a demo</h4>
+                <p style="margin-bottom:18px;font-size:.92rem">Our team will reach out within 1 business day.</p>
+                <form id="demoForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Your Name</label>
+                            <input type="text" class="form-control" placeholder="Full name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" placeholder="name@company.com" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Phone</label>
+                            <input type="tel" class="form-control" placeholder="+91 ..." required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Company</label>
+                            <input type="text" class="form-control" placeholder="Your ISP name" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Number of customers</label>
+                            <select class="form-select" name="customers" required data-tag="_S39R5N_PHONE_FORMS_">
+                                <option value="">Select user count</option>
+                                <option value="up_to_100">Up to 100 (Basic)</option>
+                                <option value="up_to_300">Up to 300 (Pro)</option>
+                                <option value="up_to_400">Up to 400 (Standard)</option>
+                                <option value="up_to_500">Up to 500 (Premium)</option>
+                                <option value="unlimited">Unlimited (Enterprise)</option>
+                            </select>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <button type="submit" class="btn btn-primary-g w-100 btn-lg">Request Demo <i class="bi bi-send"></i></button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container-xxl">
+            <div class="f-grid">
+                <div class="f-brand">
+                    <a class="brand" href="/" style="color:#fff">
+                        <span class="brand-logo"><i class="bi bi-broadcast-pin"></i></span>
+                        <span>Auto ISP Billing</span>
+                    </a>
+                    <p>The modern ISP operations platform &mdash; billing, CRM, support and automation in one place.</p>
+                    <div class="socials">
+                        <a href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
+                        <a href="#" aria-label="Twitter"><i class="bi bi-twitter-x"></i></a>
+                        <a href="#" aria-label="LinkedIn"><i class="bi bi-linkedin"></i></a>
+                        <a href="#" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
+                    </div>
+                </div>
+                <div class="f-col">
+                    <h5>Product</h5>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#how">How it works</a></li>
+                        <li><a href="#integrations">Integrations</a></li>
+                        <li><a href="#demo">Request Demo</a></li>
+                        <li><a href="/login">Sign In</a></li>
+                    </ul>
+                </div>
+                <div class="f-col">
+                    <h5>Company</h5>
+                    <ul>
+                        <li><a href="/contact">Contact Us</a></li>
+                        <li><a href="/faq">FAQ / Help</a></li>
+                        <li><a href="/privacy-policy">Privacy Policy</a></li>
+                        <li><a href="/terms-of-service">Terms of Service</a></li>
+                        <li><a href="/refund-policy">Refund Policy</a></li>
+                    </ul>
+                </div>
+                <div class="f-col">
+                    <h5>Reach us</h5>
+                    <ul>
+                        <li><i class="bi bi-telephone"></i> {{ support_phone }}</li>
+                        <li><i class="bi bi-envelope"></i> support@autoispbilling.com</li>
+                        <li><i class="bi bi-whatsapp"></i> WhatsApp support available</li>
+                        <li><i class="bi bi-clock"></i> Mon&ndash;Sat, 10 AM &ndash; 7 PM IST</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="f-bottom">&copy; 2026 Auto ISP Billing. All rights reserved.</div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        (function(){
+            var nav = document.getElementById('siteNav');
+            var toggle = document.getElementById('navToggle');
+            var menu = document.getElementById('mobileMenu');
+            function onScroll(){ if(window.scrollY > 10){ nav.classList.add('solid'); } else { nav.classList.remove('solid'); } }
+            window.addEventListener('scroll', onScroll); onScroll();
+            if(toggle){ toggle.addEventListener('click', function(){ menu.classList.toggle('open'); }); }
+            document.querySelectorAll('.mobile-menu a').forEach(function(a){ a.addEventListener('click', function(){ menu.classList.remove('open'); }); });
+
+            var form = document.getElementById('demoForm');
+            if(form){
+                form.addEventListener('submit', function(e){
+                    e.preventDefault();
+                    var btn = form.querySelector('button[type="submit"]');
+                    var original = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sending...';
+                    var fd = new FormData();
+                    fd.append('name', form.querySelector('input[type="text"]').value);
+                    fd.append('email', form.querySelector('input[type="email"]').value);
+                    fd.append('phone', form.querySelector('input[type="tel"]').value);
+                    fd.append('company', form.querySelectorAll('input[type="text"]')[1].value);
+                    fd.append('customers', form.querySelector('select').value);
+                    fetch('/api/demo-request', { method:'POST', body: fd })
+                        .then(function(r){ return r.json().catch(function(){ return { message:'Request received.' }; }); })
+                        .then(function(j){ alert(j.message || 'Request received. We will contact you shortly.'); form.reset(); })
+                        .catch(function(){ alert('Could not send request. Please try again later.'); })
+                        .finally(function(){ btn.disabled = false; btn.innerHTML = original; });
+                });
+            }
+        })();
+    </script>
+
+<script>
+/* _S39R5E_HERO_ROTATE — auto-rotate hero image + heading + lead every 5s */
+(function(){
+  var slides = [
+    {
+      img: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1600&q=80",
+      title: "Drive your Mikrotik / RADIUS infrastructure on autopilot",
+      lead: "Provision NAS devices, push rate limits, sync IP pools and manage PPPoE / Hotspot users — every change reflects on your routers in seconds, not hours."
+    },
+    {
+      img: "https://images.unsplash.com/photo-1551808525-51a94da548ce?auto=format&fit=crop&w=1600&q=80",
+      title: "Run a complete Hotspot & Captive-Portal experience",
+      lead: "Beautiful login splash pages, voucher batches, walled-garden domains and free-slot management — all directly from your dashboard, no scripts required."
+    },
+    {
+      img: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?auto=format&fit=crop&w=1600&q=80",
+      title: "Automated billing, invoicing & online payments",
+      lead: "Generate GST-compliant invoices, send WhatsApp / SMS reminders, accept UPI & cards via Razorpay, and reconcile collections automatically every single month."
+    },
+    {
+      img: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1600&q=80",
+      title: "One platform, many portals — Sub-LCO, Employee, Customer",
+      lead: "Empower your team and resellers with role-scoped portals: assign customers, log payments, track field visits with live GPS, settle commissions — all isolated by tenant."
+    }
+  ];
+  var i = 0, t = document.getElementById("heroTitle"),
+         l = document.getElementById("heroLead"),
+         m = document.getElementById("heroImg");
+  if (!t || !l) return;
+  function tick(){
+    i = (i + 1) % slides.length;
+    var s = slides[i];
+    [t, l, m].forEach(function(el){ if (el) el.style.transition="opacity .35s"; if (el) el.style.opacity = 0; });
+    setTimeout(function(){
+      t.textContent = s.title;
+      l.textContent = s.lead;
+      if (m) m.src = s.img;
+      [t, l, m].forEach(function(el){ if (el) el.style.opacity = 1; });
+    }, 350);
+  }
+  setInterval(tick, 20000);  /* _S39R5F_INTERVAL */
+})();
+</script>
+</body>
+</html>

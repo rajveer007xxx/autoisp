@@ -1,0 +1,199 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Public IPs - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-header { padding: 15px; background: #fff; border-bottom: 1px solid #d2d6de; }
+    .content-header h1 { margin: 0; font-size: 22px; font-weight: 500; }
+    .btn-add { background: #17a2b8; color: #fff; border: none; padding: 8px 18px; border-radius: 3px; float: right; margin-top: -5px; }
+    .btn-add:hover { background: #138496; color: #fff; }
+    .data-table th, .data-table td { vertical-align: middle !important; text-align: center !important; font-size: 13px; }
+    .badge-free    { background: #6c757d; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-assigned { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 10px; font-size: 11px; }
+    .btn-action { padding: 3px 8px; font-size: 12px; margin: 0 2px; }
+    .modal-header { background: #3c8dbc; color: #fff; border-radius: 5px 5px 0 0; }
+    .modal-header .close { color: #fff; opacity: 1; }
+    .form-group label { font-weight: 600; color: #555; font-size: 12px; margin-bottom: 3px; }
+    .cmd-output { background: #0d1117; color: #d1d9e1; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; max-height: 260px; overflow-y: auto; white-space: pre-wrap; }
+    .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Public IP Pool
+        <button type="button" class="btn btn-add" onclick="openAdd()" data-testid="pip-add-btn">
+            <i class="fa fa-plus"></i> Add Public IP(s)
+        </button>
+    </h1>
+<!-- S30 bulk export toolbar -->
+<div id="s30ExportTools_public_ips" style="display:inline-block;margin-left:10px;vertical-align:middle;"></div>
+<script src="/static/js/bulk_export.js"></script>
+<script>
+(function(){
+  var tryMount = function(){
+    if (window.BulkExport && window.jQuery) {
+      BulkExport.mount('#s30ExportTools_public_ips', '/api/admin/public-ips/export-full', 'public_ips');
+    } else { setTimeout(tryMount, 80); }
+  };
+  tryMount();
+})();
+</script>
+
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-body">
+            <table class="table table-bordered table-striped data-table">
+                <thead>
+                    <tr><th>#</th><th>IP Address</th><th>Label</th><th>Status</th><th>Assigned To</th><th>Notes</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                {% for p in public_ips %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td><code>{{ p.ip_address }}</code></td>
+                        <td>{{ p.label or '-' }}</td>
+                        <td>
+                            {% if p.status == 'Assigned' %}<span class="badge-assigned">Assigned</span>
+                            {% else %}<span class="badge-free">Free</span>{% endif %}
+                        </td>
+                        <td>{{ p.assigned_to or '-' }}</td>
+                        <td>{{ p.notes or '-' }}</td>
+                        <td style="white-space:nowrap;">
+                            {% if p.status == 'Free' %}
+                                <button class="btn btn-success btn-action" onclick="openAssign({{ p.id }}, '{{ p.ip_address }}')"><i class="fa fa-link"></i> Assign</button>
+                            {% else %}
+                                <button class="btn btn-warning btn-action" onclick="unassign({{ p.id }})"><i class="fa fa-unlink"></i> Release</button>
+                            {% endif %}
+                            <button class="btn btn-danger btn-action" onclick="deletePip({{ p.id }})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Add -->
+<div class="modal fade" id="pipModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Add Public IP</h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label>IP Address / CIDR / Range *</label>
+                    <input type="text" class="form-control" id="pip_ip" placeholder="e.g. 203.0.113.15  |  203.0.113.0/29  |  203.0.113.10-203.0.113.20">
+                    <p class="text-muted" style="font-size:11px; margin-top:4px;">
+                        Accepts a single IP, a CIDR block (all usable hosts added), or a dash-range (up to 1024 addresses). Duplicates are skipped automatically.
+                    </p>
+                </div>
+                <div class="form-group"><label>Label</label><input type="text" class="form-control" id="pip_label" placeholder="optional (e.g. HQ uplink)"></div>
+                <div class="form-group"><label>Notes</label><input type="text" class="form-control" id="pip_notes"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="savePip()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign -->
+<div class="modal fade" id="assignModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Assign <code id="assign_ip_label"></code> to PPPoE secret</h4>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label>NAS Device *</label><select class="form-control" id="assign_nas"></select></div>
+                <div class="form-group"><label>PPPoE Username *</label><input type="text" class="form-control" id="assign_username" placeholder="existing PPPoE secret name"></div>
+                <label class="toggle-wrap"><input type="checkbox" id="assign_dry_run" checked> Dry-Run (preview commands only)</label>
+                <div id="assign_output" class="cmd-output" style="display:none; margin-top:10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="runAssign()">Run</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var assignTargetId = null;
+
+function openAdd() {
+    $('#pip_ip, #pip_label, #pip_notes').val('');
+    $('#pipModal').modal('show');
+}
+function savePip() {
+    var payload = { ip_address: $('#pip_ip').val(), label: $('#pip_label').val(), notes: $('#pip_notes').val() };
+    if (!payload.ip_address) { alert('IP / CIDR / Range required'); return; }
+    fetch('/api/public-ips/create', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) {
+                var msg = 'Added ' + (d.count || 0) + ' IP(s).';
+                if (d.skipped_duplicates) msg += '  Skipped ' + d.skipped_duplicates + ' duplicate(s).';
+                alert(msg);
+                $('#pipModal').modal('hide');
+                location.reload();
+            } else {
+                alert(d.message || 'Error');
+            }
+        });
+}
+function deletePip(id) {
+    if (!confirm('Delete this public IP entry?')) return;
+    fetch('/api/public-ips/' + id + '/delete', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+function openAssign(id, ip) {
+    assignTargetId = id;
+    $('#assign_ip_label').text(ip);
+    $('#assign_username').val('');
+    $('#assign_dry_run').prop('checked', true);
+    $('#assign_output').hide().empty();
+    // Populate NAS list
+    fetch('/api/nas-devices/list').then(r => r.json()).then(d => {
+        var sel = $('#assign_nas'); sel.empty();
+        (d.nas_devices || []).forEach(function(n){
+            sel.append('<option value="' + n.id + '">' + n.name + ' — ' + n.ip_address + '</option>');
+        });
+        $('#assignModal').modal('show');
+    });
+}
+function runAssign() {
+    var body = {
+        nas_id: $('#assign_nas').val(),
+        username: $('#assign_username').val(),
+        dry_run: $('#assign_dry_run').is(':checked')
+    };
+    if (!body.nas_id || !body.username) { alert('NAS and username required'); return; }
+    $('#assign_output').text('Running…').show();
+    fetch('/api/public-ips/' + assignTargetId + '/assign', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json()).then(d => {
+        var txt = (d.success ? '✓ ' : '✗ ') + (d.dry_run ? '[DRY-RUN]' : '[EXECUTED]') + '\n\n';
+        (d.commands || []).forEach(function(c){ txt += '> ' + c + '\n'; });
+        if (d.message) txt += '\nmsg: ' + d.message;
+        $('#assign_output').text(txt);
+        if (d.success && !d.dry_run) { setTimeout(function(){ location.reload(); }, 1500); }
+    }).catch(e => { $('#assign_output').text('Error: ' + e); });
+}
+function unassign(id) {
+    if (!confirm('Release this IP (mark as Free)?')) return;
+    fetch('/api/public-ips/' + id + '/unassign', { method: 'POST' })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message); });
+}
+</script>
+{% endblock %}

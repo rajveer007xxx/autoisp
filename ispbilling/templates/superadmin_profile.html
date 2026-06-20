@@ -1,0 +1,839 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Profile Settings - Superadmin{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-section {
+        background: #fff;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 3px;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+    }
+    .profile-section h4 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #3c8dbc;
+        color: #3c8dbc;
+    }
+    .image-preview {
+        max-width: 200px;
+        max-height: 200px;
+        margin-top: 10px;
+        border: 1px solid #ddd;
+        padding: 5px;
+        border-radius: 3px;
+    }
+    .image-preview img {
+        max-width: 100%;
+        height: auto;
+    }
+    .btn-file {
+        position: relative;
+        overflow: hidden;
+    }
+    .btn-file input[type=file] {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: 100%;
+        min-height: 100%;
+        font-size: 100px;
+        text-align: right;
+        filter: alpha(opacity=0);
+        opacity: 0;
+        outline: none;
+        background: white;
+        cursor: inherit;
+        display: block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Profile Settings
+        <small>Manage your superadmin profile and system settings</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="/superadmin/dashboard"><i class="fa fa-dashboard"></i> Dashboard</a></li>
+        <li class="active">Profile Settings</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-6">
+            <!-- Logo Upload Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-image"></i> System Logo</h4>
+                <p class="text-muted">This logo will be used on the marketing/index page and as default logo for admins who haven't uploaded their own logo.</p>
+                
+                <form id="logoForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Upload Logo</label>
+                        <div class="input-group">
+                            <span class="input-group-btn">
+                                <span class="btn btn-primary btn-file">
+                                    Choose File <input type="file" id="logoFile" name="logo" accept="image/*">
+                                </span>
+                            </span>
+                            <input type="text" class="form-control" readonly id="logoFileName" placeholder="No file chosen">
+                        </div>
+                        <small class="text-muted">Recommended size: 350x75px. Max 2MB. Formats: JPG, PNG, GIF</small>
+                    </div>
+                    
+                    <div class="image-preview" id="logoPreview" style="display: none;">
+                        <img id="logoPreviewImg" src="" alt="Logo Preview">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-upload"></i> Upload Logo
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Profile Image Upload Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-user"></i> Profile Image</h4>
+                <p class="text-muted">Upload your profile image that will be displayed in the header.</p>
+                
+                <form id="profileImageForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Upload Profile Image</label>
+                        <div class="input-group">
+                            <span class="input-group-btn">
+                                <span class="btn btn-primary btn-file">
+                                    Choose File <input type="file" id="profileImageFile" name="profile_image" accept="image/*">
+                                </span>
+                            </span>
+                            <input type="text" class="form-control" readonly id="profileImageFileName" placeholder="No file chosen">
+                        </div>
+                        <small class="text-muted">Recommended size: 160x160px. Max 2MB. Formats: JPG, PNG, GIF</small>
+                    </div>
+                    
+                    <div class="image-preview" id="profileImagePreview" style="display: none;">
+                        <img id="profileImagePreviewImg" src="" alt="Profile Image Preview">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-upload"></i> Upload Profile Image
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <!-- Company Contact Information Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-building"></i> Company Contact Information</h4>
+                <p class="text-muted">This information will be used on invoices and communications.</p>
+                
+                <form id="contactForm">
+                    <div class="form-group">
+                        <label>Contact Number</label>
+                        <input type="text" class="form-control" id="contactNumber" name="contact_number" placeholder="e.g., +91-8085868114">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Contact Email</label>
+                        <input type="email" class="form-control" id="contactEmail" name="contact_email" placeholder="e.g., support@autoispbilling.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Address</label>
+                        <textarea class="form-control" id="address" name="address" rows="3" placeholder="Enter company address"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>State</label>
+                        <select class="form-control" id="state" name="state">
+                            <option value="">Select State</option>
+                            <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                            <option value="Assam">Assam</option>
+                            <option value="Bihar">Bihar</option>
+                            <option value="Chhattisgarh">Chhattisgarh</option>
+                            <option value="Goa">Goa</option>
+                            <option value="Gujarat">Gujarat</option>
+                            <option value="Haryana">Haryana</option>
+                            <option value="Himachal Pradesh">Himachal Pradesh</option>
+                            <option value="Jharkhand">Jharkhand</option>
+                            <option value="Karnataka">Karnataka</option>
+                            <option value="Kerala">Kerala</option>
+                            <option value="Madhya Pradesh">Madhya Pradesh</option>
+                            <option value="Maharashtra">Maharashtra</option>
+                            <option value="Manipur">Manipur</option>
+                            <option value="Meghalaya">Meghalaya</option>
+                            <option value="Mizoram">Mizoram</option>
+                            <option value="Nagaland">Nagaland</option>
+                            <option value="Odisha">Odisha</option>
+                            <option value="Punjab">Punjab</option>
+                            <option value="Rajasthan">Rajasthan</option>
+                            <option value="Sikkim">Sikkim</option>
+                            <option value="Tamil Nadu">Tamil Nadu</option>
+                            <option value="Telangana">Telangana</option>
+                            <option value="Tripura">Tripura</option>
+                            <option value="Uttar Pradesh">Uttar Pradesh</option>
+                            <option value="Uttarakhand">Uttarakhand</option>
+                            <option value="West Bengal">West Bengal</option>
+                            <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                            <option value="Chandigarh">Chandigarh</option>
+                            <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                            <option value="Delhi">Delhi</option>
+                            <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                            <option value="Ladakh">Ladakh</option>
+                            <option value="Lakshadweep">Lakshadweep</option>
+                            <option value="Puducherry">Puducherry</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>GST Number</label>
+                        <input type="text" class="form-control" id="gstNumber" name="gst_number" placeholder="Enter GST number" maxlength="15">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-save"></i> Save Contact Information
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <!-- Bank & Payment Details Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-bank"></i> Bank & Payment Details</h4>
+                <p class="text-muted">Bank details will be displayed on invoices for payment reference.</p>
+                
+                <form id="bankForm">
+                    <div class="form-group">
+                        <label>Bank Name</label>
+                        <input type="text" class="form-control" id="bankName" name="bank_name" placeholder="e.g., HDFC Bank">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Branch Code</label>
+                        <input type="text" class="form-control" id="branchCode" name="branch_code" placeholder="Enter branch code">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Account Number</label>
+                        <input type="text" class="form-control" id="accountNo" name="account_no" placeholder="Enter account number">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Branch Location</label>
+                        <input type="text" class="form-control" id="branchLocation" name="branch_location" placeholder="e.g., Mumbai">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>IFSC Code</label>
+                        <input type="text" class="form-control" id="ifscCode" name="ifsc_code" placeholder="e.g., HDFC0001234" maxlength="11">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>UPI ID</label>
+                        <input type="text" class="form-control" id="upiId" name="upi_id" placeholder="e.g., yourname@paytm">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-save"></i> Save Bank Details
+                    </button>
+                </form>
+            </div>
+            
+            <!-- QR Code Upload Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-qrcode"></i> Payment QR Code</h4>
+                <p class="text-muted">Upload QR code for UPI payments. This will be displayed on invoices.</p>
+                
+                <form id="qrCodeForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Upload QR Code</label>
+                        <div class="input-group">
+                            <span class="input-group-btn">
+                                <span class="btn btn-primary btn-file">
+                                    Choose File <input type="file" id="qrCodeFile" name="qr_code" accept="image/*">
+                                </span>
+                            </span>
+                            <input type="text" class="form-control" readonly id="qrCodeFileName" placeholder="No file chosen">
+                        </div>
+                        <small class="text-muted">Max 2MB. Formats: JPG, PNG</small>
+                    </div>
+                    
+                    <div class="image-preview" id="qrCodePreview" style="display: none;">
+                        <img id="qrCodePreviewImg" src="" alt="QR Code Preview">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-upload"></i> Upload QR Code
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <!-- Invoice Texts Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-file-text"></i> Invoice Texts</h4>
+                <p class="text-muted">Customize declaration and terms & conditions text for invoices.</p>
+                
+                <form id="invoiceTextsForm">
+                    <div class="form-group">
+                        <label>Declaration</label>
+                        <textarea class="form-control" id="declaration" name="declaration" rows="5" placeholder="Enter declaration text for invoices"></textarea>
+                        <small class="text-muted">This text will appear in the declaration section of invoices.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Terms & Conditions</label>
+                        <textarea class="form-control" id="termsConditions" name="terms_conditions" rows="5" placeholder="Enter terms and conditions for invoices"></textarea>
+                        <small class="text-muted">This text will appear in the terms & conditions section of invoices.</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-save"></i> Save Invoice Texts
+                    </button>
+                </form>
+            </div>
+            
+            <!-- SMTP Configuration Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-envelope"></i> SMTP Configuration</h4>
+                <p class="text-muted">Configure SMTP settings for sending emails across the entire website.</p>
+                
+                <form id="smtpForm">
+                    <div class="form-group">
+                        <label>SMTP Server URL <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="smtpServer" name="smtp_server" placeholder="e.g., smtp.gmail.com" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>SMTP Port <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="smtpPort" name="smtp_port" placeholder="e.g., 587 or 465" required>
+                        <small class="text-muted">Common ports: 587 (TLS), 465 (SSL), 25 (Non-encrypted)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>SMTP Username <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="smtpUsername" name="smtp_username" placeholder="e.g., your-email@gmail.com" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>SMTP Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="smtpPassword" name="smtp_password" placeholder="Enter SMTP password" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa fa-save"></i> Save SMTP Settings
+                    </button>
+                    <button type="button" class="btn btn-default" id="testSmtpBtn">
+                        <i class="fa fa-paper-plane"></i> Test Connection
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Change Password Section -->
+            <div class="profile-section">
+                <h4><i class="fa fa-lock"></i> Change Password</h4>
+                <p class="text-muted">Update your superadmin password for enhanced security.</p>
+                
+                <form id="changePasswordForm">
+                    <div class="form-group">
+                        <label>Current Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="currentPassword" name="current_password" placeholder="Enter current password" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>New Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="newPassword" name="new_password" placeholder="Enter new password" required>
+                        <small class="text-muted">Minimum 8 characters, include uppercase, lowercase, number, and special character</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Confirm New Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="confirmPassword" name="confirm_password" placeholder="Re-enter new password" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-warning">
+                        <i class="fa fa-key"></i> Change Password
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Load current settings
+    loadCurrentSettings();
+    loadSuperAdminSettings();
+    
+    // File input change handlers
+    $('#logoFile').on('change', function() {
+        var fileName = $(this).val().split('\\').pop();
+        $('#logoFileName').val(fileName);
+        previewImage(this, '#logoPreviewImg', '#logoPreview');
+    });
+    
+    $('#profileImageFile').on('change', function() {
+        var fileName = $(this).val().split('\\').pop();
+        $('#profileImageFileName').val(fileName);
+        previewImage(this, '#profileImagePreviewImg', '#profileImagePreview');
+    });
+    
+    $('#qrCodeFile').on('change', function() {
+        var fileName = $(this).val().split('\\').pop();
+        $('#qrCodeFileName').val(fileName);
+        previewImage(this, '#qrCodePreviewImg', '#qrCodePreview');
+    });
+    
+    // Logo upload form
+    $('#logoForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var formData = new FormData();
+        var logoFile = $('#logoFile')[0].files[0];
+        
+        if (!logoFile) {
+            alert('Please select a logo file to upload');
+            return;
+        }
+        
+        if (logoFile.size > 2 * 1024 * 1024) {
+            alert('Logo file size must be less than 2MB');
+            return;
+        }
+        
+        formData.append('logo', logoFile);
+        
+        $.ajax({
+            url: '/api/superadmin/profile/logo',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Logo uploaded successfully!');
+                    $('#logoFile').val('');
+                    $('#logoFileName').val('');
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to upload logo'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error uploading logo: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+    
+    // Profile image upload form
+    $('#profileImageForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var formData = new FormData();
+        var profileImageFile = $('#profileImageFile')[0].files[0];
+        
+        if (!profileImageFile) {
+            alert('Please select a profile image to upload');
+            return;
+        }
+        
+        if (profileImageFile.size > 2 * 1024 * 1024) {
+            alert('Profile image file size must be less than 2MB');
+            return;
+        }
+        
+        formData.append('profile_image', profileImageFile);
+        
+        $.ajax({
+            url: '/api/superadmin/profile/image',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Profile image uploaded successfully!');
+                    $('#profileImageFile').val('');
+                    $('#profileImageFileName').val('');
+                    // Reload page to update header image
+                    location.reload();
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to upload profile image'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error uploading profile image: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+    
+    // SMTP configuration form
+    $('#smtpForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var smtpData = {
+            smtp_server: $('#smtpServer').val(),
+            smtp_port: parseInt($('#smtpPort').val()),
+            smtp_username: $('#smtpUsername').val(),
+            smtp_password: $('#smtpPassword').val()
+        };
+        
+        $.ajax({
+            url: '/api/superadmin/profile/smtp',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(smtpData),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('SMTP settings saved successfully!');
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to save SMTP settings'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error saving SMTP settings: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+    
+    // Test SMTP connection
+    $('#testSmtpBtn').on('click', function() {
+        var smtpData = {
+            smtp_server: $('#smtpServer').val(),
+            smtp_port: parseInt($('#smtpPort').val()),
+            smtp_username: $('#smtpUsername').val(),
+            smtp_password: $('#smtpPassword').val()
+        };
+        
+        if (!smtpData.smtp_server || !smtpData.smtp_port || !smtpData.smtp_username || !smtpData.smtp_password) {
+            alert('Please fill in all SMTP fields before testing');
+            return;
+        }
+        
+        $(this).prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Testing...');
+        
+        $.ajax({
+            url: '/api/superadmin/profile/smtp/test',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(smtpData),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                $('#testSmtpBtn').prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Test Connection');
+                if (response.success) {
+                    alert('SMTP connection test successful!');
+                } else {
+                    alert('SMTP connection test failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr) {
+                $('#testSmtpBtn').prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Test Connection');
+                alert('Error testing SMTP connection: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+    
+    // Contact form submission
+    $('#contactForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var contactData = {
+            contact_number: $('#contactNumber').val(),
+            contact_email: $('#contactEmail').val(),
+            address: $('#address').val(),
+            state: $('#state').val(),
+            gst_number: $('#gstNumber').val()
+        };
+        
+        $.ajax({
+            url: '/api/superadmin/settings',
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(contactData),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Contact information saved successfully!');
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to save contact information'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error saving contact information: ' + (xhr.responseJSON?.error || xhr.statusText));
+            }
+        });
+    });
+    
+    // Bank form submission
+    $('#bankForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var bankData = {
+            bank_name: $('#bankName').val(),
+            branch_code: $('#branchCode').val(),
+            account_no: $('#accountNo').val(),
+            branch_location: $('#branchLocation').val(),
+            ifsc_code: $('#ifscCode').val(),
+            upi_id: $('#upiId').val()
+        };
+        
+        $.ajax({
+            url: '/api/superadmin/settings',
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(bankData),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Bank details saved successfully!');
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to save bank details'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error saving bank details: ' + (xhr.responseJSON?.error || xhr.statusText));
+            }
+        });
+    });
+    
+    // QR Code upload form
+    $('#qrCodeForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var formData = new FormData();
+        var qrCodeFile = $('#qrCodeFile')[0].files[0];
+        
+        if (!qrCodeFile) {
+            alert('Please select a QR code file to upload');
+            return;
+        }
+        
+        if (qrCodeFile.size > 2 * 1024 * 1024) {
+            alert('QR code file size must be less than 2MB');
+            return;
+        }
+        
+        formData.append('qr_code', qrCodeFile);
+        
+        $.ajax({
+            url: '/api/superadmin/settings/upload-qr',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('QR code uploaded successfully!');
+                    $('#qrCodeFile').val('');
+                    $('#qrCodeFileName').val('');
+                    if (response.qr_code_path) {
+                        $('#qrCodePreview').show();
+                        $('#qrCodePreviewImg').attr('src', response.qr_code_path);
+                    }
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to upload QR code'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error uploading QR code: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+    
+    // Invoice texts form submission
+    $('#invoiceTextsForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var invoiceData = {
+            declaration: $('#declaration').val(),
+            terms_conditions: $('#termsConditions').val()
+        };
+        
+        $.ajax({
+            url: '/api/superadmin/settings',
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(invoiceData),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Invoice texts saved successfully!');
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to save invoice texts'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error saving invoice texts: ' + (xhr.responseJSON?.error || xhr.statusText));
+            }
+        });
+    });
+    
+    // Change password form
+    $('#changePasswordForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        var currentPassword = $('#currentPassword').val();
+        var newPassword = $('#newPassword').val();
+        var confirmPassword = $('#confirmPassword').val();
+        
+        if (newPassword !== confirmPassword) {
+            alert('New password and confirm password do not match');
+            return;
+        }
+        
+        if (newPassword.length < 8) {
+            alert('New password must be at least 8 characters long');
+            return;
+        }
+        
+        $.ajax({
+            url: '/api/superadmin/profile/password',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword
+            }),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('Password changed successfully! Please login again.');
+                    window.location.href = '/logout';
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to change password'));
+                }
+            },
+            error: function(xhr) {
+                alert('Error changing password: ' + (xhr.responseJSON?.message || xhr.statusText));
+            }
+        });
+    });
+});
+
+function loadCurrentSettings() {
+    $.ajax({
+        url: '/api/superadmin/profile/settings',
+        type: 'GET',
+        xhrFields: {
+            withCredentials: true
+        },
+        success: function(response) {
+            if (response.success) {
+                var settings = response.settings;
+                
+                // Populate SMTP fields
+                if (settings.smtp_server) $('#smtpServer').val(settings.smtp_server);
+                if (settings.smtp_port) $('#smtpPort').val(settings.smtp_port);
+                if (settings.smtp_username) $('#smtpUsername').val(settings.smtp_username);
+                if (settings.smtp_password) $('#smtpPassword').val('••••••••');
+                
+                // Show current logo if exists
+                if (settings.logo_path) {
+                    $('#logoPreview').show();
+                    $('#logoPreviewImg').attr('src', settings.logo_path);
+                }
+                
+                // Show current profile image if exists
+                if (settings.profile_image_path) {
+                    $('#profileImagePreview').show();
+                    $('#profileImagePreviewImg').attr('src', settings.profile_image_path);
+                }
+            }
+        },
+        error: function(xhr) {
+            console.error('Error loading settings:', xhr);
+        }
+    });
+}
+
+function loadSuperAdminSettings() {
+    $.ajax({
+        url: '/api/superadmin/settings',
+        type: 'GET',
+        xhrFields: {
+            withCredentials: true
+        },
+        success: function(response) {
+            if (response.success && response.settings) {
+                var settings = response.settings;
+                
+                // Populate contact fields
+                if (settings.contact_number) $('#contactNumber').val(settings.contact_number);
+                if (settings.contact_email) $('#contactEmail').val(settings.contact_email);
+                if (settings.address) $('#address').val(settings.address);
+                if (settings.state) $('#state').val(settings.state);
+                if (settings.gst_number) $('#gstNumber').val(settings.gst_number);
+                
+                // Populate bank fields
+                if (settings.bank_name) $('#bankName').val(settings.bank_name);
+                if (settings.branch_code) $('#branchCode').val(settings.branch_code);
+                if (settings.account_no) $('#accountNo').val(settings.account_no);
+                if (settings.branch_location) $('#branchLocation').val(settings.branch_location);
+                if (settings.ifsc_code) $('#ifscCode').val(settings.ifsc_code);
+                if (settings.upi_id) $('#upiId').val(settings.upi_id);
+                
+                // Show QR code if exists
+                if (settings.qr_code_path) {
+                    $('#qrCodePreview').show();
+                    $('#qrCodePreviewImg').attr('src', settings.qr_code_path);
+                }
+                
+                // Populate invoice texts
+                if (settings.declaration) $('#declaration').val(settings.declaration);
+                if (settings.terms_conditions) $('#termsConditions').val(settings.terms_conditions);
+            }
+        },
+        error: function(xhr) {
+            console.error('Error loading SuperAdmin settings:', xhr);
+        }
+    });
+}
+
+function previewImage(input, imgSelector, containerSelector) {
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        
+        reader.onload = function(e) {
+            $(imgSelector).attr('src', e.target.result);
+            $(containerSelector).show();
+        };
+        
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
+{% endblock %}

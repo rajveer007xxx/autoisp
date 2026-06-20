@@ -1,0 +1,120 @@
+{% extends "base_admin.html" %}
+
+{% block title %}{{ title }} - {{ cust.customer_name or cust.username }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .usage-hdr { background:#fff; padding:14px 20px; border-bottom:1px solid #e5e7eb;
+                 display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+    .usage-hdr h1 { margin:0; font-size:20px; font-weight:600; color:#0f172a; }
+    .usage-hdr .sub { color:#64748b; font-size:13px; margin-top:3px; }
+    .usage-hdr a.back { background:#64748b; color:#fff; padding:6px 14px; border-radius:4px;
+                        text-decoration:none; font-size:12px; }
+    .usage-hdr a.back:hover { background:#475569; }
+
+    .usage-table { width:100%; font-size:12px; background:#fff; margin:14px;
+                   border:1px solid #e5e7eb; border-radius:4px; }
+    .usage-table th { background:#2c3e50; color:#fff; padding:8px 6px; text-align:center;
+                      font-size:11px; font-weight:600; white-space:nowrap; }
+    .usage-table td { padding:8px 6px; border-bottom:1px solid #f1f5f9; font-size:11.5px;
+                      text-align:center; color:#374151; white-space:nowrap; }
+    .usage-table tr:hover { background:#f8fafc; }
+    .usage-table .mono { font-family:monospace; font-size:11px; }
+    .usage-table .agg-row { background:#f0f9ff; font-weight:600; color:#0369a1; }
+
+    .empty { padding:40px; text-align:center; color:#94a3b8; background:#fff; margin:14px;
+             border:1px dashed #cbd5e1; border-radius:6px; }
+  /* _S39R1_USAGE_TH_VISIBLE */ 
+  .usage-table thead th, .usage-table th { background:#2c3e50 !important; background-color:#2c3e50 !important; color:#fff !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="usage-hdr">
+    <div>
+        <h1>{{ title }} &mdash; {{ cust.customer_name or cust.username }}</h1>
+        <div class="sub">{{ subtitle }}</div>
+    </div>
+    <!-- _S39R1_USAGE_BACK_LINK --><a href="{{ path_prefix|default('/admin') }}/subscribers/{{ cust.id }}" class="back" data-testid="usage-back-btn">
+        <i class="fa fa-arrow-left"></i> Back to Subscriber</a>
+</section>
+
+{% if sessions %}
+{# Aggregates #}
+{% set agg_up    = sessions|sum(attribute='up_mb')    %}
+{% set agg_down  = sessions|sum(attribute='down_mb')  %}
+{% set agg_total = sessions|sum(attribute='total_mb') %}
+{% set agg_secs  = sessions|sum(attribute='secs')     %}
+
+<table class="usage-table" data-testid="usage-table">
+    <thead>
+        <tr>
+            <th>Logon Time</th>
+            <th>Logout Time</th>
+            <th>Session Time</th>
+            <th>FUP</th>
+            <th>Upload</th>
+            <th>Download</th>
+            <th>Total</th>
+            <th>NAS</th>
+            <th>MAC Address</th>
+            <th>IP Address</th>
+            <th>IPv6 Address</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in sessions %}
+        <tr>
+            <td class="mono">{{ s.start or '—' }}</td>
+            <td class="mono">{{ s.stop }}</td>
+            <td>
+                {% set h = (s.secs // 3600) %}
+                {% set m = ((s.secs % 3600) // 60) %}
+                {{ h }} Hrs {{ m }} Mins
+            </td>
+            <td><span class="no-badge">N</span></td>
+            <td>{{ '%.2f GB'|format((s.up_mb or 0) / 1024.0) }}</td>
+            <td>{{ '%.2f GB'|format((s.down_mb or 0) / 1024.0) }}</td>
+            <td>
+                <strong>{{ '%.2f GB'|format((s.total_mb or 0) / 1024.0) }}</strong>
+            </td>
+            <td class="mono">{{ s.nas or '—' }}</td>
+            <td class="mono">{{ s.mac or '—' }}</td>
+            <td class="mono">{{ s.ip or '—' }}</td>
+            <td class="mono">{{ s.ipv6 or '—' }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="agg-row">
+            <td colspan="2">Total ({{ sessions|length }} sessions)</td>
+            <td>{{ (agg_secs // 3600)|int }} Hrs {{ ((agg_secs % 3600) // 60)|int }} Mins</td>
+            <td>—</td>
+            <td>{{ '%.2f GB'|format((agg_up or 0) / 1024.0) }}</td>
+            <td>{{ '%.2f GB'|format((agg_down or 0) / 1024.0) }}</td>
+            <td>{{ '%.2f GB'|format((agg_total or 0) / 1024.0) }}</td>
+            <td colspan="4">&nbsp;</td>
+        </tr>
+    </tbody>
+</table>
+{% else %}
+<div class="empty" data-testid="usage-empty">
+    <i class="fa fa-info-circle" style="font-size:28px; color:#cbd5e1; margin-bottom:8px;"></i>
+    <div>No session data found for this period.</div>
+</div>
+{# s26.17g: usage-pagination-nav #}
+{% if pagination and pagination.pages and pagination.pages > 1 and mode == 'current' %}
+<div style="display:flex;align-items:center;gap:12px;justify-content:center;margin-top:18px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;">
+  {% set q = '' %}
+  {% if pagination.page > 1 %}
+    <a href="?page=1" class="btn btn-default btn-xs">&laquo; First</a>
+    <a href="?page={{ pagination.page - 1 }}" class="btn btn-default btn-xs">&lsaquo; Prev</a>
+  {% endif %}
+  <span style="color:#334155;font-weight:500;">Page {{ pagination.page }} / {{ pagination.pages }}</span>
+  <span style="color:#64748b;">Showing {{ pagination.start }}–{{ pagination.end }} of {{ pagination.total }}</span>
+  {% if pagination.page < pagination.pages %}
+    <a href="?page={{ pagination.page + 1 }}" class="btn btn-default btn-xs">Next &rsaquo;</a>
+    <a href="?page={{ pagination.pages }}" class="btn btn-default btn-xs">Last &raquo;</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

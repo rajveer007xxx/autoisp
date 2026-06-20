@@ -1,0 +1,105 @@
+{% extends "base_admin.html" %}
+{# s56W Phase C — Outage Detection page #}
+{% block title %}Outage Detection{% endblock %}
+
+{% block content %}
+<style>
+  .o-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;margin-bottom:18px}
+  .badge-crit{background:#ef4444;color:#fff}
+  .badge-warn{background:#f59e0b;color:#fff}
+  .badge-info{background:#0ea5e9;color:#fff}
+  .outage-row{display:flex;justify-content:space-between;align-items:flex-start;padding:12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px}
+  .outage-row .meta{font-size:12px;color:#6b7280}
+  .outage-row.closed{opacity:.6}
+</style>
+<div class="container-fluid" data-testid="outages-page">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">Outage Detection</h3>
+    <div>
+      <select id="filterStatus" class="form-control d-inline-block" style="width:auto" data-testid="filter-status">
+        <option value="open">Open</option><option value="closed">Closed</option><option value="all">All</option>
+      </select>
+      <button class="btn btn-primary" id="btnTick" data-testid="btn-run-tick"><i class="bi bi-arrow-repeat"></i> Run detector</button>
+    </div>
+  </div>
+
+  <div class="o-card">
+    <h6 class="mb-3">Fiber-cut / PON down events</h6>
+    <div id="outageList" data-testid="outage-list"><div class="text-muted">Loading…</div></div>
+  </div>
+
+  <div class="o-card">
+    <h6 class="mb-3">Predicted signal degradation (Phase C AI: rx_dbm regression)</h6>
+    <div id="sdList" data-testid="sd-list"><div class="text-muted">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Notify modal -->
+<div class="modal fade" id="notifyModal" tabindex="-1"><div class="modal-dialog">
+  <div class="modal-content"><div class="modal-header"><h5 class="modal-title">Notify customers</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="notifyEid">
+    <div class="mb-2"><label>ETA (minutes)</label><input id="notifyEtd" type="number" min="0" class="form-control" value="60" data-testid="notify-etd"></div>
+    <div class="text-muted small">Claude (Sonnet 4.6) generates personalised text per customer. Falls back to a deterministic template if the LLM call fails or no API key is configured. Notifications are queued in <code>outage_notifications</code> for the existing WhatsApp/MSG91 dispatcher.</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-primary" id="notifyGo" data-testid="notify-go">Generate</button>
+  </div></div></div></div>
+
+<script>
+(function(){
+  async function fjson(url, opts){
+    const r = await fetch(url, Object.assign({credentials:'include', headers:{'Content-Type':'application/json'}}, opts||{}));
+    if(!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+    return r.json();
+  }
+
+  async function load(){
+    const s = document.getElementById('filterStatus').value;
+    const d = await fjson('/api/admin/outages?status=' + s + '&hours=720');
+    const el = document.getElementById('outageList');
+    if(!d.outages.length){ el.innerHTML='<div class="text-success">No outages.</div>'; return; }
+    el.innerHTML = d.outages.map(o=>`
+      <div class="outage-row ${o.closed_at?'closed':''}" data-testid="outage-row-${o.id}">
+        <div>
+          <span class="badge badge-${o.severity}">${(o.severity||'info').toUpperCase()}</span>
+          <strong>#${o.id} ${o.kind}</strong>
+          <div class="meta">Scope: ${o.scope_kind}:${o.scope_id} · opened ${o.opened_at}${o.closed_at?(' · closed '+o.closed_at):''}</div>
+          <div class="meta">${JSON.stringify(o.details)}</div>
+        </div>
+        <div>
+          ${o.closed_at?'':`<button class="btn btn-sm btn-outline-primary me-2" data-notify="${o.id}" data-testid="btn-notify-${o.id}">Notify</button>`}
+          ${o.closed_at?'':`<button class="btn btn-sm btn-outline-danger" data-close="${o.id}" data-testid="btn-close-${o.id}">Close</button>`}
+        </div>
+      </div>
+    `).join('');
+    el.querySelectorAll('[data-close]').forEach(b=>b.onclick=async()=>{
+      await fjson(`/api/admin/outages/${b.dataset.close}/close`, {method:'POST'});
+      load();
+    });
+    el.querySelectorAll('[data-notify]').forEach(b=>b.onclick=()=>{
+      document.getElementById('notifyEid').value = b.dataset.notify;
+      new bootstrap.Modal(document.getElementById('notifyModal')).show();
+    });
+  }
+
+  document.getElementById('btnTick').onclick = async ()=>{
+    const r = await fjson('/api/admin/outages/tick', {method:'POST'});
+    alert(`Detector run: outages=${r.outages_opened} degradations=${r.degradations_opened}`);
+    load();
+  };
+  document.getElementById('filterStatus').onchange = load;
+  document.getElementById('notifyGo').onclick = async ()=>{
+    const eid = document.getElementById('notifyEid').value;
+    const etd = parseInt(document.getElementById('notifyEtd').value,10) || 0;
+    const r = await fjson(`/api/admin/outages/${eid}/notify`, {method:'POST', body:JSON.stringify({etd_minutes:etd})});
+    bootstrap.Modal.getInstance(document.getElementById('notifyModal')).hide();
+    alert(`Generated ${r.generated} messages (AI used: ${r.ai_used}).`);
+  };
+
+  load();
+})();
+</script>
+{% endblock %}

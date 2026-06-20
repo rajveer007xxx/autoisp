@@ -1,0 +1,228 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Geofences - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<style>
+.gf-grid { display:grid; grid-template-columns: 360px 1fr; gap:18px; }
+@media(max-width: 1100px){ .gf-grid { grid-template-columns:1fr; } }
+.gf-side { background:#fff; border-radius:10px; padding:16px;
+  box-shadow:0 1px 3px rgba(15,23,42,.08); max-height:75vh; overflow-y:auto; }
+.gf-map { background:#e5e3df; border-radius:10px; height:75vh; min-height:520px;
+  position:relative; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.08); }
+#mapEl { width:100%; height:100%; }
+.gf-item { padding:10px 12px; border:1px solid #e5e7eb; border-radius:8px;
+  margin-bottom:8px; cursor:pointer; transition:background .15s; }
+.gf-item:hover { background:#f8fafc; }
+.gf-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+.gf-form input, .gf-form select { width:100%; height:34px; padding:5px 10px;
+  border:1px solid #e5e7eb; border-radius:6px; font-size:13px; }
+.gf-form label { font-size:11px; color:#475569; font-weight:600;
+  display:block; margin:8px 0 4px; }
+.gf-alert { padding:8px 10px; border-left:3px solid #0ea5e9; background:#f0f9ff;
+  border-radius:6px; margin-bottom:6px; font-size:12px; }
+.gf-alert.exit { border-color:#ef4444; background:#fef2f2; }
+</style>
+
+<section class="content-header">
+  <h1>Geofences <small>Set virtual boundaries; receive enter/exit alerts when employees cross them</small></h1>
+</section>
+
+<section class="content">
+  <div class="gf-grid">
+    <div class="gf-side">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h4 style="margin:0">My Geofences</h4>
+        <button class="btn btn-success btn-sm" id="addBtn" data-testid="gf-add-btn">
+          <i class="fa fa-plus"></i> Add
+        </button>
+      </div>
+      <div id="gfList"><div class="text-muted">Loading…</div></div>
+
+      <hr style="margin:14px 0">
+      <h4 style="margin:0 0 8px">Recent Alerts</h4>
+      <div id="gfAlerts" data-testid="gf-alerts"><div class="text-muted">No alerts yet.</div></div>
+    </div>
+
+    <div class="gf-map">
+      <div id="mapEl"></div>
+    </div>
+  </div>
+
+  <!-- Add / Edit modal -->
+  <div class="modal fade" id="gfModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal">&times;</button>
+          <h4 class="modal-title" id="gfModalTitle">Add Geofence</h4>
+        </div>
+        <form id="gfForm" class="gf-form" data-testid="gf-form">
+          <div class="modal-body">
+            <input type="hidden" id="gfId">
+            <label>Name *</label>
+            <input id="gfName" required data-testid="gf-name">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div><label>Latitude *</label><input id="gfLat" type="number" step="any" required data-testid="gf-lat"></div>
+              <div><label>Longitude *</label><input id="gfLng" type="number" step="any" required data-testid="gf-lng"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div><label>Radius (m) *</label><input id="gfRad" type="number" min="1" max="50000" value="200" required data-testid="gf-radius"></div>
+              <div><label>Color</label><input id="gfColor" type="color" value="#0ea5e9" data-testid="gf-color"></div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-top:10px">
+              <input id="gfActive" type="checkbox" checked data-testid="gf-active"> Active
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-left:14px">
+              <input id="gfEnter" type="checkbox" checked data-testid="gf-notify-enter"> Notify on enter
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-left:14px">
+              <input id="gfExit" type="checkbox" checked data-testid="gf-notify-exit"> Notify on exit
+            </label>
+            <p class="text-muted" style="font-size:12px;margin-top:10px">
+              <i class="fa fa-info-circle"></i> Tip: click on the map to drop a pin and auto-fill lat/lng.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" type="button" data-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" type="submit" data-testid="gf-save"><i class="fa fa-save"></i> Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBBbCSJ47XNocbZLJu6GkOcLh8OQUf6r3A&loading=async&callback=__gf_ready"></script>
+<script>
+var __gf_map=null, __gf_circles={}, __gf_clickListener=null, __gf_dropMarker=null, __gf_lastEventId=0;
+
+function __gf_ready(){
+  __gf_map = new google.maps.Map(document.getElementById('mapEl'), {
+    center: {lat: 20.5937, lng: 78.9629}, zoom: 5,
+    mapTypeId: google.maps.MapTypeId.HYBRID,
+  });
+  loadFences(); loadAlerts(); setInterval(loadAlerts, 10000);
+}
+
+function fmtINR(n){ return Number(n||0).toLocaleString('en-IN'); }
+
+function drawCircle(g){
+  if(__gf_circles[g.id]){ __gf_circles[g.id].setMap(null); }
+  __gf_circles[g.id] = new google.maps.Circle({
+    map: __gf_map,
+    center: {lat: g.latitude, lng: g.longitude},
+    radius: g.radius_m,
+    strokeColor: g.color || '#0ea5e9', strokeOpacity:.9, strokeWeight:2,
+    fillColor: g.color || '#0ea5e9', fillOpacity: g.is_active?0.18:0.05,
+  });
+}
+
+function loadFences(){
+  $.get('/api/admin/geofences').done(function(r){
+    var $b=$('#gfList').empty();
+    if(!r.items || !r.items.length){
+      $b.html('<div class="text-muted">No geofences. Click <b>Add</b> to create one.</div>');
+      Object.values(__gf_circles).forEach(c=>c.setMap(null)); __gf_circles={};
+      return;
+    }
+    var bounds = new google.maps.LatLngBounds();
+    r.items.forEach(function(g){
+      $b.append(
+        '<div class="gf-item" data-id="'+g.id+'" data-testid="gf-row-'+g.id+'">'+
+          '<div style="display:flex;align-items:center"><span class="gf-dot" style="background:'+(g.color||'#0ea5e9')+'"></span>'+
+          '<strong>'+g.name+'</strong><span style="margin-left:auto;font-size:11px;color:#64748b">'+(g.is_active?'Active':'Off')+'</span></div>'+
+          '<div style="font-size:11px;color:#475569;margin-top:4px">'+
+            g.latitude.toFixed(5)+', '+g.longitude.toFixed(5)+' · '+fmtINR(g.radius_m)+' m</div>'+
+          '<div style="margin-top:6px"><a href="#" class="gf-edit text-primary" data-id="'+g.id+'" style="font-size:12px"><i class="fa fa-pencil"></i> Edit</a>'+
+          ' · <a href="#" class="gf-del text-danger" data-id="'+g.id+'" style="font-size:12px"><i class="fa fa-trash"></i> Delete</a></div>'+
+        '</div>');
+      drawCircle(g);
+      bounds.extend({lat: g.latitude, lng: g.longitude});
+    });
+    if(!bounds.isEmpty()) __gf_map.fitBounds(bounds);
+  });
+}
+
+function loadAlerts(){
+  $.get('/api/admin/geofence-events?limit=20').done(function(r){
+    var $b=$('#gfAlerts').empty();
+    if(!r.items || !r.items.length){ $b.html('<div class="text-muted">No alerts yet.</div>'); return; }
+    r.items.forEach(function(a){
+      $b.append(
+        '<div class="gf-alert '+(a.event_type==='exit'?'exit':'')+'">'+
+          '<i class="fa fa-'+(a.event_type==='enter'?'sign-in':'sign-out')+'"></i> '+
+          '<strong>'+(a.employee_name||a.employee_code||'employee')+'</strong> '+
+          a.event_type+'ed <strong>'+a.geofence_name+'</strong>'+
+          '<div style="font-size:10px;color:#64748b">'+a.recorded_at+'</div>'+
+        '</div>');
+    });
+  });
+}
+
+function openModal(g){
+  $('#gfId').val(g?g.id:'');
+  $('#gfName').val(g?g.name:'');
+  $('#gfLat').val(g?g.latitude:'');
+  $('#gfLng').val(g?g.longitude:'');
+  $('#gfRad').val(g?g.radius_m:200);
+  $('#gfColor').val(g?g.color:'#0ea5e9');
+  $('#gfActive').prop('checked', g?g.is_active:true);
+  $('#gfEnter').prop('checked', g?g.notify_on_enter:true);
+  $('#gfExit').prop('checked', g?g.notify_on_exit:true);
+  $('#gfModalTitle').text(g?'Edit Geofence':'Add Geofence');
+  $('#gfModal').modal('show');
+
+  if(__gf_clickListener) google.maps.event.removeListener(__gf_clickListener);
+  __gf_clickListener = __gf_map.addListener('click', function(e){
+    $('#gfLat').val(e.latLng.lat().toFixed(6));
+    $('#gfLng').val(e.latLng.lng().toFixed(6));
+    if(__gf_dropMarker) __gf_dropMarker.setMap(null);
+    __gf_dropMarker = new google.maps.Marker({position:e.latLng, map:__gf_map});
+  });
+}
+
+$('#addBtn').on('click', function(){ openModal(null); });
+
+$('#gfList').on('click', '.gf-edit', function(e){
+  e.preventDefault();
+  var id=$(this).data('id');
+  $.get('/api/admin/geofences').done(function(r){
+    var item=(r.items||[]).find(x=>String(x.id)===String(id));
+    if(item) openModal(item);
+  });
+});
+$('#gfList').on('click', '.gf-del', function(e){
+  e.preventDefault();
+  if(!confirm('Delete this geofence?')) return;
+  $.ajax({url:'/api/admin/geofences/'+$(this).data('id'), method:'DELETE'})
+    .done(function(){ loadFences(); loadAlerts(); });
+});
+
+$('#gfForm').on('submit', function(e){
+  e.preventDefault();
+  var id=$('#gfId').val();
+  var payload={
+    name: $('#gfName').val(),
+    latitude: parseFloat($('#gfLat').val()),
+    longitude: parseFloat($('#gfLng').val()),
+    radius_m: parseFloat($('#gfRad').val()||'200'),
+    color: $('#gfColor').val(),
+    is_active: $('#gfActive').is(':checked'),
+    notify_on_enter: $('#gfEnter').is(':checked'),
+    notify_on_exit: $('#gfExit').is(':checked'),
+  };
+  var url='/api/admin/geofences', method='POST';
+  if(id){ url+='/'+id; method='PUT'; }
+  $.ajax({url:url, method:method, contentType:'application/json',
+          data: JSON.stringify(payload)})
+    .done(function(){
+      $('#gfModal').modal('hide');
+      if(__gf_clickListener){ google.maps.event.removeListener(__gf_clickListener); __gf_clickListener=null; }
+      if(__gf_dropMarker){ __gf_dropMarker.setMap(null); __gf_dropMarker=null; }
+      loadFences();
+    })
+    .fail(function(xhr){ alert('Save failed: '+(xhr.responseJSON&&xhr.responseJSON.detail||xhr.statusText)); });
+});
+</script>
+{% endblock %}

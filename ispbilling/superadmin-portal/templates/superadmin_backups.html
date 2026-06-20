@@ -1,0 +1,73 @@
+{% extends "base_superadmin.html" %}
+{% block title %}DB Backups - Superadmin{% endblock %}
+{% block content %}
+<style>
+.bk-card{background:#fff;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.bk-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;}
+.bk-btn.gray{background:#475569;}
+.bk-btn.danger{background:#ef4444;}
+table{width:100%;border-collapse:collapse;}
+table th{background:#f1f5f9;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;color:#475569;}
+table td{padding:10px;border-bottom:1px solid #e2e8f0;font-size:13px;}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#dcfce7;color:#15803d;}
+.tag.manual{background:#dbeafe;color:#1d4ed8;}
+.empty{text-align:center;padding:40px;color:#94a3b8;}
+</style>
+
+<section class="content-header"><h1>DB Backups<small>Daily automated SQLite snapshots (last 30 retained)</small></h1></section>
+
+<section class="content">
+  <div class="bk-card">
+    <h3 style="margin:0 0 14px;display:flex;align-items:center;gap:10px;">
+      <i class="bi bi-shield-check" style="color:#10b981;"></i> Database Backups
+      <button class="bk-btn" style="margin-left:auto;" onclick="createBackup()" data-testid="backup-create-btn">Create Backup Now</button>
+      <button class="bk-btn gray" onclick="loadBackups()" data-testid="backup-refresh-btn">Refresh</button>
+    </h3>
+    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">
+      Backups stored at <code>/var/lib/autoispbilling/backups/</code>. Auto-runs daily at 03:00 IST via systemd timer.
+    </p>
+    <div id="bkTable"><div class="empty">Loading…</div></div>
+  </div>
+</section>
+
+<script>
+async function loadBackups(){
+  const r = await fetch('/api/superadmin/backups',{credentials:'include'});
+  const d = await r.json();
+  if(!d.success){ document.getElementById('bkTable').innerHTML='<div class="empty">Forbidden</div>'; return; }
+  if(d.items.length===0){ document.getElementById('bkTable').innerHTML='<div class="empty">No backups yet — click "Create Backup Now"</div>'; return; }
+  document.getElementById('bkTable').innerHTML=`
+    <table><thead><tr><th>When</th><th>Filename</th><th>Size</th><th>SHA256</th><th>Trigger</th><th>By</th><th>Actions</th></tr></thead><tbody>
+    ${d.items.map(x => `
+      <tr data-testid="bk-row-${x.id}">
+        <td>${x.created_at.substring(0,16)}</td>
+        <td><code>${x.filename}</code></td>
+        <td>${(x.size/1024/1024).toFixed(2)} MB</td>
+        <td><small>${x.sha256}…</small></td>
+        <td><span class="tag ${x.trigger}">${x.trigger}</span></td>
+        <td>${x.by}</td>
+        <td>
+          <a class="bk-btn" style="padding:6px 12px;font-size:12px;text-decoration:none;" href="/api/superadmin/backups/${x.id}/download" data-testid="bk-download-${x.id}">Download</a>
+          <button class="bk-btn danger" style="padding:6px 12px;font-size:12px;" onclick="delBackup(${x.id})" data-testid="bk-delete-${x.id}">Delete</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function createBackup(){
+  const btn = event.target;
+  btn.disabled = true; btn.textContent='Creating…';
+  const r = await fetch('/api/superadmin/backups/run',{method:'POST',credentials:'include'});
+  const d = await r.json();
+  btn.disabled = false; btn.textContent='Create Backup Now';
+  if(d.success){ alert('Backup created: '+d.filename); loadBackups(); }
+  else alert('Error: '+(d.error||d.message||'unknown'));
+}
+async function delBackup(id){
+  if(!confirm('Delete this backup? This cannot be undone.')) return;
+  const r = await fetch('/api/superadmin/backups/'+id,{method:'DELETE',credentials:'include'});
+  const d = await r.json();
+  if(d.success) loadBackups(); else alert('Error');
+}
+loadBackups();
+</script>
+{% endblock %}

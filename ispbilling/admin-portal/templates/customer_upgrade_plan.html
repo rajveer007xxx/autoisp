@@ -1,0 +1,110 @@
+{% extends "base_user.html" %}
+{% block title %}Upgrade Plan - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.up-card{background:#fff;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.up-current{background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-radius:14px;padding:20px;margin-bottom:18px;}
+.up-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+.up-plan{background:#fff;border:2px solid #e2e8f0;border-radius:14px;padding:18px;cursor:pointer;transition:all .2s;}
+.up-plan:hover{border-color:#6366f1;transform:translateY(-2px);box-shadow:0 8px 24px rgba(99,102,241,.18);}
+.up-plan.selected{border-color:#10b981;background:#f0fdf4;}
+.up-price{font-size:28px;font-weight:800;color:#0b1120;}
+.up-speed{font-size:14px;color:#475569;font-weight:600;}
+.up-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:14px 28px;border-radius:12px;font-weight:700;cursor:pointer;font-size:15px;width:100%;}
+.up-btn:disabled{opacity:.5;cursor:not-allowed;}
+</style>
+
+<section class="content-header">
+  <h1>Upgrade Your Plan<small>Get faster speed and better features instantly</small></h1>
+</section>
+
+<section class="content">
+<div id="upgradeRoot"><div style="text-align:center;padding:60px;color:#94a3b8">Loading options…</div></div>
+</section>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+let _selected = null;
+let _options = [];
+let _current = null;
+let _rzpKey = '';
+
+async function loadOptions(){
+  const r=await fetch('/api/customer/upgrade-options',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){
+    document.getElementById('upgradeRoot').innerHTML='<div style="text-align:center;padding:60px;color:#ef4444">Error loading plans</div>';
+    return;
+  }
+  _options=d.options; _current=d.current;
+  let html=`
+    <div class="up-current" data-testid="upgrade-current">
+      <div style="font-size:13px;color:#475569;font-weight:600;text-transform:uppercase;">Your Current Plan</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:6px;">
+        <div style="font-size:22px;font-weight:700;">${_current.name}</div>
+        <div style="margin-left:auto;font-size:18px;font-weight:700;color:#475569;">₹ ${_current.amount}</div>
+      </div>
+    </div>`;
+  if(_options.length===0){
+    html+='<div class="up-card" style="text-align:center;color:#64748b;">You are already on our top plan! 🎉</div>';
+  } else {
+    html+='<div class="up-grid" data-testid="upgrade-options">';
+    _options.forEach(p=>{
+      html+=`
+        <div class="up-plan" id="plan-${p.id}" onclick="selectPlan(${p.id})" data-testid="upgrade-plan-${p.id}">
+          <div style="font-size:18px;font-weight:700;margin-bottom:6px;">${p.name}</div>
+          <div class="up-speed">${p.validity} ${p.validity_unit}</div>
+          <div class="up-price" style="margin-top:14px;">₹ ${p.amount}</div>
+          <div style="font-size:12px;color:#64748b;margin-top:6px;">${p.description||''}</div>
+        </div>`;
+    });
+    html+='</div>';
+    html+='<div class="up-card" style="margin-top:18px;"><button class="up-btn" id="upBtn" onclick="payNow()" disabled data-testid="upgrade-pay-btn">Select a plan to continue</button></div>';
+  }
+  document.getElementById('upgradeRoot').innerHTML=html;
+}
+function selectPlan(id){
+  _selected=id;
+  document.querySelectorAll('.up-plan').forEach(el=>el.classList.remove('selected'));
+  document.getElementById('plan-'+id).classList.add('selected');
+  const p=_options.find(x=>x.id===id);
+  document.getElementById('upBtn').disabled=false;
+  document.getElementById('upBtn').textContent=`Pay ₹${p.amount} & Upgrade`;
+}
+async function payNow(){
+  if(!_selected) return;
+  const btn=document.getElementById('upBtn');
+  btn.disabled=true; btn.textContent='Creating order…';
+  const r=await fetch('/api/customer/upgrade/create',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({target_plan_id:_selected})});
+  const d=await r.json();
+  if(!d.success){alert(d.message); btn.disabled=false; return;}
+  if(!d.rzp_order_id || !d.rzp_key_id){
+    alert('Payment gateway not configured. Please contact support.');
+    btn.disabled=false; btn.textContent='Pay Now'; return;
+  }
+  const rzp=new Razorpay({
+    key: d.rzp_key_id,
+    amount: d.amount*100,
+    currency: 'INR',
+    name: 'Plan Upgrade',
+    order_id: d.rzp_order_id,
+    handler: async function(resp){
+      const cf=await fetch('/api/customer/upgrade/'+d.order_id+'/confirm',{
+        method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({razorpay_payment_id:resp.razorpay_payment_id})});
+      const cd=await cf.json();
+      if(cd.success){
+        alert('🎉 Plan upgraded successfully!');
+        window.location.reload();
+      } else alert('Failed to apply: '+cd.message);
+    },
+    theme:{color:'#6366f1'}
+  });
+  rzp.open();
+  btn.disabled=false; btn.textContent='Pay Now';
+}
+loadOptions();
+</script>
+{% endblock %}

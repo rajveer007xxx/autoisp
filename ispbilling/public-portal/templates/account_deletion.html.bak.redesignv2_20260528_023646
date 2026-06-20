@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Request Account Deletion · Auto ISP Billing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Request deletion of your Auto ISP Billing account and associated personal data — as required by Google Play and the Indian DPDPA 2023.">
+<meta name="robots" content="all">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root{--brand-900:#0b1736;--brand-700:#1a2d7d;--brand-500:#3d5afe;--accent-500:#00d4b4;--ink-900:#0b1224;--ink-700:#2b3552;--ink-500:#5c6785;--surface:#f6f8fc;--card:#fff;--line:#e4e8f3;--radius-lg:18px;--radius-md:12px;--shadow-sm:0 2px 10px rgba(11,18,36,.06)}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink-900);background:var(--surface);-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:-.01em;margin:0}
+.nav{background:var(--card);border-bottom:1px solid var(--line);padding:14px 0}
+.nav .brand{display:flex;align-items:center;gap:10px;color:var(--brand-900);text-decoration:none;font-weight:700;font-size:18px}
+.hero{padding:48px 0 32px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#eef2ff 0%,var(--surface) 100%)}
+.hero h1{font-size:34px;color:var(--brand-900);margin-bottom:8px}
+.hero .lead{font-size:16px;color:var(--ink-500);max-width:720px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:28px}
+.btn-brand{background:var(--brand-500);border-color:var(--brand-500);color:#fff;padding:11px 22px;border-radius:10px;font-weight:600}
+.btn-brand:hover{background:var(--brand-700);color:#fff}
+.form-label{font-weight:600;color:var(--ink-700);margin-bottom:6px}
+.form-control,.form-select{border-radius:10px;border:1px solid var(--line);padding:10px 14px;font-size:15px}
+.form-control:focus,.form-select:focus{border-color:var(--brand-500);box-shadow:0 0 0 3px rgba(61,90,254,.15)}
+.alert-info-soft{background:#eef2ff;color:var(--brand-900);border:1px solid #c7d2fe;border-radius:12px;padding:14px 18px;font-size:14.5px;line-height:1.6}
+.alert-warning-soft{background:#fffbeb;color:#92400e;border:1px solid #fcd34d;border-radius:12px;padding:14px 18px;font-size:14.5px;line-height:1.6}
+.alert-success-soft{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7;border-radius:12px;padding:14px 18px;font-size:14.5px;line-height:1.6}
+.section h2{font-size:22px;color:var(--brand-900);margin-bottom:14px}
+table.del-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14.5px}
+table.del-table th,table.del-table td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+table.del-table th{background:#f1f5f9;font-weight:600;color:var(--ink-700)}
+.footer{padding:30px 0;text-align:center;color:var(--ink-500);font-size:13px;border-top:1px solid var(--line);background:var(--card);margin-top:48px}
+.footer a{color:var(--ink-500);text-decoration:none;margin:0 8px}
+.footer a:hover{color:var(--brand-500)}
+.quick-links{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+.quick-links a{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);padding:8px 14px;border-radius:999px;font-size:13.5px;color:var(--ink-700);text-decoration:none;font-weight:500}
+.quick-links a:hover{border-color:var(--brand-500);color:var(--brand-500)}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container d-flex justify-content-between align-items-center">
+    <a class="brand" href="/"><i class="bi bi-router-fill text-primary"></i> Auto ISP Billing</a>
+    <a href="/privacy-policy" class="text-decoration-none text-muted small"><i class="bi bi-shield-lock me-1"></i> Privacy Policy</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <h1>Delete your account &amp; data</h1>
+    <p class="lead">Submit a request below to permanently delete your Auto ISP Billing account, mobile app data and the personal information we hold about you. This page is provided in compliance with the Google Play data deletion requirement and India's Digital Personal Data Protection Act, 2023.</p>
+    <div class="quick-links">
+      <a href="#what"><i class="bi bi-list-check"></i> What gets deleted</a>
+      <a href="#form"><i class="bi bi-arrow-down-circle"></i> Submit deletion request</a>
+      <a href="#alt"><i class="bi bi-envelope"></i> Other ways to contact us</a>
+    </div>
+  </div>
+</header>
+
+<main class="container py-5">
+
+  <section class="section card mb-4" id="what">
+    <h2>What will be deleted</h2>
+    <p class="text-muted mb-3">When your request is processed, the following information is permanently removed from our active systems within 7 working days:</p>
+    <table class="del-table">
+      <tr><th style="width:38%">Data category</th><th>Deleted</th><th style="width:24%">Retained (legal obligation)</th></tr>
+      <tr><td>Account profile (name, email, mobile, address, customer ID, username, password)</td><td>Yes</td><td>—</td></tr>
+      <tr><td>KYC documents and profile photographs</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Saved UPI / payment preferences inside the app</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Service tickets, complaints, complaint attachments</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Push-notification tokens, biometric flags</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Login activity, crash logs, device fingerprints</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Plan / usage history</td><td>Yes</td><td>—</td></tr>
+      <tr><td>Invoices and payment transaction records</td><td>Anonymised (PII removed, anonymous billing row retained)</td><td>7 years &mdash; required by Indian Income Tax Act &amp; GST law</td></tr>
+    </table>
+    <div class="alert-warning-soft mt-3"><strong>Heads-up:</strong> deletion is permanent and irreversible. You will lose access to past invoices and complaint history. If you only want to stop receiving notifications, ask your ISP to mark you "Opted out" instead.</div>
+  </section>
+
+  <section class="section card mb-4" id="form">
+    <h2>Submit deletion request</h2>
+    <p class="text-muted">Fill the form below. We will email you within 1 working day to verify your identity (so nobody else can request deletion of your account), then process the deletion within 7 working days.</p>
+
+    <div id="formMsg" style="display:none"></div>
+
+    <form id="delForm" class="row g-3 mt-2">
+      <div class="col-md-6">
+        <label class="form-label">Full name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" name="name" required maxlength="120">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Mobile number <span class="text-danger">*</span></label>
+        <input type="tel" class="form-control" name="phone" required maxlength="20" inputmode="numeric" pattern="[0-9 +\-]{6,20}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Email used in the app <span class="text-danger">*</span></label>
+        <input type="email" class="form-control" name="email" required maxlength="120">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Customer ID or app username</label>
+        <input type="text" class="form-control" name="customer_id" maxlength="80" placeholder="optional, e.g. 87498740 or mp.dilip.fibernet">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">ISP / operator name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" name="isp" required maxlength="120" placeholder="e.g. CITY WIFI, FIBERNET, etc.">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">What do you want to delete? <span class="text-danger">*</span></label>
+        <select class="form-select" name="scope" required>
+          <option value="">— Select —</option>
+          <option value="account_full">Delete my account and ALL associated data</option>
+          <option value="app_only">Delete only my data in the mobile app (keep the broadband subscription)</option>
+          <option value="specific">Delete specific data (describe below)</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Additional notes (optional)</label>
+        <textarea class="form-control" name="notes" rows="3" maxlength="2000" placeholder="Why are you requesting deletion? Anything specific we should know?"></textarea>
+      </div>
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="confirm" required>
+          <label class="form-check-label" for="confirm">I understand that deletion is permanent. I confirm that the email and mobile number above belong to me and are the ones registered with my ISP.</label>
+        </div>
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-brand" id="submitBtn"><i class="bi bi-trash3 me-2"></i> Submit deletion request</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="section card mb-4" id="alt">
+    <h2>Prefer email or in-app?</h2>
+    <p class="text-muted">You can also request deletion through any of these channels &mdash; all routes reach the same support team:</p>
+    <ul>
+      <li><strong>Email:</strong> <a href="mailto:support@autoispbilling.com?subject=Account+deletion+request">support@autoispbilling.com</a> &mdash; include your full name, registered mobile and customer ID.</li>
+      <li><strong>Inside the mobile app:</strong> tap <em>More &rarr; Contact Us</em> and call or email your ISP directly. Ask them to raise an "account deletion" ticket on your behalf.</li>
+      <li><strong>By post:</strong> Auto ISP Billing, Data Protection Officer, Tikamgarh, Madhya Pradesh, India.</li>
+    </ul>
+  </section>
+
+  <section class="section card" id="timeline">
+    <h2>What happens after you submit</h2>
+    <ol class="mb-0">
+      <li>You receive an automated confirmation email immediately.</li>
+      <li>Within 1 working day, our support team emails you a verification link.</li>
+      <li>Once verified, your account is deleted within 7 working days.</li>
+      <li>Anonymised financial records (invoices and payments) are retained for 7 years as required by Indian tax law &mdash; these contain <em>no</em> personally identifiable information after deletion.</li>
+      <li>You receive a final confirmation email when deletion is complete.</li>
+    </ol>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    &copy; 2026 Auto ISP Billing &nbsp;·&nbsp;
+    <a href="/privacy-policy">Privacy Policy</a> &nbsp;·&nbsp;
+    <a href="/terms-of-service">Terms of Service</a> &nbsp;·&nbsp;
+    <a href="/refund-policy">Refund Policy</a> &nbsp;·&nbsp;
+    <a href="/account-deletion">Account Deletion</a> &nbsp;·&nbsp;
+    <a href="/sitemap.xml">Sitemap</a>
+  </div>
+</footer>
+
+<script>
+document.getElementById('delForm').addEventListener('submit', async function(ev){
+  ev.preventDefault();
+  var btn = document.getElementById('submitBtn');
+  var msg = document.getElementById('formMsg');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Submitting...';
+  msg.style.display = 'none'; msg.className = '';
+  var fd = new FormData(this);
+  try {
+    var res = await fetch('/api/account-deletion-request', { method: 'POST', body: fd });
+    var data = await res.json();
+    if (data.success) {
+      msg.className = 'alert-success-soft'; msg.style.display = 'block';
+      msg.innerHTML = '<strong><i class="bi bi-check-circle"></i> Request received.</strong> ' + (data.message || 'We have received your account deletion request. Check your email for the verification link within 24 hours.');
+      this.reset();
+    } else {
+      msg.className = 'alert-warning-soft'; msg.style.display = 'block';
+      msg.innerHTML = '<strong><i class="bi bi-exclamation-triangle"></i> Could not submit:</strong> ' + (data.message || 'Please try again or email support@autoispbilling.com.');
+    }
+  } catch (err) {
+    msg.className = 'alert-warning-soft'; msg.style.display = 'block';
+    msg.innerHTML = '<strong>Network error:</strong> please try again or email support@autoispbilling.com.';
+  }
+  btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash3 me-2"></i> Submit deletion request';
+  msg.scrollIntoView({behavior:'smooth', block:'center'});
+});
+</script>
+</body>
+</html>

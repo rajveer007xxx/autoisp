@@ -1,0 +1,9 @@
+[Unit]
+Description=AutoISP Billing — nightly ledger recompute
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ispbilling/venv/bin/python3 /opt/ispbilling/scripts/nightly_billing_recompute.py
+StandardOutput=journal
+StandardError=journal
+User=root

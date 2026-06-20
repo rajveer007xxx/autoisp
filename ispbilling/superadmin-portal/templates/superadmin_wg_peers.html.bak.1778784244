@@ -1,0 +1,202 @@
+{% extends "base_superadmin.html" %}
+{% block content %}
+<section class="content-header" style="padding:20px 24px 8px;">
+    <h1 style="margin:0;font-size:22px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:10px;">
+        <i class="bi bi-hdd-network" style="color:#6366f1;"></i>
+        OLT VPN Peers
+        <small style="font-size:13px;color:#64748b;font-weight:400;margin-left:8px;">
+            Cross-tenant WireGuard tunnel monitor
+        </small>
+    </h1>
+</section>
+
+<section class="content" style="padding:14px 24px 40px;">
+    <div class="row" style="margin-bottom:16px;">
+        <div class="col-sm-3">
+            <div class="info-box" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">Total Peers</div>
+                <div style="font-size:28px;font-weight:700;color:#0f172a;margin-top:4px;" id="kpi-total" data-testid="sa-wgp-kpi-total">—</div>
+            </div>
+        </div>
+        <div class="col-sm-3">
+            <div class="info-box" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">Online (≤ 3 min)</div>
+                <div style="font-size:28px;font-weight:700;color:#10b981;margin-top:4px;" id="kpi-online" data-testid="sa-wgp-kpi-online">—</div>
+            </div>
+        </div>
+        <div class="col-sm-3">
+            <div class="info-box" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">Tenants Using VPN</div>
+                <div style="font-size:28px;font-weight:700;color:#6366f1;margin-top:4px;" id="kpi-tenants" data-testid="sa-wgp-kpi-tenants">—</div>
+            </div>
+        </div>
+        <div class="col-sm-3">
+            <div class="info-box" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:14px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">Orphan Peers</div>
+                <div style="font-size:28px;font-weight:700;color:#dc2626;margin-top:4px;" id="kpi-orphans" data-testid="sa-wgp-kpi-orphans">—</div>
+            </div>
+        </div>
+    </div>
+
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:0;overflow:hidden;">
+        <div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+            <div>
+                <strong style="font-size:14px;color:#0f172a;">Tracked Peers</strong>
+                <span style="color:#64748b;font-size:12px;margin-left:8px;">Tenant OLTs with WireGuard config issued</span>
+            </div>
+            <div>
+                <button class="btn btn-default btn-sm" onclick="loadPeers()" data-testid="sa-wgp-refresh">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <small id="last-refresh" style="color:#94a3b8;font-size:11px;margin-left:8px;"></small>
+            </div>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="table table-hover" style="margin:0;font-size:13px;">
+                <thead style="background:#f1f5f9;">
+                    <tr>
+                        <th style="padding:10px 14px;">OLT</th>
+                        <th>Tenant</th>
+                        <th>VPN IP</th>
+                        <th>Slice</th>
+                        <th>Status</th>
+                        <th>Last Handshake</th>
+                        <th>Transfer (RX / TX)</th>
+                        <th>Endpoint</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="peers-tbody" data-testid="sa-wgp-tbody">
+                    <tr><td colspan="9" style="text-align:center;padding:30px;color:#94a3b8;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="orphans-section" style="margin-top:24px;display:none;background:#fff;border-radius:12px;border:1px solid #fecaca;padding:0;overflow:hidden;">
+        <div style="padding:14px 18px;border-bottom:1px solid #fecaca;background:#fef2f2;">
+            <strong style="font-size:14px;color:#991b1b;">⚠ Orphan Peers</strong>
+            <span style="color:#7f1d1d;font-size:12px;margin-left:8px;">
+                Peers present in <code>wg0.conf</code> but with no matching OLT row in any tenant — likely leftover after a manual DB delete. Safe to remove.
+            </span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="table" style="margin:0;font-size:13px;">
+                <thead style="background:#fef2f2;">
+                    <tr>
+                        <th style="padding:10px 14px;">Allowed IPs</th>
+                        <th>Pubkey (prefix)</th>
+                        <th>Last Handshake</th>
+                        <th>Endpoint</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="orphans-tbody" data-testid="sa-wgp-orphans-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <p style="margin-top:16px;color:#64748b;font-size:12px;">
+        <i class="bi bi-info-circle"></i>
+        Each tenant gets a private <code>/20</code> slice (4094 usable OLT IPs) of <code>10.50.0.0/16</code>. Slices are isolated — Tenant A's OLT cannot talk to Tenant B's OLT through the tunnel. WireGuard server: <code>185.199.53.93:51820</code>.
+    </p>
+</section>
+
+<script>
+function fmtHandshake(ageSec) {
+    if (ageSec === null || ageSec === undefined) return '<span style="color:#94a3b8;">never</span>';
+    if (ageSec < 60) return '<span style="color:#10b981;font-weight:600;">' + ageSec + 's ago</span>';
+    if (ageSec < 180) return '<span style="color:#10b981;">' + Math.round(ageSec/60) + 'm ago</span>';
+    if (ageSec < 3600) return '<span style="color:#f59e0b;">' + Math.round(ageSec/60) + 'm ago</span>';
+    if (ageSec < 86400) return '<span style="color:#dc2626;">' + Math.round(ageSec/3600) + 'h ago</span>';
+    return '<span style="color:#dc2626;">' + Math.round(ageSec/86400) + 'd ago</span>';
+}
+function fmtBytes(n) {
+    if (!n) return '0';
+    if (n >= 1e9) return (n/1e9).toFixed(2) + ' GB';
+    if (n >= 1e6) return (n/1e6).toFixed(1) + ' MB';
+    if (n >= 1e3) return (n/1e3).toFixed(1) + ' KB';
+    return n + ' B';
+}
+function loadPeers() {
+    document.getElementById('peers-tbody').innerHTML =
+        '<tr><td colspan="9" style="text-align:center;padding:30px;color:#94a3b8;"><i class="bi bi-arrow-clockwise"></i> Loading...</td></tr>';
+    fetch('/api/superadmin/wg-peers').then(r => r.json()).then(d => {
+        if (!d.ok) {
+            document.getElementById('peers-tbody').innerHTML =
+                '<tr><td colspan="9" style="text-align:center;padding:30px;color:#dc2626;">Error: ' + (d.message || 'unknown') + '</td></tr>';
+            return;
+        }
+        var peers = d.peers || [];
+        var orphans = d.orphans || [];
+        var onlineCount = peers.filter(function(p){ return p.online; }).length;
+        var tenants = new Set(); peers.forEach(function(p){ tenants.add(p.company_id); });
+        document.getElementById('kpi-total').textContent = peers.length;
+        document.getElementById('kpi-online').textContent = onlineCount;
+        document.getElementById('kpi-tenants').textContent = tenants.size;
+        document.getElementById('kpi-orphans').textContent = orphans.length;
+        if (peers.length === 0) {
+            document.getElementById('peers-tbody').innerHTML =
+                '<tr><td colspan="9" style="text-align:center;padding:40px;color:#94a3b8;">No VPN peers configured yet. Tenants who toggle an OLT to "WireGuard VPN" mode will appear here.</td></tr>';
+        } else {
+            var html = peers.map(function(p) {
+                var statusPill = p.online
+                    ? '<span style="background:#dcfce7;color:#15803d;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:600;">Online</span>'
+                    : '<span style="background:#fee2e2;color:#991b1b;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:600;">Offline</span>';
+                return '<tr data-testid="sa-wgp-row-' + p.olt_id + '">'
+                    + '<td style="padding:10px 14px;"><strong>' + (p.name || '—') + '</strong><br><small style="color:#94a3b8;">OLT #' + p.olt_id + '</small></td>'
+                    + '<td><code style="font-size:11px;">' + (p.company_id || '—') + '</code></td>'
+                    + '<td><code>' + (p.vpn_address || '—') + '</code></td>'
+                    + '<td><code style="font-size:11px;color:#64748b;">' + (p.slice_cidr || '—') + '</code></td>'
+                    + '<td>' + statusPill + '<br><small style="color:#94a3b8;font-size:10px;">OLT: ' + p.olt_status + '</small></td>'
+                    + '<td>' + fmtHandshake(p.handshake_age_sec) + '</td>'
+                    + '<td><small>↓ ' + fmtBytes(p.rx_bytes) + ' / ↑ ' + fmtBytes(p.tx_bytes) + '</small></td>'
+                    + '<td><small style="color:#64748b;">' + (p.endpoint || '—') + '</small></td>'
+                    + '<td></td>'
+                    + '</tr>';
+            }).join('');
+            document.getElementById('peers-tbody').innerHTML = html;
+        }
+        // Orphans
+        var orphSect = document.getElementById('orphans-section');
+        if (orphans.length === 0) {
+            orphSect.style.display = 'none';
+        } else {
+            orphSect.style.display = 'block';
+            document.getElementById('orphans-tbody').innerHTML = orphans.map(function(o) {
+                return '<tr>'
+                    + '<td style="padding:10px 14px;"><code>' + o.allowed_ips + '</code></td>'
+                    + '<td><code style="font-size:11px;">' + (o.pubkey || '').slice(0, 16) + '...</code></td>'
+                    + '<td>' + fmtHandshake(o.handshake_age_sec) + '</td>'
+                    + '<td><small style="color:#64748b;">' + (o.endpoint || '—') + '</small></td>'
+                    + '<td><button class="btn btn-danger btn-xs" onclick="removeOrphan(\'' + (o.pubkey||'').replace(/[\'\"]/g,'') + '\')" data-testid="sa-wgp-orphan-remove">Remove</button></td>'
+                    + '</tr>';
+            }).join('');
+        }
+        document.getElementById('last-refresh').textContent =
+            'Last refreshed: ' + new Date().toLocaleTimeString();
+    }).catch(function(e){
+        document.getElementById('peers-tbody').innerHTML =
+            '<tr><td colspan="9" style="text-align:center;padding:30px;color:#dc2626;">Network error: ' + e + '</td></tr>';
+    });
+}
+function removeOrphan(pubkey) {
+    if (!pubkey) return;
+    if (!confirm('Remove orphan peer ' + pubkey.slice(0,16) + '... from the WireGuard tunnel?\n\nThe device using this peer will lose VPN connectivity immediately.')) return;
+    fetch('/api/superadmin/wg-peers/' + encodeURIComponent(pubkey) + '/remove', {method:'POST'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (d.ok) {
+                alert(d.removed ? 'Peer removed.' : 'Peer was not in config (already removed).');
+                loadPeers();
+            } else {
+                alert('Failed: ' + (d.message || 'unknown'));
+            }
+        }).catch(function(e){ alert('Error: ' + e); });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    loadPeers();
+    setInterval(loadPeers, 30000);  // auto-refresh every 30s
+});
+</script>
+{% endblock %}

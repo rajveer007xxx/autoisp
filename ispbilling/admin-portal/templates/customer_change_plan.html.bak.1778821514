@@ -1,0 +1,173 @@
+{% extends "base_user.html" %}
+{% block title %}Change Plan - Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+.cp-card{background:#fff;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(11,17,32,.06);}
+.cp-current{background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-radius:14px;padding:20px;margin-bottom:18px;}
+.cp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+.cp-plan{background:#fff;border:2px solid #e2e8f0;border-radius:14px;padding:18px;cursor:pointer;transition:all .2s;position:relative;}
+.cp-plan,.cp-plan *{color:#0b1120;}
+.cp-plan .cp-name{font-size:18px;font-weight:700;margin-bottom:6px;color:#0b1120;}
+.cp-plan .cp-desc{font-size:12px;color:#64748b;margin-top:6px;}
+.cp-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.cp-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:999px;background:#f1f5f9;color:#0f172a;border:1px solid #e2e8f0;}
+.cp-pill i{font-size:12px;color:#6366f1;}
+.cp-plan:hover{border-color:#6366f1;transform:translateY(-2px);box-shadow:0 8px 24px rgba(99,102,241,.18);}
+.cp-plan.selected{border-color:#10b981;background:#f0fdf4;}
+.cp-plan.current{border-color:#3b82f6;background:#eff6ff;cursor:default;}
+.cp-plan.current:hover{transform:none;box-shadow:none;}
+.cp-tag{position:absolute;top:10px;right:10px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;}
+.cp-tag.upgrade{background:#dcfce7;color:#15803d;}
+.cp-tag.downgrade{background:#fef3c7;color:#a16207;}
+.cp-tag.current{background:#dbeafe;color:#1d4ed8;}
+.cp-price{font-size:28px;font-weight:800;color:#0b1120;}
+.cp-speed{font-size:14px;color:#475569;font-weight:600;}
+.cp-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;padding:14px 28px;border-radius:12px;font-weight:700;cursor:pointer;font-size:15px;width:100%;}
+.cp-btn:disabled{opacity:.5;cursor:not-allowed;}
+.cp-btn.gray{background:#475569;}
+</style>
+
+<section class="content-header">
+  <h1>Change Plan<small>Upgrade for instant activation, or request a downgrade for next billing cycle</small></h1>
+</section>
+
+<section class="content">
+<div id="cpRoot"><div style="text-align:center;padding:60px;color:#94a3b8">Loading plans…</div></div>
+</section>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+
+// _v4730_  Build feature pills (icon + label) by sniffing plan name + description.
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function planFeaturePills(p){
+  const text = ((p.name||'')+' '+(p.description||'')).toLowerCase();
+  const out = [];
+  const push = (icon, label) => out.push(`<span class="cp-pill"><i class="${icon}"></i>${label}</span>`);
+  if (p.speed) push('bi bi-speedometer2', p.speed);
+  if (p.validity) push('bi bi-calendar3', `${p.validity} ${p.validity_unit||'days'}`);
+  if (/unlimited/.test(text))           push('bi bi-infinity', 'Unlimited Data');
+  else {
+    const m = text.match(/(\d+\s*(tb|gb|mb))/);
+    if (m) push('bi bi-hdd', m[1].toUpperCase());
+  }
+  if (/live\s*tv|otts?|prime|netflix|hotstar|sony\s*liv|zee5/.test(text))
+                                  push('bi bi-tv', 'Live TV / OTT');
+  if (/voice|calling/.test(text)) push('bi bi-telephone', 'Voice Calls');
+  if (/static\s*ip/.test(text))  push('bi bi-pin-map', 'Static IP');
+  if (/router|cpe/.test(text))    push('bi bi-router', 'Router');
+  if (/gaming|game/.test(text))   push('bi bi-controller', 'Gaming Ready');
+  if (/free\s*install/.test(text)) push('bi bi-tools', 'Free Install');
+  if (/wifi\s*6|wi-?fi\s*6/.test(text)) push('bi bi-wifi', 'WiFi 6');
+  return out.join('');
+}
+
+let _selected = null;
+let _plans = [];
+let _current = null;
+
+async function loadPlans(){
+  const r=await fetch('/api/customer/all-plans',{credentials:'include'});
+  const d=await r.json();
+  if(!d.success){
+    document.getElementById('cpRoot').innerHTML='<div style="text-align:center;padding:60px;color:#ef4444">Error loading plans</div>';
+    return;
+  }
+  _plans=d.plans; _current=d.current;
+  let html=`
+    <div class="cp-current" data-testid="cp-current">
+      <div style="font-size:13px;color:#475569;font-weight:600;text-transform:uppercase;">Your Current Plan</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:6px;">
+        <div style="font-size:22px;font-weight:700;">${_current.name}</div>
+        <div style="margin-left:auto;font-size:18px;font-weight:700;color:#475569;">₹ ${_current.amount}</div>
+      </div>
+    </div>`;
+  html+='<div class="cp-grid" data-testid="cp-options">';
+  _plans.forEach(p=>{
+    const tag = p.kind==='current' ? 'CURRENT' : (p.kind==='upgrade' ? 'UPGRADE' : 'DOWNGRADE');
+    const features = planFeaturePills(p);
+    html+=`
+      <div class="cp-plan ${p.kind}" id="plan-${p.id}" ${p.kind!=='current'?`onclick="selectPlan(${p.id})"`:''} data-testid="cp-plan-${p.id}">
+        <span class="cp-tag ${p.kind}">${tag}</span>
+        <div class="cp-name">${escapeHtml(p.name)}</div>
+        <div class="cp-speed">${p.validity} ${p.validity_unit}</div>
+        <div class="cp-price" style="margin-top:14px;">₹ ${p.amount}</div>
+        ${p.description ? `<div class="cp-desc">${escapeHtml(p.description)}</div>` : ''}
+        ${features ? `<div class="cp-pills">${features}</div>` : ''}
+      </div>`;
+  });
+  html+='</div>';
+  html+=`<div class="cp-card" style="margin-top:18px;">
+    <button class="cp-btn" id="cpBtn" onclick="proceed()" disabled data-testid="cp-action-btn">Select a plan to continue</button>
+  </div>`;
+  document.getElementById('cpRoot').innerHTML=html;
+}
+function selectPlan(id){
+  _selected=id;
+  document.querySelectorAll('.cp-plan').forEach(el=>el.classList.remove('selected'));
+  document.getElementById('plan-'+id).classList.add('selected');
+  const p=_plans.find(x=>x.id===id);
+  const btn=document.getElementById('cpBtn');
+  btn.disabled=false;
+  if(p.kind==='upgrade'){
+    btn.textContent=`Pay & Upgrade Now`;
+    btn.classList.remove('gray');
+  } else {
+    btn.textContent=`Request Downgrade to ${escapeHtml(p.name)}`;
+    btn.classList.add('gray');
+  }
+}
+async function proceed(){
+  if(!_selected) return;
+  const p=_plans.find(x=>x.id===_selected);
+  const btn=document.getElementById('cpBtn');
+  if(p.kind==='upgrade'){
+    btn.disabled=true; btn.textContent='Creating order…';
+    const r=await fetch('/api/customer/upgrade/create',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({target_plan_id:_selected})});
+    const d=await r.json();
+    if(!d.success){alert(d.message); btn.disabled=false; return;}
+    if(!d.rzp_order_id || !d.rzp_key_id){
+      alert('Payment gateway not configured. Please contact support.');
+      btn.disabled=false; return;
+    }
+    // _v4730_  Confirm total breakdown with the user before opening Razorpay.
+    const planAmt = Number(d.plan_amount ?? d.amount ?? 0).toFixed(2);
+    const dues    = Number(d.previous_dues || 0).toFixed(2);
+    const total   = Number(d.amount || 0).toFixed(2);
+    if (Number(d.previous_dues || 0) > 0) {
+      const ok = confirm(
+        `You have an outstanding due of ₹${dues}. To upgrade, you must clear it now.\n\n` +
+        `Plan charge:       ₹${planAmt}\n` +
+        `Previous due:      ₹${dues}\n` +
+        `─────────────\nTotal to pay:    ₹${total}\n\nProceed to payment?`);
+      if (!ok) { btn.disabled=false; btn.textContent='Pay & Upgrade Now'; return; }
+    }
+    const rzp=new Razorpay({
+      key:d.rzp_key_id, amount:d.amount*100, currency:'INR',
+      name:'Plan Upgrade', description:`Plan + Outstanding Dues (₹${dues})`,
+      order_id:d.rzp_order_id,
+      handler:async function(resp){
+        const cf=await fetch('/api/customer/upgrade/'+d.order_id+'/confirm',{
+          method:'POST',credentials:'include',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({razorpay_payment_id:resp.razorpay_payment_id})});
+        const cd=await cf.json();
+        if(cd.success){alert('🎉 Plan upgraded successfully!'); window.location.reload();}
+        else alert('Failed to apply: '+cd.message);
+      }, theme:{color:'#6366f1'}
+    });
+    rzp.open();
+    btn.disabled=false;
+  } else {
+    if(!confirm(`Request downgrade to "${p.name}"? Our team will contact you to schedule.`)) return;
+    const r=await fetch('/api/customer/plan-change-request',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({target_plan_id:_selected})});
+    const d=await r.json();
+    if(d.success){alert('Request submitted. Ticket: '+d.ticket); window.location.reload();}
+    else alert(d.message);
+  }
+}
+loadPlans();
+</script>
+{% endblock %}

@@ -1,0 +1,225 @@
+{% extends "base_admin.html" %}
+{% block title %}Voucher Redemptions{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Voucher Redemptions <small>Real-time feed powered by the redeem webhook</small></h1>
+  <div style="float:right;margin-top:-32px;">
+    <input id="s36f-filter-batch" class="form-control" style="display:inline-block;width:220px;" placeholder="Filter by batch_id" data-testid="redemptions-filter-batch">
+    <button class="btn btn-default" onclick="s36fLoad()" data-testid="redemptions-refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+  </div>
+</section>
+<!-- s36g-analytics -->
+<section class="content" style="padding-bottom:0;">
+  <!-- __S38_LOYALTY_ANALYTICS__ -->
+  <div class="row">
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-orange">
+        <div class="inner"><h3 data-testid="analytics-repeat-visitors">0</h3><p>Repeat Visitors (30d)</p></div>
+        <div class="icon"><i class="bi bi-arrow-repeat"></i></div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-navy">
+        <div class="inner"><h3 data-testid="analytics-repeat-redemptions">0</h3><p>Redemptions from Repeats</p></div>
+        <div class="icon"><i class="bi bi-people-fill"></i></div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="box box-warning" style="margin-bottom:0;">
+        <div class="box-header with-border">
+          <h3 class="box-title"><i class="bi bi-trophy"></i> Top 10 Loyal Devices (30d)</h3>
+        </div>
+        <div class="box-body" style="padding:0;max-height:200px;overflow-y:auto;">
+          <table class="table table-condensed" style="margin:0;font-size:12px;">
+            <thead><tr><th>MAC Address</th><th style="text-align:right;">Visits</th><th>Last Seen</th></tr></thead>
+            <tbody id="s38-top-devices" data-testid="analytics-top-devices">
+              <tr><td colspan="3" class="text-muted text-center">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-purple">
+        <div class="inner"><h3 data-testid="analytics-total-all">0</h3><p>All-time Redemptions</p></div>
+        <div class="icon"><i class="bi bi-graph-up"></i></div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-aqua">
+        <div class="inner"><h3 data-testid="analytics-month">0</h3><p>Last 30 Days</p></div>
+        <div class="icon"><i class="bi bi-calendar-month"></i></div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-green">
+        <div class="inner"><h3 data-testid="analytics-week">0</h3><p>Last 7 Days</p></div>
+        <div class="icon"><i class="bi bi-calendar-week"></i></div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="small-box bg-maroon">
+        <div class="inner"><h3 data-testid="analytics-devices">0</h3><p>Distinct Devices (MACs)</p></div>
+        <div class="icon"><i class="bi bi-phone"></i></div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-8">
+      <div class="box box-primary">
+        <div class="box-header with-border"><h3 class="box-title">Daily Redemptions (last 30 days)</h3></div>
+        <div class="box-body"><canvas id="s36g-daily-chart" height="80" data-testid="analytics-daily-chart"></canvas></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="box box-success">
+        <div class="box-header with-border"><h3 class="box-title">Top 5 Batches</h3></div>
+        <div class="box-body" style="padding:0;">
+          <ul class="list-group" id="s36g-top-batches" data-testid="analytics-top-batches" style="margin:0;">
+            <li class="list-group-item text-muted">Loading…</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-12">
+      <div class="box box-info">
+        <div class="box-header with-border"><h3 class="box-title">Hour-of-Day Heatmap (last 30 days)</h3></div>
+        <div class="box-body"><canvas id="s36g-hour-chart" height="60" data-testid="analytics-hour-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  var dailyChart=null, hourChart=null;
+  function renderAnalytics(){
+    fetch('/api/vouchers/redemptions/analytics?days=30').then(r=>r.json()).then(function(j){
+      if(!j.ok) return;
+      // totals
+      document.querySelector('[data-testid="analytics-total-all"]').textContent = j.totals.all;
+      document.querySelector('[data-testid="analytics-month"]').textContent = j.totals.month;
+      document.querySelector('[data-testid="analytics-week"]').textContent = j.totals.week;
+      document.querySelector('[data-testid="analytics-devices"]').textContent = j.totals.distinct_devices;
+      // S38 loyalty
+      var rvEl = document.querySelector('[data-testid="analytics-repeat-visitors"]');
+      if (rvEl) rvEl.textContent = (j.totals && j.totals.repeat_visitors) || 0;
+      var rrEl = document.querySelector('[data-testid="analytics-repeat-redemptions"]');
+      if (rrEl) rrEl.textContent = (j.totals && j.totals.repeat_redemptions) || 0;
+      var tdEl = document.getElementById('s38-top-devices');
+      if (tdEl) {
+        var td = j.top_devices || [];
+        if (!td.length) {
+          tdEl.innerHTML = '<tr><td colspan="3" class="text-muted text-center">No repeat devices yet.</td></tr>';
+        } else {
+          tdEl.innerHTML = td.map(function(d){
+            var badge = d.count >= 5
+              ? '<span class="badge" style="background:#dc2626;color:#fff;">'+d.count+'x</span>'
+              : '<span class="badge" style="background:#7c3aed;color:#fff;">'+d.count+'x</span>';
+            var ls = (d.last_seen || '').replace('T',' ').substring(0,16);
+            return '<tr><td><code style="font-size:11px;">'+d.mac+'</code></td>'+
+                   '<td style="text-align:right;">'+badge+'</td>'+
+                   '<td style="color:#666;">'+ls+'</td></tr>';
+          }).join('');
+        }
+      }
+      // top batches
+      var ul = document.getElementById('s36g-top-batches');
+      if (!j.top_batches.length) {
+        ul.innerHTML = '<li class="list-group-item text-muted">No batches yet.</li>';
+      } else {
+        var max = Math.max.apply(null, j.top_batches.map(b=>b.count));
+        ul.innerHTML = j.top_batches.map(function(b){
+          var pct = Math.round(100 * b.count / max);
+          return '<li class="list-group-item" style="position:relative;overflow:hidden;">'+
+            '<div style="position:absolute;inset:0;background:#a78bfa;opacity:0.15;width:'+pct+'%;"></div>'+
+            '<span style="position:relative;"><b>'+b.batch_id+'</b></span>'+
+            '<span style="position:relative;float:right;" class="badge">'+b.count+'</span></li>';
+        }).join('');
+      }
+      // daily chart
+      var labels = j.daily.map(d=>d.date);
+      var counts = j.daily.map(d=>d.count);
+      var ctx = document.getElementById('s36g-daily-chart').getContext('2d');
+      if (dailyChart) dailyChart.destroy();
+      dailyChart = new Chart(ctx, {type:'line', data:{labels:labels, datasets:[{label:'Redemptions', data:counts, borderColor:'#7c3aed', backgroundColor:'rgba(124,58,237,0.1)', tension:0.3, fill:true}]}, options:{maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}}}});
+      // hour chart
+      var hr = Array.from({length:24}, (_,i)=> ('00'+i).slice(-2) + ':00');
+      var ctx2 = document.getElementById('s36g-hour-chart').getContext('2d');
+      if (hourChart) hourChart.destroy();
+      var max2 = Math.max.apply(null, j.hourly) || 1;
+      var colors = j.hourly.map(function(v){
+        var pct = v / max2;
+        return 'rgba(6, 182, 212, '+ (0.15 + 0.85*pct) +')';
+      });
+      hourChart = new Chart(ctx2, {type:'bar', data:{labels:hr, datasets:[{label:'Redemptions by hour', data:j.hourly, backgroundColor:colors}]}, options:{maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}}}});
+    });
+  }
+  document.addEventListener('DOMContentLoaded', renderAnalytics);
+  setInterval(renderAnalytics, 60000);  // refresh every 60s
+})();
+</script>
+
+<section class="content">
+  <div class="box box-primary">
+    <div class="box-body">
+      <table class="table table-hover" id="s36f-table" data-testid="redemptions-table">
+        <thead><tr>
+          <th>#</th><th>When</th><th>Code</th><th>Batch</th><th>Plan</th>
+          <th>MAC</th><th data-testid="loyalty-header" title="Total redemptions by this device">Visits</th><th>IP</th><th>User Agent</th>
+        </tr></thead>
+        <tbody id="s36f-rows"><tr><td colspan="9">Loading…</td></tr></tbody>
+      </table>
+      <div id="s36f-empty" style="display:none;padding:40px;text-align:center;color:#64748b;">
+        <i class="bi bi-inbox" style="font-size:40px;"></i>
+        <p style="margin-top:12px;font-size:15px;">No redemptions yet. They will appear here once customers start using their vouchers.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<script>
+function s36fFmtTime(iso){
+  if(!iso) return '';
+  var d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+  return d.toLocaleString();
+}
+function s36fLoad(){
+  var batch = document.getElementById('s36f-filter-batch').value.trim();
+  var url = '/api/vouchers/redemptions/list?limit=500' + (batch ? '&batch_id=' + encodeURIComponent(batch) : '');
+  fetch(url).then(r => r.json()).then(function(j){
+    var tb = document.getElementById('s36f-rows');
+    var empty = document.getElementById('s36f-empty');
+    if(!j.ok){ tb.innerHTML = '<tr><td colspan="9" class="text-danger">'+(j.error||'error')+'</td></tr>'; return; }
+    if(!j.rows.length){ tb.innerHTML = ''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    tb.innerHTML = j.rows.map(function(r, i){
+      return '<tr>'+
+        '<td>'+(i+1)+'</td>'+
+        '<td>'+s36fFmtTime(r.at)+'</td>'+
+        '<td style="font-family:monospace;font-weight:600;color:#7c3aed;">'+r.code+'</td>'+
+        '<td>'+(r.batch_id||'—')+'</td>'+
+        '<td>'+(r.plan_name||'—')+'</td>'+
+        '<td style="font-family:monospace;font-size:12px;">'+(r.mac||'—')+'</td>'+
+        '<td class="s36g-loyalty-col" data-testid="loyalty-cell" style="text-align:center;">'+
+          (r.mac_total > 1
+            ? '<span class="badge" style="background:#7c3aed;color:#fff;" title="This device has redeemed '+r.mac_total+' vouchers">'+r.mac_total+'x</span>'
+            : (r.mac ? '<span class="text-muted">1</span>' : '—'))+'</td>'+
+        '<td style="font-family:monospace;font-size:12px;">'+(r.ip||'—')+'</td>'+
+        '<td style="font-size:11px;color:#6b7280;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+(r.ua||'')+'">'+(r.ua||'—')+'</td>'+
+        '</tr>';
+    }).join('');
+  }).catch(function(e){
+    document.getElementById('s36f-rows').innerHTML = '<tr><td colspan="9" class="text-danger">'+e+'</td></tr>';
+  });
+}
+document.addEventListener('DOMContentLoaded', s36fLoad);
+document.getElementById('s36f-filter-batch').addEventListener('keydown', function(e){
+  if(e.key==='Enter') s36fLoad();
+});
+setInterval(s36fLoad, 30000);  // auto-refresh every 30s
+</script>
+{% endblock %}

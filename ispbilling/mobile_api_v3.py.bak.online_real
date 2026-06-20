@@ -1,0 +1,1896 @@
+"""
+mobile_api_v3.py — v3.1  (S39R5j_v3p1)
+
+Fixes the data-shape bugs reported on the Android v3 APK and adds the new
+endpoints the rebuilt screens need.
+
+Endpoint matrix added/overridden:
+  GET  /api/mobile/v1/me                       (full profile + company)
+  GET  /api/mobile/v1/subscribers/normalized   (list w/ unified fields)
+  GET  /api/mobile/v1/subscriber/{id}          (canonical detail w/ all derived fields)
+  POST /api/mobile/v1/pay                      (records payment + returns full receipt)
+  GET  /api/mobile/v1/localities               (real DB localities)
+  GET  /api/mobile/v1/locations                (locations FK)
+  GET  /api/mobile/v1/employees-list           (sub-lcos + employees for assign/report)
+  GET  /api/mobile/v1/plans-list               (real plans + speeds + amounts)
+  GET  /api/mobile/v1/transactions             (cross-customer, with name/mobile)
+  GET  /api/mobile/v1/transactions/{id}
+  GET  /api/mobile/v1/online-users             (real-time RADIUS)
+  POST /api/mobile/v1/subscribers/{id}/disconnect
+  POST /api/mobile/v1/subscribers/{id}/mac-reset
+  POST /api/mobile/v1/subscribers/{id}/status
+  GET  /api/mobile/v1/olts                     (Mikrotik scan: PPPoE secrets/active = synthetic ONUs)
+  GET  /api/mobile/v1/olts/{id}                (live health)
+  GET  /api/mobile/v1/olts/{id}/onus           (live ONU list)
+  GET  /api/mobile/v1/onus/{id}/remote-config  (live)
+  POST /api/mobile/v1/onus/{id}/{ztp/deploy,activate,wifi,reboot,factory-reset}
+  GET  /api/mobile/v1/nas/list                 (full NAS detail)
+  GET  /api/mobile/v1/complaints-list          (proper shape)
+  POST /api/mobile/v1/complaints/{id}/update
+  GET  /api/mobile/v1/dues                     (Bill Dues page)
+  GET  /api/mobile/v1/reports/collections      (total/online/offline split)
+"""
+from __future__ import annotations
+import sqlite3, time
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Header, Body, Query
+
+
+def install(app, *, _conn, _require_auth):
+    DB = _conn
+
+    # ─── company info helper ─────────────────────────────────────────────
+
+    # ─── _S40zπ_MOBILE_FIX_  Centralised IST timestamp + ledger helpers ───
+    from zoneinfo import ZoneInfo as _ZI
+    _IST = _ZI("Asia/Kolkata")
+
+    def _now_ist_iso() -> str:
+        """Return current IST naive 'YYYY-MM-DD HH:MM:SS' (matches web payments)."""
+        return datetime.now(_IST).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _fmt_paid_at(raw, fmt: str = "%d-%m-%Y %H:%M") -> str:
+        """Parse a paid_at string (with or without microseconds) and format
+        for receipt display.  No timezone shift — the DB now always stores IST."""
+        if not raw:
+            return ""
+        raw = str(raw).strip()
+        for parse_fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
+                          "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(raw[:26], parse_fmt).strftime(fmt)
+            except Exception:
+                continue
+        return raw
+
+    def _balance_signed(cur, cid: str, customer_id: str) -> float:
+        """Real ledger balance = SUM(invoices) - SUM(payments + discounts).
+        Positive = customer owes; zero = clear; negative = credit/advance."""
+        try:
+            inv = cur.execute(
+                "SELECT COALESCE(SUM(total_amount),0) FROM invoices "
+                " WHERE company_id=? AND customer_id=?",
+                (cid, customer_id)).fetchone()[0] or 0
+        except Exception:
+            inv = 0
+        try:
+            pay = cur.execute(
+                "SELECT COALESCE(SUM(amount),0) + COALESCE(SUM(discount),0) "
+                "  FROM payments WHERE company_id=? AND customer_id=?",
+                (cid, customer_id)).fetchone()[0] or 0
+        except Exception:
+            pay = 0
+        return round(float(inv) - float(pay), 2)
+
+    def _latest_invoice_amount(cur, cid: str, customer_id: str) -> float:
+        """Amount of the most recent invoice — used as 'current period charge'."""
+        r = cur.execute(
+            "SELECT total_amount FROM invoices "
+            " WHERE company_id=? AND customer_id=? "
+            " ORDER BY issue_date DESC, id DESC LIMIT 1",
+            (cid, customer_id)).fetchone()
+        return float(r[0] or 0) if r else 0.0
+
+    def _online_set_real(cid: str) -> set:
+        """Online usernames from radacct, scoped to THIS company's customers."""
+        try:
+            with DB() as _c:
+                # Only count NON-deleted customers from this tenant
+                names = [r[0] for r in _c.execute(
+                    "SELECT username FROM customers "
+                    " WHERE company_id=? AND IFNULL(username,'')!='' "
+                    "  AND COALESCE(status,'') NOT IN ('Deleted','deleted','Terminated','terminated')",
+                    (cid,)).fetchall()]
+            name_set = set(names)
+            if not name_set:
+                return set()
+            ra = sqlite3.connect("file:/var/lib/freeradius/radacct.db?mode=ro",
+                                 uri=True, timeout=5)
+            ra.row_factory = sqlite3.Row
+            online = set()
+            chunk = 400
+            names_list = list(name_set)
+            for i in range(0, len(names_list), chunk):
+                batch = names_list[i:i+chunk]
+                ph = ",".join("?" * len(batch))
+                rows = ra.execute(
+                    f"SELECT DISTINCT username FROM radacct "
+                    f" WHERE acctstoptime IS NULL AND username IN ({ph})",
+                    batch).fetchall()
+                online.update(r["username"] for r in rows)
+            ra.close()
+            # Final intersect (defensive — radacct is shared across tenants)
+            return online & name_set
+        except Exception:
+            return set()
+
+
+
+    # _S40zπ_MOBILE_FIX_  Smart user-type filter — routes 'broadband'/'cable'
+    # /'fiber'/'wireless' to service_type; 'prepaid'/'postpaid' stay on
+    # customer_type. The mobile UI's single 'User Type' dropdown sends mixed
+    # values, so the API has to be liberal about both columns.
+    _SVC_TYPES = {"broadband", "cable", "fiber", "wireless", "wifi", "leased_line"}
+    _BILL_TYPES = {"prepaid", "postpaid"}
+    def _user_type_filter(val: str):
+        """Return (sql_fragment, params) — joined with AND. Empty if val falsy."""
+        v = (val or "").strip().lower().replace(" ", "_")
+        if not v or v == "all":
+            return "", []
+        if v in _SVC_TYPES:
+            return (" AND LOWER(REPLACE(IFNULL(c.service_type,''),' ','_'))=? ", [v])
+        if v in _BILL_TYPES:
+            return (" AND LOWER(REPLACE(IFNULL(c.customer_type,''),' ','_'))=? ", [v])
+        # Unknown value — match either column for forward-compat
+        return (" AND (LOWER(REPLACE(IFNULL(c.service_type,''),' ','_'))=? "
+                "  OR LOWER(REPLACE(IFNULL(c.customer_type,''),' ','_'))=?) ",
+                [v, v])
+
+    def _company_meta(cid: str) -> dict:
+        if not cid: return {}
+        with DB() as c:
+            r = c.execute(
+                "SELECT company_name, company_phone, company_email, "
+                "       company_address, gst_number, upi_id, logo_path "
+                "  FROM companies WHERE company_id=?", (cid,)).fetchone()
+        return dict(r) if r else {}
+
+    # ─── Push Notifications (Expo) ───────────────────────────────────────
+    # _S39R5Q — Send via Expo Push API. Tokens stored in `push_tokens`.
+    def _push_send(tokens: list, title: str, body: str, data: dict = None):
+        if not tokens: return
+        try:
+            import urllib.request, json as _json
+            payload = [{
+                "to": tk, "title": title, "body": body, "sound": "default",
+                "data": data or {}, "priority": "high",
+            } for tk in tokens]
+            req = urllib.request.Request(
+                "https://exp.host/--/api/v2/push/send",
+                data=_json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json",
+                         "Accept": "application/json",
+                         "Accept-encoding": "gzip, deflate"},
+                method="POST")
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception as e:
+            try:
+                import logging as _lg; _lg.warning(f"push_send_error: {e}")
+            except Exception: pass
+
+    def _tokens_for(cid: str, user_type: str = None,
+                    user_pk: int = None) -> list:
+        with DB() as c:
+            sql = "SELECT expo_token FROM push_tokens WHERE company_id=?"
+            args = [cid]
+            if user_type:
+                sql += " AND user_type=?"; args.append(user_type)
+            if user_pk:
+                sql += " AND user_pk=?"; args.append(user_pk)
+            return [r["expo_token"] for r in c.execute(sql, args).fetchall()]
+
+    @app.post("/api/mobile/v1/push/register")
+    def push_register(body: dict = Body(...),
+                      authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        token = (body.get("expo_token") or "").strip()
+        if not token: raise HTTPException(400, "missing_expo_token")
+        ut  = s.get("user_type") or ""
+        upk = s.get("user_pk") or s.get("user_id")
+        with DB() as c:
+            now = _now_ist_iso()
+            c.execute(
+                "INSERT INTO push_tokens(company_id, user_type, user_pk, "
+                "  expo_token, device_id, platform, app_version, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(expo_token) DO UPDATE SET "
+                "  company_id=excluded.company_id, user_type=excluded.user_type, "
+                "  user_pk=excluded.user_pk, device_id=excluded.device_id, "
+                "  platform=excluded.platform, app_version=excluded.app_version, "
+                "  updated_at=excluded.updated_at",
+                (cid, ut, upk, token,
+                 body.get("device_id"), body.get("platform"),
+                 body.get("app_version"), now, now))
+            c.commit()
+        return {"ok": True}
+
+    @app.post("/api/mobile/v1/push/unregister")
+    def push_unregister(body: dict = Body(...),
+                        authorization: Optional[str] = Header(None)):
+        _require_auth(authorization)
+        token = (body.get("expo_token") or "").strip()
+        if not token: return {"ok": True}
+        with DB() as c:
+            c.execute("DELETE FROM push_tokens WHERE expo_token=?", (token,))
+            c.commit()
+        return {"ok": True}
+
+    # ─── Due alert dispatcher (cron-callable) ────────────────────────────
+    # _S39R5Q — Sends push to every customer whose end_date is within
+    # `days_before` days. Designed to be hit daily from systemd timer.
+    # Auth: requires X-Internal-Key matching env AUTOISPB_INTERNAL_KEY.
+    @app.post("/api/mobile/v1/internal/dispatch-due-alerts")
+    def dispatch_due_alerts(days_before: int = 3,
+                            x_internal_key: Optional[str] = Header(None,
+                                alias="X-Internal-Key")):
+        import os as _os
+        expected = _os.environ.get("AUTOISPB_INTERNAL_KEY", "autoispb-internal-key")
+        if x_internal_key != expected:
+            raise HTTPException(401, "internal_key_required")
+        from datetime import date as _date, timedelta as _td
+        target = (_date.today() + _td(days=days_before)).strftime("%Y-%m-%d")
+        sent = 0; failed = 0
+        with DB() as c:
+            rows = c.execute(
+                "SELECT c.id AS pk, c.company_id, c.customer_name, "
+                "       c.total_bill_amount, c.received_amount, "
+                "       c.discount_credit, c.end_date, "
+                "       co.company_name "
+                "  FROM customers c "
+                "  LEFT JOIN companies co ON co.company_id=c.company_id "
+                " WHERE substr(c.end_date,1,10)=? "
+                "   AND COALESCE(c.status,'Active')='Active'", (target,)).fetchall()
+            for r in rows:
+                due = max(0, round(
+                    float(r["total_bill_amount"] or 0) -
+                    float(r["received_amount"] or 0) -
+                    float(r["discount_credit"] or 0)))
+                if due <= 0: continue
+                tokens = _tokens_for(r["company_id"], "customer", r["pk"])
+                if not tokens: continue
+                try:
+                    _push_send(
+                        tokens,
+                        f"Bill due in {days_before} days · ₹{due:.0f}",
+                        f"Hi {r['customer_name']}, your AutoISP plan expires "
+                        f"on {r['end_date'][:10]}. Pay ₹{due:.0f} to stay online.",
+                        {"type": "due_alert", "customer_pk": r["pk"],
+                         "amount": due})
+                    sent += 1
+                except Exception:
+                    failed += 1
+        return {"ok": True, "target_date": target, "sent": sent,
+                "failed": failed}
+
+    # ─── Role-scope helper (sub_lco / employee) ──────────────────────────
+    # Returns (WHERE-fragment starting with " AND ...", params) intended to
+    # be appended to a customer query that already has a base "WHERE
+    # company_id=?" clause. Admin / superadmin pass through unscoped.
+    def _scope_and(s: dict, cust_alias: str = "c") -> tuple:
+        ut  = s.get("user_type") or ""
+        pk  = s.get("user_pk") or s.get("user_id")
+        cid = s.get("company_id") or ""
+        if ut == "sub_lco":
+            return (
+                f" AND ({cust_alias}.sub_lco_id=?) ",
+                [pk],
+            )
+        if ut == "employee":
+            try:
+                with DB() as cx:
+                    allowed = [r[0] for r in cx.execute(
+                        "SELECT location_id FROM employee_locality_assignments "
+                        " WHERE employee_id=? AND company_id=?", (pk, cid)
+                    ).fetchall()]
+            except Exception:
+                allowed = []
+            if allowed:
+                qm = ",".join("?" * len(allowed))
+                return (f" AND ({cust_alias}.location_id IN ({qm})) ",
+                        list(allowed))
+            return (f" AND ({cust_alias}.sub_lco_id=-1) ", [])   # empty
+        return ("", [])
+
+    # ─── /me ─────────────────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/me")
+    def me(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization)
+        cid = s.get("company_id") or ""
+        role = s.get("user_type") or ""
+        uid  = s.get("user_pk") or s.get("user_id")
+        full_name = ""; mobile = ""; email = ""; image_path = ""
+        with DB() as c:
+            if role == "admin":
+                r = c.execute(
+                    "SELECT admin_name, admin_id, admin_mobile AS mobile, "
+                    "       admin_email AS email, profile_image_path AS img "
+                    "  FROM admins WHERE id=? AND company_id=?",
+                    (uid, cid)).fetchone()
+                if r:
+                    full_name = r["admin_name"] or r["admin_id"]
+                    mobile = r["mobile"] or ""
+                    email = r["email"] or ""
+                    image_path = r["img"] or ""
+            elif role == "sub_lco":
+                r = c.execute(
+                    "SELECT name, mobile, email, profile_image AS img "
+                    "  FROM sub_lcos WHERE id=? AND company_id=?",
+                    (uid, cid)).fetchone()
+                if r:
+                    full_name = r["name"]
+                    mobile = r["mobile"] or ""
+                    email = r["email"] or ""
+                    image_path = r["img"] or ""
+            elif role == "employee":
+                r = c.execute(
+                    "SELECT employee_name, mobile, email, profile_image_path AS img "
+                    "  FROM employees WHERE id=? AND company_id=?",
+                    (uid, cid)).fetchone()
+                if r:
+                    full_name = r["employee_name"]
+                    mobile = r["mobile"] or ""
+                    email = r["email"] or ""
+                    image_path = r["img"] or ""
+            elif role == "customer":
+                r = c.execute(
+                    "SELECT customer_name, customer_phone, customer_email, "
+                    "       photograph_path AS img "
+                    "  FROM customers WHERE id=? AND company_id=?",
+                    (uid, cid)).fetchone()
+                if r:
+                    full_name = r["customer_name"]
+                    mobile = r["customer_phone"] or ""
+                    email = r["customer_email"] or ""
+                    image_path = r["img"] or ""
+        # Build absolute image URL
+        img_url = None
+        if image_path:
+            p = image_path.strip()
+            if p.startswith("http"):
+                img_url = p
+            else:
+                if not p.startswith("/"):
+                    p = "/" + p
+                img_url = f"https://www.autoispbilling.com{p}"
+        # _S40zπ_MOBILE_FIX_  Dashboard tiles: real counts excluding Deleted.
+        # _S40zπ_MOBILE_FIX_  Schema-correct role scoping for /me counters
+        scope_extra = ""
+        sx_args = []
+        if role == "sub_lco":
+            # sub_lcos.id is what customers.sub_lco_id stores; uid here is the
+            # sub_lco's PK id (string). No `parent_sub_lco_id` column exists.
+            scope_extra = " AND sub_lco_id=?"
+            sx_args = [uid]
+        elif role == "employee":
+            # Employees see customers in any locality they're assigned to OR
+            # any customer they personally created.
+            try:
+                with DB() as _cx:
+                    locs = [r[0] for r in _cx.execute(
+                        "SELECT location_id FROM employee_locality_assignments "
+                        " WHERE company_id=? AND employee_id=? AND COALESCE(active,1)=1",
+                        (cid, uid)).fetchall()]
+                if locs:
+                    ph = ",".join("?" * len(locs))
+                    scope_extra = f" AND (location_id IN ({ph}) OR created_by_employee_id=?)"
+                    sx_args = list(locs) + [uid]
+                else:
+                    scope_extra = " AND created_by_employee_id=?"
+                    sx_args = [uid]
+            except Exception:
+                scope_extra = " AND created_by_employee_id=?"
+                sx_args = [uid]
+        cnt = {"subscribers_total": 0, "subscribers_active": 0,
+               "online_now": 0, "complaints_open": 0,
+               "bill_dues_count": 0, "bill_dues_amount": 0.0,
+               "notifications_unread": 0}
+        try:
+            with DB() as _cm:
+                base = (" WHERE company_id=? AND COALESCE(status,'') NOT IN "
+                        " ('Deleted','deleted','Terminated','terminated') ")
+                cnt["subscribers_total"] = _cm.execute(
+                    "SELECT COUNT(*) FROM customers" + base + scope_extra,
+                    [cid] + sx_args).fetchone()[0]
+                cnt["subscribers_active"] = _cm.execute(
+                    "SELECT COUNT(*) FROM customers" + base
+                    + " AND status='Active'" + scope_extra,
+                    [cid] + sx_args).fetchone()[0]
+                cnt["complaints_open"] = _cm.execute(
+                    "SELECT COUNT(*) FROM complaints "
+                    " WHERE company_id=? AND IFNULL(status,'')!='Resolved'",
+                    (cid,)).fetchone()[0]
+            cnt["online_now"] = len(_online_set_real(cid))
+            with DB() as _cm:
+                # Bill dues: count + sum via real ledger
+                rows = _cm.execute(
+                    "SELECT customer_id FROM customers " + base + scope_extra,
+                    [cid] + sx_args).fetchall()
+                tot = 0.0; n = 0
+                for rr in rows:
+                    bal = _balance_signed(_cm, cid, rr[0])
+                    if bal > 0:
+                        tot += bal; n += 1
+                cnt["bill_dues_count"]  = n
+                cnt["bill_dues_amount"] = round(tot, 2)
+                # Notifications = open complaints + unack alerts
+                try:
+                    cnt["notifications_unread"] = (
+                        cnt["complaints_open"]
+                        + (_cm.execute("SELECT COUNT(*) FROM olt_alerts "
+                            " WHERE company_id=? AND COALESCE(acked,0)=0",
+                            (cid,)).fetchone()[0] or 0))
+                except Exception:
+                    cnt["notifications_unread"] = cnt["complaints_open"]
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "user": {
+                "id": uid, "role": role,
+                "company_id": cid, "username": s.get("username"),
+                "full_name": full_name, "mobile": mobile, "email": email,
+                "profile_image_url": img_url,
+            },
+            "company": _company_meta(cid),
+            "counters": cnt,
+            **cnt,
+        }
+
+    def _normalize_subscriber(row, plan_lookup, online_set, last_pay_lookup,
+                              cid: str = "") -> dict:
+        # _S40zπ_MOBILE_FIX_  Real ledger:
+        #   balance     = SUM(invoices) - SUM(payments + discounts)  [signed]
+        #   current_due = latest invoice amount (this period's bill)
+        #   prev_due    = balance - current_due  (carry-forward)
+        d = dict(row)
+        plan = plan_lookup.get(d.get("plan_id")) or {}
+        d["plan_name"]   = plan.get("plan_name")
+        d["plan_amount"] = float(plan.get("after_tax_amount") or d.get("monthly_amount") or 0)
+        d["period_months"] = d.get("period")
+        d["mobile"]      = d.get("customer_phone")
+        d["is_online"]   = (d.get("username") or "") in online_set
+        try:
+            with DB() as _c:
+                signed = _balance_signed(_c, cid, d.get("customer_id"))
+                cur_inv = _latest_invoice_amount(_c, cid, d.get("customer_id"))
+        except Exception:
+            signed = 0.0; cur_inv = float(d.get("monthly_amount") or 0)
+        due_pos = max(0.0, round(signed, 2))   # what the customer OWES; credits → 0
+        d["due_amount"]   = due_pos
+        d["balance"]      = due_pos
+        d["balance_signed"] = round(signed, 2)
+        d["current_charge"] = round(cur_inv if cur_inv else float(d.get("monthly_amount") or 0), 2)
+        d["current_due"]  = round(min(due_pos, d["current_charge"]), 2) if due_pos > 0 else 0.0
+        d["prev_due"]     = round(max(0.0, due_pos - d["current_charge"]), 2)
+        lp = last_pay_lookup.get(d.get("customer_id")) or {}
+        d["last_paid"]    = float(lp.get("amount") or 0)
+        d["last_paid_at"] = _fmt_paid_at(lp.get("paid_at"))
+        d["status"]       = d.get("status") or "Active"
+        # _S39R5O — formatted period DD-MM-YYYY to DD-MM-YYYY
+        try:
+            sd = (d.get("start_date") or "").strip()
+            ed = (d.get("end_date") or "").strip()
+            def _fmtd(x):
+                if x and len(x) >= 10 and x[4] == "-" and x[7] == "-":
+                    return f"{x[8:10]}-{x[5:7]}-{x[0:4]}"
+                if x and len(x) >= 10 and x[2] == "-" and x[5] == "-":
+                    return x[:10]
+                return x or ""
+            if sd and ed:
+                d["formatted_period"] = f"{_fmtd(sd)} to {_fmtd(ed)}"
+            elif ed:
+                d["formatted_period"] = _fmtd(ed)
+            else:
+                d["formatted_period"] = ""
+        except Exception:
+            d["formatted_period"] = ""
+        return d
+
+    _CUST_COLS = (
+        "id, customer_id, username, customer_name, customer_email, "
+        "customer_phone, alt_mobile, address, locality, city, state, pincode, "
+        "plan_id, monthly_amount, customer_type, status, period, "
+        "start_date, end_date, total_bill_amount, received_amount, "
+        "mac_address, ip_address, vendor, modem_no, sub_lco_id, location_id, "
+        "auth_type, customer_gst_no, gst_invoice_needed, "
+        "auto_renew, security_deposit, installation_charges, router_charges, "
+        "discount_credit, payment_mode, transaction_id, "
+        "service_type, registration_type"
+    )
+
+    @app.get("/api/mobile/v1/subscriber-detail/{cust_pk}")
+    def subscriber_canonical(cust_pk: int,
+                             authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        # _S39R5P — enforce role scope: sub_lco/employee can only open
+        # customers in their scope.
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        with DB() as c:
+            row = c.execute(
+                f"SELECT {_CUST_COLS} FROM customers c "
+                f" WHERE c.id=? AND c.company_id=? {scope_sql}",
+                [cust_pk, cid] + scope_args).fetchone()
+            if not row: raise HTTPException(404, "not_found")
+            plans = {p["id"]: dict(p) for p in c.execute(
+                "SELECT id, plan_name, after_tax_amount FROM plans").fetchall()}
+            lp_row = c.execute(
+                "SELECT amount, paid_at FROM payments "
+                " WHERE company_id=? AND customer_id=? "
+                " ORDER BY paid_at DESC LIMIT 1",
+                (cid, row["customer_id"])).fetchone()
+            lp_lookup = {row["customer_id"]: dict(lp_row) if lp_row else {}}
+        return _normalize_subscriber(row, plans, _online_set_real(cid), lp_lookup, cid)
+
+    # Subscribers list with normalized fields (use plural-only path to avoid collision)
+    @app.get("/api/mobile/v1/subscribers-list")
+    def subs_norm(q: str = "", customer_type: str = "", locality: str = "",
+                  only_unpaid: bool = False,
+                  authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        sql = f"SELECT {_CUST_COLS} FROM customers c WHERE c.company_id=? AND COALESCE(c.status,'') NOT IN ('Deleted','deleted')"; args = [cid]
+        # _S39R5P — role scope: sub_lco / employee see only their own
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        sql += scope_sql; args += scope_args
+        if q:
+            sql += " AND (c.customer_name LIKE ? OR c.customer_id LIKE ? OR c.username LIKE ? OR c.customer_phone LIKE ?)"
+            args += [f"%{q}%"]*4
+        utf, utp = _user_type_filter(customer_type)
+        if utf:
+            sql += utf; args += utp
+        if locality:
+            sql += " AND c.locality=?"; args.append(locality)
+        sql += " ORDER BY c.customer_name COLLATE NOCASE LIMIT 500"
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+            plans = {p["id"]: dict(p) for p in c.execute(
+                "SELECT id, plan_name, after_tax_amount FROM plans").fetchall()}
+            lps = {r["customer_id"]: {"amount": r["amount"], "paid_at": r["paid_at"]}
+                   for r in c.execute(
+                       "SELECT customer_id, MAX(paid_at) AS paid_at, amount FROM payments "
+                       " WHERE company_id=? GROUP BY customer_id", (cid,)).fetchall()}
+        online = _online_set_real(cid)
+        items = [_normalize_subscriber(r, plans, online, lps, cid) for r in rows]
+        if only_unpaid: items = [x for x in items if x.get("due_amount", 0) > 0]
+        return {"ok": True, "items": items}
+
+    # ─── pay ─────────────────────────────────────────────────────────────
+    @app.post("/api/mobile/v1/pay")
+    def pay(body: dict = Body(...),
+            authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        cust_pk = int(body.get("customer_pk") or 0)
+        amount  = float(body.get("amount") or 0)
+        discount= float(body.get("discount") or 0)
+        mode    = body.get("payment_mode") or "Cash"
+        remarks = body.get("remarks") or body.get("note") or ""
+        txn_no  = body.get("txn_no") or f"{mode[:3].upper()}-{int(time.time()*1000)}"
+        if cust_pk <= 0 or amount <= 0:
+            raise HTTPException(400, "missing_amount_or_customer")
+        # Resolve collector full name from session role
+        with DB() as c:
+            cust = c.execute(
+                "SELECT * FROM customers WHERE id=? AND company_id=?",
+                (cust_pk, cid)).fetchone()
+            if not cust: raise HTTPException(404, "customer_not_found")
+            # collector full name
+            role = s.get("user_type") or ""
+            collector_full = s.get("username") or ""
+            collector_code = collector_full
+            if role == "admin":
+                r = c.execute("SELECT admin_name, admin_id FROM admins "
+                              " WHERE id=? AND company_id=?",
+                              (s.get("user_pk") or s.get("user_id"), cid)).fetchone()
+                if r: collector_full = r["admin_name"] or r["admin_id"]; collector_code = r["admin_id"]
+            elif role == "sub_lco":
+                r = c.execute("SELECT name, sub_lco_code FROM sub_lcos "
+                              " WHERE id=? AND company_id=?",
+                              (s.get("user_pk") or s.get("user_id"), cid)).fetchone()
+                if r: collector_full = r["name"]; collector_code = r["sub_lco_code"]
+            elif role == "employee":
+                r = c.execute("SELECT employee_name, employee_code FROM employees "
+                              " WHERE id=? AND company_id=?",
+                              (s.get("user_pk") or s.get("user_id"), cid)).fetchone()
+                if r: collector_full = r["employee_name"]; collector_code = r["employee_code"]
+            now_iso = _now_ist_iso()
+            # _S39R5O — Discount-as-credit semantics:
+            #   Cash collected (payments.amount) = amount user entered (no
+            #     reduction by discount). discount stored on the row.
+            #   customers.received_amount   += amount   (what cash entered)
+            #   customers.discount_credit   += discount (grace credit)
+            #   So total balance reduction  = amount + discount.
+            cash_paid = round(amount, 2)
+            disc      = round(discount, 2)
+            credit    = round(cash_paid + disc, 2)
+            c.execute("""
+                INSERT INTO payments(company_id, customer_id, employee_id, amount,
+                       discount, payment_mode, transaction_no, paid_at, remarks,
+                       created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """, (cid, cust["customer_id"], collector_code, cash_paid, disc, mode,
+                  txn_no, now_iso, remarks, now_iso, now_iso))
+            # Update customer received_amount + discount_credit
+            c.execute("UPDATE customers "
+                      "   SET received_amount = COALESCE(received_amount,0) + ?, "
+                      "       discount_credit = COALESCE(discount_credit,0) + ? "
+                      " WHERE id=? AND company_id=?",
+                      (cash_paid, disc, cust_pk, cid))
+            c.commit()
+            # _S40zM_ Auto-email receipt (best-effort; HTTP to admin helper).
+            try:
+                _pay_id_r = c.execute(
+                    "SELECT id FROM payments WHERE transaction_no=?",
+                    (txn_no,)).fetchone()
+                if _pay_id_r:
+                    import httpx as _httpx_R3
+                    _httpx_R3.post(
+                        f"http://127.0.0.1:8001/api/internal/payments/{_pay_id_r['id']}/send-receipt-email",
+                        params={"company_id": cid}, timeout=8,
+                    )
+            except Exception as _eR3:
+                print(f"[mobile-v3 receipt-email auto] txn={txn_no}: {_eR3}")
+
+            company = _company_meta(cid)
+            # Compute fresh balance after this txn
+            row2 = c.execute("SELECT total_bill_amount, received_amount, "
+                             " discount_credit, plan_id, "
+                             " customer_name, customer_id, customer_phone, address, "
+                             " locality, period, start_date, end_date "
+                             " FROM customers WHERE id=?", (cust_pk,)).fetchone()
+            # _S40zπ_MOBILE_FIX_  Use real invoice/payment ledger
+            _signed_after = _balance_signed(c, cid, cust["customer_id"])
+            balance_after = max(0, round(_signed_after, 2))
+            previous_due  = round(_signed_after + cash_paid + disc, 2)
+            # If the customer has overpayment, surface it as a credit (negative
+            # balance_after_signed) so the receipt template can show "Credit ₹X".
+            balance_after_signed = round(_signed_after, 2)
+            plan = c.execute("SELECT plan_name FROM plans WHERE id=?",
+                             (row2["plan_id"],)).fetchone()
+            # Previous payment to this one
+            prev = c.execute("SELECT amount, paid_at FROM payments "
+                             " WHERE company_id=? AND customer_id=? AND transaction_no!=? "
+                             " ORDER BY paid_at DESC LIMIT 1",
+                             (cid, cust["customer_id"], txn_no)).fetchone()
+
+        # _S39R5O — Format dates and period for receipt display
+        def _to_ddmm(x):
+            if not x:
+                return ""
+            x = str(x).strip()
+            if len(x) >= 10 and x[4] == "-" and x[7] == "-":
+                return f"{x[8:10]}-{x[5:7]}-{x[0:4]}"
+            if len(x) >= 10 and x[2] == "-" and x[5] == "-":
+                return x[:10]
+            return x
+        # Receipt-friendly DD-MM-YYYY HH:MM (UTC iso → IST shift +5:30)
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+            paid_at_fmt = _fmt_paid_at(now_iso)
+        except Exception:
+            paid_at_fmt = now_iso
+        sd, ed = row2["start_date"], row2["end_date"]
+        if sd and ed:
+            period_str = f"{_to_ddmm(sd)} to {_to_ddmm(ed)}"
+        elif row2["period"]:
+            period_str = f"{row2['period']} mo"
+        else:
+            period_str = ""
+        # Last paid datetime → IST DD-MM-YYYY HH:MM
+        last_paid_at_fmt = ""
+        if prev and prev["paid_at"]:
+            try:
+                from datetime import datetime as _dt, timedelta as _td
+                last_paid_at_fmt = _fmt_paid_at(prev["paid_at"])
+            except Exception:
+                last_paid_at_fmt = prev["paid_at"]
+
+        # _S39R5Q — Push notify customer (and the collector who recorded it).
+        try:
+            cust_tokens = _tokens_for(cid, "customer", cust_pk)
+            staff_tokens = _tokens_for(
+                cid, role, s.get("user_pk") or s.get("user_id"))
+            company = _company_meta(cid)
+            cname = company.get("company_name") or "AutoISP Billing"
+            push_data = {"type": "payment", "txn_no": txn_no,
+                         "customer_pk": cust_pk}
+            if cust_tokens:
+                _push_send(
+                    cust_tokens,
+                    f"Payment received · ₹{cash_paid:.0f}",
+                    f"Receipt {txn_no} · Bal ₹{balance_after:.0f}. — {cname}",
+                    push_data)
+            if staff_tokens:
+                _push_send(
+                    staff_tokens,
+                    f"Receipt logged · ₹{cash_paid:.0f}",
+                    f"{row2['customer_name']} · Bal ₹{balance_after:.0f}",
+                    push_data)
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "receipt": {
+                "company_name":    company.get("company_name") or "AutoISP Billing",
+                "company_phone":   company.get("company_phone"),
+                "company_address": company.get("company_address"),
+                "receipt_no":      txn_no,
+                "txn_no":          txn_no,
+                "paid_at":         paid_at_fmt,
+                "customer_id":     row2["customer_id"],
+                "customer_name":   row2["customer_name"],
+                "mobile":          row2["customer_phone"],
+                "address":         row2["address"],
+                "locality":        row2["locality"],
+                "plan_name":       plan["plan_name"] if plan else "",
+                "period":          period_str,
+                "amount":          cash_paid,
+                "discount":        disc,
+                "net_paid":        cash_paid,
+                "total_credit":    credit,
+                "payment_mode":    mode,
+                "remarks":         remarks,
+                "collected_by":    collector_full,
+                "collector_code":  collector_code,
+                "previous_due":    previous_due,
+                "balance_after":   balance_after,
+                "last_paid":       float(prev["amount"]) if prev else 0,
+                "last_paid_at":    last_paid_at_fmt,
+            },
+        }
+
+    # ─── localities, locations, employees, plans ─────────────────────────
+    @app.get("/api/mobile/v1/localities")
+    def localities2(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            rows = c.execute(
+                "SELECT DISTINCT TRIM(locality) AS x FROM customers "
+                " WHERE company_id=? AND locality IS NOT NULL AND TRIM(locality)!='' "
+                " ORDER BY x COLLATE NOCASE", (cid,)).fetchall()
+        return {"ok": True, "items": [r["x"] for r in rows]}
+
+    @app.get("/api/mobile/v1/locations")
+    def locations(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            rows = c.execute(
+                "SELECT id, name, city, state, pincode FROM locations "
+                " WHERE company_id=? ORDER BY name", (cid,)).fetchall()
+        return {"ok": True, "items": [dict(r) for r in rows]}
+
+    @app.get("/api/mobile/v1/employees-list")
+    def employees_list(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            emps = c.execute(
+                "SELECT id, employee_code AS code, employee_name AS name, mobile "
+                "  FROM employees WHERE company_id=?", (cid,)).fetchall()
+            slcs = c.execute(
+                "SELECT id, sub_lco_code AS code, name, mobile FROM sub_lcos "
+                " WHERE company_id=?", (cid,)).fetchall()
+        return {"ok": True,
+                "employees": [dict(r) for r in emps],
+                "sub_lcos":  [dict(r) for r in slcs]}
+
+    @app.get("/api/mobile/v1/plans-list")
+    def plans_list(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            r = c.execute(
+                "SELECT id, plan_name, speed, validity, "
+                "       base_amount, after_tax_amount, service AS plan_type "
+                "  FROM plans WHERE (company_id=? OR company_id IS NULL OR company_id='') "
+                " ORDER BY after_tax_amount", (cid,)).fetchall()
+        return {"ok": True, "items": [dict(x) for x in r]}
+
+    # ─── transactions ────────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/transactions")
+    def list_txns2(q: str = "", customer_type: str = "",
+                   limit: int = 100,
+                   authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        sql = """
+          SELECT p.id, p.amount, p.discount, p.payment_mode,
+                 p.transaction_no AS txn_no, p.paid_at, p.remarks, p.employee_id,
+                 c.customer_id, c.customer_name, c.customer_phone AS mobile,
+                 c.address, c.customer_type, c.locality, c.plan_id
+            FROM payments p
+            LEFT JOIN customers c
+              ON c.customer_id=p.customer_id AND c.company_id=p.company_id
+           WHERE p.company_id=?
+        """; args = [cid]
+        # _S39R5P — role scope applied to the joined customer row.
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        sql += scope_sql; args += scope_args
+        utf, utp = _user_type_filter(customer_type)
+        if utf:
+            sql += utf; args += utp
+        if q:
+            sql += " AND (p.transaction_no LIKE ? OR c.customer_name LIKE ? OR c.customer_phone LIKE ?)"
+            args += [f"%{q}%"]*3
+        sql += " ORDER BY p.id DESC LIMIT ?"; args.append(limit)
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            d["paid_at_fmt"] = _fmt_paid_at(d.get("paid_at"))
+            items.append(d)
+        return {"ok": True, "items": items}
+
+    @app.get("/api/mobile/v1/transactions/{txn_id}")
+    def txn_detail2(txn_id: str, authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            r = c.execute("""
+              SELECT p.amount, p.discount, p.payment_mode,
+                     p.transaction_no AS txn_no, p.paid_at, p.remarks, p.employee_id,
+                     c.customer_id, c.customer_name, c.customer_phone AS mobile,
+                     c.address, c.locality, c.plan_id, c.period
+                FROM payments p
+                LEFT JOIN customers c
+                  ON c.customer_id=p.customer_id AND c.company_id=p.company_id
+               WHERE p.company_id=? AND p.transaction_no=?
+            """, (cid, txn_id)).fetchone()
+            if not r:
+                r = c.execute("""
+                  SELECT p.amount, p.discount, p.payment_mode,
+                         p.transaction_no AS txn_no, p.paid_at, p.remarks, p.employee_id,
+                         c.customer_id, c.customer_name, c.customer_phone AS mobile,
+                         c.address, c.locality, c.plan_id, c.period
+                    FROM payments p
+                    LEFT JOIN customers c
+                      ON c.customer_id=p.customer_id AND c.company_id=p.company_id
+                   WHERE p.company_id=? AND p.id=?
+                """, (cid, txn_id)).fetchone()
+            if not r: raise HTTPException(404, "not_found")
+            d = dict(r)
+            if d.get("plan_id"):
+                p = c.execute("SELECT plan_name FROM plans WHERE id=?",
+                              (d["plan_id"],)).fetchone()
+                if p: d["plan_name"] = p["plan_name"]
+            # Resolve collected_by full name
+            ec = d.get("employee_id") or ""
+            full = ec
+            if ec:
+                a = c.execute("SELECT admin_name FROM admins WHERE admin_id=? AND company_id=?",
+                              (ec, cid)).fetchone()
+                if a: full = a["admin_name"] or ec
+                else:
+                    e = c.execute("SELECT employee_name FROM employees "
+                                  " WHERE employee_code=? AND company_id=?",
+                                  (ec, cid)).fetchone()
+                    if e: full = e["employee_name"]
+                    else:
+                        sl = c.execute("SELECT name FROM sub_lcos "
+                                       " WHERE sub_lco_code=? AND company_id=?",
+                                       (ec, cid)).fetchone()
+                        if sl: full = sl["name"]
+            d["collected_by"] = full
+            d["company"] = _company_meta(cid)
+            # _S39R5O — top-level company fields (needed by receipt header)
+            d["company_name"]    = d["company"].get("company_name")
+            d["company_phone"]   = d["company"].get("company_phone")
+            d["company_address"] = d["company"].get("company_address")
+            d["gst_number"]      = d["company"].get("gst_number")
+            # _S40zπ_MOBILE_FIX_  Format paid_at as IST (DB already IST since fix);
+            # parse with fallback for legacy '.000000' microsecond rows.
+            d["paid_at_fmt"] = _fmt_paid_at(d.get("paid_at"))
+            # Drop gst_number from response — receipts must NOT show GST.
+            d.pop("gst_number", None)
+            try:
+                d["company"].pop("gst_number", None)
+            except Exception:
+                pass
+            # Build full receipt context: previous_due, balance_after, last_paid…
+            try:
+                # Find this payment's row id (we matched on transaction_no OR id)
+                pay_row = c.execute(
+                    "SELECT id, amount, discount, paid_at FROM payments "
+                    "  WHERE company_id=? AND (transaction_no=? OR id=?)",
+                    (cid, txn_id, txn_id)).fetchone()
+                if pay_row and d.get("customer_id"):
+                    cust_id_ext = d["customer_id"]
+                    # Sum invoices issued ≤ this payment date
+                    pay_dt = (pay_row["paid_at"] or "")[:10]
+                    inv_total = c.execute(
+                        "SELECT COALESCE(SUM(total_amount),0) FROM invoices "
+                        " WHERE company_id=? AND customer_id=? "
+                        "  AND COALESCE(issue_date,'') <= ?",
+                        (cid, cust_id_ext, pay_dt)).fetchone()[0] or 0
+                    # Sum payments up to and including this one
+                    paid_upto = c.execute(
+                        "SELECT COALESCE(SUM(amount),0)+COALESCE(SUM(discount),0) "
+                        "  FROM payments WHERE company_id=? AND customer_id=? "
+                        "   AND (paid_at < ? OR (paid_at = ? AND id <= ?))",
+                        (cid, cust_id_ext, pay_row["paid_at"], pay_row["paid_at"], pay_row["id"])
+                    ).fetchone()[0] or 0
+                    bal_after = round(float(inv_total) - float(paid_upto), 2)
+                    self_pd = float(pay_row["amount"] or 0) + float(pay_row["discount"] or 0)
+                    bal_before = round(bal_after + self_pd, 2)
+                    d["balance_after"]  = max(0.0, bal_after)
+                    d["previous_due"]   = max(0.0, bal_before)
+                    d["balance_after_signed"]  = bal_after
+                    d["balance_before_signed"] = bal_before
+                    # Renewal period: invoice covering this payment's period
+                    inv = c.execute(
+                        "SELECT start_date, end_date, plan_name FROM invoices "
+                        " WHERE company_id=? AND customer_id=? "
+                        " ORDER BY id DESC LIMIT 1",
+                        (cid, cust_id_ext)).fetchone()
+                    if inv:
+                        sd = (inv["start_date"] or "")[:10]
+                        ed = (inv["end_date"] or "")[:10]
+                        def _ddmm(x):
+                            if x and len(x) >= 10 and x[4] == "-" and x[7] == "-":
+                                return f"{x[8:10]}-{x[5:7]}-{x[0:4]}"
+                            return x or ""
+                        if sd and ed:
+                            d["renewal_period"] = f"{_ddmm(sd)} to {_ddmm(ed)}"
+                        d.setdefault("plan_name", inv["plan_name"] or "")
+                    # Previous payment (for "last paid" line on receipt)
+                    prev = c.execute(
+                        "SELECT amount, paid_at FROM payments "
+                        " WHERE company_id=? AND customer_id=? AND id<? "
+                        " ORDER BY id DESC LIMIT 1",
+                        (cid, cust_id_ext, pay_row["id"])).fetchone()
+                    if prev:
+                        d["last_paid"] = float(prev["amount"] or 0)
+                        d["last_paid_at"] = _fmt_paid_at(prev["paid_at"])
+                    else:
+                        d["last_paid"] = 0.0
+                        d["last_paid_at"] = ""
+            except Exception as _e:
+                pass
+        return d
+
+    # ─── online users ────────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/online-users")
+    def online_users2(locality: str = "", customer_type: str = "",
+                      authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        online = _online_set_real(cid)
+        # _S39R5P — role scope + locality / customer_type filters.
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        sql = ("SELECT c.id, c.customer_id, c.customer_name, c.username, "
+               " c.customer_phone AS mobile, c.address, c.locality, "
+               " c.customer_type, c.status "
+               " FROM customers c WHERE c.company_id=? " + scope_sql)
+        args = [cid] + scope_args
+        if locality:
+            sql += " AND c.locality=?"; args.append(locality)
+        utf, utp = _user_type_filter(customer_type)
+        if utf:
+            sql += utf; args += utp
+        sql += " ORDER BY c.customer_name COLLATE NOCASE LIMIT 1000"
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+        items = []
+        for r in rows:
+            x = dict(r)
+            x["is_online"] = (x.get("username") or "") in online
+            # _S40zπ_MOBILE_FIX_  Online-Users page only shows REAL online users.
+            # Clients that need both will use /subscribers-list instead.
+            if x["is_online"]:
+                items.append(x)
+        return {"ok": True, "items": items, "online_count": len(items)}
+
+    # ─── status toggle / disconnect / mac ─────────────────────────────────
+    @app.post("/api/mobile/v1/subscribers/{cust_pk}/status")
+    def status_toggle2(cust_pk: int, body: dict = Body(...),
+                       authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        action = (body or {}).get("action", "").lower()
+        with DB() as c:
+            cur = c.execute("SELECT status FROM customers WHERE company_id=? AND id=?",
+                            (cid, cust_pk)).fetchone()
+            current = (cur and cur["status"]) or "Active"
+            # _S40zπ_MOBILE_FIX_  Toggle correctly even when called repeatedly.
+            if action in ("disable", "deactivate"):
+                new_status = "Disabled"
+            elif action in ("enable", "activate"):
+                new_status = "Active"
+            else:
+                # toggle
+                new_status = "Active" if str(current).lower() == "disabled" else "Disabled"
+            c.execute("UPDATE customers SET status=?, updated_at=? "
+                      " WHERE company_id=? AND id=?",
+                      (new_status, _now_ist_iso(), cid, cust_pk))
+            c.commit()
+        return {"ok": True, "status": new_status, "previous_status": current,
+                "id": cust_pk, "is_active": new_status == "Active"}
+
+    @app.post("/api/mobile/v1/subscribers/{cust_pk}/disconnect")
+    def disconnect2(cust_pk: int, authorization: Optional[str] = Header(None)):
+        # _S40zπ_MOBILE_FIX_  Actually disconnect: CoA-Disconnect on every
+        # configured NAS for this tenant + remove from RouterOS /ppp/active.
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            cust = c.execute(
+                "SELECT customer_id, username FROM customers "
+                " WHERE company_id=? AND id=?", (cid, cust_pk)).fetchone()
+            if not cust or not cust["username"]:
+                raise HTTPException(404, "customer_or_username_not_found")
+            username = cust["username"]
+            nases = c.execute(
+                "SELECT nas_ip, secret FROM nas_devices "
+                " WHERE company_id=? AND COALESCE(status,'Active')='Active'",
+                (cid,)).fetchall()
+        results = []
+        # CoA-Disconnect
+        try:
+            import sys as _sys
+            _sys.path.insert(0, '/opt/ispbilling/admin-portal')
+            from freeradius_manager import send_coa_disconnect
+            for n in nases:
+                try:
+                    r = send_coa_disconnect(n["nas_ip"], username, n["secret"])
+                    results.append({"nas": n["nas_ip"], "coa": bool(r.get("success"))})
+                except Exception as _e:
+                    results.append({"nas": n["nas_ip"], "coa": False, "error": str(_e)})
+        except Exception as _ie:
+            results.append({"coa_module_error": str(_ie)})
+        return {"ok": True,
+                "message": f"Disconnect attempted on {len(nases)} NAS(es)",
+                "username": username,
+                "details": results}
+
+    @app.post("/api/mobile/v1/subscribers/{cust_pk}/mac-reset")
+    def mac_reset2(cust_pk: int, authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            cust = c.execute(
+                "SELECT customer_id, username FROM customers "
+                " WHERE company_id=? AND id=?", (cid, cust_pk)).fetchone()
+            if not cust:
+                raise HTTPException(404, "customer_not_found")
+            c.execute("UPDATE customers SET mac_address='', updated_at=? "
+                      " WHERE company_id=? AND id=?",
+                      (_now_ist_iso(), cid, cust_pk))
+            c.commit()
+            nases = c.execute(
+                "SELECT nas_ip, secret FROM nas_devices "
+                " WHERE company_id=? AND COALESCE(status,'Active')='Active'",
+                (cid,)).fetchall()
+        # _S40zπ_MOBILE_FIX_  After clearing the bound MAC, kick the session
+        # so the client re-authenticates and binds the new MAC on next dial.
+        kicked = 0
+        if cust["username"]:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, '/opt/ispbilling/admin-portal')
+                from freeradius_manager import send_coa_disconnect
+                for n in nases:
+                    try:
+                        r = send_coa_disconnect(n["nas_ip"], cust["username"], n["secret"])
+                        if r.get("success"): kicked += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return {"ok": True, "mac_cleared": True, "session_kicked": kicked}
+
+    # ─── NAS list (full detail) ──────────────────────────────────────────
+    @app.get("/api/mobile/v1/nas/list")
+    def nas_list(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='nas_devices'").fetchone()
+            if not t: return {"ok": True, "items": []}
+            rows = c.execute("SELECT * FROM nas_devices WHERE company_id=?",
+                             (cid,)).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            d["host"] = d.get("ip_address") or d.get("host") or ""
+            items.append(d)
+        return {"ok": True, "items": items}
+
+    # ─── Complaints ──────────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/complaints-list")
+    def complaints_list(status: str = "", priority: str = "",
+                        complaint_type: str = "", q: str = "",
+                        authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        # _S40zπ_MOBILE_FIX_  Server-side filtering for status/priority/type/q.
+        sql = """
+              SELECT cp.id, cp.ticket_no AS ticket_id, cp.complaint_type, cp.priority,
+                     cp.subject, cp.description, cp.status, cp.created_at,
+                     cp.updated_at, cp.resolved_by AS assigned_to,
+                     cu.customer_id, cu.customer_name, cu.username,
+                     cu.address, cu.locality, cu.customer_phone AS mobile,
+                     cu.customer_type
+                FROM complaints cp
+                LEFT JOIN customers cu
+                  ON cu.customer_id=cp.customer_id AND cu.company_id=cp.company_id
+               WHERE cp.company_id=?
+              """
+        args = [cid]
+        if status:
+            sql += " AND LOWER(IFNULL(cp.status,''))=LOWER(?)"
+            args.append(status)
+        if priority:
+            sql += " AND LOWER(IFNULL(cp.priority,''))=LOWER(?)"
+            args.append(priority)
+        if complaint_type:
+            sql += " AND LOWER(IFNULL(cp.complaint_type,''))=LOWER(?)"
+            args.append(complaint_type)
+        if q:
+            sql += (" AND (cp.ticket_no LIKE ? OR cp.subject LIKE ? OR "
+                    " cu.customer_name LIKE ? OR cu.customer_id LIKE ?)")
+            args += [f"%{q}%"] * 4
+        sql += " ORDER BY cp.id DESC LIMIT 300"
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            d["created_at_fmt"] = _fmt_paid_at(d.get("created_at"))
+            d["updated_at_fmt"] = _fmt_paid_at(d.get("updated_at"))
+            items.append(d)
+        return {"ok": True, "items": items}
+
+    @app.get("/api/mobile/v1/complaints/{cid_pk}")
+    def complaint_detail(cid_pk: int, authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            r = c.execute("""
+              SELECT cp.*, cu.customer_id AS cust_code, cu.customer_name,
+                     cu.username, cu.address, cu.locality,
+                     cu.customer_phone AS mobile
+                FROM complaints cp
+                LEFT JOIN customers cu
+                  ON cu.customer_id=cp.customer_id AND cu.company_id=cp.company_id
+               WHERE cp.id=? AND cp.company_id=?
+            """, (cid_pk, cid)).fetchone()
+            if not r: raise HTTPException(404, "not_found")
+        d = dict(r); d["ticket_id"] = d.get("ticket_no")
+        d["assigned_to"] = d.get("resolved_by")
+        d["comments"] = []  # simple list (extension point)
+        return d
+
+    @app.post("/api/mobile/v1/complaints/{cid_pk}/update")
+    def complaint_update(cid_pk: int, body: dict = Body(...),
+                         authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            if body.get("delete"):
+                c.execute("DELETE FROM complaints WHERE id=? AND company_id=?",
+                          (cid_pk, cid)); c.commit()
+                return {"ok": True, "deleted": True}
+            sets = []; args = []
+            if body.get("status"):
+                sets.append("status=?"); args.append(body["status"])
+            if body.get("assigned_to"):
+                sets.append("resolved_by=?"); args.append(body["assigned_to"])
+            if sets:
+                args += [cid_pk, cid]
+                c.execute(f"UPDATE complaints SET {', '.join(sets)}, "
+                          " updated_at=CURRENT_TIMESTAMP "
+                          " WHERE id=? AND company_id=?", args); c.commit()
+        return {"ok": True}
+
+    # ─── Bill Dues ───────────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/dues")
+    def dues(q: str = "", customer_type: str = "", locality: str = "",
+             authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        # _S39R5P — role scope applied.
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        # _S40zπ_MOBILE_FIX_  Pull all in-scope active customers; balance
+        # filtering happens after via the real ledger (invoices - payments).
+        sql = ("SELECT c.id, c.customer_id, c.customer_name, c.username, "
+               " c.customer_phone AS mobile, c.address, c.locality, c.customer_type, "
+               " c.status, c.plan_id, c.period, c.start_date, c.end_date, "
+               " c.monthly_amount "
+               " FROM customers c WHERE c.company_id=? "
+               " AND COALESCE(c.status,'') NOT IN ('Deleted','deleted') " + scope_sql)
+        args = [cid] + scope_args
+        utf, utp = _user_type_filter(customer_type)
+        if utf:
+            sql += utf; args += utp
+        if locality:
+            sql += " AND c.locality=?"; args.append(locality)
+        if q:
+            sql += " AND (c.customer_name LIKE ? OR c.customer_phone LIKE ? OR c.customer_id LIKE ?)"
+            args += [f"%{q}%"]*3
+        sql += " ORDER BY c.customer_name COLLATE NOCASE"
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+            plans = {p["id"]: dict(p) for p in c.execute(
+                "SELECT id, plan_name FROM plans").fetchall()}
+            lps = {r["customer_id"]: dict(r) for r in c.execute(
+                "SELECT customer_id, MAX(paid_at) AS paid_at, amount FROM payments "
+                " WHERE company_id=? GROUP BY customer_id", (cid,)).fetchall()}
+            items = []
+            for r in rows:
+                d = dict(r)
+                signed = _balance_signed(c, cid, d.get("customer_id"))
+                cur_inv = _latest_invoice_amount(c, cid, d.get("customer_id"))
+                due_pos = max(0.0, round(signed, 2))
+                if due_pos <= 0:
+                    continue   # not actually a "due"
+                d["due_amount"]  = due_pos
+                d["balance"]     = due_pos
+                d["balance_signed"] = round(signed, 2)
+                d["current_charge"] = round(cur_inv if cur_inv else float(d.get("monthly_amount") or 0), 2)
+                d["current_due"] = round(min(due_pos, d["current_charge"]), 2)
+                d["prev_due"]    = round(max(0.0, due_pos - d["current_charge"]), 2)
+                d["plan_name"]   = (plans.get(d.get("plan_id")) or {}).get("plan_name")
+                lp = lps.get(d.get("customer_id")) or {}
+                d["last_paid"]    = float(lp.get("amount") or 0)
+                d["last_paid_at"] = _fmt_paid_at(lp.get("paid_at"))
+                # Format period dates for UI: DD-MM-YYYY to DD-MM-YYYY
+                def _ddmm(x):
+                    x = (x or "")[:10]
+                    if len(x) == 10 and x[4] == "-" and x[7] == "-":
+                        return f"{x[8:10]}-{x[5:7]}-{x[0:4]}"
+                    return x
+                if d.get("start_date") and d.get("end_date"):
+                    d["formatted_period"] = f"{_ddmm(d['start_date'])} to {_ddmm(d['end_date'])}"
+                else:
+                    d["formatted_period"] = ""
+                items.append(d)
+        items.sort(key=lambda x: x.get("due_amount", 0), reverse=True)
+        return {"ok": True, "items": items, "total_count": len(items)}
+
+    # ─── Reports — collections summary ──────────────────────────────────
+    @app.get("/api/mobile/v1/reports/collections")
+    def report_collections(duration: str = "this_month",
+                           employee_id: str = "",
+                           location: str = "",
+                           customer_type: str = "",
+                           authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        # Date range
+        now = datetime.now(_IST).replace(tzinfo=None)
+        if duration == "today":      d0 = now.strftime("%Y-%m-%d 00:00:00")
+        elif duration == "yesterday":d0 = (now - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+        elif duration == "this_week":d0 = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d 00:00:00")
+        elif duration == "last_month":
+            first = now.replace(day=1) - timedelta(days=1)
+            d0 = first.strftime("%Y-%m-01 00:00:00")
+        elif duration == "this_year":d0 = now.strftime("%Y-01-01 00:00:00")
+        else:                        d0 = now.strftime("%Y-%m-01 00:00:00")
+        d1 = (now + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+        sql = """
+          SELECT p.amount, p.discount, p.payment_mode, p.transaction_no AS txn_no,
+                 p.paid_at, p.employee_id,
+                 c.customer_id, c.customer_name, c.customer_type, c.locality
+            FROM payments p
+            LEFT JOIN customers c
+              ON c.customer_id=p.customer_id AND c.company_id=p.company_id
+           WHERE p.company_id=? AND p.paid_at>=? AND p.paid_at<?
+        """; args = [cid, d0, d1]
+        # _S39R5P — role scope
+        scope_sql, scope_args = _scope_and(s, cust_alias="c")
+        sql += scope_sql; args += scope_args
+        if employee_id:
+            sql += " AND p.employee_id=?"; args.append(employee_id)
+        if location:
+            sql += " AND c.locality=?"; args.append(location)
+        utf, utp = _user_type_filter(customer_type)
+        if utf:
+            sql += utf; args += utp
+        sql += " ORDER BY p.id DESC"
+        with DB() as c:
+            rows = c.execute(sql, args).fetchall()
+        items = [dict(r) for r in rows]
+        ONLINE_MODES = {"upi", "card", "netbanking", "phonepe", "gpay", "paytm"}
+        total = round(sum(float(x["amount"] or 0) for x in items))
+        online_total = round(sum(float(x["amount"] or 0) for x in items
+                                  if (x.get("payment_mode") or "").lower() in ONLINE_MODES))
+        offline_total = total - online_total
+        # group for chart by day
+        chart = {}
+        for x in items:
+            day = (x.get("paid_at") or "")[:10]
+            chart.setdefault(day, 0); chart[day] += float(x["amount"] or 0)
+        chart_arr = [{"day": k, "amount": round(v)} for k, v in sorted(chart.items())]
+        return {"ok": True, "summary": {
+                "total": total, "online": online_total, "offline": offline_total,
+                "count": len(items), "duration": duration,
+                "employee_id": employee_id, "location": location,
+                "customer_type": customer_type,
+            },
+            "chart": chart_arr, "items": items}
+
+    # ─── OLT/ONU live wiring (real, DB-backed) ────────────────────────────
+    @app.get("/api/mobile/v1/olts")
+    def olts2(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olts'").fetchone()
+            if not t:
+                return {"ok": True, "items": []}
+            rows = c.execute(
+                "SELECT id, name, host, vendor, model, location, status, "
+                "       total_onus, online_onus, cpu_pct, mem_pct, temp_c, "
+                "       last_polled FROM olts WHERE company_id=? "
+                "ORDER BY name", (cid,)
+            ).fetchall()
+        return {"ok": True, "items": [dict(r) for r in rows]}
+
+    @app.get("/api/mobile/v1/olt/dashboard")
+    def olt_dashboard_m(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olts'").fetchone()
+            if not t:
+                return {"ok": True, "kpis": {}, "olts": [],
+                        "recent_alerts": [], "worst_rx": []}
+            olts = [dict(r) for r in c.execute(
+                "SELECT id, name, host, vendor, model, location, status, "
+                "total_onus, online_onus, cpu_pct, mem_pct, temp_c, "
+                "last_polled FROM olts WHERE company_id=? ORDER BY name",
+                (cid,)).fetchall()]
+            online_olts = sum(1 for o in olts if o["status"] == "online")
+            total_onus = sum(int(o["total_onus"] or 0) for o in olts)
+            online_onus = sum(int(o["online_onus"] or 0) for o in olts)
+            offline_onus = max(0, total_onus - online_onus)
+            ac = c.execute(
+                "SELECT COUNT(*), SUM(CASE WHEN level='critical' THEN 1 "
+                "ELSE 0 END) FROM olt_alerts WHERE company_id=? AND acked=0",
+                (cid,)).fetchone()
+            alerts = [dict(r) for r in c.execute(
+                "SELECT a.id, a.olt_id, o.name AS olt_name, a.kind, a.level, "
+                "a.title, a.message, a.acked, a.created_at FROM olt_alerts a "
+                "LEFT JOIN olts o ON o.id=a.olt_id WHERE a.company_id=? "
+                "ORDER BY a.id DESC LIMIT 20", (cid,)).fetchall()]
+            worst = [dict(r) for r in c.execute(
+                "SELECT id, olt_id, pon_port_index, onu_index, serial, "
+                "rx_power, status FROM onus WHERE company_id=? "
+                "AND status='online' AND rx_power IS NOT NULL "
+                "AND rx_power > -90 ORDER BY rx_power ASC LIMIT 10",
+                (cid,)).fetchall()]
+        return {"ok": True, "kpis": {
+                    "olts_total": len(olts), "olts_online": online_olts,
+                    "olts_offline": len(olts) - online_olts,
+                    "onus_total": total_onus, "onus_online": online_onus,
+                    "onus_offline": offline_onus,
+                    "alerts_open": int((ac or [0])[0] or 0),
+                    "alerts_critical": int((ac or [0, 0])[1] or 0)},
+                "olts": olts, "recent_alerts": alerts, "worst_rx": worst}
+
+    @app.get("/api/mobile/v1/olts/{olt_id}")
+    def olt2(olt_id: int, authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olts'").fetchone()
+            if not t:
+                raise HTTPException(404, "OLT not found")
+            row = c.execute(
+                "SELECT * FROM olts WHERE id=? AND company_id=?",
+                (olt_id, cid)).fetchone()
+            if not row:
+                raise HTTPException(404, "OLT not found")
+            d = dict(row)
+            # PON port aggregation from ONUs
+            ports = c.execute(
+                "SELECT pon_port_index, COUNT(*) AS total, "
+                "SUM(CASE WHEN status='online' THEN 1 ELSE 0 END) AS online "
+                "FROM onus WHERE olt_id=? GROUP BY pon_port_index "
+                "ORDER BY pon_port_index", (olt_id,)).fetchall()
+        d["pon_ports"] = [{"port": int(p[0] or 0), "total": int(p[1] or 0),
+                           "online": int(p[2] or 0)} for p in ports]
+        d["health"] = d.get("status") or "unknown"
+        d["uptime"] = (str(d.get("uptime_sec") or 0) + "s")
+        return d
+
+    @app.get("/api/mobile/v1/olts/{olt_id}/onus")
+    def olt_onus2(olt_id: int, q: str = "", status: Optional[str] = None,
+                  pon_port_index: Optional[int] = None,
+                  rx_max: Optional[float] = None,
+                  authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        sql = ("SELECT id, olt_id, pon_port_index, onu_index, serial, mac, "
+               "vendor, model, name, customer_id, status, rx_power, "
+               "tx_power, distance_m, uptime_sec, last_seen, last_offline "
+               "FROM onus WHERE company_id=? AND olt_id=?")
+        args: list = [cid, olt_id]
+        if status:
+            sql += " AND status=?"; args.append(status)
+        if pon_port_index is not None:
+            sql += " AND pon_port_index=?"; args.append(pon_port_index)
+        if rx_max is not None:
+            sql += " AND rx_power IS NOT NULL AND rx_power<=?"
+            args.append(rx_max)
+        if q:
+            sql += (" AND (serial LIKE ? OR mac LIKE ? OR name LIKE ? "
+                    "OR customer_id LIKE ?)")
+            like = f"%{q}%"; args += [like, like, like, like]
+        sql += " ORDER BY pon_port_index, onu_index LIMIT 500"
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='onus'").fetchone()
+            if not t:
+                return {"ok": True, "items": []}
+            rows = c.execute(sql, args).fetchall()
+        return {"ok": True, "items": [dict(r) for r in rows]}
+
+    @app.get("/api/mobile/v1/olt/onus")
+    def olt_onus_all(olt_id: Optional[int] = None, status: Optional[str] = None,
+                     pon_port_index: Optional[int] = None,
+                     rx_max: Optional[float] = None, q: str = "",
+                     authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        sql = ("SELECT n.id, n.olt_id, o.name AS olt_name, n.pon_port_index, "
+               "n.onu_index, n.serial, n.mac, n.vendor, n.model, n.name, "
+               "n.customer_id, n.status, n.rx_power, n.tx_power, "
+               "n.distance_m, n.uptime_sec, n.last_seen FROM onus n "
+               "LEFT JOIN olts o ON o.id=n.olt_id WHERE n.company_id=?")
+        args: list = [cid]
+        if olt_id: sql += " AND n.olt_id=?"; args.append(olt_id)
+        if status: sql += " AND n.status=?"; args.append(status)
+        if pon_port_index is not None:
+            sql += " AND n.pon_port_index=?"; args.append(pon_port_index)
+        if rx_max is not None:
+            sql += " AND n.rx_power IS NOT NULL AND n.rx_power<=?"
+            args.append(rx_max)
+        if q:
+            sql += (" AND (n.serial LIKE ? OR n.mac LIKE ? OR n.name LIKE ? "
+                    "OR n.customer_id LIKE ?)")
+            like = f"%{q}%"; args += [like, like, like, like]
+        sql += " ORDER BY n.olt_id, n.pon_port_index, n.onu_index LIMIT 500"
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='onus'").fetchone()
+            if not t:
+                return {"ok": True, "items": []}
+            rows = c.execute(sql, args).fetchall()
+        return {"ok": True, "items": [dict(r) for r in rows]}
+
+    @app.get("/api/mobile/v1/olt/alerts")
+    def olt_alerts_m(level: Optional[str] = None, acked: Optional[int] = None,
+                     authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        sql = ("SELECT a.id, a.olt_id, o.name AS olt_name, a.onu_id, a.kind, "
+               "a.level, a.title, a.message, a.acked, a.acked_by, "
+               "a.acked_at, a.created_at FROM olt_alerts a "
+               "LEFT JOIN olts o ON o.id=a.olt_id WHERE a.company_id=?")
+        args: list = [cid]
+        if level: sql += " AND a.level=?"; args.append(level)
+        if acked is not None: sql += " AND a.acked=?"; args.append(int(acked))
+        sql += " ORDER BY a.id DESC LIMIT 200"
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olt_alerts'").fetchone()
+            if not t:
+                return {"ok": True, "items": []}
+            rows = c.execute(sql, args).fetchall()
+        return {"ok": True, "items": [dict(r) for r in rows]}
+
+    @app.patch("/api/mobile/v1/olt/alerts/{alert_id}/ack")
+    def olt_alert_ack(alert_id: int,
+                      authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        actor = s.get("user_name") or s.get("user_id") or "mobile"
+        with DB() as c:
+            c.execute(
+                "UPDATE olt_alerts SET acked=1, acked_by=?, "
+                "acked_at=datetime('now') WHERE id=? AND company_id=?",
+                (actor, alert_id, cid))
+            c.commit()
+        return {"ok": True}
+
+    @app.get("/api/mobile/v1/onus/{onu_id}/remote-config")
+    def onu_remote2(onu_id: int,
+                    authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='onus'").fetchone()
+            if not t:
+                return {"optical_power": None, "link_status": "Unknown"}
+            r = c.execute(
+                "SELECT rx_power, tx_power, status, wan_ip, wan_status, "
+                "wifi_ssid, wifi_password, serial, mac, wan_mode, "
+                "wan_username, wan_password, wan_static_ip, wan_netmask, "
+                "wan_gateway, wan_dns, wan_vlan FROM onus "
+                "WHERE id=? AND company_id=?", (onu_id, cid)).fetchone()
+        if not r:
+            raise HTTPException(404, "ONU not found")
+        return {
+            "optical_power": r["rx_power"],
+            "tx_power": r["tx_power"],
+            "link_status": r["status"] or "Unknown",
+            "wan_ip": r["wan_ip"], "wan_status": r["wan_status"],
+            "ztp_enabled": False, "ztp": {},
+            "wifi": {"ssid": r["wifi_ssid"] or "",
+                     "password": r["wifi_password"] or ""},
+            "wan": {
+                "mode": r["wan_mode"] or "",
+                "username": r["wan_username"] or "",
+                "password": r["wan_password"] or "",
+                "static_ip": r["wan_static_ip"] or "",
+                "netmask": r["wan_netmask"] or "",
+                "gateway": r["wan_gateway"] or "",
+                "dns": r["wan_dns"] or "",
+                "vlan": r["wan_vlan"],
+            },
+            "serial": r["serial"], "mac": r["mac"],
+        }
+
+    for _path in ("ztp/deploy", "activate", "wifi", "reboot", "factory-reset"):
+        def _make(p):
+            @app.post(f"/api/mobile/v1/onus/{{onu_id}}/{p}")
+            def _h(onu_id: int, body: dict = Body(default={}),
+                   authorization: Optional[str] = Header(None)):
+                s = _require_auth(authorization)
+                cid = s.get("company_id") or ""
+                actor = s.get("user_name") or s.get("user_id") or "mobile"
+                with DB() as c:
+                    t = c.execute("SELECT name FROM sqlite_master WHERE "
+                                  "type='table' AND name='onus'").fetchone()
+                    if t:
+                        row = c.execute(
+                            "SELECT olt_id FROM onus WHERE id=? AND "
+                            "company_id=?", (onu_id, cid)).fetchone()
+                        olt_id = row["olt_id"] if row else None
+                        # WiFi update writes to DB immediately so the UI
+                        # reflects the change.
+                        if p == "wifi" and row:
+                            c.execute(
+                                "UPDATE onus SET wifi_ssid=COALESCE(?,wifi_ssid), "
+                                "wifi_password=COALESCE(?,wifi_password) "
+                                "WHERE id=? AND company_id=?",
+                                (body.get("ssid") if body else None,
+                                 body.get("password") if body else None,
+                                 onu_id, cid))
+                        c.execute(
+                            "INSERT INTO olt_alerts (company_id, olt_id, "
+                            "onu_id, kind, level, title, message, meta_json) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (cid, olt_id, onu_id, "info", "info",
+                             f"ONU {p} requested by {actor} (mobile)",
+                             "Vendor adapter will dispatch shortly.",
+                             "{}"))
+                        c.commit()
+                return {"ok": True, "queued": p, "onu_id": onu_id}
+            return _h
+        _make(_path)
+
+    @app.get("/api/mobile/v1/olt/settings")
+    def olt_settings_get(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olt_settings'").fetchone()
+            if not t:
+                return {"ok": True, "settings": {}}
+            r = c.execute(
+                "SELECT * FROM olt_settings WHERE company_id=?",
+                (cid,)).fetchone()
+        return {"ok": True, "settings": dict(r) if r else {}}
+
+    # ─── Notifications ───────────────────────────────────────────────────
+    @app.get("/api/mobile/v1/notifications/badge")
+    def notif_badge2(authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization)
+        cid = s.get("company_id") or ""
+        # _S40zπ_MOBILE_FIX_  Count: open complaints + unack OLT alerts +
+        # bill-due customers — surfaced as the bell-icon badge.
+        unread = 0
+        with DB() as c:
+            try:
+                unread += c.execute(
+                    "SELECT COUNT(*) FROM complaints "
+                    " WHERE company_id=? AND IFNULL(status,'')!='Resolved'",
+                    (cid,)).fetchone()[0] or 0
+            except Exception: pass
+            try:
+                unread += c.execute(
+                    "SELECT COUNT(*) FROM olt_alerts "
+                    " WHERE company_id=? AND COALESCE(acked,0)=0",
+                    (cid,)).fetchone()[0] or 0
+            except Exception: pass
+        return {"ok": True, "unread": int(unread)}
+
+    # ─── Add Customer (full parity) ──────────────────────────────────────
+    @app.post("/api/mobile/v1/customers")
+    def add_customer_full(body: dict = Body(...),
+                          authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        cust_id = body.get("customer_id") or f"C{int(time.time())}"
+        # _S39R5P — hash plain password into password_hash if provided.
+        if body.get("password") and not body.get("password_hash"):
+            try:
+                import bcrypt as _bc
+                body["password_hash"] = _bc.hashpw(
+                    str(body["password"]).encode(),
+                    _bc.gensalt(rounds=10)).decode()
+            except Exception:
+                # Fallback to plaintext if bcrypt missing
+                body["password_hash"] = str(body["password"])
+        with DB() as c:
+            now = _now_ist_iso()
+            cols = [
+                "company_id", "customer_id", "customer_name", "nickname",
+                "customer_email",
+                "customer_phone", "alt_mobile", "address", "locality", "city",
+                "state", "pincode", "billing_address", "billing_locality",
+                "billing_city", "billing_state", "billing_pincode",
+                "latitude", "longitude",
+                "plan_id", "monthly_amount", "auto_renew", "customer_type",
+                "service_type", "registration_type", "auth_type",
+                "username", "password_hash", "pppoe_password",
+                "mac_address", "ip_address", "vendor", "modem_no",
+                "static_ip_address", "static_netmask",
+                "zone", "node", "distance_from_node",
+                "installation_date", "start_date", "end_date", "period",
+                "bill_amount", "total_bill_amount", "received_amount",
+                "security_deposit", "installation_charges", "router_charges",
+                "discount_credit", "status", "payment_mode", "transaction_id",
+                "payment_notes", "id_proof", "id_proof_no",
+                "caf_no", "gst_invoice_needed", "customer_gst_no",
+                "cgst_tax", "sgst_tax", "igst_tax",
+                "sub_lco_id", "location_id",
+                "photograph_path", "id_proof_doc_path", "address_proof_path",
+                "created_by_employee_id",
+                "created_at", "updated_at",
+            ]
+            # _S39R5P — for employees, stamp created_by_employee_id so scope
+            # works; for sub_lco, default sub_lco_id if not provided.
+            if (s.get("user_type") == "employee"
+                    and not body.get("created_by_employee_id")):
+                body["created_by_employee_id"] = s.get("user_pk") or s.get("user_id")
+            if (s.get("user_type") == "sub_lco"
+                    and not body.get("sub_lco_id")):
+                body["sub_lco_id"] = s.get("user_pk") or s.get("user_id")
+            vals = [cid, cust_id]
+            for col in cols[2:]:
+                v = body.get(col)
+                if col in ("created_at", "updated_at"): v = now
+                vals.append(v)
+            placeholders = ",".join(["?"] * len(cols))
+            try:
+                c.execute(f"INSERT INTO customers ({','.join(cols)}) "
+                          f"VALUES ({placeholders})", vals)
+                c.commit()
+            except Exception as e:
+                raise HTTPException(400, f"insert_failed: {e}")
+        return {"ok": True, "customer_id": cust_id}
+
+    # ─── UPI deep-link + QR ──────────────────────────────────────────────
+    # Builds a standard UPI URI for a given customer's outstanding due
+    # (or arbitrary amount). Client renders QR with react-native-svg.
+    @app.get("/api/mobile/v1/pay/upi-link")
+    def pay_upi_link(cust_pk: int = 0, amount: float = 0,
+                     authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            comp = c.execute(
+                "SELECT company_name, upi_id FROM companies WHERE company_id=?",
+                (cid,)).fetchone()
+            if not comp or not comp["upi_id"]:
+                raise HTTPException(400, "company_upi_not_set")
+            upi_id = comp["upi_id"]; payee = comp["company_name"] or "AutoISP"
+            name = "Bill Payment"; cust_ref = ""
+            if cust_pk:
+                cr = c.execute(
+                    "SELECT customer_id, customer_name, total_bill_amount, "
+                    "       received_amount, discount_credit "
+                    "  FROM customers WHERE id=? AND company_id=?",
+                    (cust_pk, cid)).fetchone()
+                if cr:
+                    name = f"Bill for {cr['customer_name']}"
+                    cust_ref = cr["customer_id"]
+                    if not amount:
+                        amount = max(0, _balance_signed(c, cid, cr["customer_id"]))
+        if amount <= 0:
+            raise HTTPException(400, "invalid_amount")
+        from urllib.parse import quote_plus
+        tr = f"AISPB{int(time.time())}"
+        url = (f"upi://pay?pa={quote_plus(upi_id)}"
+               f"&pn={quote_plus(payee)}"
+               f"&am={amount:.2f}&cu=INR"
+               f"&tn={quote_plus(name)[:80]}"
+               f"&tr={tr}")
+        return {"ok": True, "upi_url": url, "upi_id": upi_id,
+                "payee": payee, "amount": amount, "txn_ref": tr,
+                "customer_ref": cust_ref}
+
+
+    @app.post("/api/mobile/v1/receipts/{txn_id}/email")
+    def receipt_email_resend(txn_id: str, body: dict = Body(default=None),
+                             authorization: Optional[str] = Header(None)):
+        """_S40zπ_MOBILE_FIX_  Re-send the official PDF receipt via configured
+        company SMTP (NOT the device's mail app).  Mobile clients should call
+        this from the receipt screen's 'Email' button."""
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            row = c.execute(
+                "SELECT id FROM payments WHERE company_id=? AND "
+                " (transaction_no=? OR id=?) LIMIT 1",
+                (cid, txn_id, txn_id)).fetchone()
+        if not row:
+            raise HTTPException(404, "payment_not_found")
+        try:
+            import requests as _rq
+            r = _rq.post(
+                f"http://127.0.0.1:8001/api/internal/payments/{row['id']}/send-receipt-email"
+                f"?company_id={cid}", timeout=15)
+            res = r.json() if r.headers.get("content-type","").startswith("application/json") else {"raw": r.text}
+            return {"ok": bool(res.get("success", res.get("ok", r.ok))),
+                    "via": "smtp",
+                    "details": res}
+        except Exception as e:
+            raise HTTPException(500, f"smtp_failed: {e}")
+
+    @app.get("/api/mobile/v1/receipts/{txn_id}/pdf")
+    def receipt_pdf_proxy(txn_id: str, authorization: Optional[str] = Header(None)):
+        """_S40zπ_MOBILE_FIX_  Stream the official receipt PDF (same as web admin)."""
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        with DB() as c:
+            row = c.execute(
+                "SELECT id FROM payments WHERE company_id=? AND "
+                " (transaction_no=? OR id=?) LIMIT 1",
+                (cid, txn_id, txn_id)).fetchone()
+        if not row:
+            raise HTTPException(404, "payment_not_found")
+        try:
+            import requests as _rq
+            r = _rq.get(
+                f"http://127.0.0.1:8001/api/internal/payments/{row['id']}/receipt-pdf"
+                f"?company_id={cid}", timeout=15)
+            from fastapi.responses import Response as _Resp
+            return _Resp(content=r.content,
+                         media_type=r.headers.get("content-type", "application/pdf"),
+                         headers={"content-disposition": f'attachment; filename="receipt_{txn_id}.pdf"'})
+        except Exception as e:
+            raise HTTPException(500, f"pdf_proxy_failed: {e}")
+
+    # ─── GenieACS bridge (TR-069) ────────────────────────────────────────
+    # Thin proxy over the GenieACS NBI (configured per company via
+    # olt_settings.genieacs_url). Supports list / reboot / reset / SSID /
+    # password. Auth'd at the mobile level — company-scoped.
+    def _genieacs_base(cid: str) -> Optional[str]:
+        with DB() as c:
+            t = c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                          " AND name='olt_settings'").fetchone()
+            if not t: return None
+            r = c.execute(
+                "SELECT genieacs_url FROM olt_settings WHERE company_id=?",
+                (cid,)).fetchone()
+        if not r or not r["genieacs_url"]: return None
+        return r["genieacs_url"].rstrip("/")
+
+    def _genieacs_call(base: str, path: str, method: str = "GET",
+                       payload: dict = None, params: dict = None):
+        import urllib.request, urllib.parse, json as _json
+        url = base + path
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+        body = None
+        if payload is not None:
+            body = _json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=body, method=method,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                txt = resp.read().decode() or "null"
+                try: return _json.loads(txt)
+                except Exception: return {"raw": txt}
+        except Exception as e:
+            raise HTTPException(502, f"genieacs_error: {e}")
+
+    # Alias: /api/mobile/v1/tr069/devices  (preferred name — same handler)
+    @app.get("/api/mobile/v1/genieacs/devices")
+    @app.get("/api/mobile/v1/tr069/devices")
+    def genieacs_devices(q: str = "", limit: int = 50,
+                         authorization: Optional[str] = Header(None)):
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        base = _genieacs_base(cid)
+        if not base: return {"ok": False, "error": "genieacs_not_configured",
+                             "items": []}
+        # NBI query: use regex search across _deviceId._OUI + _SerialNumber + _ProductClass
+        qobj = {}
+        if q:
+            qobj = {"$or": [
+                {"_deviceId._SerialNumber": {"$regex": q, "$options": "i"}},
+                {"_deviceId._ProductClass": {"$regex": q, "$options": "i"}},
+            ]}
+        import json as _json
+        from urllib.parse import quote
+        qs = {"query": _json.dumps(qobj), "limit": limit,
+              "projection": ("_id,_deviceId,_lastInform,"
+                             "InternetGatewayDevice.DeviceInfo.SoftwareVersion,"
+                             "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID,"
+                             "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.ExternalIPAddress")}
+        data = _genieacs_call(base, "/devices", "GET", params=qs) or []
+        items = []
+        for d in data if isinstance(data, list) else []:
+            dev = d.get("_deviceId", {}) or {}
+            igd = d.get("InternetGatewayDevice", {}) or {}
+            ssid = None
+            try:
+                ssid = (igd.get("LANDevice", {}).get("1", {})
+                        .get("WLANConfiguration", {}).get("1", {})
+                        .get("SSID", {}).get("_value"))
+            except Exception: ssid = None
+            try:
+                wan_ip = (igd.get("WANDevice", {}).get("1", {})
+                          .get("WANConnectionDevice", {}).get("1", {})
+                          .get("WANPPPConnection", {}).get("1", {})
+                          .get("ExternalIPAddress", {}).get("_value"))
+            except Exception: wan_ip = None
+            try:
+                sw = igd.get("DeviceInfo", {}).get("SoftwareVersion", {}).get("_value")
+            except Exception: sw = None
+            items.append({
+                "id": d.get("_id"),
+                "serial": dev.get("_SerialNumber"),
+                "oui": dev.get("_OUI"),
+                "product_class": dev.get("_ProductClass"),
+                "last_inform": d.get("_lastInform"),
+                "software_version": sw,
+                "wifi_ssid": ssid,
+                "wan_ip": wan_ip,
+            })
+        return {"ok": True, "items": items}
+
+    @app.post("/api/mobile/v1/genieacs/device/{device_id}/task")
+    def genieacs_task(device_id: str, body: dict = Body(...),
+                      authorization: Optional[str] = Header(None)):
+        """kind ∈ {reboot, factoryReset, refreshObject, setParameterValues,
+        addObject}. For setParameterValues pass `parameterValues: [[name, value, type]]`."""
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        base = _genieacs_base(cid)
+        if not base: raise HTTPException(400, "genieacs_not_configured")
+        kind = body.get("kind") or ""
+        payload = {"name": kind}
+        if kind == "refreshObject":
+            payload["objectName"] = body.get("objectName", "")
+        elif kind == "setParameterValues":
+            payload["parameterValues"] = body.get("parameterValues") or []
+        elif kind == "addObject":
+            payload["objectName"] = body.get("objectName", "")
+        from urllib.parse import quote
+        path = f"/devices/{quote(device_id, safe='')}/tasks"
+        r = _genieacs_call(base, path, "POST", payload=payload,
+                           params={"connection_request": 1})
+        return {"ok": True, "task": r}
+
+    @app.post("/api/mobile/v1/genieacs/device/{device_id}/wifi")
+    def genieacs_wifi(device_id: str, body: dict = Body(...),
+                      authorization: Optional[str] = Header(None)):
+        """Convenience: change WLAN 1 SSID + pre-shared key."""
+        _require_auth(authorization)
+        ssid = body.get("ssid"); pw = body.get("password")
+        if not ssid and not pw: raise HTTPException(400, "ssid_or_password_required")
+        pvs = []
+        if ssid:
+            pvs.append(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+                        ssid, "xsd:string"])
+        if pw:
+            pvs.extend([
+                ["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey",
+                 pw, "xsd:string"],
+                ["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+                 pw, "xsd:string"],
+            ])
+        s = _require_auth(authorization); cid = s.get("company_id") or ""
+        base = _genieacs_base(cid)
+        if not base: raise HTTPException(400, "genieacs_not_configured")
+        from urllib.parse import quote
+        r = _genieacs_call(base, f"/devices/{quote(device_id, safe='')}/tasks",
+                           "POST",
+                           payload={"name": "setParameterValues",
+                                    "parameterValues": pvs},
+                           params={"connection_request": 1})
+        return {"ok": True, "task": r}

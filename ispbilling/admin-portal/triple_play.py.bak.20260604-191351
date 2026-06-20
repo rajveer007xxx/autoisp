@@ -1,0 +1,502 @@
+"""s56X — Triple-Play (IPTV/CATV + VoIP) profile + Public REST API hardening (Phase D)
+
+Adds IPTV multicast VLAN profiles + VoIP/SIP profiles that can be attached
+to ONUs. Pushes via the existing ONU OMCI/Telnet provisioning code path.
+
+Tables (idempotent):
+  * `iptv_profiles`         — company-scoped IPTV/CATV profile (mcast VLAN, IGMP version)
+  * `voip_profiles`         — SIP server/credentials profile
+  * `onu_iptv_assignments`  — many-to-many ONU ↔ IPTV profile
+  * `onu_voip_assignments`  — many-to-many ONU ↔ VoIP profile
+
+Plus, a tiny public REST gateway (with API-key auth) that wraps the most
+common operations for downstream CRM integrations:
+
+REST:
+  GET  /api/admin/iptv-profiles
+  POST /api/admin/iptv-profiles
+  PATCH /api/admin/iptv-profiles/{id}
+  DELETE /api/admin/iptv-profiles/{id}
+  GET  /api/admin/voip-profiles
+  POST /api/admin/voip-profiles
+  PATCH /api/admin/voip-profiles/{id}
+  DELETE /api/admin/voip-profiles/{id}
+  POST /api/admin/onus/{onu_id}/iptv/{profile_id}/attach
+  POST /api/admin/onus/{onu_id}/iptv/{profile_id}/detach
+  POST /api/admin/onus/{onu_id}/voip/{profile_id}/attach
+  POST /api/admin/onus/{onu_id}/voip/{profile_id}/detach
+
+Public-API (with /api/v1/* prefix, X-API-Key auth from api_keys table):
+  GET  /api/v1/onus?olt_id=&limit=
+  GET  /api/v1/onus/{onu_id}
+  POST /api/v1/onus/{onu_id}/reboot
+  GET  /api/v1/customers/{customer_id}
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import sqlite3
+from typing import Optional, List, Any
+
+from fastapi import APIRouter, Request, HTTPException, Header
+from pydantic import BaseModel, Field
+
+from olt_routes import _require_scope, _require_admin  # type: ignore
+
+DB_PATH = "/var/lib/autoispbilling/autoispbilling.db"
+router = APIRouter()
+
+
+def _ensure_schema() -> None:
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS iptv_profiles (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            mcast_vlan  INTEGER NOT NULL,
+            igmp_version INTEGER DEFAULT 2,        -- 2 or 3
+            mcast_group TEXT,                       -- e.g. 239.10.0.0/16
+            description TEXT,
+            created_at  TEXT DEFAULT (datetime('now')),
+            UNIQUE(company_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS voip_profiles (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id   TEXT NOT NULL,
+            name         TEXT NOT NULL,
+            sip_server   TEXT NOT NULL,
+            sip_port     INTEGER DEFAULT 5060,
+            sip_proxy    TEXT,
+            transport    TEXT DEFAULT 'UDP',       -- UDP|TCP|TLS
+            codec        TEXT DEFAULT 'G.711a',
+            description  TEXT,
+            created_at   TEXT DEFAULT (datetime('now')),
+            UNIQUE(company_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS onu_iptv_assignments (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            onu_id      INTEGER NOT NULL,
+            profile_id  INTEGER NOT NULL,
+            attached_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(onu_id, profile_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS onu_voip_assignments (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id   TEXT NOT NULL,
+            onu_id       INTEGER NOT NULL,
+            profile_id   INTEGER NOT NULL,
+            sip_username TEXT,
+            sip_password TEXT,
+            attached_at  TEXT DEFAULT (datetime('now')),
+            UNIQUE(onu_id, profile_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  TEXT NOT NULL,
+            label       TEXT,
+            key_hash    TEXT NOT NULL UNIQUE,      -- sha256 of key
+            scopes      TEXT DEFAULT 'read',       -- comma-separated: read,write,onu_reboot
+            enabled     INTEGER DEFAULT 1,
+            created_by  TEXT,
+            created_at  TEXT DEFAULT (datetime('now')),
+            last_used   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_keys_company ON api_keys(company_id);
+        """)
+_ensure_schema()
+
+
+# ─── Pydantic schemas ───────────────────────────────────────────────────
+class IPTVProfileIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    mcast_vlan: int = Field(..., ge=1, le=4094)
+    igmp_version: Optional[int] = 2
+    mcast_group: Optional[str] = None
+    description: Optional[str] = None
+
+
+class VoIPProfileIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    sip_server: str = Field(..., min_length=1, max_length=200)
+    sip_port: Optional[int] = 5060
+    sip_proxy: Optional[str] = None
+    transport: Optional[str] = "UDP"
+    codec: Optional[str] = "G.711a"
+    description: Optional[str] = None
+
+
+class VoIPAttachIn(BaseModel):
+    sip_username: str
+    sip_password: str
+
+
+# ─── Helpers ────────────────────────────────────────────────────────────
+def _own_onu(con, cid: str, onu_id: int) -> dict:
+    r = con.execute(
+        "SELECT id, olt_id FROM onus WHERE id=? AND company_id=?",
+        (onu_id, cid)).fetchone()
+    if not r:
+        raise HTTPException(404, "ONU not found")
+    return {"id": r[0], "olt_id": r[1]}
+
+
+def _push_iptv_to_onu(onu_id: int, profile: dict) -> dict:
+    """Hook into the existing OMCI / Telnet provisioning. We avoid
+    direct CLI here (each vendor differs) and instead annotate the ONU
+    row so the existing ZTP/OMCI worker (in olt_telnet_actions.py)
+    picks it up on next provisioning cycle. This is the same pattern the
+    existing WiFi/WAN provisioning uses.
+    """
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        # Store as a small JSON blob in onus.notes (preserves existing).
+        row = con.execute("SELECT notes FROM onus WHERE id=?", (onu_id,)).fetchone()
+        try:
+            cur = json.loads(row[0]) if row and row[0] else {}
+            if not isinstance(cur, dict): cur = {}
+        except Exception:
+            cur = {}
+        cur.setdefault("triple_play", {})["iptv"] = profile
+        con.execute("UPDATE onus SET notes=? WHERE id=?",
+                    (json.dumps(cur), onu_id))
+    return {"ok": True, "queued_for_provisioning": True}
+
+
+def _push_voip_to_onu(onu_id: int, profile: dict, creds: dict) -> dict:
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        row = con.execute("SELECT notes FROM onus WHERE id=?", (onu_id,)).fetchone()
+        try:
+            cur = json.loads(row[0]) if row and row[0] else {}
+            if not isinstance(cur, dict): cur = {}
+        except Exception:
+            cur = {}
+        cur.setdefault("triple_play", {})["voip"] = {**profile, **creds}
+        con.execute("UPDATE onus SET notes=? WHERE id=?",
+                    (json.dumps(cur), onu_id))
+    return {"ok": True, "queued_for_provisioning": True}
+
+
+# ─── IPTV endpoints ─────────────────────────────────────────────────────
+@router.get("/api/admin/iptv-profiles")
+def list_iptv(request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM iptv_profiles WHERE company_id=? ORDER BY name",
+            (sc["company_id"],)).fetchall()
+    return {"ok": True, "profiles": [dict(r) for r in rows]}
+
+
+@router.post("/api/admin/iptv-profiles")
+def create_iptv(body: IPTVProfileIn, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        cur = con.execute(
+            "INSERT INTO iptv_profiles (company_id, name, mcast_vlan, "
+            "igmp_version, mcast_group, description) VALUES (?,?,?,?,?,?)",
+            (sc["company_id"], body.name, body.mcast_vlan,
+             body.igmp_version or 2, body.mcast_group, body.description))
+    return {"ok": True, "id": cur.lastrowid}
+
+
+@router.patch("/api/admin/iptv-profiles/{pid}")
+def update_iptv(pid: int, body: IPTVProfileIn, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        r = con.execute(
+            "UPDATE iptv_profiles SET name=?, mcast_vlan=?, igmp_version=?, "
+            "mcast_group=?, description=? WHERE id=? AND company_id=?",
+            (body.name, body.mcast_vlan, body.igmp_version, body.mcast_group,
+             body.description, pid, sc["company_id"]))
+        if r.rowcount == 0:
+            raise HTTPException(404, "IPTV profile not found")
+    return {"ok": True, "id": pid}
+
+
+@router.delete("/api/admin/iptv-profiles/{pid}")
+def delete_iptv(pid: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.execute("DELETE FROM onu_iptv_assignments WHERE profile_id=? AND company_id=?",
+                    (pid, sc["company_id"]))
+        r = con.execute(
+            "DELETE FROM iptv_profiles WHERE id=? AND company_id=?",
+            (pid, sc["company_id"]))
+        if r.rowcount == 0:
+            raise HTTPException(404, "IPTV profile not found")
+    return {"ok": True, "deleted": pid}
+
+
+@router.post("/api/admin/onus/{onu_id}/iptv/{profile_id}/attach")
+def attach_iptv(onu_id: int, profile_id: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        _own_onu(con, sc["company_id"], onu_id)
+        p = con.execute(
+            "SELECT * FROM iptv_profiles WHERE id=? AND company_id=?",
+            (profile_id, sc["company_id"])).fetchone()
+        if not p:
+            raise HTTPException(404, "IPTV profile not found")
+        try:
+            con.execute("INSERT INTO onu_iptv_assignments (company_id, onu_id, profile_id) "
+                        "VALUES (?,?,?)", (sc["company_id"], onu_id, profile_id))
+        except sqlite3.IntegrityError:
+            pass  # idempotent
+        prof = dict(p)
+    return _push_iptv_to_onu(onu_id, prof)
+
+
+@router.post("/api/admin/onus/{onu_id}/iptv/{profile_id}/detach")
+def detach_iptv(onu_id: int, profile_id: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.execute(
+            "DELETE FROM onu_iptv_assignments WHERE onu_id=? AND profile_id=? AND company_id=?",
+            (onu_id, profile_id, sc["company_id"]))
+        # Clear the queued IPTV block from notes.
+        row = con.execute("SELECT notes FROM onus WHERE id=? AND company_id=?",
+                          (onu_id, sc["company_id"])).fetchone()
+        if row and row[0]:
+            try:
+                cur = json.loads(row[0]) if row[0] else {}
+                if isinstance(cur, dict) and "triple_play" in cur:
+                    cur["triple_play"].pop("iptv", None)
+                    con.execute("UPDATE onus SET notes=? WHERE id=?",
+                                (json.dumps(cur), onu_id))
+            except Exception:
+                pass
+    return {"ok": True}
+
+
+# ─── VoIP endpoints ─────────────────────────────────────────────────────
+@router.get("/api/admin/voip-profiles")
+def list_voip(request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT * FROM voip_profiles WHERE company_id=? ORDER BY name",
+            (sc["company_id"],)).fetchall()
+    return {"ok": True, "profiles": [dict(r) for r in rows]}
+
+
+@router.post("/api/admin/voip-profiles")
+def create_voip(body: VoIPProfileIn, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        cur = con.execute(
+            "INSERT INTO voip_profiles (company_id, name, sip_server, sip_port, "
+            "sip_proxy, transport, codec, description) VALUES (?,?,?,?,?,?,?,?)",
+            (sc["company_id"], body.name, body.sip_server, body.sip_port or 5060,
+             body.sip_proxy, body.transport or "UDP", body.codec or "G.711a",
+             body.description))
+    return {"ok": True, "id": cur.lastrowid}
+
+
+@router.patch("/api/admin/voip-profiles/{pid}")
+def update_voip(pid: int, body: VoIPProfileIn, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        r = con.execute(
+            "UPDATE voip_profiles SET name=?, sip_server=?, sip_port=?, "
+            "sip_proxy=?, transport=?, codec=?, description=? "
+            "WHERE id=? AND company_id=?",
+            (body.name, body.sip_server, body.sip_port, body.sip_proxy,
+             body.transport, body.codec, body.description, pid, sc["company_id"]))
+        if r.rowcount == 0:
+            raise HTTPException(404, "VoIP profile not found")
+    return {"ok": True, "id": pid}
+
+
+@router.delete("/api/admin/voip-profiles/{pid}")
+def delete_voip(pid: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.execute("DELETE FROM onu_voip_assignments WHERE profile_id=? AND company_id=?",
+                    (pid, sc["company_id"]))
+        r = con.execute(
+            "DELETE FROM voip_profiles WHERE id=? AND company_id=?",
+            (pid, sc["company_id"]))
+        if r.rowcount == 0:
+            raise HTTPException(404, "VoIP profile not found")
+    return {"ok": True, "deleted": pid}
+
+
+@router.post("/api/admin/onus/{onu_id}/voip/{profile_id}/attach")
+def attach_voip(onu_id: int, profile_id: int, body: VoIPAttachIn, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        _own_onu(con, sc["company_id"], onu_id)
+        p = con.execute(
+            "SELECT * FROM voip_profiles WHERE id=? AND company_id=?",
+            (profile_id, sc["company_id"])).fetchone()
+        if not p:
+            raise HTTPException(404, "VoIP profile not found")
+        try:
+            con.execute(
+                "INSERT INTO onu_voip_assignments (company_id, onu_id, profile_id, "
+                "sip_username, sip_password) VALUES (?,?,?,?,?)",
+                (sc["company_id"], onu_id, profile_id, body.sip_username, body.sip_password))
+        except sqlite3.IntegrityError:
+            con.execute(
+                "UPDATE onu_voip_assignments SET sip_username=?, sip_password=? "
+                "WHERE onu_id=? AND profile_id=? AND company_id=?",
+                (body.sip_username, body.sip_password, onu_id, profile_id, sc["company_id"]))
+        prof = dict(p)
+    return _push_voip_to_onu(onu_id, prof,
+                              {"sip_username": body.sip_username, "sip_password": body.sip_password})
+
+
+@router.post("/api/admin/onus/{onu_id}/voip/{profile_id}/detach")
+def detach_voip(onu_id: int, profile_id: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.execute(
+            "DELETE FROM onu_voip_assignments WHERE onu_id=? AND profile_id=? AND company_id=?",
+            (onu_id, profile_id, sc["company_id"]))
+        row = con.execute("SELECT notes FROM onus WHERE id=? AND company_id=?",
+                          (onu_id, sc["company_id"])).fetchone()
+        if row and row[0]:
+            try:
+                cur = json.loads(row[0]) if row[0] else {}
+                if isinstance(cur, dict) and "triple_play" in cur:
+                    cur["triple_play"].pop("voip", None)
+                    con.execute("UPDATE onus SET notes=? WHERE id=?",
+                                (json.dumps(cur), onu_id))
+            except Exception:
+                pass
+    return {"ok": True}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# API key management (admin) + public read API
+# ────────────────────────────────────────────────────────────────────────
+import hashlib
+
+def _hash_key(k: str) -> str:
+    return hashlib.sha256(k.encode("utf-8")).hexdigest()
+
+
+class ApiKeyIn(BaseModel):
+    label: Optional[str] = "default"
+    scopes: Optional[str] = "read"
+
+
+@router.get("/api/admin/api-keys")
+def list_api_keys(request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT id, label, scopes, enabled, created_by, created_at, last_used "
+            "FROM api_keys WHERE company_id=? ORDER BY id DESC",
+            (sc["company_id"],)).fetchall()
+    return {"ok": True, "keys": [dict(r) for r in rows]}
+
+
+@router.post("/api/admin/api-keys")
+def create_api_key(body: ApiKeyIn, request: Request):
+    sc = _require_scope(request)
+    raw = "isp_" + secrets.token_urlsafe(28)
+    h = _hash_key(raw)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.execute(
+            "INSERT INTO api_keys (company_id, label, key_hash, scopes, created_by) "
+            "VALUES (?,?,?,?,?)",
+            (sc["company_id"], body.label or "default", h,
+             body.scopes or "read", sc["actor"]))
+    # Only returned ONCE — never stored in plain text.
+    return {"ok": True, "api_key": raw,
+            "warning": "Save this now. It will never be shown again."}
+
+
+@router.delete("/api/admin/api-keys/{kid}")
+def delete_api_key(kid: int, request: Request):
+    sc = _require_scope(request)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        r = con.execute("DELETE FROM api_keys WHERE id=? AND company_id=?",
+                        (kid, sc["company_id"]))
+        if r.rowcount == 0:
+            raise HTTPException(404, "API key not found")
+    return {"ok": True, "deleted": kid}
+
+
+def _auth_api_key(x_api_key: Optional[str], required_scope: str = "read") -> dict:
+    if not x_api_key:
+        raise HTTPException(401, "X-API-Key header required")
+    h = _hash_key(x_api_key)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT * FROM api_keys WHERE key_hash=? AND enabled=1", (h,)).fetchone()
+        if not row:
+            raise HTTPException(401, "Invalid API key")
+        scopes = (row["scopes"] or "").split(",")
+        if required_scope not in scopes and "write" not in scopes:
+            raise HTTPException(403, f"API key lacks scope: {required_scope}")
+        from datetime import datetime, timezone
+        con.execute("UPDATE api_keys SET last_used=? WHERE id=?",
+                    (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), row["id"]))
+    return {"company_id": row["company_id"], "scopes": scopes}
+
+
+@router.get("/api/v1/onus")
+def public_list_onus(request: Request, x_api_key: Optional[str] = Header(None)):
+    ctx = _auth_api_key(x_api_key, "read")
+    olt_id = request.query_params.get("olt_id")
+    try: limit = max(1, min(500, int(request.query_params.get("limit") or 200)))
+    except Exception: limit = 200
+    sql = ("SELECT id, olt_id, pon_port_index, onu_index, serial, status, "
+           "rx_power, tx_power, customer_id, last_seen FROM onus WHERE company_id=?")
+    params: List[Any] = [ctx["company_id"]]
+    if olt_id:
+        sql += " AND olt_id=?"; params.append(int(olt_id))
+    sql += " ORDER BY id DESC LIMIT ?"; params.append(limit)
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(sql, params).fetchall()
+    return {"ok": True, "onus": [dict(r) for r in rows]}
+
+
+@router.get("/api/v1/onus/{onu_id}")
+def public_get_onu(onu_id: int, x_api_key: Optional[str] = Header(None)):
+    ctx = _auth_api_key(x_api_key, "read")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT * FROM onus WHERE id=? AND company_id=?",
+            (onu_id, ctx["company_id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "ONU not found")
+        d = dict(row)
+        d.pop("notes", None)  # internal
+    return {"ok": True, "onu": d}
+
+
+@router.get("/api/v1/customers/{customer_id}")
+def public_get_customer(customer_id: str, x_api_key: Optional[str] = Header(None)):
+    ctx = _auth_api_key(x_api_key, "read")
+    with sqlite3.connect(DB_PATH, timeout=10) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT customer_id, full_name, status, mobile_number, plan_id, "
+            "expiry_date FROM customers WHERE customer_id=? AND company_id=?",
+            (customer_id, ctx["company_id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "Customer not found")
+    return {"ok": True, "customer": dict(row)}
+
+
+def register(app, **_):
+    app.include_router(router)
+    print("[triple_play] router wired — s56X Phase D")

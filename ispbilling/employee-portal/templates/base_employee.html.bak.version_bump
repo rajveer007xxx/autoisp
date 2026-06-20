@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Auto ISP Billing{% endblock %}</title>
+    
+    <!-- Bootstrap 3.3.7 -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <!-- Font Awesome 4.7.0 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- AdminLTE 2.4.18 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/AdminLTE.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/css/skins/_all-skins.min.css">
+    <!-- Bootstrap Toggle -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/css/bootstrap-toggle.min.css">
+    
+    {% block extra_css %}{% endblock %}
+    
+    <style>
+        /* Global 10% size reduction (90% zoom) */
+        :root {
+            --site-scale: 0.9;
+        }
+        
+        @supports (zoom: 1) {
+            body {
+                zoom: var(--site-scale);
+            }
+        }
+        
+        @supports not (zoom: 1) {
+            /* Firefox fallback: scale font sizes */
+            html {
+                font-size: calc(16px * var(--site-scale));
+            }
+        }
+        
+        @media print {
+            body {
+                zoom: 1 !important;
+            }
+        }
+        
+        /* Custom styles to match PayFast exactly */
+        .main-header .logo {
+            background-color: #fff;
+            color: #333;
+            border-bottom: 0;
+            font-weight: bold;
+        }
+        .main-header .navbar {
+            background-color: #fff;
+            border-bottom: 1px solid #d2d6de;
+        }
+        .main-header .navbar .nav > li > a {
+            color: #333;
+        }
+        .main-sidebar {
+            background-color: #222d32;
+        }
+        .sidebar-menu > li > a {
+            border-left: 3px solid transparent;
+        }
+        .sidebar-menu > li.active > a {
+            border-left-color: #3c8dbc;
+            background-color: #1e282c;
+        }
+        .user-panel {
+            border-bottom: 1px solid #4b545c;
+        }
+        /* Add scroller to sidebar */
+        .sidebar {
+            height: calc(100vh - 50px);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: #2c3b41;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #3c8dbc;
+            border-radius: 3px;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #5fa6d4;
+        }
+        /* Prevent scroll anchoring on sidebar */
+        .sidebar {
+            overflow-anchor: none;
+        }
+        .main-sidebar {
+            overflow-anchor: none;
+        }
+        /* Reset sidebar scroll position on mobile */
+        @media (max-width: 767px) {
+            .sidebar {
+                scroll-behavior: auto;
+            }
+            .main-sidebar {
+                overflow-y: auto;
+            }
+        }
+        /* Company logo styling */
+        .main-header .logo img {
+            max-height: 40px;
+            max-width: 180px;
+            object-fit: contain;
+        }
+        .main-header .logo-mini {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff !important;
+            -webkit-text-fill-color: #fff !important;
+        }
+        /* Company info styling */
+        .company-info {
+            pointer-events: none;
+            cursor: default;
+        }
+        .company-info .company-name {
+            font-weight: bold;
+            font-size: 14px;
+            color: #fff !important;
+            display: block;
+        }
+        .company-info .company-id {
+            font-size: 12px;
+            color: #fff !important;
+            display: block;
+        }
+        .navbar .user-image {
+            width: 25px;
+            height: 25px;
+            object-fit: cover;
+        }
+    </style>
+
+    <!-- S32 DataTables (global) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap.min.css">
+
+<!-- __S39I_RESPONSIVE_FIXES__ — auto-injected by Session 39I -->
+<style id="aib-responsive-fixes">
+  /* Universal table horizontal scroll on small screens */
+  .autoispbilling-table-wrap,
+  .table-responsive {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 6px;
+  }
+  .autoispbilling-table-wrap > table,
+  .table-responsive > table {
+      margin-bottom: 0;
+      /* Make sure the table can grow wider than the wrap so the
+         horizontal scrollbar actually has content to scroll. */
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+  }
+  /* Force EVERY column to stay visible inside our wrap — overrides
+     Bootstrap 3 .hidden-xs/.hidden-sm/.hidden-md and any per-page
+     @media (max-width: …) td/th { display: none } rules. The user
+     can scroll horizontally to see every column instead of having
+     them hidden on smaller screens. */
+  .autoispbilling-table-wrap > table > thead > tr > th,
+  .autoispbilling-table-wrap > table > tbody > tr > td,
+  .autoispbilling-table-wrap > table > tbody > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > th,
+  .autoispbilling-table-wrap > table > tfoot > tr > td,
+  .table-responsive > table > thead > tr > th,
+  .table-responsive > table > tbody > tr > td,
+  .table-responsive > table > tbody > tr > th,
+  .table-responsive > table > tfoot > tr > th,
+  .table-responsive > table > tfoot > tr > td {
+      display: table-cell !important;
+      visibility: visible !important;
+  }
+  /* Same for the row itself in case any rule hides whole rows. */
+  .autoispbilling-table-wrap > table > tbody > tr,
+  .autoispbilling-table-wrap > table > thead > tr,
+  .autoispbilling-table-wrap > table > tfoot > tr,
+  .table-responsive > table > tbody > tr,
+  .table-responsive > table > thead > tr,
+  .table-responsive > table > tfoot > tr {
+      display: table-row !important;
+  }
+  /* Truncated cells (max-width + ellipsis) become normal-wrap so users
+     can read full content while still scrolling. */
+  @media (max-width: 991.98px) {
+      .autoispbilling-table-wrap > table td,
+      .table-responsive > table td {
+          white-space: nowrap;          /* keep on one line so column width fits */
+      }
+  }
+  /* Make any container that holds wide stuff stay inside the viewport */
+  body, html { max-width: 100%; overflow-x: hidden; }
+
+  /* Page-level fluid content (kills the "half blank white" issue) */
+  @media (max-width: 991.98px) {
+      .wrapper > .content-wrapper,
+      .wrapper > .main-footer { margin-left: 0 !important; }
+      .content-wrapper, .content {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+      }
+      .content > .row,
+      .content > .container,
+      .content > .container-fluid {
+          margin-right: 0 !important;
+          margin-left: 0 !important;
+      }
+      /* Tighter padding for mobile */
+      .content { padding: 10px !important; }
+      .box .box-body { padding: 12px !important; }
+      .box-header h3.box-title { font-size: 15px !important; }
+      .users-panel,
+      .panel,
+      .card { padding: 10px !important; }
+
+      /* Make form rows wrap nicely */
+      .form-inline .form-group { display: block !important; margin-bottom: 8px !important; }
+      .form-inline .form-control { width: 100% !important; }
+
+      /* Buttons in the user toolbar wrap to next line instead of overflow */
+      .users-panel { flex-wrap: wrap !important; }
+      .btn { white-space: normal !important; }
+
+      /* Hide secondary chrome that doesn't fit */
+      .hidden-xs-mobile, .desktop-only { display: none !important; }
+  }
+
+  /* Even smaller screens (phones in portrait) */
+  @media (max-width: 575.98px) {
+      .content { padding: 8px !important; }
+      .box .box-body { padding: 10px !important; }
+      .h1, h1 { font-size: 20px !important; }
+      .h2, h2 { font-size: 17px !important; }
+      .modal-dialog { margin: 8px !important; }
+      .modal-dialog.modal-lg-wide,
+      .modal-dialog.modal-lg { width: auto !important; max-width: 96% !important; }
+
+      /* Two-column form rows collapse to one */
+      .col-sm-6, .col-md-6, .col-lg-6 { width: 100% !important; float: none !important; }
+  }
+
+  /* Modal content also scrolls horizontally if it has a wide table */
+  .modal-body { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* Charts inside cards never overflow the card */
+  .box canvas, .card canvas { max-width: 100%; height: auto; }
+
+  /* Sticky table headers when scrolling vertically (desktop & mobile) */
+  .autoispbilling-table-wrap thead th,
+  .table-responsive thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface, #fff);
+      z-index: 5;
+  }
+</style>
+<script id="aib-responsive-fixes-js">
+(function () {
+  function wrapTable(tbl) {
+    try {
+      if (!tbl || !tbl.parentNode) return;
+      var p = tbl.parentNode;
+      // Already wrapped?
+      if (p && p.classList && (
+          p.classList.contains('autoispbilling-table-wrap') ||
+          p.classList.contains('table-responsive') ||
+          p.classList.contains('table-responsive-sm'))) {
+        return;
+      }
+      // Avoid wrapping tables inside <thead><tr>/<tfoot> (pivots) — only
+      // wrap top-level tables.
+      var wrap = document.createElement('div');
+      wrap.className = 'autoispbilling-table-wrap';
+      p.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    } catch (e) { /* silent */ }
+  }
+  function wrapAll() {
+    var tbls = document.querySelectorAll('table');
+    for (var i = 0; i < tbls.length; i++) wrapTable(tbls[i]);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wrapAll);
+  } else {
+    wrapAll();
+  }
+  // Also catch dynamically-rendered tables (DataTables, AJAX list refresh).
+  try {
+    var mo = new MutationObserver(function (muts) {
+      var dirty = false;
+      for (var i = 0; i < muts.length; i++) {
+        for (var j = 0; j < muts[i].addedNodes.length; j++) {
+          var n = muts[i].addedNodes[j];
+          if (n.nodeType !== 1) continue;
+          if (n.tagName === 'TABLE') { wrapTable(n); dirty = true; }
+          else if (n.querySelectorAll) {
+            var sub = n.querySelectorAll('table');
+            for (var k = 0; k < sub.length; k++) { wrapTable(sub[k]); dirty = true; }
+          }
+        }
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) { /* MutationObserver not available — DOMContentLoaded covered the rest */ }
+})();
+</script>
+<!-- /__S39I_RESPONSIVE_FIXES__ -->
+    <style>/* _S39R5M_GLOBAL_ 80% desktop zoom + sidebar overflow fix v2 */
+      @media (min-width: 992px){
+        html { zoom: 0.8; }
+        /* Force sidebar wrapper to be sized purely by height (drop bottom:0
+           which interacts badly with html { zoom }). */
+        aside.main-sidebar,
+        .main-sidebar {
+          top: 0 !important;
+          bottom: auto !important;
+          height: 100vh !important;
+          max-height: 100vh !important;
+          padding-top: var(--topbar-h, 64px) !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+        }
+        /* Inner scrollable panel — fill available space below the topbar */
+        .main-sidebar > .sidebar,
+        aside.main-sidebar .sidebar {
+          height: 100% !important;
+          max-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+        }
+        /* Visible scrollbar against dark sidebar */
+        .main-sidebar .sidebar { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+        .main-sidebar .sidebar::-webkit-scrollbar { width: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 8px; }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; border: 1px solid rgba(0,0,0,.2); }
+        .main-sidebar .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      }
+    </style>
+</head>
+<!-- __S38_PERM_ENFORCED__ -->
+<body class="hold-transition skin-blue sidebar-mini">
+    <!-- Hidden input for current user ID (used in payment popup) -->
+    <input type="hidden" id="current_user_id" value="{{ user_id }}">
+    <div class="wrapper">
+        
+        <!-- Main Header -->
+        <header class="main-header">
+            <!-- Logo -->
+            <a href="/admin/dashboard" class="logo">
+                <span class="logo-mini"><b>{{ company_name[:1]|upper if company_name and company_name != 'N/A' else 'A' }}</b></span>
+                <span class="logo-lg">
+                    <img src="{{ company_logo if company_logo else '/static/img/logo-default.png' }}" 
+                         alt="{{ company_name }}" 
+                         onerror="this.onerror=null;this.src='/static/img/logo-default.png';">
+                </span>
+            </a>
+            
+            <!-- Header Navbar -->
+            <nav class="navbar navbar-static-top" role="navigation">
+                <!-- Sidebar toggle button-->
+                <a href="#" class="sidebar-toggle" data-toggle="push-menu" role="button">
+                    <span class="sr-only">Toggle navigation</span>
+                </a>
+                
+                <!-- Center: Company Name and Company ID -->
+                <div class="navbar-custom-menu" style="float: left; margin-left: 20px;">
+                    <ul class="nav navbar-nav">
+                        <li>
+                            <div class="company-info" style="padding: 15px 15px; line-height: 1.3;">
+                                <span class="company-name">Company Name: {{ company_name|default('N/A') }}</span>
+                                <span class="company-id">Company ID: {{ company_id|default('N/A') }}</span>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                
+                <!-- Right: Profile and Notifications -->
+                <div class="navbar-custom-menu">
+                    <ul class="nav navbar-nav">
+                        <!-- Notifications -->
+                        <li class="dropdown notifications-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <i class="fa fa-bell-o"></i>
+                                <span class="label label-warning">20</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="header">You have 20 notifications</li>
+                                <li>
+                                    <ul class="menu">
+                                        <li>
+                                            <a href="#">
+                                                <i class="fa fa-users text-aqua"></i> 5 new members joined today
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </li>
+                                <li class="footer"><a href="#">View all</a></li>
+                            </ul>
+                        </li>
+                        
+                        <!-- User Account -->
+                        <li class="dropdown user user-menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                                <img src="{{ profile_image if profile_image else '/static/img/avatar-default.png' }}" 
+                                     class="user-image" 
+                                     alt="User Image"
+                                     onerror="this.onerror=null;this.src='/static/img/avatar-default.png';">
+                                <span class="hidden-xs">{{ employee_name|default(user_name)|default('Employee User') }}</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li class="user-body">
+                                    <ul class="menu" style="list-style: none; padding: 0; margin: 0;">
+                                        <li>
+                                            <a href="/logout" style="display: block; padding: 10px 15px; color: #333;">
+                                                <i class="fa fa-sign-out"></i> Log Out
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+        
+        <!-- Left side column. contains the sidebar -->
+        <aside class="main-sidebar">
+            <section class="sidebar">
+                <!-- Sidebar Menu -->
+                <ul class="sidebar-menu" data-widget="tree">
+                    <li class="{% if active_page == 'dashboard' %}active{% endif %}">
+                        <a href="/employee/dashboard">
+                            <i class="fa fa-dashboard"></i> <span>Dashboard</span>
+                        </a>
+                    </li>
+                    
+                    {% if 'feat.user_management' in permissions %}
+
+                    
+                    <li class="{% if active_page == 'users' %}active{% endif %}">
+                        <a href="/employee/users">
+                            <i class="fa fa-users"></i> <span>User Management</span>
+                        </a>
+                    </li>
+                    
+                    
+                    
+                    {% endif %}
+<li class="{% if active_page == 'plans' %}active{% endif %}">
+                        <a href="/employee/plans">
+                            <i class="fa fa-list"></i> <span>Plans</span>
+                        </a>
+                    </li>
+                    
+                    <li class="{% if active_page == 'locations' %}active{% endif %}">
+                        <a href="/employee/locations">
+                            <i class="fa fa-map-marker"></i> <span>Locations</span>
+                        </a>
+                    </li>
+                    
+                    {% if 'feat.transaction_history' in permissions %}
+
+                    
+                    <li class="{% if active_page == 'transactions' %}active{% endif %}">
+                        <a href="/employee/transactions">
+                            <i class="fa fa-exchange"></i> <span>Payment History</span>
+                        </a>
+                    </li>
+                    
+                    
+                    
+                    {% endif %}
+{% if 'feat.invoice' in permissions %}
+
+<li class="{% if active_page == 'addon-bills' %}active{% endif %}">
+                        <a href="/employee/addon-bills">
+                            <i class="fa fa-file-text"></i> <span>Send Manual Invoice</span>
+                        </a>
+                    </li>
+                    
+                    
+{% endif %}
+{% if 'feat.invoice' in permissions %}
+
+<li class="{% if active_page == 'send-invoices' %}active{% endif %}">
+                        <a href="/employee/send-invoices">
+                            <i class="fa fa-send"></i> <span>Sent Invoice List</span>
+                        </a>
+                    </li>
+                    
+                    
+{% endif %}
+{% if 'feat.complaints' in permissions %}
+
+<li class="{% if active_page == 'complaints' %}active{% endif %}">
+                        <a href="/employee/complaints">
+                            <i class="fa fa-exclamation-circle"></i> <span>Complaints List</span>
+                        </a>
+                    </li>
+                    
+                    
+{% endif %}
+{% if 'feat.notification' in permissions %}
+
+<li class="{% if active_page == 'notifications' %}active{% endif %}">
+                        <a href="/employee/notifications">
+                            <i class="fa fa-bell"></i> <span>Notifications</span>
+                        </a>
+                    </li>
+                
+{% endif %}
+</ul>
+            </section>
+        </aside>
+        
+        <!-- Content Wrapper. Contains page content -->
+        <div class="content-wrapper">
+            {% if request.query_params.get('denied') %}
+            <div class="alert alert-warning" style="margin:15px;border-radius:4px;">
+                <i class="fa fa-lock"></i> <b>Access restricted.</b>
+                You don't have permission to access that page
+                (<code>{{ request.query_params.get('denied') }}</code>).
+                Please contact your administrator if you need access.
+            </div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </div>
+        
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="pull-right hidden-xs">
+                <b>Version</b> 1.0.0
+            </div>
+            <strong>Copyright &copy; 2025 <a href="/">Auto ISP Billing</a>.</strong> All rights reserved.
+        </footer>
+    </div>
+    
+    <!-- jQuery 2.2.4 -->
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <!-- Bootstrap 3.3.7 -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- Bootstrap Toggle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-toggle@2.2.2/js/bootstrap-toggle.min.js"></script>
+    <!-- AdminLTE App -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/2.4.18/js/adminlte.min.js"></script>
+    
+    <script>
+    // Fix mobile sidebar scroll position
+    $(document).ready(function() {
+        // Reset sidebar scroll to top on mobile devices on page load
+        if (window.innerWidth <= 767) {
+            $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+            // Scroll first menu item into view
+            var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+            if (firstItem) {
+                firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+            }
+        }
+        
+        // Hook into AdminLTE's pushMenu expanded event for more reliable reset
+        $(document).on('expanded.pushMenu', function() {
+            if (window.innerWidth <= 767) {
+                setTimeout(function() {
+                    $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+                    // Scroll first menu item into view
+                    var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+                    if (firstItem) {
+                        firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    }
+                }, 50);
+            }
+        });
+        
+        // Fallback: also reset on sidebar toggle click
+        $('.sidebar-toggle').on('click', function() {
+            if (window.innerWidth <= 767) {
+                setTimeout(function() {
+                    $('.main-sidebar, .main-sidebar .sidebar').scrollTop(0);
+                    var firstItem = document.querySelector('.sidebar-menu > li:first-child');
+                    if (firstItem) {
+                        firstItem.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    }
+                }, 150);
+            }
+        });
+    });
+    </script>
+    
+    <style>
+    /* Hide DataTables sorting icons globally */
+    table.dataTable thead .sorting,
+    table.dataTable thead .sorting_asc,
+    table.dataTable thead .sorting_desc {
+        background-image: none !important;
+    }
+    table.dataTable thead .sorting:before,
+    table.dataTable thead .sorting:after,
+    table.dataTable thead .sorting_asc:before,
+    table.dataTable thead .sorting_asc:after,
+    table.dataTable thead .sorting_desc:before,
+    table.dataTable thead .sorting_desc:after {
+        display: none !important;
+    }
+    </style>
+    
+    {% block extra_js %}{% endblock %}
+
+    <!-- S32 DataTables (global) -->
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap.min.js"></script>
+    <script>
+    (function(){
+      if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.dataTable) return;
+      // Global defaults: 20 rows per page, dropdown 10/20/50/100/All, clean pagination
+      jQuery.extend(true, jQuery.fn.dataTable.defaults, {
+        pageLength: 20,
+        lengthChange: true,
+        lengthMenu: [[10, 20, 50, 100, -1], [10, 20, 50, 100, 'All']],
+        pagingType: 'simple_numbers',
+        language: {
+          lengthMenu: 'Show _MENU_ per page',
+          info: 'Showing _START_–_END_ of _TOTAL_',
+          infoEmpty: '0 records',
+          infoFiltered: '(filtered from _MAX_)',
+          search: 'Search:',
+          paginate: { previous: '‹', next: '›' }
+        }
+      });
+
+      // Auto-init any plain listing table that isn't already a DataTable and
+      // isn't explicitly opted-out.
+      jQuery(function($){
+        $('table.table').each(function(){
+          var t = this, $t = $(this);
+          if ($t.hasClass('no-dt')) return;
+          if ($t.closest('.modal').length) return;
+          if ($t.is('[data-dt-skip]')) return;
+          if ($.fn.DataTable.isDataTable(t)) return;
+          if (!$t.find('thead tr').length) return;
+          if (!$t.find('tbody').length) return;
+          // Skip tables whose only tbody row is a placeholder (colspan=...)
+          var dataRows = $t.find('tbody > tr').filter(function(){
+            return $(this).children('td[colspan]').length === 0 &&
+                   $(this).children('td').length > 0;
+          }).length;
+          if (dataRows < 1) return;
+          try { $t.DataTable({}); } catch(e) { console.warn('[S32 DT]', e); }
+        });
+      });
+    })();
+    </script>
+</body>
+</html>
+
+<!-- __S38_DENIED_BANNER__ -->

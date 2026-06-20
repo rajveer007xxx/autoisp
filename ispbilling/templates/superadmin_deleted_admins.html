@@ -1,0 +1,130 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}Deleted Admins - Superadmin{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap.min.css">
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Deleted Admins<small>Restore or Permanently Delete</small></h1>
+</section>
+
+<section class="content">
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Deleted Admins</h3>
+        </div>
+        <div class="box-body">
+            <table id="deletedAdminsTable" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Company ID</th>
+                        <th>Company Name</th>
+                        <th>Admin Name</th>
+                        <th>Email</th>
+                        <th>Mobile</th>
+                        <th>Package</th>
+                        <th>Status</th>
+                        <th>Deleted At</th>
+                        <th>Deleted By</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap.min.js"></script>
+<script>
+$(document).ready(function() {
+    var table = $('#deletedAdminsTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: '/api/superadmin/deleted-admins',
+        columns: [
+            { data: 'company_id' },
+            { data: 'company_name' },
+            { data: 'admin_name' },
+            { data: 'admin_email' },
+            { data: 'admin_mobile' },
+            { data: 'package' },
+            { 
+                data: 'status',
+                render: function(data) {
+                    var badgeClass = data === 'Active' ? 'success' : (data === 'Deactivated' ? 'warning' : 'danger');
+                    return '<span class="badge badge-' + badgeClass + '">' + data + '</span>';
+                }
+            },
+            { 
+                data: 'deleted_at',
+                render: function(data) {
+                    if (!data) return '';
+                    var date = new Date(data);
+                    return date.toLocaleString();
+                }
+            },
+            { data: 'deleted_by' },
+            {
+                data: null,
+                orderable: false,
+                render: function(data, type, row) {
+                    return '<button class="btn btn-sm btn-success restore-btn" data-company-id="' + row.company_id + '" title="Restore"><i class="fa fa-undo"></i> Restore</button> ' +
+                           '<button class="btn btn-sm btn-danger permanent-delete-btn" data-company-id="' + row.company_id + '" title="Permanent Delete"><i class="fa fa-trash"></i> Delete</button>';
+                }
+            }
+        ],
+        order: [[7, 'desc']]
+    });
+
+    $('#deletedAdminsTable').on('click', '.restore-btn', function() {
+        var companyId = $(this).data('company-id');
+        
+        if (confirm('Are you sure you want to restore this admin? They will be moved back to the admin management page.')) {
+            $.ajax({
+                url: '/api/superadmin/admins/' + companyId + '/restore',
+                type: 'POST',
+                success: function(response) {
+                    if (response.success) {
+                        alert('Admin restored successfully');
+                        table.ajax.reload();
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                },
+                error: function(xhr) {
+                    alert('Error restoring admin: ' + (xhr.responseJSON?.message || 'Unknown error'));
+                }
+            });
+        }
+    });
+
+    $('#deletedAdminsTable').on('click', '.permanent-delete-btn', function() {
+        var companyId = $(this).data('company-id');
+        
+        if (confirm('WARNING: This will PERMANENTLY delete this admin and ALL their data (invoices, transactions, etc.). This action CANNOT be undone. Are you absolutely sure?')) {
+            $.ajax({
+                url: '/api/superadmin/admins/' + companyId + '/permanent',
+                type: 'DELETE',
+                success: function(response) {
+                    if (response.success) {
+                        alert('Admin permanently deleted successfully');
+                        table.ajax.reload();
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                },
+                error: function(xhr) {
+                    alert('Error deleting admin: ' + (xhr.responseJSON?.message || 'Unknown error'));
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

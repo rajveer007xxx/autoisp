@@ -1,0 +1,107 @@
+{% extends layout_template|default("base_admin.html") %}
+{# _S57C_PON_TREE_  Phase 5 — collapsible OLT → PON → ONU visualizer #}
+{% block title %}PON Tree · Auto ISP Billing{% endblock %}
+{% block content %}
+<style>
+  .ptree-wrap{padding:18px;}
+  .ptree-olt{background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;
+             padding:14px 18px;border-radius:10px;margin-bottom:14px;
+             box-shadow:0 4px 18px rgba(99,102,241,.25);font-weight:700;}
+  .ptree-olt .meta{font-weight:400;opacity:.8;font-size:13px;margin-left:14px;}
+  .ptree-pon{background:#0f172a;color:#a5f3fc;padding:10px 16px;border-radius:8px;
+             margin:10px 0 4px 26px;font-weight:600;cursor:pointer;
+             display:flex;align-items:center;gap:10px;}
+  .ptree-pon:hover{background:#1e293b;}
+  .ptree-pon .ct{margin-left:auto;background:#22d3ee;color:#0f172a;padding:2px 10px;
+                 border-radius:10px;font-weight:700;font-size:12px;}
+  .ptree-onus{margin:4px 0 12px 60px;display:none;}
+  .ptree-onus.open{display:block;}
+  .ptree-onu{display:flex;align-items:center;gap:10px;padding:6px 12px;
+             background:#fff;border:1px solid #e5e7eb;border-radius:6px;
+             margin-bottom:4px;font-size:13px;}
+  .ptree-onu .sn{font-family:monospace;color:#475569;min-width:200px;}
+  .ptree-onu .st{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;}
+  .ptree-onu .st.online{background:#10b981;}
+  .ptree-onu .st.offline{background:#ef4444;}
+  .ptree-onu .st.unknown,.ptree-onu .st.disabled{background:#94a3b8;}
+  .rx-pill{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;}
+  .rx-good{background:#10b981;}
+  .rx-warn{background:#f59e0b;}
+  .rx-bad{background:#ef4444;}
+  .ptree-onu .nm{flex:1;}
+  .ptree-onu a{margin-left:auto;color:#0ea5e9;text-decoration:none;font-weight:600;}
+  .ptree-empty{padding:30px;text-align:center;color:#94a3b8;background:#fff;border-radius:8px;}
+</style>
+
+<div class="container-fluid ptree-wrap" data-testid="pon-tree-page">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h3 style="margin:0;"><i class="bi bi-diagram-3"></i> PON Tree Visualizer</h3>
+      <small class="text-muted">OLT → PON port → ONU live signal overview. Click a PON row to expand.</small>
+    </div>
+    <div>
+      <a href="/admin/olt/onus" class="btn btn-outline-primary btn-sm" data-testid="ptree-back">
+        <i class="bi bi-arrow-left"></i> ONU List
+      </a>
+    </div>
+  </div>
+
+  {% if not olts %}
+    <div class="ptree-empty" data-testid="pon-tree-empty">
+      No OLTs configured yet. Add an OLT first in <a href="/admin/olt">OLT Manager</a>.
+    </div>
+  {% endif %}
+
+  {% for olt in olts %}
+    <div class="ptree-olt" data-testid="pon-tree-olt-{{ olt.id }}">
+      <i class="bi bi-router"></i> OLT #{{ olt.id }} · {{ olt.name }}
+      <span class="meta">{{ olt.vendor or '' }} · {{ olt.host or '—' }}</span>
+      <span class="meta">{{ olt.pon_count or 0 }} PON ports · {{ olt.onu_count or 0 }} ONUs</span>
+    </div>
+    {% for pon in olt.pons %}
+      <div class="ptree-pon"
+           data-testid="pon-tree-pon-{{ olt.id }}-{{ pon.port_index }}"
+           onclick="ptreeToggle(this)">
+        <i class="bi bi-broadcast"></i>
+        PON Port {{ pon.port_index }}
+        <span class="ct">{{ pon.onus|length }} ONUs</span>
+      </div>
+      <div class="ptree-onus">
+        {% for onu in pon.onus %}
+          <div class="ptree-onu" data-testid="pon-tree-onu-{{ onu.id }}">
+            <span class="st {{ onu.status or 'unknown' }}">{{ (onu.status or 'unknown')|upper }}</span>
+            <span class="sn">{{ onu.serial or onu.mac or ('#' ~ onu.id) }}</span>
+            <span class="nm">{{ onu.name or onu.customer_name or '' }}</span>
+            {% if onu.rx_power is not none %}
+              {% set rxv = onu.rx_power %}
+              <span class="rx-pill {% if rxv > -25 %}rx-good{% elif rxv > -28 %}rx-warn{% else %}rx-bad{% endif %}">
+                {{ '%.2f' % rxv }} dBm
+              </span>
+            {% else %}
+              <span class="rx-pill" style="background:#cbd5e1;color:#0f172a;">— dBm</span>
+            {% endif %}
+            <a href="/admin/onu/{{ onu.id }}/detail" data-testid="pon-tree-onu-view-{{ onu.id }}">View</a>
+          </div>
+        {% endfor %}
+        {% if not pon.onus %}
+          <div class="ptree-empty">No ONUs registered on this PON port yet.</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endfor %}
+</div>
+
+<script>
+function ptreeToggle(el){
+  const next = el.nextElementSibling;
+  if (next && next.classList.contains('ptree-onus')){
+    next.classList.toggle('open');
+  }
+}
+// Auto-expand the first PON of the first OLT for instant visibility.
+document.addEventListener('DOMContentLoaded', () => {
+  const first = document.querySelector('.ptree-onus');
+  if (first) first.classList.add('open');
+});
+</script>
+{% endblock %}

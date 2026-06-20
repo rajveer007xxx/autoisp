@@ -1,0 +1,168 @@
+"""_S57E_  Module 10 — Live NOC Dashboard.
+
+Aggregates real-time state from multiple tables into a single page that
+operators leave on a wall-mounted screen. Polls every 5 s via JS.
+
+Sources used (existing tables):
+  olts                          → online/offline by status
+  onus                          → online/offline by status
+  outage_events_v2              → active outages
+  signal_degradation_events_v2  → predicted failures (AI)
+  onu_signal_alerts             → 24h signal alerts
+  fiber_cut_history             → recent fiber cuts
+  onu_signal_samples            → top-RX-drift ONUs
+"""
+from __future__ import annotations
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from typing import Any, Dict, List
+
+from database import engine
+from sqlalchemy import text as _t
+
+from olt_routes import _require_scope, _portal_context, templates  # type: ignore
+
+router = APIRouter()
+
+
+def _safe_count(conn, sql: str, params: Dict[str, Any]) -> int:
+    try:
+        v = conn.execute(_t(sql), params).scalar()
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def _noc_payload(cid: str) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"company_id": cid}
+    with engine.begin() as conn:
+        # OLT counters
+        out["olts_total"]   = _safe_count(conn, "SELECT COUNT(*) FROM olts WHERE company_id=:c", {"c": cid})
+        out["olts_online"]  = _safe_count(conn, "SELECT COUNT(*) FROM olts WHERE company_id=:c AND COALESCE(enabled,1)=1 AND COALESCE(status,'online') IN ('online','up','ok')", {"c": cid})
+        out["olts_offline"] = max(0, out["olts_total"] - out["olts_online"])
+
+        # ONU counters
+        out["onus_total"]   = _safe_count(conn, "SELECT COUNT(*) FROM onus WHERE company_id=:c", {"c": cid})
+        out["onus_online"]  = _safe_count(conn, "SELECT COUNT(*) FROM onus WHERE company_id=:c AND status='online'", {"c": cid})
+        out["onus_offline"] = _safe_count(conn, "SELECT COUNT(*) FROM onus WHERE company_id=:c AND status='offline'", {"c": cid})
+        out["onus_unknown"] = max(0, out["onus_total"] - out["onus_online"] - out["onus_offline"])
+
+        # Customers
+        out["customers_total"] = _safe_count(conn, "SELECT COUNT(*) FROM customers WHERE company_id=:c", {"c": cid})
+
+        # Active outages
+        try:
+            r = conn.execute(_t(
+                "SELECT id, opened_at, status, kind, affected_onu_count, "
+                "       affected_customer_count, suspected_cause "
+                "FROM outage_events_v2 "
+                "WHERE company_id=:c AND closed_at IS NULL "
+                "ORDER BY opened_at DESC LIMIT 5"
+            ), {"c": cid}).fetchall()
+            out["active_outages"] = [
+                {"id": x[0], "opened_at": str(x[1]), "status": x[2], "kind": x[3],
+                 "onu_count": int(x[4] or 0), "customer_count": int(x[5] or 0),
+                 "suspected_cause": x[6]}
+                for x in r
+            ]
+        except Exception:
+            out["active_outages"] = []
+
+        # AI predicted failures (signal degradation worker output)
+        try:
+            r = conn.execute(_t(
+                "SELECT d.id, d.onu_id, d.slope_db_per_day, d.predicted_fail_in_days, "
+                "       n.serial, n.name, n.rx_power "
+                "FROM signal_degradation_events_v2 d "
+                "LEFT JOIN onus n ON n.id=d.onu_id AND n.company_id=d.company_id "
+                "WHERE d.company_id=:c AND d.closed_at IS NULL "
+                "ORDER BY d.predicted_fail_in_days ASC NULLS LAST LIMIT 8"
+            ), {"c": cid}).fetchall()
+            out["predicted_failures"] = [
+                {"id": x[0], "onu_id": x[1],
+                 "slope": round(float(x[2] or 0), 3),
+                 "days_left": round(float(x[3] or 0), 1),
+                 "serial": x[4], "name": x[5],
+                 "rx_power": float(x[6]) if x[6] is not None else None}
+                for x in r
+            ]
+        except Exception:
+            out["predicted_failures"] = []
+        out["predicted_failures_count"] = _safe_count(conn,
+            "SELECT COUNT(*) FROM signal_degradation_events_v2 "
+            "WHERE company_id=:c AND closed_at IS NULL",
+            {"c": cid})
+
+        # Signal alerts (last 24h)
+        out["signal_alerts_24h"] = _safe_count(conn,
+            "SELECT COUNT(*) FROM onu_signal_alerts "
+            "WHERE company_id=:c AND created_at::timestamptz >= NOW() - INTERVAL '24 hours'",
+            {"c": cid})
+
+        # Fiber cuts (last 7d)
+        try:
+            r = conn.execute(_t(
+                "SELECT id, cut_at, cut_lat, cut_lng, original_fiber_id "
+                "FROM fiber_cut_history "
+                "WHERE company_id=:c "
+                "  AND cut_at::timestamptz >= NOW() - INTERVAL '7 days' "
+                "ORDER BY cut_at DESC LIMIT 5"
+            ), {"c": cid}).fetchall()
+            out["fiber_cuts_recent"] = [
+                {"id": x[0], "cut_at": str(x[1]),
+                 "lat": float(x[2]) if x[2] is not None else None,
+                 "lng": float(x[3]) if x[3] is not None else None,
+                 "fiber_id": x[4]}
+                for x in r
+            ]
+        except Exception:
+            out["fiber_cuts_recent"] = []
+
+        # Worst-RX ONUs (current snapshot)
+        try:
+            r = conn.execute(_t(
+                "SELECT id, serial, mac, rx_power FROM onus "
+                "WHERE company_id=:c AND rx_power IS NOT NULL "
+                "  AND status='online' "
+                "ORDER BY rx_power ASC LIMIT 5"
+            ), {"c": cid}).fetchall()
+            out["worst_rx_onus"] = [
+                {"id": x[0], "serial": x[1], "mac": x[2],
+                 "rx_power": float(x[3])} for x in r
+            ]
+        except Exception:
+            out["worst_rx_onus"] = []
+
+        # Top traffic snapshot (last 30 minutes mean down_mbps)
+        try:
+            r = conn.execute(_t(
+                "SELECT s.onu_id, n.serial, n.name, "
+                "       AVG(s.rx_kbps)/1024.0 AS avg_mbps "
+                "FROM onu_traffic_samples s "
+                "LEFT JOIN onus n ON n.id=s.onu_id AND n.company_id=s.company_id "
+                "WHERE s.company_id=:c "
+                "  AND s.ts::timestamptz >= NOW() - INTERVAL '30 minutes' "
+                "GROUP BY s.onu_id, n.serial, n.name "
+                "ORDER BY avg_mbps DESC NULLS LAST LIMIT 5"
+            ), {"c": cid}).fetchall()
+            out["top_traffic"] = [
+                {"onu_id": x[0], "serial": x[1], "name": x[2],
+                 "avg_mbps": round(float(x[3] or 0), 1)} for x in r
+            ]
+        except Exception:
+            out["top_traffic"] = []
+
+    return out
+
+
+@router.get("/api/admin/noc/feed")
+def api_noc_feed(request: Request):
+    sc = _require_scope(request)
+    return JSONResponse(_noc_payload(sc["company_id"]))
+
+
+@router.get("/admin/noc", response_class=HTMLResponse)
+def noc_page(request: Request):
+    sc = _require_scope(request)
+    ctx = _portal_context(request, sc, "noc")
+    return templates.TemplateResponse("admin_noc.html", ctx)

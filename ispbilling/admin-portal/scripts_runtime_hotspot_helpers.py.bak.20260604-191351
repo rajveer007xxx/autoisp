@@ -1,0 +1,220 @@
+"""scripts_runtime_hotspot_helpers — pluggable Mikrotik hotspot extras
+called by /api/nas-devices/{id}/oneclick-auth when the admin opts into
+the Hotspot mode. All functions are idempotent.
+
+Public:
+  push_branded_captive_portal(nas) -> dict
+  ensure_hotspot_user_profiles(nas) -> dict
+  ensure_hotspot_bypass_bindings(nas) -> dict
+"""
+from __future__ import annotations
+import sqlite3
+from typing import Any, Dict, List
+
+from librouteros import connect
+from librouteros.login import plain as login_plain
+
+
+_USER_PROFILE_DEFS = {
+    "active":          {"address-pool": "hotspot-pool", "session-timeout": "1d",
+                        "idle-timeout": "5m",  "keepalive-timeout": "3m",
+                        "shared-users": "10", "add-mac-cookie": "yes",
+                        "mac-cookie-timeout": "3d", "rate-limit": "0/0"},
+    "active-hotspot":  {"address-pool": "hotspot-pool", "session-timeout": "1d",
+                        "idle-timeout": "5m",  "keepalive-timeout": "3m",
+                        "shared-users": "10", "add-mac-cookie": "yes",
+                        "mac-cookie-timeout": "3d", "rate-limit": "0/0"},
+    "active-static":   {"address-pool": "hotspot-pool", "session-timeout": "1d",
+                        "idle-timeout": "5m",  "keepalive-timeout": "3m",
+                        "shared-users": "5",  "add-mac-cookie": "yes",
+                        "mac-cookie-timeout": "3d", "rate-limit": "0/0"},
+    "parking":         {"address-pool": "hotspot-pool", "session-timeout": "1d",
+                        "idle-timeout": "5m",  "keepalive-timeout": "3m",
+                        "shared-users": "3",  "add-mac-cookie": "yes",
+                        "mac-cookie-timeout": "3d", "rate-limit": "256k/256k"},
+    "parking-hotspot": {"address-pool": "hotspot-pool", "session-timeout": "1d",
+                        "idle-timeout": "5m",  "keepalive-timeout": "3m",
+                        "shared-users": "3",  "add-mac-cookie": "yes",
+                        "mac-cookie-timeout": "3d", "rate-limit": "256k/256k"},
+}
+
+
+def _get_api(nas):
+    return connect(host=nas.ip_address, username=nas.api_username,
+                   password=nas.api_password, port=int(nas.port or 8728),
+                   login_method=login_plain, timeout=20)
+
+
+def push_branded_captive_portal(nas) -> Dict[str, Any]:
+    """Render captive portal HTML from captive_portal_settings and upload
+    to Mikrotik flash at hotspot/login.html. Returns a status dict."""
+    con = sqlite3.connect("/var/lib/autoispbilling/autoispbilling.db", timeout=5)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT title, welcome_text, terms_text, primary_color, "
+            "       accent_color, login_mode, footer_text "
+            "FROM captive_portal_settings WHERE company_id = ?",
+            (nas.company_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        con.close()
+
+    if row:
+        title, welcome, terms, primary, accent, login_mode, footer = row
+    else:
+        title = "Wi-Fi"; welcome = ""; terms = ""
+        primary = "#7c3aed"; accent = "#06b6d4"; login_mode = "voucher"; footer = "Auto ISP Billing"
+    primary = (primary or "#7c3aed").strip() or "#7c3aed"
+    accent  = (accent  or "#06b6d4").strip() or "#06b6d4"
+    title   = title or "Wi-Fi"
+    welcome = (welcome or "").strip()
+    terms   = (terms or "").strip()
+    footer  = (footer or "Auto ISP Billing").strip()
+    login_mode = login_mode or "voucher"
+    v_act = "active" if login_mode == "voucher" else ""
+    u_act = "active" if login_mode == "username_password" else ""
+
+    welcome_html = f'<div class="w">{welcome}</div>' if welcome else ""
+    terms_html   = f'<div class="tr"><b>Terms:</b> {terms}</div>' if terms else ""
+
+    html = (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>{title}</title><style>'
+        '*{box-sizing:border-box;margin:0;padding:0}'
+        'html,body{height:100%;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1f2937}'
+        f'body{{background:linear-gradient(135deg,{primary} 0,{accent} 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}}'
+        '.p{background:rgba(255,255,255,.97);border-radius:16px;padding:30px 26px;max-width:380px;width:100%;box-shadow:0 25px 60px rgba(0,0,0,.25)}'
+        f'.t{{color:{primary};font-size:22px;font-weight:700;text-align:center;margin-bottom:18px}}'
+        '.w{color:#6b7280;font-size:14px;text-align:center;margin-bottom:18px}'
+        'label{display:block;margin-bottom:6px;font-weight:600;color:#374151;font-size:13px}'
+        'input{width:100%;padding:12px 14px;border:1px solid #e5e7eb;border-radius:10px;font-size:15px}'
+        f'input:focus{{outline:none;border-color:{primary}}}'
+        f'.b{{background:linear-gradient(135deg,{primary} 0,{accent} 100%);color:#fff;border:0;padding:13px;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;width:100%;margin-top:14px}}'
+        '.tb{display:flex;gap:4px;margin-bottom:16px;background:#f3f4f6;padding:4px;border-radius:10px}'
+        '.tab{flex:1;text-align:center;padding:8px;font-size:12px;font-weight:600;color:#6b7280;cursor:pointer;border-radius:7px}'
+        f'.tab.active{{background:#fff;color:{primary};box-shadow:0 1px 3px rgba(0,0,0,.08)}}'
+        '.mb{display:none}.mb.active{display:block}'
+        '.fg{margin-bottom:14px}'
+        '.tr{margin-top:14px;font-size:11px;color:#6b7280;line-height:1.45;background:#f9fafb;padding:8px 10px;border-radius:8px}'
+        '.ft{text-align:center;color:#9ca3af;font-size:11px;margin-top:18px}'
+        '.er{padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca}'
+        '</style></head><body><div class="p">'
+        f'<div class="t">{title}</div>'
+        '$(if error)<div class="er"><b>&#9888; Login failed</b><br>$(error)</div>$(endif)'
+        f'{welcome_html}'
+        '<div class="tb">'
+        f'<div class="tab {v_act}" data-m="v">Voucher</div>'
+        f'<div class="tab {u_act}" data-m="u">Username</div>'
+        '</div>'
+        '<form name="login" method="post" action="$(link-login-only)" autocomplete="off">'
+        '<input type="hidden" name="dst" value="$(link-orig)">'
+        f'<div class="mb {v_act}" id="m-v">'
+        '<div class="fg"><label>Voucher Code</label>'
+        '<input type="text" name="username" id="vu" placeholder="Enter code" autocapitalize="characters" autocomplete="off">'
+        '<input type="hidden" name="password" id="vp"></div></div>'
+        f'<div class="mb {u_act}" id="m-u">'
+        '<div class="fg"><label>Username</label><input type="text" name="username" id="uu" autocomplete="off"></div>'
+        '<div class="fg"><label>Password</label><input type="password" name="password" id="up" autocomplete="off"></div>'
+        '</div>'
+        '<button type="submit" class="b">Connect</button></form>'
+        f'{terms_html}'
+        f'<div class="ft">{footer}</div></div><script>'
+        'function S(){document.querySelectorAll(".mb").forEach(function(b){var on=b.classList.contains("active");b.querySelectorAll("input").forEach(function(e){e.disabled=!on})})}'
+        'document.querySelectorAll(".tab").forEach(function(t){t.addEventListener("click",function(){'
+        'document.querySelectorAll(".tab,.mb").forEach(function(x){x.classList.remove("active")});'
+        't.classList.add("active");var b=document.getElementById("m-"+t.getAttribute("data-m"));if(b)b.classList.add("active");S()})});S();'
+        'document.querySelector("form").addEventListener("submit",function(){'
+        'var v=document.querySelector(".tab[data-m=v]");'
+        'if(v&&v.classList.contains("active")){var u=document.getElementById("vu"),p=document.getElementById("vp");'
+        'if(u&&p&&u.value){var c=u.value.trim().toUpperCase();u.value=c;p.value=c}}});'
+        'var q=new URLSearchParams(location.search);if(q.get("code")){var v=document.getElementById("vu");if(v)v.value=q.get("code");var t=document.querySelector(\'.tab[data-m="v"]\');if(t)t.click()}'
+        '</script></body></html>'
+    )
+
+    api = _get_api(nas)
+    existing = [r for r in api("/file/print", **{".proplist": ".id,name"})
+                if r.get("name") == "hotspot/login.html"]
+    if existing:
+        api.path("/file").update(**{".id": existing[0][".id"], "contents": html})
+        return {"ok": True, "size": len(html), "action": "updated"}
+    api.path("/file").add(name="hotspot/login.html", contents=html)
+    return {"ok": True, "size": len(html), "action": "created"}
+
+
+def ensure_hotspot_user_profiles(nas) -> Dict[str, Any]:
+    """Create the 5 user profiles FreeRADIUS may emit (active, parking,
+    active-hotspot, active-static, parking-hotspot). Updates rate/timeout
+    on existing ones; safe to re-run."""
+    api = _get_api(nas)
+    profile_path = api.path("/ip/hotspot/user/profile")
+    existing = {p["name"]: p for p in api("/ip/hotspot/user/profile/print")}
+    out = {"created": [], "updated": []}
+    for name, params in _USER_PROFILE_DEFS.items():
+        if name in existing:
+            profile_path.update(**{".id": existing[name][".id"], **params})
+            out["updated"].append(name)
+        else:
+            profile_path.add(name=name, **params)
+            out["created"].append(name)
+    return out
+
+
+def ensure_hotspot_bypass_bindings(nas) -> Dict[str, Any]:
+    """Auto-detect all non-hotspot subnets on the router and add /ip/hotspot/
+    ip-binding type=bypassed for each one. Prevents the captive portal from
+    intercepting static-IP / PPPoE / management traffic on the same iface."""
+    api = _get_api(nas)
+
+    hs_iface = None
+    for h in api("/ip/hotspot/print"):
+        hs_iface = h.get("interface")
+        break
+
+    hs_subnet: str = ""
+    if hs_iface:
+        for a in api("/ip/address/print"):
+            if a.get("interface") == hs_iface:
+                hs_subnet = a.get("network", "") + "/" + (a.get("address","").split("/")[1] if "/" in a.get("address","") else "24")
+                break
+
+    candidates: List[str] = []
+    for a in api("/ip/address/print"):
+        if a.get("interface") == hs_iface:
+            continue
+        net = a.get("network") or ""
+        addr = a.get("address") or ""
+        if "/" not in addr or not net or net.startswith("169.254"):
+            continue
+        cidr = addr.split("/")[1]
+        candidates.append(f"{net}/{cidr}")
+
+    ipb = api.path("/ip/hotspot/ip-binding")
+    existing = list(api("/ip/hotspot/ip-binding/print"))
+    seen_addrs = {r.get("address",""): r for r in existing}
+
+    out: Dict[str, List[str]] = {"added": [], "skipped": [], "errors": []}
+    for cidr in candidates:
+        if "/" not in cidr:
+            continue
+        net, mask = cidr.split("/", 1)
+        try:
+            mask_i = int(mask)
+            octets = net.split(".")
+            base = ".".join(octets[:3])
+            rng = f"{base}.2-{base}.254" if mask_i == 24 else cidr
+        except Exception:
+            rng = cidr
+        if rng in seen_addrs or cidr in seen_addrs:
+            out["skipped"].append(rng)
+            continue
+        try:
+            ipb.add(address=rng, type="bypassed",
+                    comment=f"oneclick-auth bypass {cidr}")
+            out["added"].append(rng)
+        except Exception as e:
+            out["errors"].append(f"{rng}: {e}")
+    out["hotspot_subnet"] = hs_subnet
+    return out

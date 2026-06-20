@@ -1,0 +1,672 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Dashboard - Auto ISP Billing{% endblock %}
+
+
+{% block extra_css %}
+<style>
+    .welcome-banner {
+        border-radius: var(--radius-lg);
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #8b5cf6 100%);
+        color: #fff;
+        padding: 24px 28px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(79,70,229,.25);
+        margin: 0 24px 20px;
+    }
+    .welcome-banner::before {
+        content: ''; position: absolute; right: -60px; top: -60px;
+        width: 240px; height: 240px; border-radius: 50%;
+        background: rgba(255,255,255,.10);
+    }
+    .welcome-banner::after {
+        content: ''; position: absolute; right: -30px; bottom: -80px;
+        width: 200px; height: 200px; border-radius: 50%;
+        background: rgba(255,255,255,.08);
+    }
+    .welcome-banner h2 {
+        margin: 0 0 6px; color: #fff; font-weight: 800; font-size: 22px;
+        letter-spacing: -.01em;
+    }
+    .welcome-banner p { margin: 0; color: rgba(255,255,255,.85); font-size: 13px; }
+    .welcome-banner .welcome-actions { position: relative; z-index: 2; margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .welcome-banner .welcome-actions .btn {
+        background: rgba(255,255,255,.18) !important; color: #fff !important;
+        border: 1px solid rgba(255,255,255,.35) !important; backdrop-filter: blur(4px);
+    }
+    .welcome-banner .welcome-actions .btn:hover {
+        background: rgba(255,255,255,.28) !important; border-color: #fff !important;
+    }
+    .stat-sub {
+        font-size: 12px; color: var(--muted); margin: 4px 0 0;
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .stat-sub .chip {
+        background: var(--surface-2); border: 1px solid var(--border);
+        border-radius: 999px; padding: 2px 10px; font-weight: 600;
+        color: var(--text-2); font-size: 11.5px;
+    }
+    .stat-sub .chip.success { background: var(--success-soft); color: #047857; border-color: #bbf7d0; }
+    .stat-sub .chip.danger  { background: var(--danger-soft);  color: #b91c1c; border-color: #fecaca; }
+    .stat-sub .chip.warning { background: var(--warning-soft); color: #b45309; border-color: #fde68a; }
+    .stat-sub .chip.muted   { background: var(--surface-2);    color: var(--muted); }
+    .delta-up   { color: #047857; }
+    .delta-down { color: #b91c1c; }
+    .delta-flat { color: var(--muted); }
+    .quick-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .quick-actions .btn { display: inline-flex; align-items: center; gap: 8px; }
+    .service-toggle-wrap {
+        display: inline-flex; gap: 0; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 999px; padding: 4px;
+        box-shadow: var(--shadow-xs);
+    }
+    .service-toggle-wrap .btn {
+        border-radius: 999px !important; padding: 6px 16px !important;
+        font-weight: 600; background: transparent !important; color: var(--muted) !important;
+        border-color: transparent !important;
+    }
+    .service-toggle-wrap .btn.active {
+        background: var(--primary) !important; color: #fff !important;
+    }
+
+    /* _S39R5E_PKG_BOX */
+    .pkg-box { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+        gap: 14px; margin: 0 0 18px 0; padding: 16px 18px; background: #fff;
+        border-radius: 12px; box-shadow: 0 2px 8px rgba(15,23,42,.07);
+        border-left: 4px solid #6366f1; }
+    .pkg-cell { padding: 6px 10px; border-right: 1px dashed #e5e7eb; }
+    .pkg-cell:last-child { border-right: 0; }
+    .pkg-cell .lbl { color:#64748b; font-size:11px; font-weight:600;
+        text-transform: uppercase; letter-spacing:.5px; margin-bottom:4px; }
+    .pkg-cell .val { color:#0f172a; font-size:18px; font-weight:700; }
+    .pkg-cell.ok  .val { color:#16a34a; }
+    .pkg-cell.warn .val { color:#d97706; }
+    .pkg-cell.bad  .val { color:#dc2626; }
+    .pkg-cell .sub { font-size:11px; color:#64748b; margin-top:2px; }
+
+    /* _S39R5F_PKG_PILL — compact package pill on welcome banner right side */
+    .welcome-banner { position: relative; }
+    .pkg-pill {
+        position: absolute; top: 18px; right: 22px;
+        background: rgba(255,255,255,.13); backdrop-filter: blur(6px);
+        border: 1px solid rgba(255,255,255,.22); border-radius: 12px;
+        padding: 12px 16px; min-width: 220px; z-index: 3;
+        color: #fff; font-size: 11px; line-height: 1.45;
+    }
+    .pkg-pill .pkg-row { display: flex; justify-content: space-between;
+        gap: 14px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,.18); }
+    .pkg-pill .pkg-row:last-child { border-bottom: 0; }
+    .pkg-pill .pkg-key { color: rgba(255,255,255,.72); font-weight: 500; letter-spacing: .2px; }
+    .pkg-pill .pkg-val { color: #fff; font-weight: 700; }
+    .pkg-pill .pkg-val.warn { color: #fbbf24; }
+    .pkg-pill .pkg-val.bad  { color: #fca5a5; }
+    .pkg-pill .pkg-val.ok   { color: #6ee7b7; }
+    .pkg-pill .pkg-head { font-size: 10px; text-transform: uppercase;
+        letter-spacing: .8px; color: rgba(255,255,255,.6); font-weight: 600;
+        margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+    @media (max-width: 992px) {
+        .pkg-pill { position: static; margin-top: 14px; max-width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Welcome banner (replaces plain content-header) -->
+<section class="content-header" style="padding-bottom: 0 !important;">
+    <div class="welcome-banner">
+        <h2>Welcome back, {{ admin_name|default(user_name)|default('Admin') }}</h2>
+        <p>Here's what's happening with <strong>{{ company_name|default('your business') }}</strong> today.</p>
+        <div class="welcome-actions">
+            <a href="/admin/nas-devices" class="btn btn-sm" data-testid="wb-nas"><i class="bi bi-router-fill"></i> NAS Devices</a>
+            <a href="/admin/plans" class="btn btn-sm" data-testid="wb-plans"><i class="bi bi-box-seam"></i> Plans</a>
+            <a href="/admin/locations" class="btn btn-sm" data-testid="wb-locations"><i class="bi bi-geo-alt-fill"></i> Locations</a>
+            <a href="/admin/employees" class="btn btn-sm" data-testid="wb-employees"><i class="bi bi-people-fill"></i> Employee Management</a>
+            <button type="button" class="btn btn-sm" id="wanSpeedBtn" data-testid="wan-speed-btn" data-toggle="modal" data-target="#wanSpeedModal"><i class="bi bi-speedometer2"></i> WAN Speed</button>
+        </div>
+    
+        {# _S39R5F_PKG_PILL — compact package summary pinned top-right #}
+        <div class="pkg-pill" data-testid="admin-pkg-pill">
+          <div class="pkg-head"><i class="bi bi-shield-check"></i> Your Package</div>
+          <div class="pkg-row">
+            <span class="pkg-key">Plan</span>
+            <span class="pkg-val">{{ company.package or '—' }}</span>
+          </div>
+          <div class="pkg-row">
+            <span class="pkg-key">Expires</span>
+            <span class="pkg-val
+              {% if company.end_date and now %}
+                {% set _d = (company.end_date.date() - now.date()).days %}
+                {% if _d < 7 %}bad{% elif _d < 30 %}warn{% else %}ok{% endif %}
+              {% endif %}">
+              {% if company.end_date %}{{ company.end_date.strftime('%d %b %Y') }}{% else %}—{% endif %}
+            </span>
+          </div>
+          <div class="pkg-row">
+            <span class="pkg-key">User Limit</span>
+            <span class="pkg-val">
+              {% if package_max_users %}{{ package_max_users }}
+              {% else %}Unlimited{% endif %}
+            </span>
+          </div>
+          <div class="pkg-row">
+            <span class="pkg-key">Bill</span>
+            <span class="pkg-val
+              {% if (company.balance_amount|default(0)) > 0 %}bad
+              {% elif (company.balance_amount|default(0)) < 0 %}ok{% endif %}">
+              {% if (company.balance_amount|default(0)) > 0 %}&#x20B9; {{ '%.0f'|format(company.balance_amount) }} due
+              {% elif (company.balance_amount|default(0)) < 0 %}&#x20B9; {{ '%.0f'|format(-1 * company.balance_amount) }} credit
+              {% else %}&#x20B9; 0.00{% endif %}
+            </span>
+          </div>
+        </div>
+    </div>
+</section>
+
+<!-- Main content -->
+<section class="content">
+    <!-- Service toggle (visual only, matches superadmin-style pills) -->
+    <div class="row">
+        <div class="col-xs-12" style="margin-bottom: 14px;">
+            {% set _svc = (request.query_params.get('service') or 'broadband')|lower %}
+            <div class="service-toggle-wrap" role="group" aria-label="Service type">
+                <a href="/admin/dashboard?service=cabletv" class="btn btn-sm {% if _svc == 'cabletv' %}active{% endif %}" data-service="cabletv">
+                    <i class="bi bi-tv-fill"></i> Cable TV
+                </a>
+                <a href="/admin/dashboard?service=broadband" class="btn btn-sm {% if _svc != 'cabletv' %}active{% endif %}" data-service="broadband">
+                    <i class="bi bi-wifi"></i> Broadband
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 1: primary stat cards -->
+    <div class="row">
+        <!-- Total Subscribers -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-blue">
+                <div class="inner">
+                    <h3>{{ stats.total_subscribers|default(0) }}</h3>
+                    <p>Total Subscribers</p>
+                    <div class="stat-sub">
+                        <!-- _S39DASH_EXPIRED_CHIP --><span class="chip success">Active {{ stats.active_subscribers|default(0) }}</span>&nbsp;<span class="chip warning" style="background:#f59e0b;color:#fff;">Expired {{ stats.expired_subscribers|default(0) }}</span>
+                        <span class="chip danger">Deactive {{ stats.deactive_subscribers|default(0) }}</span>
+                        {% if stats.suspended_subscribers|default(0) > 0 %}
+                        <span class="chip warning">Suspended {{ stats.suspended_subscribers }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-people-fill"></i></div>
+                <a href="/admin/users" class="small-box-footer">View Customers <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Amount Due -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-red">
+                <div class="inner">
+                    <h3>₹{{ '{:,.0f}'.format(stats.total_dues_amount|default(0)) }}</h3>
+                    <p>Total Dues</p>
+                    <div class="stat-sub">
+                        <span class="chip danger">{{ stats.dues_customer_count|default(0) }} customer(s) with dues</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-exclamation-diamond-fill"></i></div>
+                <a href="/admin/users" class="small-box-footer">View Dues List <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Collection This Month -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>₹{{ '{:,.0f}'.format(stats.collection_month_amount|default(0)) }}</h3>
+                    <p>Collection this month</p>
+                    <div class="stat-sub">
+                        <span class="chip">{{ stats.collection_month_count|default(0) }} payments</span>
+                        {% set diff = stats.collection_diff|default(0) %}
+                        {% if diff > 0 %}
+                            <span class="delta-up"><i class="bi bi-arrow-up-short"></i> ₹{{ '{:,.0f}'.format(diff) }} vs last month</span>
+                        {% elif diff < 0 %}
+                            <span class="delta-down"><i class="bi bi-arrow-down-short"></i> ₹{{ '{:,.0f}'.format(-diff) }} vs last month</span>
+                        {% else %}
+                            <span class="delta-flat">No change vs last month</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-currency-rupee"></i></div>
+                <a href="/admin/transactions" class="small-box-footer">View Payments <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Collection Today -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-aqua">
+                <div class="inner">
+                    <h3>₹{{ '{:,.0f}'.format(stats.collection_today_amount|default(0)) }}</h3>
+                    <p>Collection today</p>
+                    <div class="stat-sub">
+                        <span class="chip">{{ stats.collection_today_count|default(0) }} payments today</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-calendar-check-fill"></i></div>
+                <a href="/admin/transactions" class="small-box-footer">Today's Payments <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 2: operational stats -->
+    <div class="row">
+        <!-- Users Online (replaces Complaints tile — Bug #5 2026-05-14) -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-green" data-testid="dash-users-online-tile">
+                <div class="inner">
+                    <h3 data-testid="dash-users-online-count">{{ stats.users_online_now|default(0) }}</h3>
+                    <p>Users Online <small>(live)</small></p>
+                    <div class="stat-sub">
+                        {# __S43ZF__ Parked Users replacing "Total customers" chip #}
+                        <span class="chip muted" data-testid="dash-parked-users-chip">Parked Users: {{ stats.parked_users|default(0) }}</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-broadcast"></i></div>
+                <a href="/admin/online-users" class="small-box-footer">View Online Users <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Enrollments This Month -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-blue">
+                <div class="inner">
+                    <h3>{{ stats.enrollments_this_month|default(0) }}</h3>
+                    <p>New customers this month</p>
+                    <div class="stat-sub">
+                        <span class="chip muted">Last month: {{ stats.enrollments_last_month|default(0) }}</span>
+                        {% set ed = stats.enrollments_diff|default(0) %}
+                        {% if ed > 0 %}
+                            <span class="delta-up"><i class="bi bi-arrow-up-short"></i> +{{ ed }}</span>
+                        {% elif ed < 0 %}
+                            <span class="delta-down"><i class="bi bi-arrow-down-short"></i> {{ ed }}</span>
+                        {% else %}
+                            <span class="delta-flat">No change</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-person-plus-fill"></i></div>
+                <a href="/admin/users" class="small-box-footer">Customer List <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Expiring Today -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-yellow">
+                <div class="inner">
+                    <h3>{{ stats.expiring_today|default(0) }}</h3>
+                    <p>Today's Expiry</p>
+                    <div class="stat-sub">
+                        <span class="chip">Next 3 days: {{ stats.expiring_next_3_days|default(0) }}</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-hourglass-split"></i></div>
+                <a href="/admin/users" class="small-box-footer">Renewals List <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+
+        <!-- Today Recharged / Invoices -->
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>{{ stats.today_recharged|default(0) }}</h3>
+                    <p>Today's Recharged</p>
+                    <div class="stat-sub">
+                        <span class="chip">Invoices issued today</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-receipt"></i></div>
+                <a href="/admin/send-invoices" class="small-box-footer">Sent Invoices <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+    </div>
+
+    {# __ROW_NESTING_FIXED__ Hotspot widgets row promoted to own top-level row #}
+    <!-- s36b9-hotspot-widgets-row -->
+    <div class="row">
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-purple">
+                <div class="inner">
+                    <h3 data-testid="hs-active-sessions">{{ stats.hs_active_sessions|default(0) }}</h3>
+                    <p>Hotspot — Active Sessions</p>
+                    <div class="stat-sub">
+                        <span class="chip">Currently online</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-wifi"></i></div>
+                <a href="/admin/users?auth=hotspot" class="small-box-footer">View Users <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-aqua">
+                <div class="inner">
+                    <h3 data-testid="hs-vouchers-sold-today">{{ stats.hs_vouchers_sold_today|default(0) }}</h3>
+                    <p>Vouchers Sold Today</p>
+                    <div class="stat-sub">
+                        <span class="chip success">Generated</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-ticket-perforated"></i></div>
+                <a href="/admin/vouchers" class="small-box-footer">View Batches <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3 data-testid="hs-vouchers-redeemed-today">{{ stats.hs_vouchers_redeemed_today|default(0) }}</h3>
+                    <p>Vouchers Redeemed Today</p>
+                    <div class="stat-sub">
+                        <span class="chip success">Used</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-check2-circle"></i></div>
+                <a href="/admin/vouchers" class="small-box-footer">View Usage <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 col-sm-6">
+            <div class="small-box bg-maroon">
+                <div class="inner">
+                    <h3 data-testid="hs-vouchers-expired-pending">{{ stats.hs_vouchers_expired_pending|default(0) }}</h3>
+                    <p>Expired Vouchers (pending cleanup)</p>
+                    <div class="stat-sub">
+                        <span class="chip danger">Auto-expired</span>
+                    </div>
+                </div>
+                <div class="icon"><i class="bi bi-hourglass-bottom"></i></div>
+                <a href="/admin/vouchers" class="small-box-footer">Clean Up <i class="bi bi-arrow-right"></i></a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 3: quick actions + summary -->
+    <div class="row">
+        <div class="col-lg-8 col-md-12">
+            <div class="box box-primary">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Quick Actions</h3>
+                </div>
+                <div class="box-body">
+                    <div class="quick-actions">
+                        <a href="/admin/add-broadband" class="btn btn-primary"><i class="bi bi-person-plus-fill"></i> Add Customer</a>
+                        <a href="/admin/plans" class="btn btn-default"><i class="bi bi-box-seam"></i> Manage Plans</a>
+                        <a href="/admin/locations" class="btn btn-default"><i class="bi bi-geo-alt-fill"></i> Manage Locations</a>
+                        <a href="/admin/employees" class="btn btn-default"><i class="bi bi-person-badge-fill"></i> Employees</a>
+                        <a href="/admin/addon-bills" class="btn btn-default"><i class="bi bi-file-earmark-plus"></i> Send Manual Invoice</a>
+                        <a href="/admin/reports" class="btn btn-default"><i class="bi bi-bar-chart-fill"></i> Reports</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 col-md-12">
+            <div class="box box-info">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Company Summary</h3>
+                </div>
+                <div class="box-body">
+                    <div class="info-row"><span class="info-label">Company</span><strong>{{ company_name|default('N/A') }}</strong></div>
+                    <div class="info-row"><span class="info-label">Company ID</span><strong>{{ company_id|default('N/A') }}</strong></div>
+                    <div class="info-row"><span class="info-label">Admin</span><strong>{{ admin_name|default(user_name)|default('Admin') }}</strong></div>
+                    <div class="info-row"><span class="info-label">User ID</span><strong>{{ user_id|default('N/A') }}</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 4: Collector leaderboard (S28.1) -->
+    <div class="row" style="margin-top:15px;">
+        <div class="col-lg-12">
+            <div class="box box-success" id="collectorWidget">
+                <div class="box-header with-border" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+                    <h3 class="box-title" style="margin:0;">
+                        <i class="bi bi-trophy-fill" style="color:#f59e0b;"></i>
+                        Top Collectors
+                    </h3>
+                    <div>
+                        <div class="btn-group btn-group-sm" role="group" id="collectorPeriodToggle" data-testid="collector-period-toggle">
+                            <button type="button" class="btn btn-default" data-period="today">Today</button>
+                            <button type="button" class="btn btn-default" data-period="week">This Week</button>
+                            <button type="button" class="btn btn-primary active" data-period="month">This Month</button>
+                            <button type="button" class="btn btn-default" data-period="all">All Time</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="box-body">
+                    <div id="collectorTotalHeader" style="margin-bottom:10px;color:#6b7280;font-size:13px;">Loading…</div>
+                    <div id="collectorList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Service type pill toggle (visual only; matches existing behaviour)
+    $('.service-toggle-wrap .btn').on('click', function() {
+        $('.service-toggle-wrap .btn').removeClass('active');
+        $(this).addClass('active');
+    });
+});
+
+/* S28.1 collectors widget */
+(function(){
+  function renderCollectors(period){
+    $.get('/api/admin/collector-leaderboard?period=' + period, function(d){
+      if (!d || !d.success) {
+        $('#collectorList').html('<em>Could not load data.</em>');
+        return;
+      }
+      var list = d.collectors || [];
+      var max = list.length ? list[0].amount : 0;
+      var totalTxt = 'Total collected: <strong>\u20B9 ' +
+                     (d.total || 0).toLocaleString('en-IN') + '</strong>';
+      if (list.length === 0) {
+        $('#collectorTotalHeader').html(totalTxt);
+        $('#collectorList').html(
+          '<div style="padding:14px;color:#6b7280;text-align:center;">No payments recorded in this period.</div>');
+        return;
+      }
+      $('#collectorTotalHeader').html(totalTxt);
+      var html = '<div>';
+      list.forEach(function(c, i){
+        var pct = max > 0 ? Math.max(4, Math.round((c.amount / max) * 100)) : 0;
+        var medal = (i === 0) ? '&#129351;' : (i === 1) ? '&#129352;' : (i === 2) ? '&#129353;' : '';
+        var type = c.type === 'admin' ? '<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:999px;font-size:11px;">Admin</span>'
+                 : c.type === 'employee' ? '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:999px;font-size:11px;">Employee</span>'
+                 : '<span style="background:#f3f4f6;color:#374151;padding:1px 6px;border-radius:999px;font-size:11px;">Other</span>';
+        html += '<div style="margin-bottom:10px;">' +
+                  '<div style="display:flex;justify-content:space-between;margin-bottom:3px;font-size:13px;">' +
+                    '<span><strong>' + medal + ' ' + $('<div>').text(c.name).html() + '</strong> ' + type + '</span>' +
+                    '<span style="color:#374151;font-weight:600;">\u20B9 ' + c.amount.toLocaleString('en-IN') +
+                    ' <span style="color:#9ca3af;font-weight:400;font-size:12px;">(' + c.count + ' payments)</span></span>' +
+                  '</div>' +
+                  '<div style="background:#f3f4f6;border-radius:4px;overflow:hidden;height:10px;">' +
+                    '<div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#10b981,#059669);"></div>' +
+                  '</div>' +
+                '</div>';
+      });
+      html += '</div>';
+      $('#collectorList').html(html);
+    }).fail(function(){
+      $('#collectorList').html('<em>Request failed.</em>');
+    });
+  }
+  $(document).ready(function(){
+    renderCollectors('month');
+    $('#collectorPeriodToggle button').on('click', function(){
+      $('#collectorPeriodToggle button').removeClass('btn-primary active').addClass('btn-default');
+      $(this).addClass('btn-primary active').removeClass('btn-default');
+      renderCollectors($(this).data('period'));
+    });
+  });
+})();
+</script>
+<!-- S34 WAN Speed modal -->
+<div class="modal fade" id="wanSpeedModal" tabindex="-1" role="dialog" aria-labelledby="wanSpeedTitle">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="wanSpeedTitle"><i class="bi bi-speedometer2"></i> WAN Live Speed</h4>
+      </div>
+      <div class="modal-body" style="padding:18px;">
+        <div id="wanSpeedMeta" style="font-size:13px; color:#475569; margin-bottom:10px;">Initializing…</div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:14px;">
+          <div style="flex:1 1 260px; /* _S58L_BLUE_BUMP_ */ background:#dbeafe; border:1px solid #60a5fa; border-radius:10px; box-shadow:inset 0 0 0 1px #93c5fd; padding:14px 16px;">
+            <div style="font-size:11px; text-transform:uppercase; color:#1d4ed8; letter-spacing:.08em;">↓ Download</div>
+            <div id="wanSpeedDown" style="font-size:32px; font-weight:700; color:#1e3a8a; line-height:1.1; margin-top:4px;">— Mbps</div>
+            <div id="wanSpeedDownAvg" style="font-size:11px; color:#64748b; margin-top:4px;">avg: — Mbps · peak: — Mbps</div>
+          </div>
+          <div style="flex:1 1 260px; background:#fef3c7; border:1px solid #fcd34d; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:11px; text-transform:uppercase; color:#b45309; letter-spacing:.08em;">↑ Upload</div>
+            <div id="wanSpeedUp" style="font-size:32px; font-weight:700; color:#78350f; line-height:1.1; margin-top:4px;">— Mbps</div>
+            <div id="wanSpeedUpAvg" style="font-size:11px; color:#92400e; margin-top:4px;">avg: — Mbps · peak: — Mbps</div>
+          </div>
+        </div>
+        <canvas id="wanSpeedChart" width="780" height="180" style="width:100%; max-width:100%; border:1px solid #e5e7eb; border-radius:8px; background:#fff;"></canvas>
+        <div style="margin-top:10px; display:flex; justify-content:space-between; font-size:12px; color:#64748b;">
+          <span>Window: 40 seconds · sampling every 1 s</span>
+          <span id="wanSpeedStatus">Running…</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary btn-sm" id="wanSpeedRestart" data-testid="wan-speed-restart">Restart</button>
+        <button type="button" class="btn btn-default btn-sm" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var SAMPLES_MAX = 60;           // 60 seconds rolling window @ 1 Hz
+  var POLL_MS     = 1000;
+  var $modal = $('#wanSpeedModal');
+  var handle  = null;
+  var prev    = null;
+  var inflight = false;
+  var dowSer  = [];  // down Mbps series
+  var upSer   = [];  // up Mbps series
+  var peakDown = 0, peakUp = 0;
+
+  function fmt(n){ return (n == null || isNaN(n)) ? '—' : Number(n).toFixed(2); }
+  function avg(arr){ if (!arr.length) return 0; return arr.reduce((a,b)=>a+b,0)/arr.length; }
+  function humanRate(bps){
+    if (!bps || bps <= 0) return '';
+    if (bps >= 1e9) return (bps/1e9).toFixed(0) + ' Gbps';
+    if (bps >= 1e6) return (bps/1e6).toFixed(0) + ' Mbps';
+    if (bps >= 1e3) return (bps/1e3).toFixed(0) + ' Kbps';
+    return bps + ' bps';
+  }
+  function drawChart(){
+    var c = document.getElementById('wanSpeedChart');
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var w = c.width, h = c.height;
+    ctx.clearRect(0,0,w,h);
+    // grid
+    ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+    for (var i=0;i<=4;i++){
+      var y = (h-16) * i/4 + 8;
+      ctx.beginPath(); ctx.moveTo(32, y); ctx.lineTo(w-8, y); ctx.stroke();
+    }
+    var maxAll = Math.max(1, peakDown, peakUp);
+    function plot(series, color){
+      if (series.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath();
+      series.forEach(function(v, i){
+        var x = 32 + (w - 40) * (i / (SAMPLES_MAX-1));
+        var y = (h - 16) - ((h - 16) * (v / maxAll)) + 8;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    plot(dowSer, '#2563eb');   // blue
+    plot(upSer,  '#d97706');   // amber
+    // axis labels
+    ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif';
+    ctx.fillText(maxAll.toFixed(1) + ' Mbps', 2, 14);
+    ctx.fillText('0', 20, h-2);
+  }
+
+  function tick(){
+    if (inflight) return;  // skip if previous request still pending
+    inflight = true;
+    $.get('/api/admin/wan-speed/snapshot')
+      .done(function(j){
+        if (!j || !j.ok) {
+          $('#wanSpeedMeta').text('⚠ ' + ((j && j.message) || 'Unable to read router'));
+          stop('error');
+          return;
+        }
+        var rateLabel = humanRate(j.link_rate);
+        var ifaceBadge = '<span data-testid="wan-speed-iface" style="display:inline-block; padding:2px 8px; border-radius:10px; background:#eef2ff; color:#3730a3; font-weight:600; font-size:12px; margin-right:6px;">'
+                       + 'iface: ' + j.iface
+                       + (j.iface_type ? ' · ' + j.iface_type : '')
+                       + (rateLabel ? ' · link ' + rateLabel : '')
+                       + (j.pinned ? ' · PINNED' : '')
+                       + '</span>';
+        $('#wanSpeedMeta').html(
+          '<strong>' + (j.nas.name || j.nas.ip) + '</strong>  ·  ' + ifaceBadge + '  ·  ' + j.nas.ip
+        );
+        if (prev) {
+          var dt = (j.ts - prev.ts) || 1;
+          if (dt <= 0) dt = 1;
+          var dDown = Math.max(0, (j.rx_bytes - prev.rx_bytes));
+          var dUp   = Math.max(0, (j.tx_bytes - prev.tx_bytes));
+          var dMbps = (dDown * 8) / dt / 1e6;
+          var uMbps = (dUp   * 8) / dt / 1e6;
+          dowSer.push(dMbps); if (dowSer.length > SAMPLES_MAX) dowSer.shift();
+          upSer.push(uMbps);  if (upSer.length  > SAMPLES_MAX) upSer.shift();
+          peakDown = Math.max(peakDown, dMbps);
+          peakUp   = Math.max(peakUp,   uMbps);
+          $('#wanSpeedDown').text(fmt(dMbps) + ' Mbps');
+          $('#wanSpeedUp').text(fmt(uMbps) + ' Mbps');
+          $('#wanSpeedDownAvg').text('avg: ' + fmt(avg(dowSer)) + ' Mbps · peak: ' + fmt(peakDown) + ' Mbps');
+          $('#wanSpeedUpAvg').text('avg: ' + fmt(avg(upSer)) + ' Mbps · peak: ' + fmt(peakUp) + ' Mbps');
+          drawChart();
+        } else {
+          $('#wanSpeedDown').text('0.00 Mbps');
+          $('#wanSpeedUp').text('0.00 Mbps');
+        }
+        prev = j;
+        // Rolling window — no auto-stop. Modal close handles stop.
+      })
+      .fail(function(x){
+        $('#wanSpeedMeta').text('⚠ HTTP ' + x.status + ' — check NAS API credentials');
+        stop('error');
+      })
+      .always(function(){ inflight = false; });
+  }
+
+  function start(){
+    prev = null; dowSer = []; upSer = []; peakDown = 0; peakUp = 0;
+    inflight = false;
+    $('#wanSpeedDown').text('— Mbps'); $('#wanSpeedUp').text('— Mbps');
+    $('#wanSpeedDownAvg').text('avg: — Mbps · peak: — Mbps');
+    $('#wanSpeedUpAvg').text('avg: — Mbps · peak: — Mbps');
+    $('#wanSpeedStatus').text('Running…');
+    drawChart();
+    tick();                              // first sample
+    handle = setInterval(tick, POLL_MS);
+  }
+  function stop(reason){
+    if (handle) { clearInterval(handle); handle = null; }
+    $('#wanSpeedStatus').text(reason === 'error' ? 'Stopped (error)' : 'Stopped');
+  }
+
+  $modal.on('shown.bs.modal', start).on('hidden.bs.modal', function(){ stop('manual'); });
+  $('#wanSpeedRestart').on('click', function(){ stop('manual'); setTimeout(start, 120); });
+})();
+</script>
+
+{% endblock %}

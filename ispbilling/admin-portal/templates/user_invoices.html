@@ -1,0 +1,78 @@
+{% extends "base_user.html" %}
+{% block title %}Invoices — {{ company_name }}{% endblock %}
+{% block content %}
+<div class="page-title"><div><h1>Your Invoices</h1><p>All bills generated for your account.</p></div></div>
+<div class="card">
+<table>
+<thead><tr><th>Invoice #</th><th>Issue Date</th><th>Period / Type</th><th>Amount</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+<tbody>
+{% for inv in invoices|default([]) %}
+<tr>
+  <td><strong>{{ inv.invoice_no }}</strong></td>
+  <td>{{ inv.issue_date }}</td>
+  <td>
+    {% if inv.is_manual %}
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:#a78bfa;border:1px solid rgba(124,58,237,0.25);">
+        <i class="bi bi-file-earmark-plus"></i> {{ inv.type_label }}
+      </span>
+    {% elif inv.start_date and inv.end_date %}
+      {{ inv.start_date }} → {{ inv.end_date }}
+    {% else %}
+      <span style="color:var(--text-lo);">—</span>
+    {% endif %}
+  </td>
+  <td class="amount" data-testid="user-inv-amount">
+            ₹ {{ '{:,.0f}'.format(inv.total_amount or 0) }}
+            {% if (inv.previous_balance or 0) > 0 %}
+              <span style="display:block;font-size:11px;color:#94a3b8;font-weight:500;margin-top:2px;">
+                = ₹{{ '{:,.0f}'.format(inv.period_amount or 0) }} this period
+                + ₹{{ '{:,.0f}'.format(inv.previous_balance or 0) }} previous due
+              </span>
+            {% endif %}
+          </td>
+  <td><span class="pill {{ (inv.status or 'unpaid')|lower }}">{{ inv.status }}</span></td>
+  <td style="text-align:right;white-space:nowrap;">
+    <a class="btn" style="padding:6px 10px;font-size:12px;" href="/api/customer/me/invoice/{{ inv.id }}/download" title="Download PDF" data-testid="invoice-download-btn"><i class="bi bi-download"></i></a>
+    <a class="btn" style="padding:6px 10px;font-size:12px;" href="javascript:void(0)" onclick="printDoc('/api/customer/me/invoice/{{ inv.id }}/download?inline=1')" title="Print" data-testid="invoice-print-btn"><i class="bi bi-printer"></i></a>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" style="text-align:center;color:var(--text-lo);padding:40px;">No invoices yet.</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+// Print via hidden iframe so the PDF renders + prints without
+// triggering the browser's "download" attachment behaviour.
+function printDoc(url){
+  // Reuse / create an iframe.
+  let f = document.getElementById('printFrame');
+  if(!f){
+    f = document.createElement('iframe');
+    f.id = 'printFrame';
+    f.style.position = 'fixed';
+    f.style.right = '0';
+    f.style.bottom = '0';
+    f.style.width = '0';
+    f.style.height = '0';
+    f.style.border = '0';
+    document.body.appendChild(f);
+  }
+  f.onload = function(){
+    setTimeout(() => {
+      try {
+        f.contentWindow.focus();
+        f.contentWindow.print();
+      } catch(e){
+        console.error('print failed', e);
+        // Fallback: open in new tab so user can print manually.
+        window.open(url, '_blank');
+      }
+    }, 600);
+  };
+  f.src = url;
+}
+</script>
+{% endblock %}

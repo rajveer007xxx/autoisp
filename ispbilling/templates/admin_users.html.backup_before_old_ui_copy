@@ -1,0 +1,3148 @@
+{% extends "base_admin.html" %}
+
+{% block title %}User Management - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<!-- DataTables 1.10.25 -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap.min.css">
+<!-- Bootstrap Datepicker -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css">
+<style>
+    .content-header {
+        padding: 15px;
+        background: #fff;
+        border-bottom: 1px solid #d2d6de;
+    }
+    .btn-add-cable {
+        background-color: #d9534f;
+        color: white;
+        border: none;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    .btn-add-cable:hover {
+        background-color: #c9302c;
+        color: white;
+    }
+    .btn-add-broadband {
+        background-color: #337ab7;
+        color: white;
+        border: none;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    .btn-add-broadband:hover {
+        background-color: #286090;
+        color: white;
+    }
+    .filters-section {
+        background: #fff;
+        padding: 10px;
+        margin-bottom: 0;
+        border: 1px solid #d2d6de;
+    }
+    .filter-row {
+        margin-bottom: 0;
+    }
+    .filter-row [class*="col-"] {
+        padding-left: 1px;
+        padding-right: 1px;
+    }
+    .filter-row .form-control,
+    .filter-row .input-group {
+        font-size: 11px;
+        height: 28px;
+    }
+    .filter-row .form-control {
+        padding: 4px 6px;
+    }
+    .az-navigation {
+        margin: 0;
+        padding: 8px 10px;
+        text-align: center;
+        background: #fff;
+        border: 1px solid #d2d6de;
+        border-top: none;
+    }
+    .az-navigation .btn {
+        margin: 1px;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    .az-navigation .btn.active {
+        background-color: #337ab7;
+        color: white;
+    }
+    .table-container {
+        background: #fff;
+        padding: 15px;
+        border: 1px solid #d2d6de;
+    }
+    .dataTables_wrapper .dataTables_paginate .paginate_button {
+        padding: 5px 10px;
+    }
+    .action-icons a {
+        margin: 0 3px;
+        color: #337ab7;
+        font-size: 16px;
+    }
+    .action-icons a:hover {
+        color: #23527c;
+    }
+    .action-icons img {
+        width: 20px;
+        height: 20px;
+        margin: 0 3px;
+        cursor: pointer;
+        vertical-align: middle;
+    }
+    /* Align all table cells to middle vertically */
+    table.dataTable tbody td {
+        vertical-align: middle !important;
+        text-align: center !important;
+    }
+    table.dataTable thead th {
+        vertical-align: middle !important;
+        text-align: center !important;
+    }
+    /* Remove extra horizontal padding from Amount, Received, Balance columns */
+    table.dataTable tbody td:nth-child(7),
+    table.dataTable tbody td:nth-child(8),
+    table.dataTable tbody td:nth-child(9) {
+        padding-left: 4px !important;
+        padding-right: 4px !important;
+    }
+    table.dataTable {
+        border: 1px solid #000 !important;
+        border-collapse: collapse !important;
+    }
+    table.dataTable thead th {
+        background-color: #f4f4f4;
+        font-weight: bold;
+        border: 1px solid #000 !important;
+        padding: 8px;
+    }
+    table.dataTable tbody td {
+        padding: 8px;
+        vertical-align: middle;
+        border: 1px solid #000 !important;
+    }
+    table.dataTable tbody tr:hover {
+        background-color: #f9f9f9;
+    }
+    .status-active {
+        color: #00a65a;
+        font-weight: bold;
+    }
+    .status-deactive {
+        color: #dd4b39;
+        font-weight: bold;
+    }
+    .status-suspended {
+        color: #f39c12;
+        font-weight: bold;
+    }
+    .text-primary {
+        color: #337ab7;
+    }
+    .text-primary:hover {
+        color: #23527c;
+        text-decoration: underline;
+    }
+    /* Hide the search box above table */
+    .dataTables_filter {
+        display: none !important;
+    }
+    /* Style the length menu and info to be inline in one line */
+    .dataTables_length {
+        display: inline-block !important;
+        margin-right: 10px;
+        float: left;
+    }
+    .dataTables_info {
+        display: inline-block !important;
+        float: left;
+        margin-left: 10px;
+    }
+    /* Move pagination to right on same line */
+    .dataTables_paginate {
+        float: right !important;
+        margin-top: 0 !important;
+    }
+    /* Custom styling for bottom controls - all in one line */
+    .bottom {
+        padding: 10px 0;
+        clear: both;
+        overflow: hidden;
+    }
+    
+    /* Mobile Responsive Styles */
+    @media (max-width: 767px) {
+        /* Stack buttons vertically on mobile */
+        .filter-row .col-xs-3 {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+        
+        .btn-group {
+            flex-wrap: wrap !important;
+        }
+        
+        .btn-group .btn {
+            white-space: normal !important;
+            flex: 1 1 48% !important;
+        }
+        
+        /* Make filters take full width on mobile */
+        .filter-row .col-xs-1,
+        .filter-row .col-xs-2,
+        .filter-row .col-xs-4 {
+            width: 50%;
+            margin-bottom: 5px;
+        }
+        
+        /* Search field takes full width */
+        .filter-row .col-xs-4 {
+            width: 100%;
+        }
+        
+        /* Hide less important columns on mobile */
+        #usersTable th:nth-child(6),
+        #usersTable td:nth-child(6),
+        #usersTable th:nth-child(7),
+        #usersTable td:nth-child(7),
+        #usersTable th:nth-child(8),
+        #usersTable td:nth-child(8),
+        #usersTable th:nth-child(9),
+        #usersTable td:nth-child(9),
+        #usersTable th:nth-child(10),
+        #usersTable td:nth-child(10),
+        #usersTable th:nth-child(11),
+        #usersTable td:nth-child(11) {
+            display: none;
+        }
+        
+        /* Make A-Z navigation wrap on mobile */
+        .az-navigation .btn {
+            margin: 2px;
+        }
+    }
+    
+    /* Tablet and small desktop - adjust column widths */
+    @media (min-width: 768px) and (max-width: 991px) {
+        .filter-row .col-xs-3 {
+            width: 30%;
+        }
+        .filter-row .col-xs-1 {
+            width: 10%;
+        }
+        .filter-row .col-xs-2 {
+            width: 15%;
+        }
+        .filter-row .col-xs-4 {
+            width: 25%;
+        }
+    }
+    
+    /* Desktop - shrink search field to prevent overlap */
+    @media (min-width: 992px) {
+        .filter-row .col-xs-4 {
+            width: 30%;
+        }
+        #searchBox {
+            max-width: 250px;
+        }
+    }
+    
+    /* Make table horizontally scrollable on all devices */
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Reduce spacing in edit customer modal to fit without scrolling */
+    #editCustomerModal .modal-dialog {
+        margin: 1vh auto;
+    }
+    
+    #editCustomerModal .modal-content {
+        max-height: 96vh;
+        overflow: hidden;
+    }
+    
+    #editCustomerModal .modal-header {
+        padding: 8px 15px;
+    }
+    
+    #editCustomerModal .modal-body {
+        padding: 10px 15px;
+        max-height: 86vh;
+        overflow-y: auto;
+    }
+    
+    #editCustomerModal .nav-tabs {
+        margin-bottom: 10px !important;
+    }
+    
+    #editCustomerModal .form-group {
+        margin-bottom: 8px !important;
+    }
+    
+    #editCustomerModal .form-group label {
+        margin-bottom: 3px !important;
+        font-size: 13px;
+    }
+    
+    #editCustomerModal .form-control {
+        height: 32px !important;
+        padding: 5px 10px !important;
+        font-size: 13px;
+    }
+    
+    #editCustomerModal .row {
+        margin-left: -5px;
+        margin-right: -5px;
+    }
+    
+    #editCustomerModal .row [class*="col-"] {
+        padding-left: 5px;
+        padding-right: 5px;
+    }
+    
+    #editCustomerModal .modal-footer {
+        padding: 8px 15px;
+    }
+    
+    #editCustomerModal .btn {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Main content -->
+<section class="content">
+    <!-- Filters Section with Action Buttons in One Line -->
+    <div class="filters-section">
+        <div class="row filter-row">
+            <!-- Action Buttons -->
+            <div class="col-xs-3">
+                <div class="btn-group" style="display: flex; gap: 2px;">
+                    <a href="/admin/add-customer" class="btn btn-success" style="flex: 1; white-space: nowrap; padding: 4px 8px; font-size: 11px;">
+                        <i class="fa fa-plus"></i> Add Customer
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Filters -->
+            <div class="col-xs-1">
+                <select class="form-control" id="filterStatus">
+                    <option value="">Status</option>
+                    <option value="Active">Active</option>
+                    <option value="Deactive">Deactive</option>
+                    <option value="Suspended">Suspended</option>
+                    <option value="Auto Renew">Auto Renew</option>
+                </select>
+            </div>
+            <div class="col-xs-2">
+                <select class="form-control" id="filterLocality">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="col-xs-1">
+                <select class="form-control" id="filterSubscriberType">
+                    <option value="Both">Both</option>
+                    <option value="Cable Tv">Cable Tv</option>
+                    <option value="Broadband" selected>Broadband</option>
+                </select>
+            </div>
+            <div class="col-xs-1">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="filterEndDate" placeholder="End Date" readonly>
+                    <span class="input-group-addon" id="clearEndDate" style="padding: 4px 8px; cursor: pointer;" title="Clear date">
+                        <i class="fa fa-times"></i>
+                    </span>
+                </div>
+            </div>
+            <div class="col-xs-4">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="searchBox" placeholder="Search by name or id">
+                    <span class="input-group-btn">
+                        <button class="btn btn-primary" type="button" style="padding: 4px 10px;">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- A-Z Navigation -->
+    <div class="az-navigation">
+        <button class="btn btn-default btn-sm active" data-letter="all">All</button>
+        <button class="btn btn-default btn-sm" data-letter="A">A</button>
+        <button class="btn btn-default btn-sm" data-letter="B">B</button>
+        <button class="btn btn-default btn-sm" data-letter="C">C</button>
+        <button class="btn btn-default btn-sm" data-letter="D">D</button>
+        <button class="btn btn-default btn-sm" data-letter="E">E</button>
+        <button class="btn btn-default btn-sm" data-letter="F">F</button>
+        <button class="btn btn-default btn-sm" data-letter="G">G</button>
+        <button class="btn btn-default btn-sm" data-letter="H">H</button>
+        <button class="btn btn-default btn-sm" data-letter="I">I</button>
+        <button class="btn btn-default btn-sm" data-letter="J">J</button>
+        <button class="btn btn-default btn-sm" data-letter="K">K</button>
+        <button class="btn btn-default btn-sm" data-letter="L">L</button>
+        <button class="btn btn-default btn-sm" data-letter="M">M</button>
+        <button class="btn btn-default btn-sm" data-letter="N">N</button>
+        <button class="btn btn-default btn-sm" data-letter="O">O</button>
+        <button class="btn btn-default btn-sm" data-letter="P">P</button>
+        <button class="btn btn-default btn-sm" data-letter="Q">Q</button>
+        <button class="btn btn-default btn-sm" data-letter="R">R</button>
+        <button class="btn btn-default btn-sm" data-letter="S">S</button>
+        <button class="btn btn-default btn-sm" data-letter="T">T</button>
+        <button class="btn btn-default btn-sm" data-letter="U">U</button>
+        <button class="btn btn-default btn-sm" data-letter="V">V</button>
+        <button class="btn btn-default btn-sm" data-letter="W">W</button>
+        <button class="btn btn-default btn-sm" data-letter="X">X</button>
+        <button class="btn btn-default btn-sm" data-letter="Y">Y</button>
+        <button class="btn btn-default btn-sm" data-letter="Z">Z</button>
+    </div>
+    
+    <!-- Data Table -->
+    <div class="table-container">
+        <table id="usersTable" class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>Cust ID</th>
+                    <th>Cust Name</th>
+                    <th>User Name</th>
+                    <th>Address</th>
+                    <th>Mobile No</th>
+                    <th>Status</th>
+                    <th>Amount</th>
+                    <th>Received</th>
+                    <th>Balance</th>
+                    <th>Exp. Date</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td><a href="#" class="text-primary edit-customer-link" data-customer-id="{{ user.cust_id }}" style="cursor: pointer;">{{ user.cust_id }}</a></td>
+                    <td>{{ user.cust_name }}</td>
+                    <td>{{ user.user_name }}</td>
+                    <td>{{ user.address }}</td>
+                    <td><a href="tel:{{ user.mobile }}" class="text-primary">{{ user.mobile }}</a></td>
+                    <td class="status-{{ user.status|lower }}">{{ user.status }}</td>
+                    <td><a href="#" class="text-primary">₹ {{ user.amount }}</a></td>
+                    <td>{{ user.received }}</td>
+                    <td><a href="#" class="text-primary">₹ {{ user.balance }}</a></td>
+                    <td>{{ user.exp_date }}</td>
+                    <td class="action-icons">
+                        <a href="#" title="Add Payment"><i class="fa fa-money"></i></a>
+                        <a href="#" title="Transactions"><i class="fa fa-exchange"></i></a>
+                        <a href="#" title="Renew"><i class="fa fa-refresh"></i></a>
+                        <a href="#" title="Send Payment Link"><i class="fa fa-send"></i></a>
+                        <a href="#" title="Create Complaint"><i class="fa fa-phone"></i></a>
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" title="WhatsApp" alt="WhatsApp">
+                        <a href="#" title="Addon Bill"><i class="fa fa-file-text"></i></a>
+                        <a href="/api/customers/{{ user.cust_id }}/download-caf" title="Download CAF" target="_blank"><i class="fa fa-download"></i></a>
+                        <a href="#" title="Delete" style="color: #dd4b39;"><i class="fa fa-trash"></i></a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Edit Customer Modal -->
+    <div class="modal fade" id="editCustomerModal" tabindex="-1" role="dialog" aria-labelledby="editCustomerModalLabel">
+        <div class="modal-dialog modal-lg" role="document" style="width: 90%; max-width: 1200px;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" id="editCustomerModalLabel">
+                        <i class="fa fa-edit"></i> Edit Customer
+                    </h4>
+                </div>
+                <div class="modal-body">
+                    <!-- Tab Navigation -->
+                    <ul class="nav nav-tabs" role="tablist" style="margin-bottom: 20px;">
+                        <li role="presentation" class="active">
+                            <a href="#edit-general" aria-controls="edit-general" role="tab" data-toggle="tab">
+                                <i class="fa fa-info-circle"></i> General Information
+                            </a>
+                        </li>
+                        <li role="presentation">
+                            <a href="#edit-address" aria-controls="edit-address" role="tab" data-toggle="tab">
+                                <i class="fa fa-map-marker"></i> Address Detail
+                            </a>
+                        </li>
+                        <li role="presentation">
+                            <a href="#edit-billing" aria-controls="edit-billing" role="tab" data-toggle="tab">
+                                <i class="fa fa-file-text"></i> Billing Detail
+                            </a>
+                        </li>
+                        <li role="presentation">
+                            <a href="#edit-payment" aria-controls="edit-payment" role="tab" data-toggle="tab">
+                                <i class="fa fa-credit-card"></i> Payment Detail
+                            </a>
+                        </li>
+                    </ul>
+
+                    <!-- Tab Content -->
+                    <form id="editCustomerForm">
+                        <input type="hidden" id="edit_original_customer_id" name="original_customer_id">
+                        <input type="hidden" id="edit_original_plan_id" name="original_plan_id">
+                        <input type="hidden" id="edit_original_start_date" name="original_start_date">
+                        <input type="hidden" id="edit_original_period" name="original_period">
+                        
+                        <div class="tab-content">
+                            <!-- General Information Tab -->
+                            <div role="tabpanel" class="tab-pane active" id="edit-general">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Service Type *</label>
+                                            <select class="form-control" name="service_type" id="edit_service_type">
+                                                <option value="Broadband">Broadband</option>
+                                                <option value="Cable">Cable</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Customer ID *</label>
+                                            <input type="text" class="form-control" name="customer_id" id="edit_customer_id" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Name *</label>
+                                            <input type="text" class="form-control" name="name" id="edit_name" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>User Name *</label>
+                                            <input type="text" class="form-control" name="username" id="edit_username" required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Email *</label>
+                                            <input type="email" class="form-control" name="email" id="edit_email" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Mobile *</label>
+                                            <input type="tel" class="form-control" name="mobile" id="edit_mobile" required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Alternate Mobile</label>
+                                            <input type="tel" class="form-control" name="alt_mobile" id="edit_alt_mobile">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>GST Invoice Needed *</label>
+                                            <select class="form-control" name="gst_invoice_needed" id="edit_gst_invoice_needed">
+                                                <option value="NO">NO</option>
+                                                <option value="YES">YES</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Customer GST No.</label>
+                                            <input type="text" class="form-control" name="customer_gst_no" id="edit_customer_gst_no">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>ID Proof *</label>
+                                            <select class="form-control" name="id_proof" id="edit_id_proof">
+                                                <option value="">Select ID Proof</option>
+                                                <option>Voter ID</option>
+                                                <option>Passport</option>
+                                                <option>Driving license</option>
+                                                <option>Service ID card</option>
+                                                <option>Aadhar card</option>
+                                                <option>Passbook of Govt bank</option>
+                                                <option>Other</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>ID Proof No *</label>
+                                            <input type="text" class="form-control" name="id_proof_no" id="edit_id_proof_no">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Installation/Creation Date</label>
+                                            <input type="text" class="form-control" name="installation_date" id="edit_installation_date" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tab Navigation Buttons -->
+                                <div class="row" style="margin-top: 20px;">
+                                    <div class="col-md-12 text-right">
+                                        <button type="button" class="btn btn-default" data-dismiss="modal">
+                                            <i class="fa fa-times"></i> Cancel
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="edit_general_next">
+                                            Next <i class="fa fa-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Address Detail Tab -->
+                            <div role="tabpanel" class="tab-pane" id="edit-address">
+                                <div class="row">
+                                    <div class="col-md-12">
+                                        <div class="form-group">
+                                            <label>Address *</label>
+                                            <textarea class="form-control" name="address" id="edit_address" rows="3" required></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Locality *</label>
+                                            <select class="form-control" name="locality" id="edit_locality" required>
+                                                <option value="">Loading locations...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>State *</label>
+                                            <select class="form-control" name="state" id="edit_state" required>
+                                                <option value="">Select State</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>District/City *</label>
+                                            <input type="text" class="form-control" name="city" id="edit_city" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>PIN Code *</label>
+                                            <input type="text" class="form-control" name="pincode" id="edit_pincode" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tab Navigation Buttons -->
+                                <div class="row" style="margin-top: 20px;">
+                                    <div class="col-md-12 text-right">
+                                        <button type="button" class="btn btn-default" id="edit_address_back">
+                                            <i class="fa fa-arrow-left"></i> Back
+                                        </button>
+                                        <button type="button" class="btn btn-default" data-dismiss="modal">
+                                            <i class="fa fa-times"></i> Cancel
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="edit_address_next">
+                                            Next <i class="fa fa-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Billing Detail Tab -->
+                            <div role="tabpanel" class="tab-pane" id="edit-billing">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Plan *</label>
+                                            <select class="form-control" name="plan" id="edit_plan" required>
+                                                <option value="">Select Plan</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Monthly Amount *</label>
+                                            <input type="text" class="form-control" name="monthly_amount" id="edit_monthly_amount" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Auto Renew *</label>
+                                            <select class="form-control" name="auto_renew" id="edit_auto_renew">
+                                                <option value="Yes">Yes</option>
+                                                <option value="No">No</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Customer Type *</label>
+                                            <select class="form-control" name="customer_type" id="edit_customer_type" required>
+                                                <option value="Prepaid">Prepaid</option>
+                                                <option value="Postpaid">Postpaid</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>CAF NO *</label>
+                                            <input type="text" class="form-control" name="caf_no" id="edit_caf_no" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>MAC Address</label>
+                                            <input type="text" class="form-control" name="mac_address" id="edit_mac_address">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>IP Address</label>
+                                            <input type="text" class="form-control" name="ip_address" id="edit_ip_address">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Vendor</label>
+                                            <input type="text" class="form-control" name="vendor" id="edit_vendor">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Modem No</label>
+                                            <input type="text" class="form-control" name="modem_no" id="edit_modem_no">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>Start Date *</label>
+                                            <input type="text" class="form-control" name="start_date" id="edit_start_date" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>Period (Months) *</label>
+                                            <select class="form-control" name="period" id="edit_period" required>
+                                                <option value="">Select Period</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>End Date *</label>
+                                            <input type="text" class="form-control" name="end_date" id="edit_end_date" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tab Navigation Buttons -->
+                                <div class="row" style="margin-top: 20px;">
+                                    <div class="col-md-12 text-right">
+                                        <button type="button" class="btn btn-default" id="edit_billing_back">
+                                            <i class="fa fa-arrow-left"></i> Back
+                                        </button>
+                                        <button type="button" class="btn btn-default" data-dismiss="modal">
+                                            <i class="fa fa-times"></i> Cancel
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="edit_billing_next">
+                                            Next <i class="fa fa-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Payment Detail Tab -->
+                            <div role="tabpanel" class="tab-pane" id="edit-payment">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Total Plan Amount</label>
+                                            <input type="text" class="form-control" name="total_bill_amount" id="edit_total_bill_amount" readonly>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Security/Modem/STB Deposit</label>
+                                            <input type="number" class="form-control" name="security_deposit" id="edit_security_deposit" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Installation Charges</label>
+                                            <input type="number" class="form-control" name="installation_charges" id="edit_installation_charges" readonly>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Previous Due Balance</label>
+                                            <input type="number" class="form-control" id="edit_previous_due" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Discount</label>
+                                            <input type="number" class="form-control" name="discount_credit" id="edit_discount_credit" step="0.01" min="0" value="0">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Total Due Balance</label>
+                                            <input type="number" class="form-control" id="edit_total_due_balance" step="0.01">
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tab Navigation Buttons -->
+                                <div class="row" style="margin-top: 20px;">
+                                    <div class="col-md-12 text-right">
+                                        <button type="button" class="btn btn-default" id="edit_payment_back">
+                                            <i class="fa fa-arrow-left"></i> Back
+                                        </button>
+                                        <button type="button" class="btn btn-default" data-dismiss="modal">
+                                            <i class="fa fa-times"></i> Cancel
+                                        </button>
+                                        <button type="button" class="btn btn-success" id="saveEditCustomer">
+                                            <i class="fa fa-save"></i> Update Customer
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer" style="display: none;">
+                    <!-- Footer buttons moved to individual tabs -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW POPUPS - Created from scratch based on templates -->
+    
+    <!-- Transaction History Modal - Redesigned to match reference image -->
+    <div class="modal fade" id="transactionHistoryModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document" style="max-width: 1200px;">
+            <div class="modal-content" style="border-radius: 0; border: none;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 15px 20px; border-radius: 0; border: none;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Transaction History - <span id="txn_customer_name"></span>
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 0;">
+                    <div id="txnHistoryContent">
+                        <div class="text-center" style="padding: 40px 20px;">
+                            <i class="fa fa-spinner fa-spin fa-3x" style="color: #4A9B9B;"></i>
+                            <p style="margin-top: 15px; color: #666;">Loading transactions...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Renew Subscription Modal -->
+    <div class="modal fade" id="renewSubscriptionModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document" style="max-width: 1400px; width: 92vw;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 10px 15px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 24px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 16px;">
+                        Renew Subscription
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 0;">
+                    <div class="row" style="margin: 0;">
+                        <!-- Left Column - Connection Information -->
+                        <div class="col-md-6" style="padding: 0; border-right: 1px solid #e0e0e0;">
+                            <div style="background: #4A9B9B; color: white; padding: 8px 15px; font-weight: 600; font-size: 13px;">
+                                Connection Information
+                            </div>
+                            <div style="padding: 12px;">
+                                <!-- Row 1: Customer Name, Username, Plan Name -->
+                                <div class="row" style="margin-bottom: 6px;">
+                                    <div class="col-md-4" style="padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Customer Name</label>
+                                        <input type="text" class="form-control input-sm" id="renew_cust_name" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px; padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Username</label>
+                                        <input type="text" class="form-control input-sm" id="renew_username" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Plan Name</label>
+                                        <input type="text" class="form-control input-sm" id="renew_plan_name" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                </div>
+                                
+                                <!-- Row 2: Start Date, End Date, Status -->
+                                <div class="row" style="margin-bottom: 6px;">
+                                    <div class="col-md-4" style="padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Start Date</label>
+                                        <input type="text" class="form-control input-sm" id="renew_start_date" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px; padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">End Date</label>
+                                        <input type="text" class="form-control input-sm" id="renew_end_date" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Status</label>
+                                        <input type="text" class="form-control input-sm" id="renew_status" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                </div>
+                                
+                                <!-- Row 3: Balance, Installation Charges, Security Deposit -->
+                                <div class="row" style="margin-bottom: 6px;">
+                                    <div class="col-md-4" style="padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Balance Amount</label>
+                                        <input type="text" class="form-control input-sm" id="renew_balance" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px; padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Install Charges</label>
+                                        <input type="text" class="form-control input-sm" id="renew_installation_charges" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                    <div class="col-md-4" style="padding-left: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Security Deposit</label>
+                                        <input type="text" class="form-control input-sm" id="renew_security_deposit" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                </div>
+                                
+                                <!-- Row 4: Installation Date -->
+                                <div class="row" style="margin-bottom: 8px;">
+                                    <div class="col-md-4" style="padding-right: 5px;">
+                                        <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Installation Date</label>
+                                        <input type="text" class="form-control input-sm" id="renew_installation_date" disabled style="background-color: #f5f5f5; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                    </div>
+                                </div>
+                                
+                                <!-- Update Balance Section -->
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e0e0e0;">
+                                    <div class="row">
+                                        <div class="col-md-8" style="padding-right: 5px;">
+                                            <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">Enter due/extra amount</label>
+                                            <input type="number" class="form-control input-sm" id="renew_extra_amount" placeholder="Enter amount" step="0.01" style="height: 28px; font-size: 12px; padding: 4px 8px;">
+                                        </div>
+                                        <div class="col-md-4" style="padding-left: 5px;">
+                                            <label style="font-weight: 600; font-size: 11px; margin-bottom: 2px;">&nbsp;</label>
+                                            <button type="button" class="btn btn-block btn-sm" id="btn_update_balance" style="background: #28a745; color: white; font-weight: 600; height: 28px; padding: 4px 8px; font-size: 12px; line-height: 1.5;">
+                                                Update Balance
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Column - Renew Actions -->
+                        <div class="col-md-6" style="padding: 0;">
+                            <div style="background: #4A9B9B; color: white; padding: 8px 15px; font-weight: 600; font-size: 13px;">
+                                Renew Actions
+                            </div>
+                            <div style="padding: 12px;">
+                                <!-- Change End Date Section -->
+                                <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e0e0e0;">
+                                    <h5 style="font-weight: 600; margin-bottom: 6px; font-size: 12px;">Change End Date</h5>
+                                    <div class="row" style="margin-bottom: 6px;">
+                                        <div class="col-md-6" style="padding-right: 5px;">
+                                            <label style="font-size: 11px; margin-bottom: 2px;">End Date:</label>
+                                            <input type="date" class="form-control input-sm" id="renew_change_end_date" style="height: 28px; font-size: 12px; padding: 4px 8px;">
+                                        </div>
+                                        <div class="col-md-6" style="padding-left: 5px;">
+                                            <label style="font-size: 11px; margin-bottom: 2px;">&nbsp;</label>
+                                            <button type="button" class="btn btn-block btn-sm" id="btn_change_end_date" style="background: #9b59b6; color: white; font-weight: 600; height: 28px; padding: 4px 8px; font-size: 12px; line-height: 1.5;">
+                                                Change End Date
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p style="font-style: italic; font-size: 10px; color: #666; margin: 4px 0 6px 0;">*Only updates dates without changing amount or sending invoice</p>
+                                    <div class="row">
+                                        <div class="col-md-6" style="padding-right: 5px;">
+                                            <label style="font-size: 11px;">
+                                                <span style="margin-right: 3px;">Auto Renew:</span>
+                                                <input type="checkbox" id="renew_auto_toggle" data-toggle="toggle" data-size="mini" data-on="ON" data-off="OFF" data-onstyle="primary" data-offstyle="default">
+                                            </label>
+                                        </div>
+                                        <div class="col-md-6" style="padding-left: 5px;">
+                                            <label style="font-size: 11px;">
+                                                <span style="margin-right: 3px;">Activate:</span>
+                                                <input type="checkbox" id="renew_activate_toggle" data-toggle="toggle" data-size="mini" data-on="ON" data-off="OFF" data-onstyle="primary" data-offstyle="default">
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Renew Section -->
+                                <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e0e0e0;">
+                                    <h5 style="font-weight: 600; margin-bottom: 6px; font-size: 12px;">Renew</h5>
+                                    <div class="row" style="margin-bottom: 6px;">
+                                        <div class="col-md-6" style="padding-right: 5px;">
+                                            <label style="font-size: 11px; margin-bottom: 2px;">Renew From Date</label>
+                                            <input type="date" class="form-control input-sm" id="renew_with_date" style="height: 28px; font-size: 12px; padding: 4px 8px;">
+                                        </div>
+                                        <div class="col-md-6" style="padding-left: 5px;">
+                                            <label style="font-size: 11px; margin-bottom: 2px;">for Month(s)</label>
+                                            <select class="form-control input-sm" id="renew_with_months" style="color: #333; height: 28px; font-size: 12px; padding: 4px 8px;">
+                                                <option value="1">1</option>
+                                                <option value="2">2</option>
+                                                <option value="3">3</option>
+                                                <option value="4">4</option>
+                                                <option value="5">5</option>
+                                                <option value="6">6</option>
+                                                <option value="7">7</option>
+                                                <option value="8">8</option>
+                                                <option value="9">9</option>
+                                                <option value="10">10</option>
+                                                <option value="11">11</option>
+                                                <option value="12">12</option>
+                                                <option value="13">13</option>
+                                                <option value="14">14</option>
+                                                <option value="15">15</option>
+                                                <option value="16">16</option>
+                                                <option value="17">17</option>
+                                                <option value="18">18</option>
+                                                <option value="19">19</option>
+                                                <option value="20">20</option>
+                                                <option value="21">21</option>
+                                                <option value="22">22</option>
+                                                <option value="23">23</option>
+                                                <option value="24">24</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row" style="margin-bottom: 6px;">
+                                        <div class="col-md-6" style="padding-right: 5px;">
+                                            <button type="button" class="btn btn-block btn-sm" id="btn_renew_with_invoice" style="background: #3b5998; color: white; font-weight: 600; height: 28px; padding: 4px 8px; font-size: 12px; line-height: 1.5;">
+                                                Renew with Invoice
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6" style="padding-left: 5px;">
+                                            <button type="button" class="btn btn-block btn-sm" id="btn_renew_without_invoice" style="background: #28a745; color: white; font-weight: 600; height: 28px; padding: 4px 8px; font-size: 12px; line-height: 1.5;">
+                                                Renew without Invoice
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Renew Reversal Section -->
+                                <div>
+                                    <h5 style="font-weight: 600; margin-bottom: 6px; font-size: 12px;">Renew Reversal</h5>
+                                    <button type="button" class="btn btn-block btn-sm" id="btn_revert_renew" style="background: #dc3545; color: white; font-weight: 600; height: 28px; padding: 4px 8px; font-size: 12px; line-height: 1.5;">
+                                        Revert Last Renew
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Addon Bill Modal -->
+    <div class="modal fade" id="addonBillModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document" style="max-width: 450px;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 15px 20px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Generate Addon Bill
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <form id="addonForm">
+                        <input type="hidden" id="addon_cust_id">
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">Customer</label>
+                            <input type="text" class="form-control" id="addon_cust_name" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">Description of Goods <span style="color: #d9534f;">*</span></label>
+                            <input type="text" class="form-control" id="addon_desc" placeholder="e.g., Installation charges, Router rental" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">Amount <span style="color: #d9534f;">*</span></label>
+                            <input type="number" class="form-control" id="addon_amt" placeholder="0" step="0.01" min="0" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">CGST % (optional)</label>
+                            <input type="number" class="form-control" id="addon_cgst" placeholder="0" step="0.01" min="0" max="100">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">SGST % (optional)</label>
+                            <input type="number" class="form-control" id="addon_sgst" placeholder="0" step="0.01" min="0" max="100">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">IGST % (optional)</label>
+                            <input type="number" class="form-control" id="addon_igst" placeholder="0" step="0.01" min="0" max="100">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">Final Amount (After Tax)</label>
+                            <input type="text" class="form-control" id="addon_final" readonly style="background-color: #f5f5f5; font-weight: 600;">
+                        </div>
+                        
+                        <div class="checkbox">
+                            <label style="font-weight: 500;">
+                                <input type="checkbox" id="addon_include_prev"> Include previous balance in this invoice
+                            </label>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #333;">Previous Balance</label>
+                            <input type="text" class="form-control" id="addon_prev_bal" readonly style="background-color: #f5f5f5; color: #d9534f; font-weight: 600;">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer" style="padding: 15px 20px;">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btn_generate_addon" style="background: #4A9B9B; border: none; font-weight: 600;">Generate Bill</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Payment Link Modal -->
+    <div class="modal fade" id="sendPaymentLinkModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document" style="max-width: 500px;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 15px 20px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Send Payment Link
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <form id="paymentLinkForm">
+                        <input type="hidden" id="paylink_cust_id">
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Customer</label>
+                            <input type="text" class="form-control" id="paylink_cust_name" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Email</label>
+                            <input type="email" class="form-control" id="paylink_email" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Mobile Number</label>
+                            <input type="text" class="form-control" id="paylink_mobile" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Pending Amount</label>
+                            <input type="text" class="form-control" id="paylink_pending" readonly style="background-color: #f5f5f5;">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btn_send_paylink" style="background: #4A9B9B; border: none; font-weight: 600;">Send Link</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Complaint Modal -->
+    <div class="modal fade" id="createComplaintModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document" style="max-width: 600px;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 15px 20px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Create Complaint
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <form id="complaintForm">
+                        <input type="hidden" id="complaint_cust_id">
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Customer</label>
+                            <input type="text" class="form-control" id="complaint_cust_name" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label style="font-weight: 600;">Category <span style="color: #d9534f;">*</span></label>
+                                    <select class="form-control" id="complaint_category" required>
+                                        <option value="">Select Category</option>
+                                        <option value="Internet Down">Internet Down</option>
+                                        <option value="Slow Speed">Slow Speed</option>
+                                        <option value="Billing Issue">Billing Issue</option>
+                                        <option value="Installation">Installation</option>
+                                        <option value="Hardware Issue">Hardware Issue</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label style="font-weight: 600;">Priority <span style="color: #d9534f;">*</span></label>
+                                    <select class="form-control" id="complaint_priority" required>
+                                        <option value="Low">Low</option>
+                                        <option value="Medium" selected>Medium</option>
+                                        <option value="High">High</option>
+                                        <option value="Urgent">Urgent</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Subject <span style="color: #d9534f;">*</span></label>
+                            <input type="text" class="form-control" id="complaint_subject" placeholder="Brief description" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Description <span style="color: #d9534f;">*</span></label>
+                            <textarea class="form-control" id="complaint_desc" rows="4" placeholder="Detailed description of the issue" required></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Assign to Employee</label>
+                            <select class="form-control" id="complaint_assign">
+                                <option value="">Unassigned</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btn_create_complaint" style="background: #4A9B9B; border: none; font-weight: 600;">Create Complaint</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WhatsApp Message Modal -->
+    <div class="modal fade" id="whatsappModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document" style="max-width: 500px;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #4A9B9B; color: white; padding: 15px 20px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Send WhatsApp Message
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <form id="whatsappForm">
+                        <input type="hidden" id="wa_cust_id">
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Customer</label>
+                            <input type="text" class="form-control" id="wa_cust_name" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Phone Number</label>
+                            <input type="text" class="form-control" id="wa_phone" readonly style="background-color: #f5f5f5;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Template</label>
+                            <select class="form-control" id="wa_template">
+                                <option value="">Select Template</option>
+                                <option value="payment_reminder">Payment Reminder</option>
+                                <option value="expiry_alert">Expiry Alert</option>
+                                <option value="welcome_message">Welcome Message</option>
+                                <option value="custom_message">Custom Message</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Message <span style="color: #d9534f;">*</span></label>
+                            <textarea class="form-control" id="wa_message" rows="5" placeholder="Type your message here..." required></textarea>
+                            <small class="text-muted">You can use variables: {name}, {amount}, {due_date}</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="btn_send_whatsapp">
+                        <i class="fa fa-whatsapp"></i> Send Message
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Customer Modal -->
+    <div class="modal fade" id="deleteCustomerModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document" style="max-width: 500px;">
+            <div class="modal-content" style="border-radius: 0;">
+                <div class="modal-header" style="background: #dc3545; color: white; padding: 15px 20px; border-radius: 0;">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1; font-size: 28px; font-weight: 300;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title" style="margin: 0; font-weight: 600; font-size: 18px;">
+                        Delete Customer
+                    </h4>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <div class="alert alert-danger" style="text-align: center;">
+                        <i class="fa fa-exclamation-triangle fa-3x" style="margin-bottom: 15px;"></i>
+                        <h4 style="margin: 10px 0;"><strong>Are you sure you want to delete this customer?</strong></h4>
+                        <p style="margin: 10px 0;">This action cannot be undone. All customer data will be permanently deleted.</p>
+                    </div>
+                    
+                    <form id="deleteForm">
+                        <input type="hidden" id="delete_cust_id">
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Customer Name</label>
+                            <input type="text" class="form-control" id="delete_cust_name" readonly style="background-color: #f5f5f5; font-weight: 600;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="font-weight: 600;">Customer ID</label>
+                            <input type="text" class="form-control" id="delete_cust_id_display" readonly style="background-color: #f5f5f5; font-weight: 600;">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="btn_delete_customer">
+                        <i class="fa fa-trash"></i> Delete Customer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Add Payment Modal -->
+    <div class="modal fade" id="addPaymentModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    <h4 class="modal-title">Add Payment</h4>
+                </div>
+                <div class="modal-body">
+                    <form id="addPaymentForm">
+                        <input type="hidden" id="payment_customer_id" name="customer_id">
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Total Due Balance</label>
+                                    <input type="text" class="form-control" id="payment_total_due" readonly>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Paying Amount <span class="text-danger">*</span></label>
+                                    <input type="number" class="form-control" id="payment_paying_amount" name="paying_amount" step="0.01" min="0" required>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Discount <span class="text-danger">*</span></label>
+                                    <input type="number" class="form-control" id="payment_discount" name="discount" value="0" step="0.01" min="0" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Balance After Payment</label>
+                                    <input type="text" class="form-control" id="payment_balance_after" readonly>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Date & Time</label>
+                                    <input type="text" class="form-control" id="payment_paid_at" name="paid_at" placeholder="DD-MM-YYYY HH:MM">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Employee <span class="text-danger">*</span></label>
+                                    <select class="form-control" id="payment_employee_id" name="employee_id" required>
+                                        <option value="">Select Employee</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Payment Mode <span class="text-danger">*</span></label>
+                                    <select class="form-control" id="payment_payment_mode" name="payment_mode" required>
+                                        <option value="">Select Payment Mode</option>
+                                        <option value="Cash">Cash</option>
+                                        <option value="Paytm">Paytm</option>
+                                        <option value="Google Pay">Google Pay</option>
+                                        <option value="Phone Pay">Phone Pay</option>
+                                        <option value="Cheque">Cheque</option>
+                                        <option value="Netbanking">Netbanking</option>
+                                        <option value="Online Portal">Online Portal</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>Transaction No <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="payment_transaction_no" value="Auto-generated on submit" readonly>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="form-group">
+                                    <label>Remarks</label>
+                                    <textarea class="form-control" id="payment_remarks" name="remarks" rows="3"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">
+                        <i class="fa fa-times"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-success" id="savePayment">
+                        <i class="fa fa-money"></i> Add Payment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<!-- DataTables 1.10.25 -->
+<script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap.min.js"></script>
+<!-- Bootstrap Datepicker -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Load locations from database and populate dropdowns
+    function loadLocations() {
+        $.ajax({
+            url: '/api/locations/list',
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.locations) {
+                    const activeLocations = response.locations.filter(loc => loc.status === 'Active');
+                    activeLocations.sort((a, b) => a.name.localeCompare(b.name));
+                    
+                    // Populate filter dropdown
+                    const filterSelect = $('#filterLocality');
+                    filterSelect.empty();
+                    filterSelect.append('<option value="">Locality</option>');
+                    activeLocations.forEach(function(location) {
+                        filterSelect.append($('<option>', {
+                            value: location.name,
+                            text: location.name
+                        }));
+                    });
+                    
+                    // Populate edit form dropdown
+                    const editSelect = $('#edit_locality');
+                    editSelect.empty();
+                    editSelect.append('<option value="">Select Locality</option>');
+                    activeLocations.forEach(function(location) {
+                        editSelect.append($('<option>', {
+                            value: location.name,
+                            text: location.name
+                        }));
+                    });
+                } else {
+                    $('#filterLocality').empty().append('<option value="">Error loading</option>');
+                    $('#edit_locality').empty().append('<option value="">Error loading</option>');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Failed to load locations:', error);
+                $('#filterLocality').empty().append('<option value="">Error loading</option>');
+                $('#edit_locality').empty().append('<option value="">Error loading</option>');
+            }
+        });
+    }
+    
+    // Load locations on page load
+    loadLocations();
+    
+    // Initialize Datepicker for End Date
+    $('#filterEndDate').datepicker({
+        format: 'dd-mm-yyyy',
+        autoclose: true,
+        todayHighlight: true
+    });
+    
+    // Clear end date on cross button click
+    $('#clearEndDate').on('click', function() {
+        $('#filterEndDate').val('').datepicker('update', '');
+        table.column(9).search('').draw();
+    });
+    
+    // Initialize DataTable
+    var table = $('#usersTable').DataTable({
+        "pageLength": 15,
+        "lengthMenu": [[15, 25, 50, 100], [15, 25, 50, 100]],
+        "ordering": false,
+        "columnDefs": [
+            { "orderable": false, "targets": "_all" }
+        ],
+        "language": {
+            "lengthMenu": "Show _MENU_",
+            "info": "Total Users: _TOTAL_",
+            "infoEmpty": "Total Users: 0",
+            "infoFiltered": "(filtered from _MAX_ total users)",
+            "search": "",
+            "searchPlaceholder": "Search...",
+            "paginate": {
+                "first": "First",
+                "last": "Last ›",
+                "next": ">",
+                "previous": "<"
+            }
+        },
+        "dom": '<"top"f>rt<"bottom"lip><"clear">',
+        "drawCallback": function() {
+            // Move length menu before info text
+            var lengthMenu = $('.dataTables_length');
+            var info = $('.dataTables_info');
+            if (lengthMenu.length && info.length) {
+                lengthMenu.insertBefore(info);
+            }
+        }
+    });
+    
+    // Filter by status
+    $('#filterStatus').on('change', function() {
+        table.column(5).search(this.value).draw();
+    });
+    
+    // Filter by locality
+    $('#filterLocality').on('change', function() {
+        table.column(3).search(this.value).draw();
+    });
+    
+    // Filter by subscriber type
+    $('#filterSubscriberType').on('change', function() {
+        // Subscriber type filter would need backend support
+        table.draw();
+    });
+    
+    // Filter by end date
+    $('#filterEndDate').on('change', function() {
+        var selectedDate = $(this).val();
+        if (selectedDate) {
+            table.column(9).search(selectedDate).draw();
+        } else {
+            table.column(9).search('').draw();
+        }
+    });
+    
+    // Search box
+    $('#searchBox').on('keyup', function() {
+        table.search(this.value).draw();
+    });
+    
+    // A-Z navigation
+    $('.az-navigation button').on('click', function() {
+        $('.az-navigation button').removeClass('active');
+        $(this).addClass('active');
+        
+        var letter = $(this).data('letter');
+        if (letter === 'all') {
+            table.column(1).search('').draw();
+        } else {
+            table.column(1).search('^' + letter, true, false).draw();
+        }
+    });
+    
+    // Edit Customer Modal - Click handler for customer ID
+    $(document).on('click', '.edit-customer-link', function(e) {
+        e.preventDefault();
+        var customerId = $(this).data('customer-id');
+        
+        // Fetch customer data
+        $.ajax({
+            url: '/api/customers/' + customerId,
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    var customer = response.customer;
+                    
+                    // Store original values for comparison
+                    $('#edit_original_customer_id').val(customer.customer_id);
+                    $('#edit_original_start_date').val(customer.start_date || '');
+                    $('#edit_original_period').val(customer.period || '');
+                    
+                    // Populate General Information
+                    $('#edit_service_type').val(customer.service_type);
+                    $('#edit_customer_id').val(customer.customer_id);
+                    $('#edit_name').val(customer.customer_name);
+                    $('#edit_username').val(customer.username);
+                    $('#edit_email').val(customer.customer_email);
+                    $('#edit_mobile').val(customer.customer_phone);
+                    $('#edit_alt_mobile').val(customer.alt_mobile || '');
+                    $('#edit_gst_invoice_needed').val(customer.gst_invoice_needed || 'NO');
+                    $('#edit_customer_gst_no').val(customer.customer_gst_no || '');
+                    $('#edit_id_proof').val(customer.id_proof || '');
+                    $('#edit_id_proof_no').val(customer.id_proof_no || '');
+                    $('#edit_installation_date').val(customer.installation_date || '');
+                    
+                    // Populate Address Detail
+                    $('#edit_address').val(customer.address || '');
+                    $('#edit_locality').val(customer.locality || '');
+                    
+                    // Load states and set selected state
+                    $.getJSON('/static/data/states_IN.json', function(states) {
+                        $('#edit_state').empty().append('<option value="">Select State</option>');
+                        states.forEach(function(state) {
+                            $('#edit_state').append('<option value="' + state.code + '">' + state.name + '</option>');
+                        });
+                        $('#edit_state').val(customer.state || '');
+                    });
+                    
+                    $('#edit_city').val(customer.city || '');
+                    $('#edit_pincode').val(customer.pincode || '');
+                    
+                    // Populate Billing Detail
+                    // Load plans and set selected plan
+                    $.ajax({
+                        url: '/api/plans/list',
+                        method: 'GET',
+                        success: function(plansResponse) {
+                            if (plansResponse && Array.isArray(plansResponse.plans)) {
+                                $('#edit_plan').empty().append('<option value="">Select Plan</option>');
+                                if (plansResponse.plans.length > 0) {
+                                    plansResponse.plans.forEach(function(plan) {
+                                        var amount = plan.amount || plan.after_tax_amount || plan.base_amount || 0;
+                                        var planType = plan.plan_type || plan.service || '';
+                                        $('#edit_plan').append('<option value="' + plan.id + '" data-amount="' + amount + '">' + 
+                                            plan.speed + ' ' + plan.plan_name + ' - ' + planType + ' (₹' + amount + '/month)</option>');
+                                    });
+                                } else {
+                                    $('#edit_plan').append('<option value="" disabled>No plans found. Create a plan first.</option>');
+                                    if (customer.monthly_amount) {
+                                        $('#edit_plan').append('<option value="" disabled>Current plan (₹' + customer.monthly_amount + '/month)</option>');
+                                    }
+                                }
+                                $('#edit_plan').val(String(customer.plan_id || ''));
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Failed to load plans:', error);
+                            $('#edit_plan').empty().append('<option value="">Select Plan</option>');
+                            $('#edit_plan').append('<option value="" disabled>Error loading plans</option>');
+                        }
+                    });
+                    
+                    // Load period options
+                    $('#edit_period').empty().append('<option value="">Select Period</option>');
+                    for (var i = 1; i <= 36; i++) {
+                        $('#edit_period').append('<option value="' + i + '">' + i + ' Month' + (i > 1 ? 's' : '') + '</option>');
+                    }
+                    
+                    $('#edit_monthly_amount').val(customer.monthly_amount || '');
+                    $('#edit_auto_renew').val(customer.auto_renew || 'Yes');
+                    $('#edit_customer_type').val(customer.customer_type || 'Postpaid');
+                    $('#edit_caf_no').val(customer.caf_no || '');
+                    $('#edit_mac_address').val(customer.mac_address || '');
+                    $('#edit_ip_address').val(customer.ip_address || '');
+                    $('#edit_vendor').val(customer.vendor || '');
+                    $('#edit_modem_no').val(customer.modem_no || '');
+                    $('#edit_start_date').val(customer.start_date || '');
+                    $('#edit_period').val(customer.period || '');
+                    $('#edit_end_date').val(customer.end_date || '');
+                    
+                    // Populate Payment Detail
+                    $('#edit_bill_amount').val(customer.bill_amount || '');
+                    $('#edit_cgst_tax').val(customer.cgst_tax || '');
+                    $('#edit_sgst_tax').val(customer.sgst_tax || '');
+                    $('#edit_igst_tax').val(customer.igst_tax || '');
+                    $('#edit_total_bill_amount').val(customer.total_bill_amount || '');
+                    $('#edit_security_deposit').val(customer.security_deposit || '0.00');
+                    $('#edit_installation_charges').val(customer.installation_charges || '0.00');
+                    $('#edit_previous_due').val(customer.previous_due || '0.00');
+                    $('#edit_discount_credit').val(customer.discount_credit || '0.00');
+                    $('#edit_received_amount').val(customer.received_amount || '');
+                    $('#edit_payment_mode').val(customer.payment_mode || '');
+                    $('#edit_transaction_id').val(customer.transaction_id || '');
+                    $('#edit_payment_notes').val(customer.payment_notes || '');
+                    
+                    // Populate hidden original fields for change detection
+                    $('#edit_original_customer_id').val(customer.customer_id || '');
+                    $('#edit_original_plan_id').val(customer.plan_id || '');
+                    $('#edit_original_start_date').val(customer.start_date || '');
+                    $('#edit_original_period').val(customer.period || '');
+                    
+                    // Clear billing carry fields so nothing is carried by default
+                    // This prevents old tax-inclusive values from appearing
+                    $('#edit_bill_amount').val('');
+                    $('#edit_cgst_tax').val('');
+                    $('#edit_sgst_tax').val('');
+                    $('#edit_igst_tax').val('');
+                    $('#edit_total_bill_amount').val('');
+                    
+                    // Update payment summary to show only previous_due and discount
+                    updateEditPaymentSummary();
+                    
+                    // Reset to first tab
+                    $('#editCustomerModal .nav-tabs a:first').tab('show');
+                    
+                    // Show modal
+                    $('#editCustomerModal').modal('show');
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('Failed to load customer data');
+            }
+        });
+    });
+    
+    // Initialize datepicker for edit form start date when modal is shown
+    $('#editCustomerModal').on('shown.bs.modal', function() {
+        $('#edit_start_date').datepicker({
+            format: 'dd-mm-yyyy',
+            autoclose: true,
+            container: '#editCustomerModal'
+        });
+    });
+    
+    // Plan change handler for edit form - only recalculate if plan actually changed
+    $(document).on('change', '#edit_plan', function() {
+        var selectedPlanId = $(this).val();
+        var originalPlanId = $('#edit_original_plan_id').val();
+        var selectedOption = $(this).find('option:selected');
+        var amount = selectedOption.data('amount');
+        $('#edit_monthly_amount').val(amount || '');
+        
+        // Only recalculate if plan actually changed
+        if (selectedPlanId !== originalPlanId) {
+            calculateEditBilling();
+        } else {
+            // Clear billing fields if plan not changed
+            $('#edit_bill_amount').val('');
+            $('#edit_cgst_tax').val('');
+            $('#edit_sgst_tax').val('');
+            $('#edit_igst_tax').val('');
+            $('#edit_total_bill_amount').val('');
+            updateEditPaymentSummary();
+        }
+    });
+    
+    // Helper function to calculate end date with proper month-boundary handling
+    function calculateEndDate(startDateStr, period) {
+        if (!startDateStr || !period) return '';
+        
+        var parts = startDateStr.split('-');
+        if (parts.length !== 3) return '';
+        
+        var day = parseInt(parts[0]);
+        var month = parseInt(parts[1]) - 1;
+        var year = parseInt(parts[2]);
+        
+        var targetMonth = (month + period) % 12;
+        var targetYear = year + Math.floor((month + period) / 12);
+        
+        var lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+        
+        var endDay;
+        if (day === 1) {
+            endDay = lastDayOfTargetMonth;
+        } else {
+            endDay = day - 1;
+        }
+        
+        var endDate = new Date(targetYear, targetMonth, endDay);
+        var endDayStr = String(endDate.getDate()).padStart(2, '0');
+        var endMonthStr = String(endDate.getMonth() + 1).padStart(2, '0');
+        var endYearStr = endDate.getFullYear();
+        
+        return endDayStr + '-' + endMonthStr + '-' + endYearStr;
+    }
+    
+    // Period change handler - only recalculate if period actually changed
+    $(document).on('change', '#edit_period', function() {
+        var currentPeriod = $(this).val();
+        var originalPeriod = $('#edit_original_period').val();
+        
+        var startDate = $('#edit_start_date').val();
+        if (startDate && currentPeriod) {
+            var endDate = calculateEndDate(startDate, parseInt(currentPeriod));
+            $('#edit_end_date').val(endDate);
+        }
+        
+        if (currentPeriod !== originalPeriod) {
+            calculateEditBilling();
+        } else {
+            $('#edit_bill_amount').val('');
+            $('#edit_cgst_tax').val('');
+            $('#edit_sgst_tax').val('');
+            $('#edit_igst_tax').val('');
+            $('#edit_total_bill_amount').val('');
+            updateEditPaymentSummary();
+        }
+    });
+    
+    // Start date change handler - update end date and carry amount if changed
+    $('#edit_start_date').on('change changeDate', function() {
+        var currentStartDate = $(this).val();
+        var originalStartDate = $('#edit_original_start_date').val();
+        var period = parseInt($('#edit_period').val());
+        
+        if (currentStartDate && period) {
+            var endDate = calculateEndDate(currentStartDate, period);
+            $('#edit_end_date').val(endDate);
+        }
+        
+        if (currentStartDate !== originalStartDate) {
+            calculateEditBilling();
+        } else {
+            $('#edit_bill_amount').val('');
+            $('#edit_cgst_tax').val('');
+            $('#edit_sgst_tax').val('');
+            $('#edit_igst_tax').val('');
+            $('#edit_total_bill_amount').val('');
+            updateEditPaymentSummary();
+        }
+    });
+    
+    // Calculate billing for edit form
+    function calculateEditBilling() {
+        var startDate = $('#edit_start_date').val();
+        var period = parseInt($('#edit_period').val());
+        var monthlyAmount = parseFloat($('#edit_monthly_amount').val()) || 0;
+        
+        if (!startDate || !period || monthlyAmount === 0) {
+            // Clear billing fields when inputs are incomplete
+            $('#edit_bill_amount').val('');
+            $('#edit_cgst_tax').val('');
+            $('#edit_sgst_tax').val('');
+            $('#edit_igst_tax').val('');
+            $('#edit_total_bill_amount').val('');
+            updateEditPaymentSummary();
+            return;
+        }
+        
+        // Calculate end date using helper function
+        var endDate = calculateEndDate(startDate, period);
+        $('#edit_end_date').val(endDate);
+        
+        // Calculate billing amounts WITHOUT tax
+        var billAmount = monthlyAmount * period;
+        
+        $('#edit_bill_amount').val(billAmount.toFixed(2));
+        $('#edit_cgst_tax').val('');
+        $('#edit_sgst_tax').val('');
+        $('#edit_igst_tax').val('');
+        $('#edit_total_bill_amount').val(billAmount.toFixed(2));
+        
+        // Update payment summary after billing calculation
+        updateEditPaymentSummary();
+    }
+    
+    // Update payment summary (Total Due Balance calculation)
+    function updateEditPaymentSummary() {
+        var planRaw = $('#edit_total_bill_amount').val();
+        var discountRaw = $('#edit_discount_credit').val();
+        
+        // Calculate total due balance
+        var planTotal = parseFloat(planRaw) || 0;
+        var prevDue = parseFloat($('#edit_previous_due').val()) || 0;
+        var discount = parseFloat(discountRaw) || 0;
+        var totalDue = planTotal + prevDue - discount;
+        $('#edit_total_due_balance').val(totalDue.toFixed(2));
+    }
+    
+    // Discount change handler - update total due balance
+    $(document).on('change input', '#edit_discount_credit', function() {
+        updateEditPaymentSummary();
+    });
+    
+    // Tab navigation handlers
+    $('#edit_general_next').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-address"]').tab('show');
+    });
+    
+    $('#edit_address_back').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-general"]').tab('show');
+    });
+    
+    $('#edit_address_next').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-billing"]').tab('show');
+    });
+    
+    $('#edit_billing_back').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-address"]').tab('show');
+    });
+    
+    $('#edit_billing_next').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-payment"]').tab('show');
+    });
+    
+    $('#edit_payment_back').on('click', function() {
+        $('#editCustomerModal .nav-tabs a[href="#edit-billing"]').tab('show');
+    });
+    
+    // Save edited customer
+    $('#saveEditCustomer').on('click', function() {
+        var formData = {
+            customer_id: $('#edit_customer_id').val(),
+            service_type: $('#edit_service_type').val(),
+            name: $('#edit_name').val(),
+            username: $('#edit_username').val(),
+            email: $('#edit_email').val(),
+            mobile: $('#edit_mobile').val(),
+            alt_mobile: $('#edit_alt_mobile').val(),
+            gst_invoice_needed: $('#edit_gst_invoice_needed').val(),
+            customer_gst_no: $('#edit_customer_gst_no').val(),
+            id_proof: $('#edit_id_proof').val(),
+            id_proof_no: $('#edit_id_proof_no').val(),
+            installation_date: $('#edit_installation_date').val(),
+            address: $('#edit_address').val(),
+            locality: $('#edit_locality').val(),
+            state: $('#edit_state').val(),
+            city: $('#edit_city').val(),
+            pincode: $('#edit_pincode').val(),
+            plan: $('#edit_plan').val(),
+            monthly_amount: $('#edit_monthly_amount').val(),
+            auto_renew: $('#edit_auto_renew').val(),
+            customer_type: $('#edit_customer_type').val(),
+            caf_no: $('#edit_caf_no').val(),
+            mac_address: $('#edit_mac_address').val(),
+            ip_address: $('#edit_ip_address').val(),
+            vendor: $('#edit_vendor').val(),
+            modem_no: $('#edit_modem_no').val(),
+            start_date: $('#edit_start_date').val(),
+            period: $('#edit_period').val(),
+            end_date: $('#edit_end_date').val(),
+            security_deposit: $('#edit_security_deposit').val(),
+            installation_charges: $('#edit_installation_charges').val(),
+            received_amount: $('#edit_received_amount').val(),
+            payment_mode: $('#edit_payment_mode').val(),
+            transaction_id: $('#edit_transaction_id').val(),
+            payment_notes: $('#edit_payment_notes').val()
+        };
+        
+        // Only include billing fields if they have values
+        var billAmount = $('#edit_bill_amount').val();
+        var cgstTax = $('#edit_cgst_tax').val();
+        var sgstTax = $('#edit_sgst_tax').val();
+        var igstTax = $('#edit_igst_tax').val();
+        var totalBillAmount = $('#edit_total_bill_amount').val();
+        var discountCredit = $('#edit_discount_credit').val();
+        
+        if (billAmount !== '') formData.bill_amount = billAmount;
+        if (cgstTax !== '') formData.cgst_tax = cgstTax;
+        if (sgstTax !== '') formData.sgst_tax = sgstTax;
+        if (igstTax !== '') formData.igst_tax = igstTax;
+        if (totalBillAmount !== '') formData.total_bill_amount = totalBillAmount;
+        if (discountCredit !== '') formData.discount_credit = discountCredit;
+        
+        // Include Total Due Balance if user has entered a value
+        var totalDueBalance = $('#edit_total_due_balance').val();
+        if (totalDueBalance !== '') formData.total_due_balance = totalDueBalance;
+        
+        $.ajax({
+            url: '/api/customers/update',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.success) {
+                    alert('Customer updated successfully!');
+                    $('#editCustomerModal').modal('hide');
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('Failed to update customer');
+            }
+        });
+    });
+    
+    // Wire Add Payment icon click
+    $(document).on('click', '.action-icons a[title="Add Payment"]', function(e) {
+        e.preventDefault();
+        var row = $(this).closest('tr');
+        var customerId = row.find('td:first a').text().trim();
+        var balance = row.find('td:nth-child(9) a').text().replace('₹', '').replace(',', '').trim();
+        
+        // Set customer ID
+        $('#payment_customer_id').val(customerId);
+        
+        // Set total due balance
+        $('#payment_total_due').val('₹' + parseFloat(balance).toFixed(2));
+        
+        // Reset form fields
+        $('#payment_paying_amount').val('');
+        $('#payment_discount').val('0');
+        $('#payment_balance_after').val('₹' + parseFloat(balance).toFixed(2));
+        $('#payment_remarks').val('');
+        $('#payment_transaction_no').val('Auto-generated on input');
+        transactionNoGenerated = false;
+        
+        // Set current date and time in DD-MM-YYYY HH:MM format
+        var now = new Date();
+        var year = now.getFullYear();
+        var month = String(now.getMonth() + 1).padStart(2, '0');
+        var day = String(now.getDate()).padStart(2, '0');
+        var hours = String(now.getHours()).padStart(2, '0');
+        var minutes = String(now.getMinutes()).padStart(2, '0');
+        $('#payment_paid_at').val(day + '-' + month + '-' + year + ' ' + hours + ':' + minutes);
+        
+        // Load employees
+        $.ajax({
+            url: '/api/employees/list',
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    $('#payment_employee_id').empty().append('<option value="">Select Employee</option>');
+                    response.employees.forEach(function(emp) {
+                        $('#payment_employee_id').append('<option value="' + emp.employee_id + '">' + emp.employee_name + '</option>');
+                    });
+                } else {
+                    alert('Error loading employees: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('Failed to load employees');
+            }
+        });
+        
+        // Show modal
+        $('#addPaymentModal').modal('show');
+    });
+    
+    // Live calculation of Balance after payment
+    function calculateBalanceAfterPayment() {
+        var totalDueStr = $('#payment_total_due').val().replace('₹', '').replace(',', '').trim();
+        var totalDue = parseFloat(totalDueStr) || 0;
+        var payingAmount = parseFloat($('#payment_paying_amount').val()) || 0;
+        var discount = parseFloat($('#payment_discount').val()) || 0;
+        
+        // Allow negative balances (credit/advance payments)
+        var balanceAfter = totalDue - (payingAmount + discount);
+        
+        // Display with visual cue for negative (credit)
+        if (balanceAfter < 0) {
+            $('#payment_balance_after').val('₹' + balanceAfter.toFixed(2) + ' (Credit)').css('color', 'red');
+        } else {
+            $('#payment_balance_after').val('₹' + balanceAfter.toFixed(2)).css('color', '');
+        }
+    }
+    
+    // Track if transaction number has been generated
+    var transactionNoGenerated = false;
+    
+    // Auto-generate transaction number when amount or discount is entered
+    function generateTransactionNumber() {
+        if (transactionNoGenerated) return; // Only generate once
+        
+        var payingAmount = parseFloat($('#payment_paying_amount').val()) || 0;
+        var discount = parseFloat($('#payment_discount').val()) || 0;
+        
+        if (payingAmount > 0 || discount > 0) {
+            var paymentMode = $('#payment_payment_mode').val() || 'Cash';
+            
+            $.ajax({
+                url: '/api/payments/transaction-no?payment_mode=' + encodeURIComponent(paymentMode),
+                method: 'GET',
+                success: function(response) {
+                    if (response.success) {
+                        $('#payment_transaction_no').val(response.transaction_no);
+                        transactionNoGenerated = true;
+                    }
+                },
+                error: function() {
+                    console.log('Failed to generate transaction number');
+                }
+            });
+        }
+    }
+    
+    $('#payment_paying_amount, #payment_discount').on('input change', function() {
+        calculateBalanceAfterPayment();
+        generateTransactionNumber();
+    });
+    
+    // Regenerate transaction number when payment mode changes
+    $('#payment_payment_mode').on('change', function() {
+        if (transactionNoGenerated) {
+            transactionNoGenerated = false;
+            generateTransactionNumber();
+        }
+    });
+    
+    // Save payment
+    $('#savePayment').on('click', function() {
+        // Validate required fields
+        if (!$('#payment_customer_id').val()) {
+            alert('Customer ID is required');
+            return;
+        }
+        if (!$('#payment_paying_amount').val() || parseFloat($('#payment_paying_amount').val()) < 0) {
+            alert('Please enter a valid paying amount');
+            return;
+        }
+        if (!$('#payment_discount').val() || parseFloat($('#payment_discount').val()) < 0) {
+            alert('Please enter a valid discount (0 or greater)');
+            return;
+        }
+        if (!$('#payment_employee_id').val()) {
+            alert('Please select an employee');
+            return;
+        }
+        if (!$('#payment_payment_mode').val()) {
+            alert('Please select a payment mode');
+            return;
+        }
+        
+        var payingAmount = parseFloat($('#payment_paying_amount').val()) || 0;
+        var discount = parseFloat($('#payment_discount').val()) || 0;
+        
+        if (payingAmount + discount <= 0) {
+            alert('Total payment (amount + discount) must be greater than zero');
+            return;
+        }
+        
+        // Convert DD-MM-YYYY HH:MM to ISO format
+        var paidAtStr = $('#payment_paid_at').val();
+        var paidAtISO = paidAtStr; // Default to original value
+        
+        if (paidAtStr && paidAtStr.match(/^\d{2}-\d{2}-\d{4} \d{2}:\d{2}$/)) {
+            // Parse DD-MM-YYYY HH:MM format
+            var parts = paidAtStr.split(' ');
+            var dateParts = parts[0].split('-');
+            var timeParts = parts[1].split(':');
+            var day = dateParts[0];
+            var month = dateParts[1];
+            var year = dateParts[2];
+            var hours = timeParts[0];
+            var minutes = timeParts[1];
+            
+            // Convert to ISO format (YYYY-MM-DDTHH:MM:SS)
+            paidAtISO = year + '-' + month + '-' + day + 'T' + hours + ':' + minutes + ':00';
+        }
+        
+        var formData = {
+            customer_id: $('#payment_customer_id').val(),
+            paying_amount: payingAmount,
+            discount: discount,
+            paid_at: paidAtISO,
+            employee_id: $('#payment_employee_id').val(),
+            payment_mode: $('#payment_payment_mode').val(),
+            remarks: $('#payment_remarks').val()
+        };
+        
+        $.ajax({
+            url: '/api/payments/create',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.success) {
+                    alert('Payment added successfully!\nTransaction No: ' + response.transaction_no);
+                    $('#addPaymentModal').modal('hide');
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                var errorMsg = 'Failed to add payment';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                alert(errorMsg);
+            }
+        });
+    });
+
+    // Handle transaction history icon click - Redesigned to match reference image
+    $(document).on('click', 'a[title="Transactions"]', function(e) {
+        e.preventDefault();
+        
+        var $row = $(this).closest('tr');
+        var customerId = $row.find('td:first a').text().trim();
+        var customerName = $row.find('td:nth-child(2)').text().trim();
+        
+        $('#txn_customer_name').text(customerName);
+        
+        $('#txnHistoryContent').html('<div class="text-center" style="padding: 40px 20px;"><i class="fa fa-spinner fa-spin fa-3x" style="color: #4A9B9B;"></i><p style="margin-top: 15px; color: #666;">Loading transactions...</p></div>');
+        
+        $('#transactionHistoryModal').modal('show');
+        
+        $.ajax({
+            url: '/api/customers/' + customerId + '/transactions',
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    if (response.transactions.length === 0) {
+                        $('#txnHistoryContent').html('<div style="padding: 20px; text-align: center; color: #666;"><i class="fa fa-info-circle"></i> No transactions found for this customer.</div>');
+                    } else {
+                        // Sort transactions by date (newest first)
+                        response.transactions.sort(function(a, b) {
+                            var dateA = a.paid_at || '';
+                            var dateB = b.paid_at || '';
+                            return dateB.localeCompare(dateA);
+                        });
+                        
+                        // Build table HTML matching reference image exactly
+                        var html = '<table class="table table-bordered" style="margin: 0; font-size: 13px; border: none;">';
+                        html += '<thead>';
+                        html += '<tr style="background: #4A9B9B; color: white;">';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600; text-align: center;">SL. NO.</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600;">DATE</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600;">TRANSACTION ID</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600;">TYPE</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600;">DESCRIPTION</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600;">EMPLOYEE/ADMIN</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600; text-align: right;">AMOUNT</th>';
+                        html += '<th style="padding: 12px; border: 1px solid #4A9B9B; font-weight: 600; text-align: right;">BALANCE AMOUNT</th>';
+                        html += '</tr>';
+                        html += '</thead>';
+                        html += '<tbody>';
+                        
+                        response.transactions.forEach(function(txn, index) {
+                            var rowBg = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+                            
+                            // Format date as DD-MM-YYYY
+                            var dateFormatted = txn.paid_at || '-';
+                            if (dateFormatted.includes(' ')) {
+                                dateFormatted = dateFormatted.split(' ')[0];
+                            }
+                            
+                            // Determine transaction type and badge color based on txn.type
+                            var txnType = 'PAYMENT';
+                            var badgeColor = '#28a745';
+                            var badgeStyle = 'background: ' + badgeColor + '; color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-block;';
+                            
+                            if (txn.type === 'invoice') {
+                                txnType = 'RENEWAL';
+                                badgeColor = '#dc3545';
+                                badgeStyle = 'background: ' + badgeColor + '; color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-block;';
+                            }
+                            
+                            // Description - add discount if present for payments
+                            var description = txn.remarks || 'Payment via ' + (txn.payment_mode || 'CASH');
+                            if (txn.type === 'payment' && txn.discount && txn.discount > 0) {
+                                description += ' (Discount: ₹' + txn.discount.toFixed(0) + ')';
+                            }
+                            
+                            // Employee/Admin
+                            var employee = txn.employee_id || 'ADMIN';
+                            
+                            // Amount - no prefix, just show the amount
+                            var amount = '₹' + (txn.amount || 0).toFixed(0);
+                            
+                            // Balance Amount
+                            var balanceAmount = '₹' + (txn.balance_after || 0).toFixed(0);
+                            
+                            html += '<tr style="background: ' + rowBg + ';">';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0; text-align: center;">' + (index + 1) + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0;">' + dateFormatted + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0;">' + (txn.transaction_no || '-') + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0;"><span style="' + badgeStyle + '">' + txnType + '</span></td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0;">' + description + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0;">' + employee + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0; text-align: right;">' + amount + '</td>';
+                            html += '<td style="padding: 10px; border: 1px solid #e0e0e0; text-align: right;">' + balanceAmount + '</td>';
+                            html += '</tr>';
+                        });
+                        
+                        html += '</tbody>';
+                        html += '</table>';
+                        
+                        $('#txnHistoryContent').html(html);
+                    }
+                } else {
+                    $('#txnHistoryContent').html('<div style="padding: 20px; text-align: center; color: #d9534f;"><i class="fa fa-exclamation-triangle"></i> Error: ' + response.message + '</div>');
+                }
+            },
+            error: function(xhr) {
+                var errorMsg = 'Failed to load transactions';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                $('#txnHistoryContent').html('<div style="padding: 20px; text-align: center; color: #d9534f;"><i class="fa fa-exclamation-triangle"></i> ' + errorMsg + '</div>');
+            }
+        });
+    });
+    
+    // Handle Send Email button click
+    $(document).on('click', '.send-email-btn', function() {
+        var paymentId = $(this).data('payment-id');
+        var customerEmail = $(this).data('customer-email');
+        
+        if (!customerEmail) {
+            alert('Customer email not available');
+            return;
+        }
+        
+        if (confirm('Send receipt to ' + customerEmail + '?')) {
+            var $btn = $(this);
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+            
+            $.ajax({
+                url: '/api/payments/' + paymentId + '/send-email',
+                method: 'POST',
+                success: function(response) {
+                    if (response.success) {
+                        alert('Receipt sent successfully to ' + customerEmail);
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                    $btn.prop('disabled', false).html('<i class="fa fa-envelope"></i>');
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to send email';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                    $btn.prop('disabled', false).html('<i class="fa fa-envelope"></i>');
+                }
+            });
+        }
+    });
+    
+    // Handle Send WhatsApp button click
+    $(document).on('click', '.send-whatsapp-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        if ($(this).data('opening')) {
+            return;
+        }
+        $(this).data('opening', true);
+        var $btn = $(this);
+        setTimeout(function() { $btn.removeData('opening'); }, 2000);
+        
+        var paymentId = $(this).data('payment-id');
+        var customerPhone = String($(this).attr('data-customer-phone') || '');
+        var transactionNo = $(this).data('transaction-no');
+        
+        if (!customerPhone || !/\d/.test(customerPhone)) {
+            alert('Customer phone number not available');
+            $(this).removeData('opening');
+            return;
+        }
+        
+        var cleanPhone = customerPhone.replace(/[^0-9]/g, '');
+        if (cleanPhone.length === 10) {
+            cleanPhone = '91' + cleanPhone;
+        }
+        
+        var receiptUrl = window.location.origin + '/api/payments/' + paymentId + '/receipt';
+        var msg = 'Dear Customer\n\nYour payment receipt (Transaction: ' + transactionNo + ') is ready.\n\nDownload: ' + receiptUrl + '\n\nThank you for your payment!';
+        var encodedMsg = encodeURIComponent(msg);
+        
+        var ua = navigator.userAgent || '';
+        var isMobile = /Android|iPhone|iPad|iPod|Windows Phone/i.test(ua);
+        var isIOS = /iPhone|iPad|iPod/i.test(ua);
+        
+        var whatsappUrl;
+        if (isMobile) {
+            if (isIOS) {
+                whatsappUrl = 'whatsapp://send?phone=' + cleanPhone + '&text=' + encodedMsg;
+            } else {
+                whatsappUrl = 'https://wa.me/' + cleanPhone + '?text=' + encodedMsg;
+            }
+            window.location.href = whatsappUrl;
+        } else {
+            whatsappUrl = 'https://web.whatsapp.com/send?phone=' + cleanPhone + '&text=' + encodedMsg;
+            window.open(whatsappUrl, '_blank', 'noopener');
+        }
+    });
+    
+    // Handle Addon Bill icon click
+    $(document).on('click', 'a[title="Addon Bill"]', function(e) {
+        e.preventDefault();
+        
+        var $row = $(this).closest('tr');
+        var customerId = $row.find('td:first a').text().trim();
+        var customerName = $row.find('td:nth-child(2)').text().trim();
+        var balance = $row.find('td:nth-child(9) a').text().replace('₹', '').replace(',', '').trim();
+        
+        // Populate form
+        $('#addon_customer_id').val(customerId);
+        $('#addon_customer_name').val(customerName + ' (' + customerId + ')');
+        $('#addon_description').val('');
+        $('#addon_amount').val('');
+        $('#addon_cgst').val('');
+        $('#addon_sgst').val('');
+        $('#addon_igst').val('');
+        $('#addon_final_amount').val('₹0.00');
+        $('#addon_previous_balance').val('₹' + parseFloat(balance).toFixed(2));
+        $('#addon_include_balance').prop('checked', false);
+        
+        $('#addonBillModal').modal('show');
+    });
+    
+    // Calculate final amount for addon bill
+    function calculateAddonFinalAmount() {
+        var amount = parseFloat($('#addon_amount').val()) || 0;
+        var cgst = parseFloat($('#addon_cgst').val()) || 0;
+        var sgst = parseFloat($('#addon_sgst').val()) || 0;
+        var igst = parseFloat($('#addon_igst').val()) || 0;
+        
+        var cgstAmount = (amount * cgst) / 100;
+        var sgstAmount = (amount * sgst) / 100;
+        var igstAmount = (amount * igst) / 100;
+        
+        var finalAmount = amount + cgstAmount + sgstAmount + igstAmount;
+        $('#addon_final_amount').val('₹' + finalAmount.toFixed(2));
+    }
+    
+    // Wire up addon bill calculation
+    $('#addon_amount, #addon_cgst, #addon_sgst, #addon_igst').on('input', calculateAddonFinalAmount);
+    
+    // Handle Generate Addon Bill button
+    $('#generateAddonBill').click(function() {
+        var customerId = $('#addon_customer_id').val();
+        var description = $('#addon_description').val().trim();
+        var amount = parseFloat($('#addon_amount').val()) || 0;
+        var cgst = parseFloat($('#addon_cgst').val()) || 0;
+        var sgst = parseFloat($('#addon_sgst').val()) || 0;
+        var igst = parseFloat($('#addon_igst').val()) || 0;
+        var includeBalance = $('#addon_include_balance').is(':checked');
+        
+        if (!description) {
+            alert('Please enter description of goods');
+            return;
+        }
+        
+        if (amount <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+        
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Generating...');
+        
+        $.ajax({
+            url: '/api/customers/' + customerId + '/addon-bill',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                description: description,
+                amount: amount,
+                cgst: cgst,
+                sgst: sgst,
+                igst: igst,
+                include_previous_balance: includeBalance
+            }),
+            success: function(response) {
+                if (response.success) {
+                    alert('Addon bill generated successfully!');
+                    $('#addonBillModal').modal('hide');
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+                $btn.prop('disabled', false).html('Generate Bill');
+            },
+            error: function(xhr) {
+                var errorMsg = 'Failed to generate addon bill';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                alert(errorMsg);
+                $btn.prop('disabled', false).html('Generate Bill');
+            }
+        });
+    });
+    
+    $.fn.dataTable.ext.search.push(
+        function(settings, data, dataIndex) {
+            if (settings.nTable.id !== 'txnTable') {
+                return true;
+            }
+            
+            var selectedMonth = $('#txnMonthFilter').val();
+            var searchValue = $('#txnSearch').val().toLowerCase().trim();
+            
+            var row = settings.aoData[dataIndex] && settings.aoData[dataIndex].nTr;
+            var rowMonth = row ? row.getAttribute('data-month') : '';
+            var transactionNo = (data[1] || '').toString().toLowerCase();
+            var amountText = (data[3] || '').toString().replace(/[₹,\s]/g, '').trim();
+            
+            var monthMatch = true;
+            if (selectedMonth !== '') {
+                monthMatch = (rowMonth === selectedMonth);
+            }
+            
+            var searchMatch = true;
+            if (searchValue !== '') {
+                searchMatch = transactionNo.includes(searchValue) || amountText.includes(searchValue);
+            }
+            
+            return monthMatch && searchMatch;
+        }
+    );
+    
+    $(document).on('change', '#txnMonthFilter', function() {
+        if ($.fn.DataTable.isDataTable('#txnTable')) {
+            $('#txnTable').DataTable().draw();
+        }
+    });
+    
+    $(document).on('keyup', '#txnSearch', function() {
+        if ($.fn.DataTable.isDataTable('#txnTable')) {
+            $('#txnTable').DataTable().draw();
+        }
+    });
+    
+    // Date formatting helper functions
+    function toDDMMYYYY(dateStr) {
+        if (!dateStr || dateStr === '-') return '-';
+        // Check if already in DD-MM-YYYY format
+        var ddmmyyyyMatch = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+        if (ddmmyyyyMatch) return dateStr;
+        // Convert from YYYY-MM-DD to DD-MM-YYYY
+        var yyyymmddMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (yyyymmddMatch) return yyyymmddMatch[3] + '-' + yyyymmddMatch[2] + '-' + yyyymmddMatch[1];
+        return dateStr;
+    }
+    
+    function toYYYYMMDD(dateStr) {
+        if (!dateStr || dateStr === '-') return '';
+        // Check if already in YYYY-MM-DD format
+        var yyyymmddMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (yyyymmddMatch) return dateStr;
+        // Convert from DD-MM-YYYY to YYYY-MM-DD
+        var ddmmyyyyMatch = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+        if (ddmmyyyyMatch) return ddmmyyyyMatch[3] + '-' + ddmmyyyyMatch[2] + '-' + ddmmyyyyMatch[1];
+        return dateStr;
+    }
+    
+    // Handle Renew icon click
+    $(document).on('click', 'a[title="Renew"]', function(e) {
+        e.preventDefault();
+        
+        var $row = $(this).closest('tr');
+        var customerId = $row.find('td:first a').text().trim();
+        var customerName = $row.find('td:nth-child(2)').text().trim();
+        var username = $row.find('td:nth-child(3)').text().trim();
+        var status = $row.find('td:nth-child(6)').text().trim();
+        var balance = $row.find('td:nth-child(9) a').text().trim();
+        var expDate = $row.find('td:nth-child(10)').text().trim();
+        
+        // Store customer ID for later use
+        $('#renewSubscriptionModal').data('customerId', customerId);
+        
+        // Populate left column with basic info immediately
+        $('#renew_cust_name').val(customerName);
+        $('#renew_username').val(username);
+        $('#renew_plan_name').val('Loading...');
+        $('#renew_start_date').val('Loading...');
+        $('#renew_end_date').val(toDDMMYYYY(expDate));
+        $('#renew_status').val(status);
+        $('#renew_balance').val(balance);
+        $('#renew_installation_charges').val('Loading...');
+        $('#renew_security_deposit').val('Loading...');
+        $('#renew_installation_date').val('Loading...');
+        $('#renew_extra_amount').val('');
+        
+        // Set default month to 1 and ensure it's visible
+        $('#renew_with_months').val('1');
+        
+        // Show modal
+        $('#renewSubscriptionModal').modal('show');
+    });
+    
+    // Initialize renew modal when shown
+    $('#renewSubscriptionModal').on('shown.bs.modal', function() {
+        var customerId = $(this).data('customerId');
+        
+        // Destroy existing toggles if any
+        try {
+            $('#renew_auto_toggle, #renew_activate_toggle').bootstrapToggle('destroy');
+        } catch(e) {}
+        
+        // Fetch customer details
+        $.ajax({
+            url: '/api/customers/' + customerId,
+            method: 'GET',
+            success: function(response) {
+                if (response.success && response.customer) {
+                    var customer = response.customer;
+                    
+                    // Update fields with complete customer data
+                    $('#renew_plan_name').val(customer.plan_name || '-');
+                    $('#renew_start_date').val(toDDMMYYYY(customer.start_date) || '-');
+                    $('#renew_end_date').val(toDDMMYYYY(customer.end_date) || '-');
+                    
+                    // Format and display installation charges, security deposit, and installation date
+                    var installCharges = customer.installation_charges ? '₹ ' + parseFloat(customer.installation_charges).toFixed(2) : '₹ 0.00';
+                    var securityDep = customer.security_deposit ? '₹ ' + parseFloat(customer.security_deposit).toFixed(2) : '₹ 0.00';
+                    $('#renew_installation_charges').val(installCharges);
+                    $('#renew_security_deposit').val(securityDep);
+                    $('#renew_installation_date').val(toDDMMYYYY(customer.installation_date) || '-');
+                    
+                    // Set date inputs (keep YYYY-MM-DD format for type="date")
+                    if (customer.end_date) {
+                        $('#renew_change_end_date').val(customer.end_date);
+                    }
+                    
+                    // Set renew from date to current date by default
+                    var today = new Date().toISOString().split('T')[0];
+                    $('#renew_with_date').val(today);
+                    
+                    // Initialize toggle switches
+                    $('#renew_auto_toggle').prop('checked', customer.auto_renew === 'Yes');
+                    $('#renew_activate_toggle').prop('checked', customer.status === 'Active');
+                    
+                    $('#renew_auto_toggle, #renew_activate_toggle').bootstrapToggle({
+                        size: 'small',
+                        on: 'ON',
+                        off: 'OFF',
+                        onstyle: 'primary',
+                        offstyle: 'default'
+                    });
+                    
+                    // Bind toggle change handlers
+                    $('#renew_auto_toggle').off('change').on('change', function() {
+                        var isChecked = $(this).prop('checked');
+                        $.ajax({
+                            url: '/api/customers/' + customerId + '/auto-renew',
+                            method: 'PATCH',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ auto_renew: isChecked }),
+                            success: function(response) {
+                                if (response.success) {
+                                    alert(response.message);
+                                    loadCustomers();
+                                } else {
+                                    alert('Error: ' + response.message);
+                                    $('#renew_auto_toggle').bootstrapToggle(isChecked ? 'off' : 'on');
+                                }
+                            },
+                            error: function() {
+                                alert('Failed to update auto-renew status');
+                                $('#renew_auto_toggle').bootstrapToggle(isChecked ? 'off' : 'on');
+                            }
+                        });
+                    });
+                    
+                    $('#renew_activate_toggle').off('change').on('change', function() {
+                        var isChecked = $(this).prop('checked');
+                        $.ajax({
+                            url: '/api/customers/' + customerId + '/status',
+                            method: 'PATCH',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ active: isChecked }),
+                            success: function(response) {
+                                if (response.success) {
+                                    alert(response.message);
+                                    $('#renew_status').val(isChecked ? 'Active' : 'Deactive');
+                                    loadCustomers();
+                                } else {
+                                    alert('Error: ' + response.message);
+                                    $('#renew_activate_toggle').bootstrapToggle(isChecked ? 'off' : 'on');
+                                }
+                            },
+                            error: function() {
+                                alert('Failed to update customer status');
+                                $('#renew_activate_toggle').bootstrapToggle(isChecked ? 'off' : 'on');
+                            }
+                        });
+                    });
+                }
+            },
+            error: function() {
+                $('#renew_plan_name').val('-');
+                $('#renew_start_date').val('-');
+            }
+        });
+        
+        // Bind button handlers
+        $('#btn_change_end_date').off('click').on('click', function() {
+            var endDate = $('#renew_change_end_date').val();
+            if (!endDate) {
+                alert('Please select an end date');
+                return;
+            }
+            
+            var $btn = $(this);
+            var originalText = 'Change End Date';
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating...');
+            
+            $.ajax({
+                url: '/api/customers/' + customerId + '/end-date',
+                method: 'PATCH',
+                contentType: 'application/json',
+                dataType: 'json',
+                data: JSON.stringify({ end_date: endDate }),
+                success: function(response) {
+                    try {
+                        if (response && response.success) {
+                            alert(response.message);
+                            if (response.end_date) {
+                                $('#renew_end_date').val(toDDMMYYYY(response.end_date));
+                            }
+                        } else {
+                            alert('Error: ' + (response.message || 'Unknown error'));
+                        }
+                    } catch (e) {
+                        console.error('Error in success handler:', e);
+                        alert('End date updated but UI refresh had an issue.');
+                    }
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to update end date';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).html(originalText);
+                }
+            });
+        });
+        
+        $('#btn_update_balance').off('click').on('click', function() {
+            var amount = parseFloat($('#renew_extra_amount').val());
+            if (!amount || amount === 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+            
+            var $btn = $(this);
+            var originalText = 'Update Balance';
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating...');
+            
+            $.ajax({
+                url: '/api/customers/' + customerId + '/balance-adjustment',
+                method: 'POST',
+                contentType: 'application/json',
+                dataType: 'json',
+                data: JSON.stringify({ amount: amount }),
+                success: function(response) {
+                    try {
+                        if (response && response.success) {
+                            alert(response.message);
+                            var newBalance = Number(response.new_balance);
+                            if (Number.isFinite(newBalance)) {
+                                $('#renew_balance').val('₹ ' + newBalance.toFixed(2));
+                            }
+                            $('#renew_extra_amount').val('');
+                            
+                            // Set up one-time handler to reload page when modal closes
+                            $('#renewSubscriptionModal').one('hidden.bs.modal', function() {
+                                location.reload();
+                            });
+                            
+                            // Close the modal to trigger the reload
+                            $('#renewSubscriptionModal').modal('hide');
+                        } else {
+                            alert('Error: ' + (response.message || 'Unknown error'));
+                        }
+                    } catch (e) {
+                        console.error('Error in success handler:', e);
+                        alert('Balance updated but UI refresh had an issue.');
+                    }
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to update balance';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).html(originalText);
+                }
+            });
+        });
+        
+        $('#btn_renew_with_invoice').off('click').on('click', function() {
+            var months = parseInt($('#renew_with_months').val());
+            if (!months) {
+                alert('Please select number of months');
+                return;
+            }
+            
+            if (!confirm('Renew customer for ' + months + ' month(s) with invoice?')) {
+                return;
+            }
+            
+            var $btn = $(this);
+            var originalText = 'Renew with Invoice';
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+            
+            $.ajax({
+                url: '/api/customers/' + customerId + '/renew',
+                method: 'POST',
+                contentType: 'application/json',
+                dataType: 'json',
+                data: JSON.stringify({
+                    start_from: 'today',
+                    period_months: months,
+                    with_invoice: true
+                }),
+                success: function(response) {
+                    if (response && response.success) {
+                        var invoiceMsg = response.invoice_no ? '\n\nInvoice Generated: ' + response.invoice_no : '';
+                        var successMsg = '✓ Customer renewed successfully!' + invoiceMsg;
+                        if (response.start_date && response.end_date) {
+                            try {
+                                var displayEndDate = toDDMMYYYY(minusOneDay(response.end_date));
+                                successMsg += '\n\nNew Service Period:\n' + toDDMMYYYY(response.start_date) + ' to ' + displayEndDate;
+                            } catch (e) {
+                                console.error('Error formatting dates:', e);
+                                successMsg += '\n\nNew Service Period:\n' + response.start_date + ' to ' + response.end_date;
+                            }
+                        }
+                        alert(successMsg);
+                        
+                        // Update UI fields if they exist
+                        try {
+                            if (response.start_date && $('#renew_start_date').length) {
+                                $('#renew_start_date').val(toDDMMYYYY(response.start_date));
+                            }
+                            if (response.end_date && $('#renew_end_date').length) {
+                                $('#renew_end_date').val(toDDMMYYYY(response.end_date));
+                            }
+                        } catch (e) {
+                            console.error('Error updating UI fields:', e);
+                        }
+                        
+                        // Close modal and trigger auto-refresh
+                        $('#renewSubscriptionModal').modal('hide');
+                    } else {
+                        alert('Error: ' + (response.message || 'Unknown error'));
+                    }
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to renew customer';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).html(originalText);
+                }
+            });
+        });
+        
+        $('#btn_renew_without_invoice').off('click').on('click', function() {
+            var months = parseInt($('#renew_with_months').val());
+            if (!months) {
+                alert('Please select number of months');
+                return;
+            }
+            
+            if (!confirm('Renew customer for ' + months + ' month(s) without invoice?')) {
+                return;
+            }
+            
+            var $btn = $(this);
+            var originalText = 'Renew without Invoice';
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
+            
+            $.ajax({
+                url: '/api/customers/' + customerId + '/renew',
+                method: 'POST',
+                contentType: 'application/json',
+                dataType: 'json',
+                data: JSON.stringify({
+                    start_from: 'today',
+                    period_months: months,
+                    with_invoice: false
+                }),
+                success: function(response) {
+                    if (response && response.success) {
+                        var successMsg = '✓ Customer renewed successfully (without invoice)!';
+                        if (response.start_date && response.end_date) {
+                            try {
+                                var displayEndDate = toDDMMYYYY(minusOneDay(response.end_date));
+                                successMsg += '\n\nNew Service Period:\n' + toDDMMYYYY(response.start_date) + ' to ' + displayEndDate;
+                            } catch (e) {
+                                console.error('Error formatting dates:', e);
+                                successMsg += '\n\nNew Service Period:\n' + response.start_date + ' to ' + response.end_date;
+                            }
+                        }
+                        alert(successMsg);
+                        
+                        // Update UI fields if they exist
+                        try {
+                            if (response.start_date && $('#renew_start_date').length) {
+                                $('#renew_start_date').val(toDDMMYYYY(response.start_date));
+                            }
+                            if (response.end_date && $('#renew_end_date').length) {
+                                $('#renew_end_date').val(toDDMMYYYY(response.end_date));
+                            }
+                        } catch (e) {
+                            console.error('Error updating UI fields:', e);
+                        }
+                        
+                        // Close modal and trigger auto-refresh
+                        $('#renewSubscriptionModal').modal('hide');
+                    } else {
+                        alert('Error: ' + (response.message || 'Unknown error'));
+                    }
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to renew customer';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).html(originalText);
+                }
+            });
+        });
+        
+        
+        $('#btn_revert_renew').off('click').on('click', function() {
+            if (!confirm('Are you sure you want to revert the last renew? This will restore the previous end date and reverse any transactions.')) {
+                return;
+            }
+            
+            var $btn = $(this);
+            var originalText = 'Revert Last Renew';
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Reverting...');
+            
+            $.ajax({
+                url: '/api/customers/' + customerId + '/renew/revert',
+                method: 'POST',
+                contentType: 'application/json',
+                dataType: 'json',
+                success: function(response) {
+                    try {
+                        if (response && response.success) {
+                            alert(response.message);
+                            if (response.start_date) {
+                                $('#renew_start_date').val(toDDMMYYYY(response.start_date));
+                            } else {
+                                $('#renew_start_date').val('-');
+                            }
+                            if (response.end_date) {
+                                $('#renew_end_date').val(toDDMMYYYY(response.end_date));
+                            } else {
+                                $('#renew_end_date').val('-');
+                            }
+                        } else {
+                            alert('Error: ' + (response.message || 'Unknown error'));
+                        }
+                    } catch (e) {
+                        console.error('Error in success handler:', e);
+                        alert('Revert succeeded but UI refresh had an issue.');
+                    }
+                },
+                error: function(xhr) {
+                    var errorMsg = 'Failed to revert renew';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
+                    alert(errorMsg);
+                },
+                complete: function() {
+                    $btn.prop('disabled', false).html(originalText);
+                }
+            });
+        });
+    });
+    
+    // Cleanup when modal is hidden
+    $('#renewSubscriptionModal').on('hidden.bs.modal', function() {
+        try {
+            $('#renew_auto_toggle, #renew_activate_toggle').bootstrapToggle('destroy');
+        } catch(e) {}
+        
+        // Unbind all button handlers
+        $('#btn_change_end_date, #btn_update_balance, #btn_renew_with_invoice, #btn_renew_without_invoice, #btn_revert_renew').off('click');
+        
+        // Auto-refresh customer list when popup closes
+        location.reload();
+    });
+    
+    // Auto-refresh customer list when any popup closes
+    $('#addCustomerModal, #editCustomerModal, #addPaymentModal, #transactionHistoryModal, #sendPaymentLinkModal, #createComplaintModal, #whatsappModal, #deleteCustomerModal').on('hidden.bs.modal', function() {
+        location.reload();
+    });
+    
+    // Helper function to extract row data
+    function extractRowInfo($row) {
+        var customerId = $row.find('td:first a').text().trim();
+        var customerName = $row.find('td:nth-child(2)').text().trim();
+        var username = $row.find('td:nth-child(3)').text().trim();
+        var phoneLink = $row.find('td:nth-child(5) a[href^="tel:"]');
+        var phone = phoneLink.length > 0 ? phoneLink.attr('href').replace('tel:', '').trim() : '';
+        var status = $row.find('td:nth-child(6)').text().trim();
+        var balanceText = $row.find('td:nth-child(9)').text().trim();
+        
+        return {
+            id: customerId,
+            name: customerName,
+            username: username,
+            phone: phone,
+            status: status,
+            balance: balanceText
+        };
+    }
+    
+    // Handle Send Payment Link button click
+    $(document).on('click', 'a[title="Send Payment Link"]', function(e) {
+        e.preventDefault();
+        var $row = $(this).closest('tr');
+        var info = extractRowInfo($row);
+        
+        // Populate customer fields
+        $('#paylink_cust_id').val(info.id);
+        $('#paylink_cust_name').val(info.name);
+        $('#paylink_email').val(''); // TODO: Get from customer data
+        $('#paylink_mobile').val(info.phone);
+        $('#paylink_pending').val(info.balance);
+        
+        $('#sendPaymentLinkModal').modal('show');
+    });
+    
+    // Handle Create Complaint button click
+    $(document).on('click', 'a[title="Create Complaint"]', function(e) {
+        e.preventDefault();
+        var $row = $(this).closest('tr');
+        var info = extractRowInfo($row);
+        
+        // Populate customer fields
+        $('#complaint_cust_id').val(info.id);
+        $('#complaint_cust_name').val(info.name + ' (' + info.id + ')');
+        
+        // Clear other fields
+        $('#complaint_category').val('');
+        $('#complaint_priority').val('Medium');
+        $('#complaint_subject').val('');
+        $('#complaint_desc').val('');
+        
+        $('#createComplaintModal').modal('show');
+    });
+    
+    // Handle WhatsApp icon click
+    $(document).on('click', 'img[title="WhatsApp"]', function(e) {
+        e.preventDefault();
+        var $row = $(this).closest('tr');
+        var info = extractRowInfo($row);
+        
+        // Populate customer fields
+        $('#wa_cust_id').val(info.id);
+        $('#wa_cust_name').val(info.name);
+        $('#wa_phone').val(info.phone);
+        
+        // Clear message field
+        $('#wa_template').val('');
+        $('#wa_message').val('');
+        
+        $('#whatsappModal').modal('show');
+    });
+    
+    // Handle Delete button click
+    $(document).on('click', 'a[title="Delete"]', function(e) {
+        e.preventDefault();
+        var $row = $(this).closest('tr');
+        var info = extractRowInfo($row);
+        
+        // Populate customer fields
+        $('#delete_cust_id').val(info.id);
+        $('#delete_cust_name').val(info.name);
+        $('#delete_cust_id_display').val(info.id);
+        
+        $('#deleteCustomerModal').modal('show');
+    });
+});
+</script>
+{% endblock %}

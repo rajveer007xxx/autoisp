@@ -1,0 +1,181 @@
+"""_S40r_  Two phase-3 features:
+ 1. Auto-detect PON port count via SNMP walk on first poll.
+ 2. Server-Sent Events stream at /api/admin/olt/stream — pushes RX/TX
+    deltas every 5s so the dashboard + heatmap update without polling.
+"""
+import json, time, asyncio
+from typing import AsyncGenerator
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import StreamingResponse
+from olt_routes import engine, _require_scope  # type: ignore
+
+router = APIRouter()
+
+
+# ─── SNMP-walk helper for PON count ───────────────────────────────────
+def snmp_walk_pon_count(host: str, community: str = "public",
+                          port: int = 161) -> int:
+    """_S46C_  Strict PON-port discovery from ifDescr. Only counts
+    interfaces whose name looks like a *physical* PON, matching either
+    `EPON0/1` (VSOL/Netlink) or `EPON01` (Syrotech). ONU sub-interfaces
+    (`EPON0/1:5`, `EPON01ONU5`) are explicitly excluded. Vendor cap:
+    EPON ≤ 8, GPON ≤ 16."""
+    try:
+        from olt_vendors import _snmp_walk  # type: ignore
+    except Exception:
+        return 0
+    import re as _re
+    pat = _re.compile(r"^(epon|gpon)(\d+/\d+|\d+)$", _re.I)
+    seen = set()
+    tech = "GPON"
+    try:
+        rows = _snmp_walk(host, community, port,
+                          "1.3.6.1.2.1.2.2.1.2", "v2c", timeout=3.0)
+        for _suf, val in rows:
+            d = (val or "").strip()
+            if pat.match(d):
+                seen.add(d.upper())
+                if d.upper().startswith("EPON"): tech = "EPON"
+    except Exception:
+        return 0
+    if not seen:
+        # _S46C2_  Netlink/VSOL OEM hides physical PONs from ifTable —
+        # only ONU sub-interfaces appear (e.g. "EPON01ONU3 NAME"). Parse
+        # the PON number from those names instead.
+        sub_pat = _re.compile(r"^(epon|gpon)(\d+)onu\d+", _re.I)
+        # # __s56u_vsol_colon_pon__
+        # VSOL V1600D / V1600G-1 use colon-separated ONU sub-interfaces
+        # named like "EPON0/1:5" or "GPON0/2:3" — match those too.
+        colon_pat = _re.compile(r"^(epon|gpon)(\d+/\d+):\d+", _re.I)
+        for _suf, val in rows:
+            v = (val or "").strip()
+            m_ = sub_pat.match(v)
+            if m_:
+                seen.add(m_.group(1).upper() + m_.group(2))
+                if m_.group(1).upper() == "EPON": tech = "EPON"
+                continue
+            m_c = colon_pat.match(v)
+            if m_c:
+                seen.add(m_c.group(1).upper() + m_c.group(2))
+                if m_c.group(1).upper() == "EPON": tech = "EPON"
+        if not seen:
+            return 0
+    return min(len(seen), 8 if tech == "EPON" else 16)
+
+
+
+@router.post("/api/admin/olt/olts/{olt_id}/auto-detect-pon")
+def api_auto_detect_pon(request: Request, olt_id: int):
+    sc = _require_scope(request)
+    if sc["role"] != "admin":
+        raise HTTPException(403, "Admin-only")
+    cid = sc["company_id"]
+    with engine.begin() as conn:
+        olt = conn.exec_driver_sql(
+            "SELECT id,host,snmp_community,snmp_port FROM olts "
+            "WHERE id=? AND company_id=?", (olt_id, cid)).fetchone()
+        if not olt:
+            raise HTTPException(404, "OLT not found")
+        if not olt[1]:
+            return {"ok": False, "reason": "OLT has no host configured"}
+        cnt = snmp_walk_pon_count(olt[1], olt[2] or "public",
+                                    int(olt[3] or 161))
+        if cnt <= 0:
+            return {"ok": False,
+                     "reason": "SNMP walk returned no PON interfaces. "
+                               "Check community / firewall."}
+        # _S46A_  Snapshot the previous pon_port_count for the response,
+        # then UPSERT pon_ports rows AND update olts.pon_port_count so the
+        # dashboard / port-status APIs all converge on the real value.
+        existing = conn.exec_driver_sql(
+            "SELECT COALESCE(pon_port_count,0) FROM olts WHERE id=?",
+            (olt_id,)).fetchone()[0]
+        # Wipe stale > cnt rows (the bug that put P0..P76 there).
+        conn.exec_driver_sql(
+            "DELETE FROM pon_ports WHERE olt_id=? AND port_index>?",
+            (olt_id, cnt))
+        for i in range(1, cnt + 1):
+            conn.exec_driver_sql(
+                "INSERT OR IGNORE INTO pon_ports "
+                "(olt_id,port_index,name,admin_up,oper_up) "
+                "VALUES (?,?,?,1,1)",
+                (olt_id, i, f"gpon0/{i}"))
+        conn.exec_driver_sql(
+            "UPDATE olts SET pon_port_count=? WHERE id=?", (cnt, olt_id))
+    return {"ok": True, "detected": cnt, "previous": existing}
+
+
+# ─── SSE stream of OLT telemetry deltas ───────────────────────────────
+def _telemetry_snapshot(cid: str) -> dict:
+    out = {"olts": [], "onus": []}
+    with engine.begin() as conn:
+        for r in conn.exec_driver_sql(
+            "SELECT id, name, status, online_onus, total_onus FROM olts "
+            "WHERE company_id=?", (cid,)).fetchall():
+            tx_per_port = {}
+            for (pi, tx) in conn.exec_driver_sql(
+                "SELECT port_index, tx_power FROM pon_ports WHERE olt_id=?",
+                (r[0],)).fetchall():
+                tx_per_port[pi] = tx
+            out["olts"].append({"id": r[0], "name": r[1], "status": r[2],
+                                  "online_onus": r[3], "total_onus": r[4],
+                                  "tx_per_port": tx_per_port})
+        for r in conn.exec_driver_sql(
+            "SELECT id, name, status, rx_power, last_seen FROM onus "
+            "WHERE company_id=?", (cid,)).fetchall():
+            out["onus"].append({"id": r[0], "name": r[1], "status": r[2],
+                                  "rx_power": r[3], "last_seen": r[4]})
+    return out
+
+
+def _diff_snapshots(prev: dict, curr: dict) -> dict:
+    """Return only the changed fields, keyed by id."""
+    delta = {"olts": [], "onus": []}
+    pmap_o = {o["id"]: o for o in (prev.get("olts") or [])}
+    for o in curr.get("olts", []):
+        po = pmap_o.get(o["id"])
+        if not po or po != o: delta["olts"].append(o)
+    pmap_u = {u["id"]: u for u in (prev.get("onus") or [])}
+    for u in curr.get("onus", []):
+        pu = pmap_u.get(u["id"])
+        if not pu: delta["onus"].append(u); continue
+        # Only push if RX changed by ≥ 0.5 dB OR status flipped
+        rx_a = pu.get("rx_power"); rx_b = u.get("rx_power")
+        rx_delta = abs((rx_a or 0) - (rx_b or 0))
+        if pu.get("status") != u.get("status") or rx_delta >= 0.5 \
+           or (rx_a is None) != (rx_b is None):
+            delta["onus"].append(u)
+    return delta
+
+
+@router.get("/api/admin/olt/stream")
+async def api_olt_stream(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+
+    async def gen() -> AsyncGenerator[bytes, None]:
+        prev = {}
+        # Send initial full snapshot
+        snap = _telemetry_snapshot(cid)
+        yield (f"event: snapshot\ndata: {json.dumps(snap)}\n\n").encode()
+        prev = snap
+        last_keepalive = time.time()
+        while True:
+            if await request.is_disconnected(): break
+            try:
+                snap = _telemetry_snapshot(cid)
+                delta = _diff_snapshots(prev, snap)
+                if delta["olts"] or delta["onus"]:
+                    yield (f"event: delta\ndata: {json.dumps(delta)}\n\n").encode()
+                    prev = snap
+                # Keep-alive comment every 25 s so proxies don't drop
+                if time.time() - last_keepalive > 25:
+                    yield b": keepalive\n\n"
+                    last_keepalive = time.time()
+            except Exception as e:
+                yield (f"event: error\ndata: {json.dumps({'err': str(e)})}\n\n"
+                       ).encode()
+            await asyncio.sleep(5)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache",
+                                        "X-Accel-Buffering": "no"})

@@ -1,0 +1,2230 @@
+{% extends base_template|default("base_admin.html") %}
+
+{# __CPW_GATE_94685303__ Per-company Change Password restriction #}
+{% if (company_id|string == '94685303') or (current_company_id|default('')|string == '94685303') %}
+<style>
+  /* Hide every Change Password trigger on this page for company 94685303 */
+  [data-testid="sub-change-pwd"],
+  [data-testid="change-pw-btn"],
+  [data-testid="employee-change-pw-btn"],
+  [data-testid="customer-change-pw-btn"],
+  #changePwdModal, #changePasswordForm,
+  .change-password-section,
+  .change-password-btn,
+  button[onclick*="openChangePwd"],
+  button[onclick*="changePassword"],
+  a[onclick*="changePassword"],
+  form[action*="change-password"],
+  .box-title:is(:contains("Change Password")),
+  .modal-title:is(:contains("Change Password")) {
+    display: none !important;
+  }
+</style>
+<script>
+  (function () {
+    // Programmatic hide for buttons/labels matched by text — :contains isn't
+    // valid in plain CSS so we walk the DOM.
+    function hideByText() {
+      document.querySelectorAll('button, a, h3, h4, .box-title, .modal-title, .panel-title').forEach(el => {
+        var t = (el.textContent || '').trim().toLowerCase();
+        if (t === 'change password' || t === 'reset password') {
+          el.style.display = 'none';
+          // Also hide the parent .box or .panel containing it
+          var box = el.closest('.box, .panel, .card, .modal');
+          if (box && (box.querySelectorAll('button, input, form').length <= 6)) {
+            box.style.display = 'none';
+          }
+        }
+      });
+      // Hide quick-action button "Change Password" specifically
+      document.querySelectorAll('.qa-btn, .action-btn, .btn').forEach(el => {
+        if ((el.textContent || '').trim() === 'Change Password') {
+          el.style.display = 'none';
+        }
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', hideByText);
+    } else {
+      hideByText();
+    }
+    // Re-run after any dynamic content loads
+    setTimeout(hideByText, 500);
+    setTimeout(hideByText, 2000);
+  })();
+</script>
+{% endif %}
+
+
+{% block title %}Subscriber: {{ cust.customer_name or cust.username }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sub-wrap { background:#f4f6f9; min-height: calc(100vh - 50px); }
+    .sub-top { background:#fff; padding:14px 20px; border-bottom:1px solid #e5e7eb;
+               display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;}
+    .sub-top h1 { margin:0; font-size:22px; font-weight:600; color:#0f172a; }
+    .sub-top .status-line { font-size:13px; color:#64748b; margin-top:4px; }
+    .sub-top .status-badge { background:#10b981; color:#fff; padding:2px 8px; border-radius:3px;
+                             font-size:11px; font-weight:600; margin-left:6px; }
+    .sub-breadcrumb { font-size:12px; color:#64748b; }
+    .sub-breadcrumb a { color:#2563eb; text-decoration:none; }
+
+    .sub-tabs { background:#fff; border-bottom:1px solid #e5e7eb; padding:0 20px;
+                display:flex; justify-content:space-between; align-items:center; }
+    .sub-tabs .tab-list { display:flex; gap:2px; }
+    .sub-tabs a { padding:10px 16px; color:#64748b; text-decoration:none; font-size:13px;
+                  border-bottom:2px solid transparent; font-weight:500; cursor:pointer; }
+    .sub-tabs a.active { color:#2563eb; border-bottom-color:#2563eb; font-weight:600; }
+    .sub-tabs a:hover { background:#f8fafc; color:#1d4ed8; }
+    .sub-tabs .edit-btn { background:none; border:none; color:#64748b; cursor:pointer;
+                          font-size:13px; padding:6px 12px; }
+    .sub-tabs .edit-btn:hover { color:#2563eb; }
+
+    .sub-grid { display:grid; grid-template-columns: 280px 1fr 320px; gap:14px; padding:14px; }
+    @media (max-width:1200px) { .sub-grid { grid-template-columns:1fr; } }
+    .sub-col { display:flex; flex-direction:column; gap:14px; }
+
+    .card-s { background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:12px 14px; }
+    .card-s h4 { margin:0 0 10px; font-size:13px; color:#1f2937; font-weight:600;
+                 padding-bottom:8px; border-bottom:1px solid #f1f5f9; display:flex;
+                 align-items:center; gap:6px; justify-content:space-between; }
+    .card-s h4 .title-inner { display:flex; align-items:center; gap:6px; }
+    .card-s h4 .edit-pencil { color:#94a3b8; cursor:pointer; font-size:12px; background:none; border:none; }
+    .card-s h4 .edit-pencil:hover { color:#2563eb; }
+
+    .qa-btn { display:block; width:100%; padding:10px 14px; background:#17a2b8; color:#fff;
+              border:none; border-radius:4px; text-align:center; font-size:13px; font-weight:500;
+              cursor:pointer; margin-bottom:8px; transition:background .15s; text-decoration:none; }
+    .qa-btn:hover { background:#138496; color:#fff; text-decoration:none; }
+    .qa-btn.qa-danger { background:#dc2626; }
+    .qa-btn.qa-danger:hover { background:#b91c1c; }
+
+    .dm-card { background:linear-gradient(135deg, #fb923c 0%, #f97316 100%); color:#fff;
+               padding:14px; border-radius:6px; display:flex; justify-content:space-between;
+               align-items:center; }
+    .dm-card .dm-title { font-size:13px; font-weight:600; }
+    .dm-card .dm-sub { font-size:11px; opacity:0.9; margin-top:2px; }
+    .dm-card .dm-add { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.25);
+                       color:#fff; border:none; cursor:pointer; font-size:16px; }
+    .dm-card .dm-add:hover { background:rgba(255,255,255,0.4); }
+
+    .online-pill { display:inline-block; background:#10b981; color:#fff; padding:3px 10px;
+                   border-radius:10px; font-size:11px; font-weight:600; }
+    .offline-pill { display:inline-block; background:#94a3b8; color:#fff; padding:3px 10px;
+                    border-radius:10px; font-size:11px; font-weight:600; }
+
+    .du-title { color:#475569; font-size:12px; font-weight:600; display:flex;
+                align-items:center; gap:6px; margin-bottom:8px; }
+    .du-title i { color:#2563eb; }
+    .du-range { color:#94a3b8; font-size:10px; margin-left:auto; font-weight:400; }
+    .du-row { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; color:#334155; }
+    .du-row strong { color:#0f172a; font-weight:600; }
+    .du-total { background:#f0f9ff; border:1px solid #bae6fd; padding:6px 8px;
+                border-radius:4px; margin-bottom:6px; }
+    .du-total strong { color:#0369a1; font-size:14px; }
+
+    .kv { display:grid; grid-template-columns:180px 1fr; gap:5px 12px; font-size:12.5px; }
+    .kv dt { color:#64748b; font-weight:500; padding:3px 0; }
+    .kv dd { color:#0f172a; margin:0; padding:3px 0; }
+    .no-badge { background:#ef4444; color:#fff; padding:1px 7px; border-radius:3px;
+                font-size:10px; font-weight:600; }
+    .yes-badge { background:#10b981; color:#fff; padding:1px 7px; border-radius:3px;
+                 font-size:10px; font-weight:600; }
+
+    .pkg-title { display:flex; align-items:center; gap:8px; font-size:14px;
+                 color:#0f172a; font-weight:600; }
+    .pkg-title::before { content:""; width:8px; height:8px; border-radius:50%; background:#3b82f6; }
+
+    .vb-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .vb-head i { color:#2563eb; font-size:16px; }
+    .vb-amount { font-size:22px; font-weight:700; color:#0f172a; }
+    .vb-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px;
+              border:1px solid #e5e7eb; border-radius:4px; margin-bottom:6px; cursor:pointer;
+              background:#f8fafc; font-size:12.5px; }
+    .vb-row:hover { background:#e0e7ff; }
+    .vb-btn { display:block; width:100%; padding:8px; background:#fff; border:1px solid #2563eb;
+              color:#2563eb; border-radius:4px; text-align:center; text-decoration:none;
+              font-size:12px; font-weight:600; margin-bottom:6px; cursor:pointer; }
+    .vb-btn:hover { background:#2563eb; color:#fff; }
+
+    .pkg-table { width:100%; font-size:12px; margin-top:6px; }
+    .pkg-table th { background:#f8fafc; padding:6px 8px; text-align:left; color:#475569;
+                    font-weight:600; border-bottom:1px solid #e5e7eb; font-size:11px; }
+    .pkg-table td { padding:6px 8px; border-bottom:1px solid #f1f5f9; color:#334155; }
+
+    .mono { font-family:monospace; font-size:12px; }
+    .link-btn { display:inline-block; padding:3px 10px; background:#2563eb; color:#fff;
+                border:none; border-radius:3px; font-size:11px; cursor:pointer;
+                text-decoration:none; margin-top:6px; }
+    .link-btn:hover { background:#1d4ed8; color:#fff; }
+
+    /* Tab panels */
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+
+    /* Edit form */
+    .edit-form { display:grid; grid-template-columns:180px 1fr; gap:8px 12px; font-size:13px; }
+    .edit-form label { color:#64748b; font-weight:500; padding-top:6px; }
+    .edit-form input, .edit-form select, .edit-form textarea {
+        width:100%; padding:5px 8px; border:1px solid #d1d5db; border-radius:3px;
+        font-size:13px; background:#fff; }
+    .edit-form input:focus, .edit-form select:focus { border-color:#2563eb; outline:none; }
+    .edit-actions { grid-column:span 2; display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+    .btn-save { background:#16a34a; color:#fff; border:none; padding:8px 16px;
+                border-radius:4px; cursor:pointer; font-weight:600; }
+    .btn-cancel { background:#64748b; color:#fff; border:none; padding:8px 16px;
+                  border-radius:4px; cursor:pointer; font-weight:600; }
+
+    /* KYC */
+    .kyc-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; padding:16px; }
+    .kyc-box { text-align:center; }
+    .kyc-box h5 { font-size:13px; font-weight:600; color:#334155; margin:0 0 8px; }
+    .kyc-box img { max-width:100%; max-height:280px; border:1px solid #e5e7eb; border-radius:4px;
+                   box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; }
+    .kyc-missing { padding:60px 20px; text-align:center; color:#94a3b8; font-size:14px;
+                   background:#f8fafc; border:1px dashed #cbd5e1; border-radius:6px; }
+
+    /* Audit trail */
+    .audit-wrap { padding:4px 10px; }
+    .audit-date { font-size:15px; font-weight:600; color:#0f172a; margin:14px 0 6px;
+                  padding-bottom:6px; border-bottom:2px solid #e5e7eb; }
+    .audit-evt { display:grid; grid-template-columns:85px 1fr; gap:12px; padding:8px 0;
+                 border-bottom:1px solid #f1f5f9; font-size:12.5px; }
+    .audit-evt .t { color:#64748b; font-weight:600; white-space:nowrap; }
+    .audit-evt .txt { color:#334155; }
+    .audit-evt.t-renewal { background:#f0fdf4; padding-left:8px; padding-right:8px; border-radius:3px;}
+    .audit-evt.t-status  { background:#fff7ed; padding-left:8px; padding-right:8px; border-radius:3px;}
+    .audit-evt.t-payment { background:#eff6ff; padding-left:8px; padding-right:8px; border-radius:3px;}
+    .audit-evt.t-create  { background:#f0f9ff; padding-left:8px; padding-right:8px; border-radius:3px;}
+
+    /* Connection tab styling */
+    .conn-row { display:grid; grid-template-columns:240px 1fr; gap:10px 20px; max-width:700px;
+                margin:0 auto; padding:20px; }
+    .conn-row dt { color:#475569; text-align:right; padding-top:8px; font-size:13px; font-weight:500;}
+    .conn-row dd { margin:0; padding-top:8px; }
+
+    /* Modal */
+    .modal-body .form-group { margin-bottom:12px; }
+    .modal-body label { font-weight:500; color:#475569; font-size:13px; }
+    .modal-body input, .modal-body select { width:100%; padding:6px 10px; border:1px solid #d1d5db;
+                                            border-radius:3px; font-size:13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sub-wrap">
+
+<section class="sub-top">
+    <div>
+        <h1 data-testid="sub-customer-name">
+            Subscriber: {{ cust.customer_name or cust.username }}
+            {% if live %}<span class="online-pill" style="margin-left:8px;">Online</span>{% endif %}
+        </h1>
+        <div class="status-line">
+            Status: <span class="status-pill status-pill-{{ (cust.status or 'unknown')|lower|replace(' ', '_') }}">{{ status_badge or cust.status or '—' }}</span>
+        </div>
+    </div>
+    <div class="sub-breadcrumb">
+        <a href="{{ path_prefix|default('/admin') }}/dashboard">Dashboard</a> /
+        <a href="{{ path_prefix|default('/admin') }}/users">Subscribers</a> /
+        <span>Show</span>
+    </div>
+</section>
+
+<div class="sub-grid">
+
+    <!-- LEFT COLUMN (always visible) -->
+    <div class="sub-col">
+        <div>
+            <button class="qa-btn" onclick="resetMac()" data-testid="sub-reset-mac">Reset MAC Address</button>
+            {% if live %}<button class="qa-btn qa-danger" onclick="kickSub()" data-testid="sub-kick-btn">Disconnect</button>{% endif %}
+            {# _S39R5FIX13_ — Active → Disable; anything else → Enable #}
+            {% if cust.status == 'Active' %}
+            <button class="qa-btn" onclick="toggleSuspend(true)" data-testid="sub-disable-btn">Disable Subscriber</button>
+            <button class="qa-btn qa-park" onclick="parkNow()" data-testid="sub-park-now-btn"
+                    data-tip="One-click: marks subscriber as Parked, kicks the live PPPoE session, re-syncs RADIUS so MikroTik moves them to the parking-pool IP. Any browser request from their device will be auto-redirected to the captive pay page (cust ID and dues pre-filled).">
+                <i class="fa fa-bolt"></i> Park Now
+            </button>
+            {% elif cust.status == 'Parked' %}
+            <button class="qa-btn qa-unpark" onclick="unparkNow()" data-testid="sub-unpark-btn"
+                    data-tip="Reverse the parking: subscriber is set back to Active, the parking-pool session is dropped, and on the next dial they receive a real-pool IP. Use after the customer has paid their dues.">
+                <i class="fa fa-undo"></i> Unpark (Reactivate)
+            </button>
+            {% else %}
+            <button class="qa-btn" onclick="toggleSuspend(false)" data-testid="sub-enable-btn">Enable Subscriber</button>
+            {% if company and company.enable_whatsapp_api %}
+            <button class="qa-btn" style="background:#25D366;color:#fff;border-color:#25D366;" onclick="sendPayLink()" data-testid="send-pay-link-btn" title="Generate pay link + WhatsApp deep-link"><i class="fa fa-whatsapp"></i> Send Pay Link</button>
+            {% endif %}
+            {% endif %}
+            <button class="qa-btn" onclick="openChangePwd()" data-testid="sub-change-pwd">Change Password</button>
+            <a href="/api/customers/{{ cust.customer_id }}/download-caf" target="_blank" class="qa-btn"
+               data-testid="sub-generate-caf">Generate CAF (PDF)</a>
+            <!-- _S40f_ — per-customer website blocks -->
+            <button class="qa-btn" style="background:#fff3f3;border-color:#ef4444;color:#b91c1c;"
+                    onclick="openBlockWebsites()" data-testid="sub-block-websites-btn">
+                <i class="fa fa-ban"></i> Block Websites
+            </button>
+        </div>
+
+        <div class="dm-card">
+            <div>
+                <div class="dm-title">Direct Message</div>
+                <a href="#" style="color:#fff; text-decoration:underline; font-size:11px;"
+                   data-testid="sub-view-all-alerts">View All Alerts</a>
+            </div>
+            <button class="dm-add" onclick="addAlert()" data-testid="sub-add-alert">
+                <i class="fa fa-plus"></i></button>
+        </div>
+
+        <div class="card-s">
+            <h4><span class="title-inner">
+                {% if live %}<span class="online-pill" data-testid="sub-online-pill"><i class="fa fa-sign-in"></i> Currently Online</span>
+                {% else %}<span class="offline-pill">Currently Offline</span>{% endif %}
+            </span></h4>
+            {% if live %}
+            <div class="du-row"><span>Logged In At</span>
+                <strong>{{ live.started_at.strftime('%d-%b-%Y %I:%M %p') if live.started_at else '—' }}</strong></div>
+            <div class="du-row"><span>Last Logged Nas Port</span>
+                <strong class="mono">{{ live.nas_port or 'ether3' }}</strong></div>
+            {% else %}
+            <p style="color:#94a3b8; font-size:12px; margin:4px 0;">User is not currently online.</p>
+            {% endif %}
+            <button class="link-btn" onclick="openAccessLogs()" data-testid="sub-view-access-requests" style="border:none;">View Access Requests</button>
+        </div>
+
+        <div class="card-s">
+            <div class="du-title"><i class="fa fa-database"></i> Total Data Used</div>
+            <div class="du-row"><span>Total</span><strong>{{ '%.2f GB'|format((usage_total.total_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Uploaded</span><strong>{{ '%.2f GB'|format((usage_total.upload_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Downloaded</span><strong>{{ '%.2f GB'|format((usage_total.download_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Package Used for Days</span><strong>{{ pkg_used_days }}</strong></div>
+            <div class="du-row"><span>Package Time Left</span>
+                <strong>{{ pkg_days_left }}d {{ pkg_hours_left }}h {{ pkg_min_left }}min</strong></div>
+        </div>
+
+        <div class="card-s">
+            <div class="du-title"><i class="fa fa-database"></i> Data Used Today
+                <span class="du-range">since 00:00</span></div>
+            <div class="du-row"><span>Total</span><strong>{{ '%.2f GB'|format((usage_today.total_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Uploaded</span><strong>{{ '%.2f GB'|format((usage_today.upload_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Downloaded</span><strong>{{ '%.2f GB'|format((usage_today.download_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Hours Used</span><strong>{{ '%.1f'|format(usage_today.online_hours) }} h</strong></div>
+        </div>
+
+        <div class="card-s">
+            <div class="du-title"><i class="fa fa-database"></i> Data Used Monthly
+                <span class="du-range">last 30 days</span></div>
+            <div class="du-row"><span>Total</span><strong>{{ '%.2f GB'|format((usage_month.total_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Uploaded</span><strong>{{ '%.2f GB'|format((usage_month.upload_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Downloaded</span><strong>{{ '%.2f GB'|format((usage_month.download_mb or 0) / 1024.0) }}</strong></div>
+            <div class="du-row"><span>Hours Used</span><strong>{{ '%.1f'|format(usage_month.online_hours) }} h</strong></div>
+            <a href="{{ path_prefix|default('/admin') }}/subscribers/{{ cust.id }}/usage/current" class="link-btn" data-testid="sub-view-current-usage">View Current Usage</a>
+            <!-- _S39R1_USAGE_PREV_LINK -->
+            <a href="{{ path_prefix|default('/admin') }}/subscribers/{{ cust.id }}/usage/previous" class="link-btn" style="background:#64748b;" data-testid="sub-view-all-usage">View All Previous Usage</a>
+        </div>
+    </div>
+
+    <!-- MIDDLE COLUMN (tab content) -->
+    <div class="sub-col">
+
+    <nav class="sub-tabs" style="margin-bottom:14px;">
+        <div class="tab-list">
+            <a href="#" class="tab-link active" data-tab="details" data-testid="tab-details">Details</a>
+            <a href="#" class="tab-link" data-tab="connection" data-testid="tab-connection">Connection</a>
+            <a href="#" class="tab-link" data-tab="kyc" data-testid="tab-kyc">KYC Documents</a>
+            <a href="#" class="tab-link" data-tab="audit" data-testid="tab-audit">Audit Trail</a>
+        </div>
+    </nav>
+
+    <!-- ===== DETAILS TAB ===== -->
+    <div class="tab-panel active" id="tab-details">
+        <div style="margin-bottom:14px;">
+          <!-- _OLT35_CONNECTED_ONU — Connected ONU mini-card (auto-populates) -->
+        <div class="card-s" id="connectedOnuCard"
+             data-testid="connected-onu-card"
+             style="display:none">
+          <h4><span class="title-inner">Connected ONU / ONT</span></h4>
+          <div id="connectedOnuBody"
+               style="padding:8px 4px;font-size:13px;line-height:1.7;"></div>
+        </div>
+        <script>
+        (async function(){
+          const cust_id = "{{ cust.customer_id }}";
+          if (!cust_id) return;
+          try {
+            const r = await fetch(`/api/admin/olt/onus-by-customer/${encodeURIComponent(cust_id)}`);
+            const j = await r.json();
+            if (!j.ok || !j.items || j.items.length === 0) return;
+            const card = document.getElementById('connectedOnuCard');
+            const body = document.getElementById('connectedOnuBody');
+            const rxClr = (rx) => rx === null || rx === undefined ? '#64748b'
+                : (rx <= -28 ? '#dc2626' : (rx <= -25 ? '#d97706' : '#16a34a'));
+            body.innerHTML = j.items.map(o => `
+              <div style="display:grid;grid-template-columns:140px 1fr;gap:6px 12px;
+                   padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                <div style="color:#64748b">Serial</div>
+                <div><b style="font-family:monospace">${o.serial||'—'}</b></div>
+                <div style="color:#64748b">OLT</div>
+                <div>${o.olt_name||('#'+o.olt_id)} · PON ${o.pon_port_index}/${o.onu_index}</div>
+                <div style="color:#64748b">Status</div>
+                <div>${o.status === 'online'
+                    ? '<span class="yes-badge">Online</span>'
+                    : '<span class="no-badge">Offline</span>'}</div>
+                <div style="color:#64748b">RX Power</div>
+                <div style="color:${rxClr(o.rx_power)};font-weight:700">${o.rx_power!==null && o.rx_power!==undefined ? o.rx_power.toFixed(1)+' dBm' : '—'}</div>
+                <div style="color:#64748b">Vendor / Model</div>
+                <div>${o.vendor||'—'} ${o.model? '· '+o.model : ''}</div>
+                <div style="color:#64748b">Last Seen</div>
+                <div style="color:#64748b;font-size:12px">${(function(s){if(!s)return '\u2014';try{var d=new Date(s);if(isNaN(d))return s;var p=function(n){return String(n).padStart(2,'0');};return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());}catch(e){return s;}})(o.last_seen)}</div>
+                <div></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-sm btn-warning"
+                          data-testid="connected-onu-reboot-${o.id}"
+                          onclick="rebootConnectedOnu(${o.id})">
+                    <i class="fa fa-power-off"></i> Reboot ONU
+                  </button>
+                  <a class="btn btn-sm btn-default"
+                     href="{{ path_prefix|default('/admin') }}/olt/onus?olt_id=${o.olt_id}"
+                     target="_blank"
+                     data-testid="connected-onu-open-${o.id}">
+                    <i class="fa fa-external-link"></i> Open in OLT Manager
+                  </a>
+                </div>
+              </div>
+            `).join('');
+            card.style.display = '';
+          } catch(e){ /* silent — non-blocking */ }
+        })();
+        async function rebootConnectedOnu(id){
+          if (!confirm('Reboot this ONU now? Customer will be offline for ~30 seconds.')) return;
+          try {
+            const r = await fetch(`/api/admin/olt/onus/${id}/reboot`, {method:'POST'});
+            if (r.ok) alert('Reboot queued.');
+            else alert('Failed: ' + await r.text());
+          } catch(e){ alert('Failed: ' + e); }
+        }
+        </script>
+        </div>
+        <!-- ===== SUBSCRIBER DETAILS CARD (inline edit) ===== -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div class="card-s" data-testid="sub-details-card">
+            <h4><span class="title-inner">Subscriber Details</span>
+                <span id="subDetailsActions">
+                    <button class="edit-pencil" onclick="toggleCardEdit('subDetails', true)" title="Edit"
+                            data-testid="sub-edit-details"><i class="fa fa-pencil"></i></button>
+                </span>
+            </h4>
+            <!-- View mode -->
+            <div id="subDetailsView">
+                <dl class="kv" style="grid-template-columns:130px 1fr;">
+                    <dt>ID</dt><dd class="mono">{{ cust.id }}</dd>
+                    <dt>Account #</dt><dd class="mono">{{ cust.customer_id }}</dd>
+                    <dt>Name</dt><dd><strong>{{ cust.customer_name or '—' }}</strong></dd>
+                    <dt>Username</dt><dd class="mono">{{ cust.username or '—' }}</dd>
+                    <dt>Auto Renew</dt><dd>
+                        <span class="{{ 'yes-badge' if cust.auto_renew == 'Yes' else 'no-badge' }}">{{ cust.auto_renew or 'No' }}</span></dd>
+                    <dt>Subscriber Since</dt><dd>{{ cust.created_at.strftime('%d %b %Y') if cust.created_at else '—' }}</dd>
+                    <dt>Type</dt><dd>{{ cust.service_type or 'Fiber' }}</dd>
+                    <dt>Remarks</dt><dd>{{ cust.payment_notes or '—' }}</dd>
+                    <!-- __S43O_GEO_DETAILS__ always show lat/long so it can be set later -->
+                    <dt>Geo (Lat, Long)</dt><dd>
+                      {% if cust.latitude and cust.longitude %}
+                        <span class="mono" style="font-size:12px" data-testid="sub-geo-display">{{ '%.5f'|format(cust.latitude) }}, {{ '%.5f'|format(cust.longitude) }}</span>
+                        &nbsp;<a href="https://www.google.com/maps?q={{ cust.latitude }},{{ cust.longitude }}" target="_blank" rel="noopener" data-testid="sub-geo-map-link" style="color:#0284c7;font-size:12px;">
+                          <i class="fa fa-map-marker"></i> Map
+                        </a>
+                      {% else %}
+                        <span style="color:#94a3b8;font-size:12px;" data-testid="sub-geo-display">— not captured —</span>
+                      {% endif %}
+                    </dd>
+                </dl>
+            </div>
+            <!-- Edit mode (hidden until pencil clicked) -->
+            <form id="subDetailsForm" class="edit-form" style="display:none; grid-template-columns:140px 1fr;">
+                <label>Name *</label><input name="customer_name" value="{{ cust.customer_name or '' }}" required>
+                <label>Username *</label><input name="username" value="{{ cust.username or '' }}" required
+                       pattern="[A-Za-z0-9._-]{3,}" title="letters, digits, . _ - only">
+                <label>Auto Renew</label>
+                <select name="auto_renew">
+                    <option value="Yes" {% if cust.auto_renew == 'Yes' %}selected{% endif %}>Yes</option>
+                    <option value="No" {% if cust.auto_renew != 'Yes' %}selected{% endif %}>No</option>
+                </select>
+                <label>Service Type</label>
+                <select name="service_type">
+                    {% for o in ['Broadband','Fiber','Hotspot','Leased Line'] %}
+                    <option value="{{ o }}" {% if cust.service_type == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+                </select>
+                <label>Remarks</label><textarea name="payment_notes" rows="2">{{ cust.payment_notes or '' }}</textarea>
+                <!-- __S43O_GEO_DETAILS__ editable lat/long with capture-current-location button -->
+                <label>Latitude</label>
+                <div style="display:flex;gap:6px;">
+                  <input name="latitude" type="number" step="0.000001" value="{{ cust.latitude or '' }}" data-testid="sub-edit-latitude" placeholder="e.g. 27.5826" style="flex:1;">
+                </div>
+                <label>Longitude</label>
+                <div style="display:flex;gap:6px;">
+                  <input name="longitude" type="number" step="0.000001" value="{{ cust.longitude or '' }}" data-testid="sub-edit-longitude" placeholder="e.g. 81.7062" style="flex:1;">
+                  <button type="button" class="btn btn-xs btn-info" onclick="s43oCaptureGeo()" data-testid="sub-edit-capture-geo" title="Capture this device's current GPS"><i class="fa fa-crosshairs"></i> Capture</button>
+                </div>
+            </form>
+            <script>
+            // __S43O_GEO_DETAILS__ capture-current-location helper
+            window.s43oCaptureGeo = function(){
+              if (!navigator.geolocation) { alert('Geolocation not supported in this browser.'); return; }
+              if (window.showProcessing) showProcessing('Capturing location…','Please allow location access if prompted.');
+              navigator.geolocation.getCurrentPosition(function(pos){
+                if (window.hideProcessing) hideProcessing();
+                var la = pos.coords.latitude.toFixed(6);
+                var lo = pos.coords.longitude.toFixed(6);
+                var f = document.getElementById('subDetailsForm');
+                if (f) {
+                  f.querySelector('[name=latitude]').value  = la;
+                  f.querySelector('[name=longitude]').value = lo;
+                }
+                alert('Captured: ' + la + ', ' + lo + '\nClick Save to persist.');
+              }, function(err){
+                if (window.hideProcessing) hideProcessing();
+                alert('Failed to capture location: ' + (err && err.message || 'unknown'));
+              }, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+            };
+            </script>
+        </div>
+
+        <!-- ===== ADDRESS & CONTACT CARD (inline edit) ===== -->
+        <div class="card-s" data-testid="sub-address-card">
+            <h4><span class="title-inner">Address &amp; Contact</span>
+                <span id="subAddressActions">
+                    <button class="edit-pencil" onclick="openAddressModal()" title="Edit Address & Contact"
+                            data-testid="sub-edit-address"><i class="fa fa-pencil"></i></button>
+                </span>
+            </h4>
+            <div id="subAddressView">
+                <dl class="kv" style="grid-template-columns:150px 1fr;">
+                    <dt>Billing Address</dt><dd>{{ cust.billing_address or cust.address or '—' }}</dd>
+                    <dt>Installation Address</dt><dd>{{ cust.address or '—' }}</dd>
+                    <dt>City</dt><dd>{{ cust.billing_city or cust.city or '—' }}</dd>
+                    <dt>State</dt><dd>{{ cust.billing_state or cust.state or '—' }}</dd>
+                    <dt>Country</dt><dd>India</dd>
+                    <dt>Zip</dt><dd class="mono">{{ cust.billing_pincode or cust.pincode or '—' }}</dd>
+                    <dt>Mobile1</dt><dd><span style="margin-right:4px;">&#127470;&#127475;</span>{{ cust.customer_phone or '—' }}</dd>
+                    <dt>Phone1</dt><dd>{{ cust.alt_mobile or '—' }}</dd>
+                    <dt>Email</dt><dd>{{ cust.customer_email or '—' }}</dd>
+                    <dt>{{ cust.id_proof or 'ID Proof' }}</dt><dd class="mono">{{ cust.id_proof_no or '—' }}</dd>
+                    <dt>GST Number</dt><dd class="mono">{{ cust.customer_gst_no or '—' }}</dd>
+                    <dt>Skip Invoice Generation</dt><dd><span class="no-badge">{{ 'Yes' if cust.gst_invoice_needed == 'No' else 'No' }}</span></dd>
+                </dl>
+            </div>
+            <form id="subAddressForm" class="edit-form" style="display:none; grid-template-columns:150px 1fr;">
+                <label>Installation Address</label><input name="address" value="{{ cust.address or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Billing Address</label><input name="billing_address" value="{{ cust.billing_address or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>City</label><input name="city" value="{{ cust.city or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>State</label><input name="state" value="{{ cust.state or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Pincode</label><input name="pincode" value="{{ cust.pincode or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Billing City</label><input name="billing_city" value="{{ cust.billing_city or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Billing State</label><input name="billing_state" value="{{ cust.billing_state or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Billing Pincode</label><input name="billing_pincode" value="{{ cust.billing_pincode or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Mobile1</label><input name="customer_phone" value="{{ cust.customer_phone or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Phone1</label><input name="alt_mobile" value="{{ cust.alt_mobile or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}>
+                <label>Email</label><input name="customer_email" type="email" value="{{ cust.customer_email or '' }}">
+                <label>ID Proof</label>
+                <select name="id_proof">
+                    {% for o in ['Aadhar card','PAN','Driving License','Voter ID','Passport'] %}
+                    <option value="{{ o }}" {% if cust.id_proof == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+                </select>
+                <label>ID Proof Number</label><input name="id_proof_no" value="{{ cust.id_proof_no or '' }}">
+                <label>GST Number</label><input name="customer_gst_no" value="{{ cust.customer_gst_no or '' }}">
+                <label>Skip Invoice Generation</label>
+                <select name="gst_invoice_needed">
+                    <option value="Yes" {% if cust.gst_invoice_needed != 'No' %}selected{% endif %}>No (i.e. generate)</option>
+                    <option value="No"  {% if cust.gst_invoice_needed == 'No' %}selected{% endif %}>Yes (skip)</option>
+                </select>
+            </form>
+        </div>
+        </div>
+
+        <div class="card-s">
+            <h4><span class="title-inner pkg-title">Current Package {{ plan.plan_name if plan else '—' }}</span></h4>
+            <dl class="kv">
+                <dt>Renewed At</dt><dd>{% if cust.start_date %}{% set _v = cust.start_date|string %}{% if _v|length >= 10 and _v[4] == '-' and _v[7] == '-' %}{{ _v[8:10] }}-{{ _v[5:7] }}-{{ _v[0:4] }}{% else %}{{ _v }}{% endif %}{% else %}—{% endif %}</dd>
+                <dt>Expires At</dt><dd><strong>{% if cust.end_date %}{% set _v = cust.end_date|string %}{% if _v|length >= 10 and _v[4] == '-' and _v[7] == '-' %}{{ _v[8:10] }}-{{ _v[5:7] }}-{{ _v[0:4] }}{% else %}{{ _v }}{% endif %}{% else %}—{% endif %}</strong></dd>
+                <dt>Package used</dt><dd>
+                    {{ '%.1f'|format(usage_total.online_hours) }} hours, {{ pkg_used_days }} days</dd>
+                <dt>Monthly</dt><dd>&#8377;{{ '%.0f'|format(cust.monthly_amount or 0) }}</dd>
+            </dl>
+        </div>
+
+        <div class="card-s">
+            <h4><span class="title-inner"><i class="fa fa-file-text-o" style="color:#64748b;"></i>
+                Previous Package Usage</span></h4>
+            <p style="color:#64748b; font-size:11px; margin:0 0 6px;">
+                See all sales for {{ cust.customer_name or cust.username }}</p>
+            {% if package_sales %}
+            <table class="pkg-table" data-testid="sub-prev-package-table">
+                <thead><tr><th>Usage Start Date</th><th>Package</th><th>Sessions</th></tr></thead>
+                <tbody>
+                {% for tx in package_sales[:10] %}
+                    {% set _sd = tx.start_date|string if tx.start_date else (tx.created_at.strftime('%Y-%m-%d') if tx.created_at else '') %}
+                    {% set _disp = (_sd[8:10] ~ '-' ~ _sd[5:7] ~ '-' ~ _sd[0:4]) if (_sd|length >= 10 and _sd[4] == '-') else (_sd or '—') %}
+                    {% set _month = _sd[0:7] if (_sd|length >= 7 and _sd[4] == '-') else '' %}
+                    {% set _pkg = (plan.plan_name if (plan and tx.transaction_type == 'renewal') else (tx.transaction_type|capitalize if tx.transaction_type else '—')) %}
+                    <tr>
+                        <td>{{ _disp }}</td>
+                        <td>{{ _pkg }}</td>
+                        <td>
+                            <a href="{{ path_prefix|default('/admin') }}/subscribers/{{ cust.id }}/usage/previous{% if _month %}?month={{ _month }}{% endif %}"
+                               class="link-btn" style="padding:4px 10px; font-size:12px;"
+                               data-testid="sub-view-sessions-{{ loop.index }}">View Sessions</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}<p style="color:#94a3b8; font-size:12px;">No previous packages.</p>{% endif %}
+        </div>
+    </div>
+
+    <!-- ===== CONNECTION TAB ===== -->
+    <div class="tab-panel" id="tab-connection">
+        <div class="card-s" id="connView">
+            <h4><span class="title-inner">Connection Settings</span>
+                <button class="edit-pencil" onclick="openEdit('connection')" title="Edit"
+                        data-testid="sub-edit-conn"><i class="fa fa-pencil"></i></button></h4>
+            <dl class="conn-row">
+                <!-- __S38O_CONN_TAB__: slimmer view -->
+                <dt>Fix IP Address</dt><dd><span class="{{ 'yes-badge' if cust.fix_ip_address == 'Yes' else 'no-badge' }}">{{ cust.fix_ip_address or 'No' }}</span></dd>
+                {% if cust.fix_ip_address == 'Yes' and cust.static_ip_address %}
+                <dt>Pinned IP</dt><dd><span style="font-family:monospace;font-weight:600;color:#7c3aed;" data-testid="sub-static-ip-view">{{ cust.static_ip_address }}</span></dd>
+                {% endif %}
+                <dt>Bind MAC Address</dt><dd><span class="{{ 'yes-badge' if cust.bind_mac_address == 'Yes' else 'no-badge' }}">{{ cust.bind_mac_address or 'No' }}</span></dd>
+                {% if cust.bind_mac_address == 'Yes' and cust.mac_address %}
+                <dt>Bound MAC</dt><dd><span style="font-family:monospace;font-weight:600;color:#0f766e;" data-testid="sub-bound-mac-view">{{ cust.mac_address|upper }}</span></dd>
+                {% endif %}
+                <dt>Send SMS Alert</dt><dd><span class="{{ 'yes-badge' if cust.do_not_send_sms == 'No' else 'no-badge' }}">{{ 'Yes' if cust.do_not_send_sms == 'No' else 'No' }}</span></dd>
+                <dt>Send WhatsApp Alert</dt><dd><span class="{{ 'no-badge' if cust.do_not_send_whatsapp == 'Yes' else 'yes-badge' }}">{{ 'No' if cust.do_not_send_whatsapp == 'Yes' else 'Yes' }}</span></dd>
+                <dt>Send Email Alert</dt><dd><span class="{{ 'no-badge' if cust.do_not_send_email == 'Yes' else 'yes-badge' }}">{{ 'No' if cust.do_not_send_email == 'Yes' else 'Yes' }}</span></dd>
+                {# __S43ZG__ Show data usage & sessions visible in Connection tab read-only #}
+                <dt>Show Data Usage &amp; Sessions to User's Portal</dt><dd><span class="{{ 'yes-badge' if cust.show_data_usage else 'no-badge' }}" data-testid="sub-conn-show-usage-view">{{ 'Yes' if cust.show_data_usage else 'No' }}</span></dd>
+            </dl>
+        </div>        <div class="card-s" id="connEdit" style="display:none;">
+            <h4><span class="title-inner">Edit Connection Settings</span></h4>
+            <form id="connForm" class="edit-form" style="grid-template-columns:240px 1fr;">
+                <!-- __S38O_CONN_TAB__: Fix IP + pool(any source) + IP, then MAC-bind (with Capture), then notification toggles -->
+                <label>Fix IP Address</label>
+                <select name="fix_ip_address" data-testid="sub-fix-ip-toggle">
+                    <option value="Yes" {% if cust['fix_ip_address'] == 'Yes' %}selected{% endif %}>Yes</option>
+                    <option value="No"  {% if cust['fix_ip_address'] != 'Yes' %}selected{% endif %}>No</option>
+                </select>
+
+                <label>Fixed-IP Pool</label>
+                <select name="_s36i_pool" id="s36i_pool" data-testid="sub-fix-ip-pool" onchange="s36iLoadIps()" disabled style="opacity:0.6;">
+                    <option value="">— select Yes on Fix IP Address above —</option>
+                </select>
+                <label>Fixed-IP Address</label>
+                <select name="_s36i_ip" id="s36i_ip" data-testid="sub-fix-ip-ip" disabled style="opacity:0.6;">
+                    <option value="">— choose pool first —</option>
+                </select>
+                <div></div>
+                <div style="grid-column:1/-1;font-size:11px;color:#64748b;margin:-4px 0 8px;">
+                  <i class="bi bi-info-circle"></i> When <b>Fix IP Address</b> is set to <b>Yes</b>, choose the pool (PPPoE / Hotspot / Public) and then the specific IP. Customer must reconnect their session for the pinned IP to take effect.
+                </div>
+
+                <label>Bind MAC Address</label>
+                <div>
+                    <select name="bind_mac_address" id="s38o_bind_mac" data-testid="sub-bind-mac-toggle" style="min-width:120px;">
+                        <option value="Yes" {% if cust['bind_mac_address'] == 'Yes' %}selected{% endif %}>Yes</option>
+                        <option value="No"  {% if cust['bind_mac_address'] != 'Yes' %}selected{% endif %}>No</option>
+                    </select>
+                    <button type="button" id="s38o_capture_btn" class="btn btn-sm btn-info"
+                            onclick="s38oCaptureMac()" data-testid="sub-capture-mac-btn"
+                            style="margin-left:8px;">
+                        <i class="bi bi-mouse"></i> Capture MAC
+                    </button>
+                </div>
+                <label>&nbsp;Bound MAC</label>
+                <div>
+                    <input type="text" name="mac_address" id="s38o_mac_display" readonly
+                           value="{{ (cust.mac_address or '')|upper }}"
+                           data-testid="sub-bound-mac-field"
+                           placeholder="—"
+                           style="font-family:monospace;letter-spacing:0.5px;background:#f8fafc;width:260px;">
+                    <small id="s38o_capture_msg" style="color:#64748b;margin-left:8px;"></small>
+                </div>
+
+                <!-- __S38P_FIXUPS__: send-sms-default-no -->
+                <label>Send SMS Alert</label>
+                <select name="send_sms" data-testid="sub-send-sms">
+                    <option value="Yes" {% if cust['do_not_send_sms'] == 'No'  %}selected{% endif %}>Yes</option>
+                    <option value="No"  {% if cust['do_not_send_sms'] != 'No'  %}selected{% endif %}>No</option>
+                </select>
+                <label>Send WhatsApp Alert</label>
+                <select name="send_whatsapp" data-testid="sub-send-whatsapp">
+                    <option value="Yes" {% if cust['do_not_send_whatsapp'] != 'Yes' %}selected{% endif %}>Yes</option>
+                    <option value="No"  {% if cust['do_not_send_whatsapp'] == 'Yes' %}selected{% endif %}>No</option>
+                </select>
+                <label>Send Email Alert</label>
+                <select name="send_email" data-testid="sub-send-email">
+                    <option value="Yes" {% if cust['do_not_send_email'] != 'Yes' %}selected{% endif %}>Yes</option>
+                    <option value="No"  {% if cust['do_not_send_email'] == 'Yes' %}selected{% endif %}>No</option>
+                </select>
+
+                <!-- __S43V_SHOW_USAGE__ Show the Data Usage & Sessions to User's Portal -->
+                <label>Show the Data Usage &amp; Sessions to User's Portal</label>
+                <select name="show_data_usage" data-testid="sub-show-data-usage">
+                    <option value="No"  {% if not cust.show_data_usage %}selected{% endif %}>No</option>
+                    <option value="Yes" {% if cust.show_data_usage      %}selected{% endif %}>Yes</option>
+                </select>
+                <small style="color:#64748b;display:block;margin:-6px 0 12px 0;font-size:11px;">When set to No (default), this customer cannot see Data Usage / Sessions on their portal or mobile app, and the Data Usage menu is hidden for them.</small>
+
+                <div class="edit-actions">
+                    <button type="button" class="btn-cancel" onclick="closeEdit('connection')">Cancel</button>
+                    <button type="button" class="btn-save" onclick="saveConnection()" data-testid="sub-conn-save">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== KYC TAB ===== -->
+    <div class="tab-panel" id="tab-kyc">
+        <div class="card-s">
+            <h4><span class="title-inner">KYC Documents</span></h4>
+            <div class="kyc-grid" data-testid="sub-kyc-grid"
+                 style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px;">
+                {% for kind, label, existing in [
+                        ('photograph','User Photograph', kyc.photograph),
+                        ('id_proof','Identity Proof', kyc.id_proof_doc),
+                        ('address_proof','Address Proof', kyc.address_proof),
+                ] %}
+                <div class="kyc-box" style="border:1px solid #e5e7eb; border-radius:10px; padding:12px;
+                                            background:#f8fafc; text-align:center;">
+                    <h5 style="margin:0 0 8px; font-size:13px; color:#334155;">{{ label }}</h5>
+                    {% if existing %}
+                        <a href="{{ existing }}" target="_blank">
+                            <img src="{{ existing }}" alt="{{ label }}"
+                                 style="max-width:100%; max-height:140px; border-radius:6px; margin-bottom:8px;">
+                        </a>
+                    {% else %}
+                        <div style="padding:20px; color:#94a3b8; font-size:12px; background:#f1f5f9;
+                                    border-radius:6px; margin-bottom:8px;">Not uploaded</div>
+                    {% endif %}
+                    <form class="kyc-upload-form" data-kind="{{ kind }}" enctype="multipart/form-data"
+                          style="display:flex; flex-direction:column; gap:6px;">
+                        <input type="file" name="file" accept="image/*,.pdf" required
+                               data-testid="kyc-file-{{ kind }}" style="font-size:11px;">
+                        <button type="button" class="btn-save" onclick="uploadKyc(this)"
+                                data-testid="kyc-upload-{{ kind }}"
+                                style="padding:6px 10px; font-size:12px; background:#2563eb;
+                                       color:#fff; border:none; border-radius:6px; cursor:pointer;">
+                            <i class="fa fa-upload"></i> Upload {{ label }}
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            <div style="margin-top:12px; font-size:11px; color:#64748b;">
+                Accepted: JPG / PNG / PDF. Uploaded files are stored under this subscriber's folder
+                and displayed on the CAF.
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== AUDIT TRAIL TAB ===== -->
+    <div class="tab-panel" id="tab-audit">
+        <div class="card-s">
+            <h4><span class="title-inner">Audit Trail</span></h4>
+            {% if audit_grouped %}
+            <div class="audit-wrap" data-testid="sub-audit-wrap">
+                {% for grp in audit_grouped %}
+                <div class="audit-date">{{ grp.date }}</div>
+                {% for ev in grp.events %}
+                <div class="audit-evt t-{{ ev.type }}">
+                    <div class="t">{{ ev.time }}</div>
+                    <div class="txt">{{ ev.text }}</div>
+                </div>
+                {% endfor %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <p style="color:#94a3b8; padding:20px; text-align:center;">No audit events recorded.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="sub-col">
+        <!-- Package action buttons (Session 23.4 - moved from middle col) -->
+        <div class="card-s" data-testid="sub-pkg-actions">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                <button class="qa-btn" style="padding:8px; font-size:12px;" onclick="openChangePackage()" data-testid="sub-change-package">Change Package</button>
+                <button class="qa-btn" style="padding:8px; font-size:12px;" onclick="openRenew()" data-testid="sub-renew-advance">Renew In Advance</button>
+                <button class="qa-btn" style="padding:8px; font-size:12px;{% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %} opacity:0.5;cursor:not-allowed;{% endif %}"{% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %} disabled title="Available to admins only"{% else %} onclick="openChangeExpiry()"{% endif %} data-testid="sub-change-expiry">Change Expiry Date</button>
+                <button class="qa-btn" style="padding:8px; font-size:12px;{% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %} opacity:0.5;cursor:not-allowed;{% endif %}"
+                        {% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %}disabled title="Available to admins only"{% else %}onclick="openOverrideSpeed()"{% endif %}
+                        data-testid="sub-override-speed">Override Speed</button>
+                <button class="qa-btn qa-danger" style="grid-column:span 2; padding:8px; font-size:12px;" onclick="terminateSub()" data-testid="sub-terminate-btn">Terminate Subscriber</button>
+            </div>
+        </div>
+        <div class="card-s">
+            <div class="vb-head">
+                <i class="fa fa-credit-card"></i>
+                <span style="font-weight:600; font-size:13px;">View Balance</span>
+            </div>
+            <div class="vb-amount" data-testid="sub-balance">&#8377;{{ '%.0f'|format(billing.balance) }}</div>
+            <div style="color:#64748b; font-size:11px; margin-bottom:12px;">
+                Invoiced &#8377;{{ '%.0f'|format(billing.total_invoiced) }} &middot;
+                Received &#8377;{{ '%.0f'|format(billing.total_received) }}
+            </div>
+
+            <div class="vb-row" onclick="toggleInvoices()" data-testid="sub-active-invoices">
+                <span>Active Invoices</span>
+                <strong>{{ active_invoices|length }} <i class="fa fa-caret-down"></i></strong>
+            </div>
+            <div id="activeInvBox" style="display:none; margin-bottom:6px;">
+                {% for inv in active_invoices %}
+                <div style="font-size:11px; padding:4px 8px; border-bottom:1px dashed #e5e7eb;">
+                    <a href="{{ path_prefix or '/admin' }}/invoice/{{ inv.invoice_no }}" style="color:#2563eb;">{{ inv.invoice_no }}</a>
+                    &mdash; &#8377;{{ '%.0f'|format(inv.total_amount or 0) }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="vb-row" onclick="togglePkgSales()" data-testid="sub-pkg-sales">
+                <span>Package Sales</span>
+                <strong>{{ package_sales|length }} <i class="fa fa-caret-down"></i></strong>
+            </div>
+            <div id="pkgSalesBox" style="display:none; margin-bottom:6px;">
+                {% for tx in package_sales[:5] %}
+                <div style="font-size:11px; padding:4px 8px; border-bottom:1px dashed #e5e7eb;">
+                    {{ tx.start_date or '—' }} &mdash; &#8377;{{ '%.0f'|format(tx.amount or 0) }}</div>
+                {% endfor %}
+            </div>
+            {% set _txn_base = ("/sub-lco/payment-history" if (path_prefix == "/sub-lco") else ("/employee/transactions" if (path_prefix == "/employee") else "/admin/transactions")) %}<a href="{{ _txn_base }}?customer_id={{ cust.customer_id }}" class="vb-btn" data-testid="sub-view-payments">View Payments</a>
+            <a href="{{ _txn_base }}?customer_id={{ cust.customer_id }}&payment_mode=Online&status=Success" class="vb-btn" data-testid="sub-online-payments">Online Payments</a>
+        </div>
+
+        <div class="card-s">
+            <h4><span class="title-inner"><i class="fa fa-ticket" style="color:#64748b;"></i>
+                Tickets</span></h4>
+            <p style="color:#94a3b8; font-size:12px; margin:4px 0 10px;">No open tickets.</p>
+            <button class="vb-btn" onclick="addTicket()" data-testid="sub-add-ticket" style="background:#2563eb; color:#fff;">
+                <i class="fa fa-plus"></i> Add New Ticket <i class="fa fa-caret-down"></i></button>
+        </div>
+    </div>
+
+</div>
+</div><!-- /sub-wrap -->
+
+<!-- Access Requests modal (Session 23.4) -->
+<div class="modal fade" id="accessLogsModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" style="max-width: 1260px; width: 95%;" role="document">
+    <div class="modal-content">
+      <!-- === S41W-ACCESS-LOGS-HEADER === -->
+      <div class="modal-header" style="background:#0f172a; color:#fff; border-radius:5px 5px 0 0;
+           display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+        <h4 class="modal-title" style="margin:0; color:#fff; font-weight:600;">Access Request Logs</h4>
+        <button type="button" class="close" data-dismiss="modal"
+                aria-label="Close" style="color:#fff; opacity:1; font-size:22px;
+                line-height:1; float:none; text-shadow:none; padding:0 6px;">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:500px; overflow:auto;">
+        <table class="pkg-table" data-testid="al-table">
+          <thead>
+            <tr>
+              <th>Time</th><th>MAC ID</th><th>Type</th><th>Result</th><th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="alBody">
+            <tr><td colspan="5" style="padding:20px; text-align:center; color:#94a3b8;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" onclick="openAccessLogs()" data-testid="al-refresh-btn"><i class="fa fa-refresh"></i> Refresh</button>
+        <button type="button" class="btn btn-warning" onclick="clearAccessLogs()" data-testid="al-clear-btn"><i class="fa fa-trash"></i> Clear Logs</button>
+        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Change Password Modal -->
+<div class="modal fade" id="changePwdModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#2563eb; color:#fff; border-radius:5px 5px 0 0;">
+        <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:1;">&times;</button>
+        <h4 class="modal-title">Change Password</h4>
+      </div>
+      <div class="modal-body">
+        <p style="color:#64748b; font-size:12px;">Subscriber: <strong>{{ cust.username }}</strong></p>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="cpwNew" placeholder="Enter new password" data-testid="cpw-new">
+        </div>
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <input type="password" id="cpwConfirm" placeholder="Re-enter new password" data-testid="cpw-confirm">
+        </div>
+        <div id="cpwMsg" style="color:#dc2626; font-size:12px; min-height:16px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitChangePwd()" data-testid="cpw-submit">Update Password</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var CUST_ID = {{ cust.id }};
+    window.CUST_PK = {{ cust.id }};
+    window.CUST_STATIC_IP = {{ (cust.static_ip_address or '')|tojson }};
+    window.CUST_POOL_PREF = 'Default';
+var CUST_CODE = '{{ cust.customer_id|e }}';
+
+// Tab switching
+function activeTab(){
+    var a = document.querySelector('.tab-link.active');
+    return a ? a.getAttribute('data-tab') : 'details';
+}
+document.querySelectorAll('.tab-link').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+        e.preventDefault();
+        var t = this.getAttribute('data-tab');
+        document.querySelectorAll('.tab-link').forEach(function(x){x.classList.remove('active');});
+        this.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+        document.getElementById('tab-' + t).classList.add('active');
+        // Close any open edit forms when switching
+        closeEdit('details'); closeEdit('connection');
+    });
+});
+
+// Session 25.11 - inline card edit helpers.
+// Each card has a view div (id=<card>View) and a form (id=<card>Form).
+// Pencil triggers toggleCardEdit(card, true) which swaps them and replaces
+// the pencil with Save/Cancel buttons IN THE SAME POSITION (no layout shift).
+function toggleCardEdit(card, on) {
+    var view = document.getElementById(card + 'View');
+    var form = document.getElementById(card + 'Form');
+    var act  = document.getElementById(card + 'Actions');
+    if (!view || !form || !act) return;
+    if (on) {
+        view.style.display = 'none';
+        form.style.display = 'grid';
+        act.innerHTML =
+            '<button class="btn-save" onclick="saveCardEdit(\'' + card + '\')" ' +
+            'data-testid="' + card + '-save-btn" ' +
+            'style="padding:4px 10px;font-size:12px;background:#059669;color:#fff;' +
+            'border:none;border-radius:4px;cursor:pointer;margin-right:4px;">' +
+            '<i class="fa fa-check"></i> Save</button>' +
+            '<button class="btn-cancel" onclick="toggleCardEdit(\'' + card + '\',false)" ' +
+            'data-testid="' + card + '-cancel-btn" ' +
+            'style="padding:4px 10px;font-size:12px;background:#e5e7eb;color:#374151;' +
+            'border:none;border-radius:4px;cursor:pointer;">Cancel</button>';
+    } else {
+        view.style.display = 'block';
+        form.style.display = 'none';
+        act.innerHTML =
+            '<button class="edit-pencil" onclick="toggleCardEdit(\'' + card + '\',true)" title="Edit" ' +
+            'data-testid="sub-edit-' + card.replace('sub','').toLowerCase() + '">' +
+            '<i class="fa fa-pencil"></i></button>';
+    }
+}
+function saveCardEdit(card) {
+    var form = document.getElementById(card + 'Form');
+    if (!form) return;
+    var obj = {};
+    Array.from(form.elements).forEach(function(el){ if (el.name) obj[el.name] = el.value; });
+    fetch('/api/subscribers/' + CUST_ID + '/details-save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(obj)
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) { location.reload(); }
+        else { alert('Save failed: ' + (d.message || 'unknown')); }
+    });
+}
+
+// KYC upload handler
+function uploadKyc(btn) {
+    var form = btn.closest('.kyc-upload-form');
+    var file = form.querySelector('input[type=file]').files[0];
+    if (!file) { alert('Please choose a file first.'); return; }
+    var kind = form.getAttribute('data-kind');
+    var label = btn.textContent.replace(/Upload\s*/,'').trim() || 'Document';
+    var origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Uploading...';
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('kind', kind);
+    fetch('/api/subscribers/' + CUST_ID + '/kyc-upload', {
+        method: 'POST', body: fd
+    }).then(function(r){return r.json();}).then(function(d){
+        btn.disabled = false;
+        if (d.success) {
+            // Replace thumbnail inline - no reload, stay on KYC tab.
+            var box = btn.closest('.kyc-box');
+            var placeholder = box.querySelector('img, div[style*="Not uploaded"], div[style*="padding:20px"]');
+            if (placeholder) {
+                var img = document.createElement('img');
+                img.src = d.url + '?t=' + Date.now(); // cache-bust
+                img.alt = label;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '140px';
+                img.style.borderRadius = '6px';
+                img.style.marginBottom = '8px';
+                // Wrap in link for click-to-open
+                var a = document.createElement('a');
+                a.href = d.url; a.target = '_blank';
+                a.appendChild(img);
+                // Remove ALL old preview elements (img or placeholder), then insert new one above the form
+                var oldImg = box.querySelector('a img, img');
+                if (oldImg) {
+                    var oldA = oldImg.closest('a');
+                    (oldA || oldImg).remove();
+                }
+                var oldPlaceholder = box.querySelector('div[style*="Not uploaded"]');
+                if (oldPlaceholder) oldPlaceholder.remove();
+                box.insertBefore(a, form);
+            }
+            // Reset file input + flash success state on button
+            form.querySelector('input[type=file]').value = '';
+            btn.innerHTML = '<i class="fa fa-check"></i> Uploaded!';
+            btn.style.background = '#059669';
+            setTimeout(function(){
+                btn.innerHTML = origHtml;
+                btn.style.background = '#2563eb';
+            }, 2500);
+        } else {
+            btn.innerHTML = origHtml;
+            alert('Upload failed: ' + (d.message || 'unknown'));
+        }
+    }).catch(function(e){
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        alert('Upload error: ' + e);
+    });
+}
+
+// Legacy Connection tab edit (still uses connView/connEdit)
+function openEdit(which){
+    if (which === 'connection') {
+        // s37d: do NOT re-click the tab-link — the global tab handler
+        // calls closeEdit('connection') on every click and instantly
+        // reverses the display swap below. The pencil is only visible
+        // when the connection tab-panel is already active, so there's
+        // nothing to switch.
+        var cv = document.getElementById('connView');
+        var ce = document.getElementById('connEdit');
+        if (cv) cv.style.display = 'none';
+        if (ce) ce.style.display = 'block';
+        // Trigger the Fix-IP pool/IP auto-sync (defined in s36i-fix-ip-ui IIFE).
+        if (typeof window._s37_syncFixIp === 'function') window._s37_syncFixIp();
+    } else if (which === 'audit') {
+        alert('Audit Trail is read-only.');
+    }
+}
+function closeEdit(which){
+    if (which === 'connection') {
+        var v=document.getElementById('connView'), e=document.getElementById('connEdit');
+        if (v) v.style.display='block'; if (e) e.style.display='none';
+    }
+}
+
+// Save handlers
+function _formToObj(formId){
+    var f = document.getElementById(formId);
+    var o = {};
+    Array.from(f.elements).forEach(function(el){
+        if (el.name) o[el.name] = el.value;
+    });
+    return o;
+}
+function saveDetails(){
+    var payload = _formToObj('detailsForm');
+    fetch('/api/subscribers/' + CUST_ID + '/details-save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) { alert('✓ Details saved'); location.reload(); }
+        else alert('✗ ' + (d.message || 'error'));
+    });
+}
+function saveConnection(){
+    var payload = _formToObj('connForm');
+    fetch('/api/subscribers/' + CUST_ID + '/connection-save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) { alert('✓ Connection settings saved'); location.reload(); }
+        else alert('✗ ' + (d.message || 'error'));
+    });
+}
+
+// Change Password modal
+function openChangePwd(){
+    document.getElementById('cpwNew').value = '';
+    document.getElementById('cpwConfirm').value = '';
+    document.getElementById('cpwMsg').innerText = '';
+    $('#changePwdModal').modal('show');
+}
+function submitChangePwd(){
+    var pw  = document.getElementById('cpwNew').value;
+    var pw2 = document.getElementById('cpwConfirm').value;
+    var msg = document.getElementById('cpwMsg');
+    if (!pw || pw.length < 4) { msg.innerText = 'Password must be at least 4 characters.'; return; }
+    if (pw !== pw2) { msg.innerText = 'Passwords do not match.'; return; }
+    msg.innerText = 'Saving...';
+    msg.style.color = '#64748b';
+    fetch('/api/subscribers/' + CUST_ID + '/change-password', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({password: pw, confirm: pw2})
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) {
+            msg.style.color = '#16a34a';
+            msg.innerText = '✓ ' + (d.message || 'Password updated');
+            setTimeout(function(){ $('#changePwdModal').modal('hide'); }, 1200);
+        } else {
+            msg.style.color = '#dc2626';
+            msg.innerText = '✗ ' + (d.message || 'error');
+        }
+    });
+}
+
+// Quick actions
+function toggleInvoices(){var b=document.getElementById('activeInvBox');b.style.display=(b.style.display=='none'?'block':'none');}
+function togglePkgSales(){var b=document.getElementById('pkgSalesBox');b.style.display=(b.style.display=='none'?'block':'none');}
+
+function kickSub(){
+  if(!confirm('Disconnect this subscriber\'s PPPoE session?'))return;
+  fetch('/api/online-users/kick',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:'{{ cust.username|e }}',nas_id:{{ live.nas_id if live else 0 }}})})
+    .then(function(r){return r.json();}).then(function(d){
+      alert((d.success?'OK ':'FAIL ')+(d.message||''));if(d.success)setTimeout(function(){location.reload();},700);
+    });
+}
+function toggleSuspend(suspend){
+  var action=suspend?'suspend':'resume';
+  if(!confirm((suspend?'Disable':'Enable')+' this subscriber?'))return;
+  fetch('/api/customers/bulk-action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({customer_ids:[CUST_ID],action:action})})
+    .then(function(r){return r.json();}).then(function(d){
+      alert((d.success?'OK ':'FAIL ')+(d.message||''));if(d.success)setTimeout(function(){location.reload();},700);
+    });
+}
+function resetMac(){
+  if(!confirm('Reset stored MAC address for this subscriber?'))return;
+  fetch('/api/customers/bulk-action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({customer_ids:[CUST_ID],action:'reset_mac'})})
+    .then(function(r){return r.json();}).then(function(d){
+      alert((d.success?'OK ':'FAIL ')+(d.message||''));
+    });
+}
+function terminateSub(){
+  if(!confirm('Terminate this subscriber? This will mark the account as Terminated.'))return;
+  fetch('/api/customers/bulk-action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({customer_ids:[CUST_ID],action:'terminate'})})
+    .then(function(r){return r.json();}).then(function(d){
+      alert((d.success?'OK ':'FAIL ')+(d.message||''));if(d.success)setTimeout(function(){location.reload();},700);
+    });
+}
+function addAlert(){
+    document.getElementById('alertKind').value = 'alert';
+    document.getElementById('alertModalTitle').innerText = 'Direct Message';
+    document.getElementById('alertSubject').value = '';
+    document.getElementById('alertBody').value = '';
+    $('#alertModal').modal('show');
+}
+
+function sendPayLink(){
+  // Session 27 — fetch pay link + offer Twilio send OR wa.me fallback
+  fetch('/api/subscribers/' + CUST_ID + '/pay-link')
+    .then(function(r){return r.json();}).then(function(d){
+      if (!d.success) { alert('Error: ' + (d.message || 'unknown')); return; }
+      var choice = prompt(
+        'Pay link:\n' + d.pay_url + '\n\n' +
+        'Phone: ' + (d.phone || '(none)') + '\n\n' +
+        'Type 1 + Enter → Send via MSG91 WhatsApp\n' +
+        'Type 2 + Enter → Open wa.me deep-link (opens WhatsApp app)\n' +
+        'Type 3 + Enter → Copy pay link to clipboard\n' +
+        'Cancel → do nothing', '1'
+      );
+      if (choice === null) return;
+      choice = (choice || '').trim();
+      if (choice === '1') {
+        if (!d.has_phone) { alert('No phone on file.'); return; }
+        fetch('/api/subscribers/' + CUST_ID + '/send-pay-link-whatsapp',
+              {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+          .then(function(r){return r.json();})
+          .then(function(j){
+            if (j.success) {
+              alert('WhatsApp sent! SID: ' + (j.result && j.result.sid ? j.result.sid : '(ok)'));
+            } else if (j.feature_disabled && j.fallback_wa_url) {
+              if (confirm('WhatsApp API is not enabled for your ISP.\nOpen normal WhatsApp / WhatsApp Business with the message pre-filled?')) {
+                window.open(j.fallback_wa_url, '_blank');
+              }
+            } else {
+              alert('WhatsApp failed: ' + (j.message || (j.result && (j.result.error || j.result.template_error)) || 'unknown'));
+            }
+          }).catch(function(e){ alert('Request error: ' + e); });
+      } else if (choice === '2') {
+        if (d.whatsapp_url) window.open(d.whatsapp_url, '_blank');
+        else alert('No phone on file.');
+      } else if (choice === '3') {
+        navigator.clipboard.writeText(d.pay_url).then(function(){
+          alert('Pay link copied.');
+        });
+      }
+    });
+}
+
+function addTicket(){
+    document.getElementById('alertKind').value = 'ticket';
+    document.getElementById('alertModalTitle').innerText = 'New Ticket';
+    document.getElementById('alertSubject').value = '';
+    document.getElementById('alertBody').value = '';
+    $('#alertModal').modal('show');
+}
+
+
+
+function fmtIST(utcIso){
+    if (!utcIso) return '—';
+    // _GLOBAL_TZ_FIX_V2_ : backend now emits canonical 'DD-MM-YYYY HH:MM IST' strings.
+    // Pass through anything that already ends in 'IST'.
+    if (typeof utcIso === 'string' && /\bIST\b/.test(utcIso)) return utcIso;
+    try {
+        var d = new Date(utcIso.indexOf('Z') === -1 ? (utcIso.replace(' ','T') + 'Z') : utcIso);
+        if (isNaN(d.getTime())) return utcIso;
+        var opts = { day:'2-digit', month:'2-digit', year:'numeric',
+                     hour:'2-digit', minute:'2-digit', hour12:false,
+                     timeZone:'Asia/Kolkata' };
+        var parts = new Intl.DateTimeFormat('en-GB', opts).formatToParts(d);
+        var get = function(t){var p = parts.find(function(x){return x.type===t;}); return p?p.value:'';};
+        return get('day') + '-' + get('month') + '-' + get('year') +
+               ' ' + get('hour') + ':' + get('minute') + ' IST';
+    } catch (e) { return utcIso; }
+}
+
+var _alDetected = null;
+var _alStored   = null;
+function openAccessLogs(){
+    document.getElementById('alBody').innerHTML =
+        '<tr><td colspan="5" style="padding:20px; text-align:center; color:#94a3b8;">Loading...</td></tr>';
+    $('#accessLogsModal').modal('show');
+    fetch('/api/subscribers/' + CUST_ID + '/access-logs')
+        .then(function(r){return r.json();}).then(function(d){
+            if (!d.success) {
+                document.getElementById('alBody').innerHTML =
+                    '<tr><td colspan="5" style="color:#dc2626; text-align:center; padding:20px;">' +
+                    (d.message || 'Error') + '</td></tr>';
+                return;
+            }
+            // (Stored/Detected password + Save button removed — Sync Now toolbar on /admin/users replaces them.)
+
+            // Event table
+            var rows = (d.events || []).map(function(e){
+                var cls = (e.status === 'Accept' || e.status === 'Access-Accept') ? 'yes-badge' : 'no-badge';
+                var st = e.status || '—';
+                return '<tr>' +
+                    '<td class="mono" style="white-space:nowrap; font-size:11px;">' + fmtIST(e.ts) + '</td>' +
+                    '<td class="mono" style="font-size:11px;">' + (e.mac || '—') + '</td>' +
+                    '<td>' + (e.type || '—') + '</td>' +
+                    '<td><span class="' + cls + '">' + st + '</span></td>' +
+                    '<td style="font-size:11px; color:#64748b;">' + (e.reason || '—') + '</td>' +
+                    '</tr>';
+            }).join('');
+            if (!rows) rows = '<tr><td colspan="5" style="padding:20px; text-align:center; color:#94a3b8;">' +
+                              'No access request events yet.</td></tr>';
+            document.getElementById('alBody').innerHTML = rows;
+        });
+}
+
+function captureNow() { /* removed — handled by Sync Now toolbar on User Management */ }
+
+function saveDetectedPwd() { /* removed — handled by Sync Now toolbar on User Management */ }
+
+
+// === s26.1 MISSING ACTION HANDLERS ===
+// --- Address & Contact Modal -----------------------------------------------
+function openAddressModal(){
+    $('#addressModal').modal('show');
+}
+function copyInstall(checked){
+    if (!checked) return;
+    var f = document.getElementById('addressForm');
+    if (!f) return;
+    f.billing_address.value = f.address.value || '';
+    f.billing_city.value    = f.city.value || '';
+    f.billing_state.value   = f.state.value || '';
+    f.billing_pincode.value = f.pincode.value || '';
+}
+function saveAddressModal(){
+    var form = document.getElementById('addressForm');
+    if (!form) { alert('Address form not found'); return; }
+    var obj = {};
+    Array.from(form.elements).forEach(function(el){ if (el.name) obj[el.name] = el.value; });
+    fetch('/api/subscribers/' + CUST_ID + '/details-save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(obj)
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) { alert('\u2713 Saved'); location.reload(); }
+        else { alert('\u2717 ' + (d.message || 'error')); }
+    }).catch(function(e){ alert('Network error: ' + e); });
+}
+
+// --- Change Package Modal --------------------------------------------------
+function openChangePackage(){
+    var sel = document.getElementById('cpkg_plan');
+    var msg = document.getElementById('cpkg_msg');
+    sel.innerHTML = '<option>Loading plans...</option>';
+    msg.innerText = '';
+    fetch('/api/plans/list')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var plans = (d && d.plans) ? d.plans : (Array.isArray(d) ? d : []);
+        if (!plans.length) { sel.innerHTML = '<option value="">No plans available</option>'; return; }
+        sel.innerHTML = '';
+        plans.forEach(function(p){
+          var opt = document.createElement('option');
+          opt.value = p.id;
+          var speed = p.speed ? (' - ' + p.speed) : '';
+          var amt   = (p.base_amount != null) ? (' \u20b9' + p.base_amount) : '';
+          opt.textContent = (p.plan_name || p.name || ('Plan #' + p.id)) + speed + amt;
+          sel.appendChild(opt);
+        });
+      })
+      .catch(function(e){ sel.innerHTML = '<option value="">Failed to load plans</option>'; });
+    $('#changePackageModal').modal('show');
+}
+function savChangePackage(){
+    var sel = document.getElementById('cpkg_plan');
+    var msg = document.getElementById('cpkg_msg');
+    var plan_id = sel.value;
+    if (!plan_id) { msg.innerText = 'Please select a plan.'; return; }
+    msg.style.color = '#64748b';
+    msg.innerText = 'Saving...';
+    var _mode = document.querySelector('input[name="cpkg_inv_mode"]:checked');
+    var _withInv = _mode ? (_mode.value === 'with_invoice') : false;
+    fetch('/api/subscribers/' + CUST_ID + '/change-plan', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({plan_id: parseInt(plan_id, 10), with_invoice: _withInv})
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) {
+            msg.style.color = '#16a34a';
+            msg.innerText = '\u2713 ' + (d.message || 'Plan changed');
+            setTimeout(function(){ $('#changePackageModal').modal('hide'); location.reload(); }, 900);
+        } else {
+            msg.style.color = '#dc2626';
+            msg.innerText = '\u2717 ' + (d.message || 'error');
+        }
+    }).catch(function(e){
+        msg.style.color = '#dc2626';
+        msg.innerText = 'Network error: ' + e;
+    });
+}
+
+// --- Renew In Advance Modal ------------------------------------------------
+function openRenew(){
+    var msg = document.getElementById('rnw_msg');
+    msg.innerText = '';
+    // default start_date = today
+    var t = new Date();
+    var iso = t.getFullYear() + '-' +
+              ('0'+(t.getMonth()+1)).slice(-2) + '-' +
+              ('0'+t.getDate()).slice(-2);
+    document.getElementById('rnw_start_date').value = iso;
+    // __S43K_RNW_MAXTODAY__ : Renew-In-Advance start date can never be in the
+    // future — operator is recording a real-world collection, not scheduling.
+    document.getElementById('rnw_start_date').max = iso;
+    document.getElementById('rnw_start').value  = 'today';
+    document.getElementById('rnw_months').value = '1';
+    document.getElementById('rnw_invoice').checked = false;
+    $('#renewModal').modal('show');
+}
+function saveRenew(){
+    var msg = document.getElementById('rnw_msg');
+    var start_from  = document.getElementById('rnw_start').value;
+    var start_date  = document.getElementById('rnw_start_date').value;
+    var months      = parseInt(document.getElementById('rnw_months').value, 10);
+    var with_invoice = document.getElementById('rnw_invoice').checked;
+    if (!months) { msg.innerText = 'Please select a period.'; return; }
+    if (start_from === 'date' && !start_date) { msg.innerText = 'Start date is required.'; return; }
+    // __S43K_RNW_MAXTODAY__: client-side guard — reject future dates.
+    if (start_from === 'date') {
+        var _t = new Date(); _t.setHours(0,0,0,0);
+        var _sd = new Date(start_date + 'T00:00:00');
+        if (_sd > _t) { msg.innerText = 'Start date cannot be in the future.'; return; }
+    }
+    var payload = {start_from: start_from, period_months: months, with_invoice: with_invoice};
+    if (start_from === 'date') payload.start_date = start_date;
+    msg.style.color = '#64748b';
+    msg.innerText = 'Renewing...';
+    fetch('/api/customers/' + encodeURIComponent(CUST_CODE) + '/renew', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        if (d.success) {
+            msg.style.color = '#16a34a';
+            msg.innerText = '\u2713 ' + (d.message || 'Renewed');
+            setTimeout(function(){ $('#renewModal').modal('hide'); location.reload(); }, 900);
+        } else {
+            msg.style.color = '#dc2626';
+            msg.innerText = '\u2717 ' + (d.message || 'error');
+        }
+    }).catch(function(e){
+        msg.style.color = '#dc2626';
+        msg.innerText = 'Network error: ' + e;
+    });
+}
+
+// --- Change Expiry Date Modal ----------------------------------------------
+function openChangeExpiry(){
+    document.getElementById('cexp_msg').innerText = '';
+    document.getElementById('cexp_date').value = '';
+    $('#changeExpiryModal').modal('show');
+}
+function saveChangeExpiry(){
+    var msg = document.getElementById('cexp_msg');
+    var raw = (document.getElementById('cexp_date').value || '').trim();
+    if (!raw) { msg.innerText = 'Please enter a date (DD-MM-YYYY).'; return; }
+    var m = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!m) { msg.innerText = 'Format must be DD-MM-YYYY (e.g. 31-12-2026).'; return; }
+    var di=parseInt(m[1],10), mi=parseInt(m[2],10), yi=parseInt(m[3],10);
+    if (di<1||di>31||mi<1||mi>12||yi<2020||yi>2100) { msg.innerText='Invalid date.'; return; }
+    var d = m[3] + '-' + m[2] + '-' + m[1];  // ISO
+    msg.style.color = '#64748b';
+    msg.innerText = 'Saving...';
+    fetch('/api/customers/' + encodeURIComponent(CUST_CODE) + '/end-date', {
+        method: 'PATCH', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({end_date: d})
+    }).then(function(r){return r.json();}).then(function(d2){
+        if (d2.success) {
+            msg.style.color = '#16a34a';
+            msg.innerText = '\u2713 ' + (d2.message || 'Updated');
+            setTimeout(function(){ $('#changeExpiryModal').modal('hide'); location.reload(); }, 900);
+        } else {
+            msg.style.color = '#dc2626';
+            msg.innerText = '\u2717 ' + (d2.message || 'error');
+        }
+    }).catch(function(e){
+        msg.style.color = '#dc2626';
+        msg.innerText = 'Network error: ' + e;
+    });
+}
+
+// --- Override Speed Modal --------------------------------------------------
+function openOverrideSpeed(){
+    document.getElementById('ovUpload').value = '';
+    document.getElementById('ovDownload').value = '';
+    $('#overrideSpeedModal').modal('show');
+}
+function saveOverrideSpeed(remove){
+    var up = document.getElementById('ovUpload').value;
+    var dn = document.getElementById('ovDownload').value;
+    var payload;
+    if (remove) {
+        if (!confirm('Remove speed override and fall back to plan default?')) return;
+        payload = {remove: true};
+    } else {
+        if (!up || !dn) { alert('Enter both Upload and Download Mbps'); return; }
+        payload = {upload_mbps: parseInt(up,10), download_mbps: parseInt(dn,10)};
+    }
+    fetch('/api/subscribers/' + CUST_ID + '/override-speed', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        alert((d.success ? '\u2713 ' : '\u2717 ') + (d.message || 'done'));
+        if (d.success) {
+            $('#overrideSpeedModal').modal('hide');
+            setTimeout(function(){ location.reload(); }, 500);
+        }
+    }).catch(function(e){ alert('Network error: ' + e); });
+}
+
+// --- Direct Message / Ticket submit ----------------------------------------
+function submitAlert(){
+    var kind     = document.getElementById('alertKind').value;
+    var subject  = document.getElementById('alertSubject').value.trim();
+    var body     = document.getElementById('alertBody').value.trim();
+    var priority = document.getElementById('alertPriority').value;
+    if (!subject || !body) { alert('Subject and message are required'); return; }
+    fetch('/api/subscribers/' + CUST_ID + '/create-message', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({kind: kind, subject: subject, body: body, priority: priority})
+    }).then(function(r){return r.json();}).then(function(d){
+        alert((d.success ? '\u2713 ' : '\u2717 ') + (d.message || 'done'));
+        if (d.success) {
+            $('#alertModal').modal('hide');
+            document.getElementById('alertSubject').value = '';
+            document.getElementById('alertBody').value = '';
+        }
+    }).catch(function(e){ alert('Network error: ' + e); });
+}
+
+// --- Clear Access Logs -----------------------------------------------------
+function clearAccessLogs(){
+    if (!confirm('Delete all stored RADIUS access-request logs for this subscriber?')) return;
+    fetch('/api/subscribers/' + CUST_ID + '/clear-access-logs', {method:'POST'})
+      .then(function(r){return r.json();})
+      .then(function(d){
+          alert((d.success ? '\u2713 ' : '\u2717 ') + (d.message || 'done'));
+          if (d.success && typeof openAccessLogs === 'function') openAccessLogs();
+      }).catch(function(e){ alert('Network error: ' + e); });
+}
+// === /s26.1 ===
+
+</script>
+
+<!-- ===== Address & Contact Modal (Session 25.12) ===== -->
+<div class="modal fade" id="addressModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-map-marker"></i> Edit Address &amp; Contact</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <form id="addressForm">
+      <div class="modal-body" style="padding:20px;">
+        <h6 style="color:#2563eb;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:12px;">
+          <i class="fa fa-home"></i> Installation Address</h6>
+        <div class="form-row">
+          <div class="form-group col-md-12"><label>Installation Address</label>
+            <input class="form-control" name="address" value="{{ cust.address or '' }}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-4"><label>City</label>
+            <input class="form-control" name="city" value="{{ cust.city or '' }}"></div>
+          <div class="form-group col-md-4"><label>State</label>
+            <input class="form-control" name="state" value="{{ cust.state or '' }}"></div>
+          <div class="form-group col-md-4"><label>Pincode</label>
+            <input class="form-control" name="pincode" value="{{ cust.pincode or '' }}"></div>
+        </div>
+
+        <h6 style="color:#2563eb;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin:18px 0 12px;">
+          <i class="fa fa-file-invoice"></i> Billing Address
+          <label style="float:right;font-weight:400;font-size:12px;cursor:pointer;">
+            <input type="checkbox" id="sameAsInstall" onchange="copyInstall(this.checked)">
+            Same as installation</label></h6>
+        <div class="form-row">
+          <div class="form-group col-md-12"><label>Billing Address</label>
+            <input class="form-control" name="billing_address" value="{{ cust.billing_address or '' }}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-4"><label>City</label>
+            <input class="form-control" name="billing_city" value="{{ cust.billing_city or '' }}"></div>
+          <div class="form-group col-md-4"><label>State</label>
+            <input class="form-control" name="billing_state" value="{{ cust.billing_state or '' }}"></div>
+          <div class="form-group col-md-4"><label>Pincode</label>
+            <input class="form-control" name="billing_pincode" value="{{ cust.billing_pincode or '' }}"></div>
+        </div>
+
+        <h6 style="color:#2563eb;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin:18px 0 12px;">
+          <i class="fa fa-phone"></i> Contact &amp; ID</h6>
+        <div class="form-row">
+          <div class="form-group col-md-4"><label>Mobile1</label>
+            <input class="form-control" name="customer_phone" value="{{ cust.customer_phone or '' }}"></div>
+          <div class="form-group col-md-4"><label>Phone1</label>
+            <input class="form-control" name="alt_mobile" value="{{ cust.alt_mobile or '' }}"></div>
+          <div class="form-group col-md-4"><label>Email</label>
+            <input class="form-control" type="email" name="customer_email" value="{{ cust.customer_email or '' }}"{% if user_type in ('sub_lco','employee') %} disabled title='Admin only — contact-of-record locked' {% endif %} {# _RESTRICTED_FIELD_HINT_ #}></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-4"><label>ID Proof</label>
+            <select class="form-control" name="id_proof">
+              {% for o in ['Aadhar card','PAN','Driving License','Voter ID','Passport'] %}
+              <option value="{{ o }}" {% if cust.id_proof == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+            </select></div>
+          <div class="form-group col-md-4"><label>ID Proof Number</label>
+            <input class="form-control" name="id_proof_no" value="{{ cust.id_proof_no or '' }}"></div>
+          <div class="form-group col-md-4"><label>GST Number</label>
+            <input class="form-control" name="customer_gst_no" value="{{ cust.customer_gst_no or '' }}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-12"><label>Skip Invoice Generation</label>
+            <select class="form-control" name="gst_invoice_needed">
+              <option value="Yes" {% if cust.gst_invoice_needed != 'No' %}selected{% endif %}>No (generate invoice)</option>
+              <option value="No"  {% if cust.gst_invoice_needed == 'No' %}selected{% endif %}>Yes (skip invoice)</option>
+            </select></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button type="button" class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveAddressModal()"
+                data-testid="sub-address-modal-save" style="background:#059669;color:#fff;border:none;">
+          <i class="fa fa-check"></i> Save Address &amp; Contact</button>
+      </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Override Speed Modal ===== -->
+<div class="modal fade" id="overrideSpeedModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-tachometer"></i> Override Speed</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div style="margin-bottom:12px;font-size:12px;color:#64748b;">
+          Set a custom rate-limit for this subscriber. Leave blank to remove override
+          and fall back to the plan's default speed.
+          Current: <strong>{{ cust.custom_rate_limit or 'plan default' }}</strong>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-6"><label>Upload (Mbps)</label>
+            <input class="form-control" id="ovUpload" type="number" min="1" max="1000" placeholder="e.g. 50"></div>
+          <div class="form-group col-md-6"><label>Download (Mbps)</label>
+            <input class="form-control" id="ovDownload" type="number" min="1" max="1000" placeholder="e.g. 100"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button type="button" class="btn" onclick="saveOverrideSpeed(true)" style="background:#b91c1c;color:#fff;">Remove Override</button>
+        <button type="button" class="btn btn-primary" onclick="saveOverrideSpeed(false)"
+                data-testid="sub-override-save" style="background:#059669;color:#fff;border:none;">Apply Override</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Direct Message / Ticket Modal ===== -->
+<div class="modal fade" id="alertModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title" id="alertModalTitle">Direct Message</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <input type="hidden" id="alertKind" value="alert">
+        <div class="form-group"><label>Subject</label>
+          <input class="form-control" id="alertSubject" placeholder="Short subject line"
+                 data-testid="alert-modal-subject"></div>
+        <div class="form-group"><label>Priority</label>
+          <select class="form-control" id="alertPriority">
+            <option value="Low">Low</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="High">High</option>
+          </select></div>
+        <div class="form-group"><label>Message</label>
+          <textarea class="form-control" id="alertBody" rows="4"
+                    placeholder="Describe the issue or write a message"
+                    data-testid="alert-modal-body"></textarea></div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button type="button" class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitAlert()"
+                data-testid="alert-modal-submit" style="background:#059669;color:#fff;border:none;">Submit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===== Change Package Modal (s25.15) ===== -->
+<div class="modal fade" id="changePackageModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-cubes"></i> Change Package</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div class="form-group">
+          <label>Current Plan</label>
+          <input class="form-control" readonly value="{{ plan.plan_name if plan else '—' }} ({{ plan.speed if plan else '' }})"
+                 style="background:#f1f5f9;">
+        </div>
+        <div class="form-group">
+          <label>New Plan *</label>
+          <select class="form-control" id="cpkg_plan" data-testid="cpkg-plan"></select>
+        </div>
+        <!-- s26.17b: subscriber-action-rewire — billing mode radios -->
+        <div class="form-group" style="margin-top:10px;">
+          <label style="font-size:12px;color:#334155;font-weight:600;">Billing behaviour</label>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
+            <div style="margin-bottom:8px;"><label style="cursor:pointer;font-weight:500;margin:0;">
+              <input type="radio" name="cpkg_inv_mode" value="with_invoice" data-testid="cpkg-with-invoice"
+                     {% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %}checked disabled{% endif %}>
+              <strong>Change Plan with Invoice</strong>
+              <span style="color:#64748b;font-size:11px;display:block;margin-left:20px;">
+                Generates an invoice for the new plan amount + carries previous balance,
+                updates the balance due, and emails the invoice to the customer.
+              </span>
+            </label></div>
+            <div><label style="cursor:pointer;font-weight:500;margin:0;">
+              {# _S39R5FIX12_ — sub-LCO and employees cannot use "Without Invoice" #}
+              {% if (path_prefix != '/sub-lco') and (not request.url.path.startswith('/employee/')) %}
+              <input type="radio" name="cpkg_inv_mode" value="without_invoice" checked data-testid="cpkg-without-invoice">
+              {% else %}
+              <input type="radio" name="cpkg_inv_mode" value="without_invoice" data-testid="cpkg-without-invoice" disabled style="display:none">
+              {% endif %}
+              <strong>Change Plan without Invoice</strong>
+              <span style="color:#64748b;font-size:11px;display:block;margin-left:20px;">
+                Updates plan + Mikrotik rate-limit only. No invoice raised, no email sent.
+              </span>
+            </label></div>
+          </div>
+        </div>
+        <div id="cpkg_msg" style="color:#b91c1c;font-size:13px;margin-top:6px;"></div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button class="btn btn-primary" onclick="savChangePackage()" data-testid="cpkg-save"
+                style="background:#059669;color:#fff;border:none;"><i class="fa fa-check"></i> Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Renew In Advance Modal (s25.15) ===== -->
+<div class="modal fade" id="renewModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-refresh"></i> Renew In Advance</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div class="form-row">
+          <div class="form-group col-md-6">
+            <label>Start From *</label>
+            <select class="form-control" id="rnw_start" data-testid="rnw-start-from">
+              <option value="today">Today</option>
+              <option value="date">Specific date</option>
+            </select>
+          </div>
+          <div class="form-group col-md-6">
+            <label>Start Date</label>
+            <input type="date" class="form-control" id="rnw_start_date" data-testid="rnw-start-date">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group col-md-6">
+            <label>Period (Months) *</label>
+            <select class="form-control" id="rnw_months" data-testid="rnw-months">
+              <option value="1">1 month</option>
+              <option value="2">2 months</option>
+              <option value="3">3 months</option>
+              <option value="6">6 months</option>
+              <option value="12">12 months</option>
+            </select>
+          </div>
+          <div class="form-group col-md-6" style="padding-top:26px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400;">
+              {# _S39R5FIX12_ — sub-LCO/employee: invoice always generated, locked on #}
+              <input type="checkbox" id="rnw_invoice" data-testid="rnw-with-invoice"
+                     {% if (path_prefix == '/sub-lco') or (request.url.path.startswith('/employee/')) %}checked disabled onclick="return false;"{% endif %}>
+              Generate invoice &amp; email it
+            </label>
+          </div>
+        </div>
+        <div id="rnw_msg" style="color:#b91c1c;font-size:13px;margin-top:6px;"></div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button class="btn btn-primary" onclick="saveRenew()" data-testid="rnw-save"
+                style="background:#059669;color:#fff;border:none;"><i class="fa fa-check"></i> Renew</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Change Expiry Modal (s25.15) ===== -->
+<div class="modal fade" id="changeExpiryModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content" style="border-radius:12px;">
+      <div class="modal-header" style="background:#f8fafc;">
+        <h5 class="modal-title"><i class="fa fa-calendar"></i> Change Expiry Date</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div class="form-group">
+          <label>Current Expiry</label>
+          <input class="form-control" readonly value="{{ cust.end_date or 'Not set' }}"
+                 style="background:#f1f5f9;">
+        </div>
+        <div class="form-group">
+          <label>New Expiry Date * <small class="text-muted" style="font-weight:normal;">(DD-MM-YYYY)</small></label>
+          <input type="text" class="form-control" id="cexp_date" placeholder="DD-MM-YYYY" maxlength="10" pattern="\d{2}-\d{2}-\d{4}" data-testid="cexp-date">
+        </div>
+        <div class="form-group" style="font-size:12px;color:#64748b;">
+          Only updates the expiry date stored on the subscriber record. Does NOT
+          create a renewal invoice and does NOT reset any balance. For full renewal
+          use "Renew In Advance" instead.
+        </div>
+        <div id="cexp_msg" style="color:#b91c1c;font-size:13px;margin-top:6px;"></div>
+      </div>
+      <div class="modal-footer" style="background:#f8fafc;">
+        <button class="btn" data-dismiss="modal" style="background:#e5e7eb;">Cancel</button>
+        <button class="btn btn-primary" onclick="saveChangeExpiry()" data-testid="cexp-save"
+                style="background:#059669;color:#fff;border:none;"><i class="fa fa-check"></i> Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// __S38O_CONN_TAB__ -- unified pool dropdown + Capture MAC + send_* toggles
+(function(){
+  function qs(id){ return document.getElementById(id); }
+  function currentFixVal(){
+    var sel = document.querySelector('select[name="fix_ip_address"]');
+    return sel ? sel.value : 'No';
+  }
+  function setFieldEnabled(el, on){
+    el.disabled = !on;
+    el.style.opacity = on ? '1' : '0.6';
+  }
+  var POOL_INDEX = {};  // key => {source, pool_name}
+  function loadPools(keepSelection){
+    var pool = qs('s36i_pool');
+    var keep = keepSelection || pool.value || (window.CUST_POOL_PREF || '');
+    fetch('/api/fix-ip/pools').then(r=>r.json()).then(function(j){
+      pool.innerHTML = '';
+      POOL_INDEX = {};
+      if (!j.ok || !j.rows.length) {
+        pool.innerHTML = '<option value="">(no pools — go to Sidebar → IP Pools / Public IPs)</option>';
+        return;
+      }
+      j.rows.forEach(function(p){
+        var key = p.source + '::' + p.pool_name;
+        POOL_INDEX[key] = p;
+        var o = document.createElement('option');
+        o.value = key;
+        var tag = p.source === 'public' ? '[Public]' : (p.source === 'pppoe' ? '[PPPoE]' : '[Hotspot]');
+        o.textContent = tag + ' ' + p.pool_name + '  (' + p.free + '/' + p.total + ' free)';
+        pool.appendChild(o);
+      });
+      if (keep && POOL_INDEX[keep]) pool.value = keep;
+      if (currentFixVal() === 'Yes') window.s36iLoadIps();
+    });
+  }
+  window.s36iLoadIps = function(){
+    var key = qs('s36i_pool').value;
+    var ipSel = qs('s36i_ip');
+    if (!key || !POOL_INDEX[key]) { ipSel.innerHTML = '<option value="">— choose pool first —</option>'; return; }
+    var meta = POOL_INDEX[key];
+    var curIp = window.CUST_STATIC_IP || '';
+    var url = '/api/fix-ip/available?pool=' + encodeURIComponent(meta.pool_name)
+            + '&source=' + encodeURIComponent(meta.source)
+            + (curIp ? '&include_current=' + encodeURIComponent(curIp) : '');
+    fetch(url).then(r=>r.json()).then(function(j){
+      ipSel.innerHTML = '';
+      if (!j.ok || !j.rows.length){
+        ipSel.innerHTML = '<option value="">(no free IPs in this pool)</option>';
+        return;
+      }
+      j.rows.forEach(function(r){
+        var o = document.createElement('option');
+        o.value = r.ip;
+        o.textContent = r.ip + (r.label ? '  · ' + r.label : '') +
+                        (r.ip === curIp ? '  (current)' : '');
+        ipSel.appendChild(o);
+      });
+      if (curIp) ipSel.value = curIp;
+    });
+  };
+  function syncEnable(){
+    var on = currentFixVal() === 'Yes';
+    setFieldEnabled(qs('s36i_pool'), on);
+    setFieldEnabled(qs('s36i_ip'), on);
+    if (on) { loadPools(); }
+  }
+  window._s37_syncFixIp = syncEnable;
+  function _s37_init(){
+    var sel = document.querySelector('select[name="fix_ip_address"]');
+    if (sel && !sel.__s37Hooked) {
+      sel.addEventListener('change', syncEnable);
+      sel.__s37Hooked = true;
+    }
+    syncEnable();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _s37_init);
+  } else {
+    _s37_init();
+  }
+
+  // Capture MAC -------------------------------------------------------
+  window.s38oCaptureMac = function(){
+    var msg = qs('s38o_capture_msg');
+    var fld = qs('s38o_mac_display');
+    var btn = qs('s38o_capture_btn');
+    if (!window.CUST_PK) { alert('No customer id'); return; }
+    btn.disabled = true;
+    msg.textContent = 'Capturing…';
+    msg.style.color = '#64748b';
+    fetch('/api/customers/' + window.CUST_PK + '/capture-mac', {method:'POST'})
+      .then(r => r.json()).then(function(d){
+        btn.disabled = false;
+        if (d.success && d.mac) {
+          fld.value = (d.mac || '').toUpperCase();
+          msg.textContent = '✓ Captured from ' + (d.source || 'session');
+          msg.style.color = '#16a34a';
+        } else {
+          msg.textContent = '✗ ' + (d.message || 'no active session yet — ask customer to reconnect');
+          msg.style.color = '#dc2626';
+        }
+      }).catch(function(){
+        btn.disabled = false;
+        msg.textContent = '✗ network error'; msg.style.color = '#dc2626';
+      });
+  };
+
+  // Save ---------------------------------------------------------------
+  window.saveConnection = function(){
+    var payload = window._formToObj('connForm');
+    var poolKey = payload._s36i_pool; var ip = payload._s36i_ip;
+    delete payload._s36i_pool; delete payload._s36i_ip;
+
+    // Persist connection-tab fields (fix_ip toggle, bind_mac, mac_address,
+    // send_sms/whatsapp/email). Backend translates send_* to do_not_send_*.
+    fetch('/api/subscribers/' + window.CUST_ID + '/connection-save', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r=>r.json()).then(function(d){
+      if (!d.success) { alert('✗ ' + (d.message||'error')); return; }
+      if (payload.fix_ip_address === 'Yes' && ip) {
+        var meta = POOL_INDEX[poolKey] || {source:'public', pool_name:''};
+        fetch('/api/customers/' + window.CUST_PK + '/fix-ip', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({pool_name: meta.pool_name, ip_address: ip,
+                                source: meta.source})
+        }).then(r=>r.json()).then(function(d2){
+          alert((d2.success ? '✓ ' : '✗ ') + d2.message);
+          if (d2.success) location.reload();
+        });
+      } else if (payload.fix_ip_address === 'No' && window.CUST_STATIC_IP) {
+        fetch('/api/customers/' + window.CUST_PK + '/fix-ip/clear', {method: 'POST'})
+          .then(r=>r.json()).then(function(d2){
+            alert((d2.success ? '✓ ' : '✗ ') + d2.message);
+            location.reload();
+          });
+      } else {
+        alert('✓ Connection settings saved');
+        location.reload();
+      }
+    });
+  };
+})();
+</script>
+
+
+<!-- _S40f_ — Block Websites modal -->
+<div class="modal fade" id="blockWebsitesModal" data-testid="block-websites-modal"
+     tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#fef2f2;border-bottom:1px solid #fecaca;">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title" style="color:#b91c1c;">
+          <i class="fa fa-ban"></i> Block Websites for
+          <span id="bw_cust_name"></span>
+        </h4>
+      </div>
+      <div class="modal-body">
+        <div style="background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;
+                    padding:10px 12px;border-radius:6px;font-size:13px;
+                    margin-bottom:14px;">
+          Domains entered below will be blocked <strong>only for this
+          subscriber</strong>. Push happens immediately on the chosen
+          MikroTik device — no global rule changes. Add one domain per
+          line (e.g. <code>facebook.com</code>, <code>youtube.com</code>).
+        </div>
+
+        <div class="row">
+          <div class="col-sm-6">
+            <label>MikroTik / NAS device</label>
+            <select id="bw_nas_id" class="form-control" data-testid="bw-nas-select">
+              <option value="">Loading…</option>
+            </select>
+          </div>
+          <div class="col-sm-6">
+            <label>Block name <small>(optional)</small></label>
+            <input type="text" id="bw_block_name" class="form-control"
+                   placeholder="e.g. Social media block — Ali Cement"
+                   data-testid="bw-block-name" />
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <label>Domains to block (one per line)</label>
+          <textarea id="bw_domains" class="form-control" rows="5"
+                    data-testid="bw-domains"
+                    placeholder="facebook.com&#10;youtube.com&#10;tiktok.com"></textarea>
+        </div>
+
+        <hr/>
+        <h5 style="margin:8px 0 6px;font-size:14px;font-weight:600;color:#475569;">
+          Existing blocks for this subscriber
+        </h5>
+        <div id="bw_existing_list" data-testid="bw-existing-list"
+             style="font-size:12.5px;color:#64748b;font-family:monospace;
+                    line-height:1.7;max-height:140px;overflow-y:auto;
+                    background:#f8fafc;border:1px solid #e2e8f0;
+                    border-radius:6px;padding:8px 12px;">
+          Loading…
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="submitBlockWebsites()"
+                id="bw_save_btn" data-testid="bw-save-btn">
+          <i class="fa fa-ban"></i> Save & Push to MikroTik
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function openBlockWebsites() {
+  // Reset state
+  document.getElementById("bw_block_name").value = "";
+  document.getElementById("bw_domains").value = "";
+  const list = document.getElementById("bw_existing_list");
+  list.innerText = "Loading…";
+  document.getElementById("bw_cust_name").innerText = "{{ (cust.customer_name or cust.username or '') }}";
+  // Open modal (Bootstrap 3 / 4 compatible)
+  if (typeof $ !== "undefined" && $.fn && $.fn.modal) {
+    $("#blockWebsitesModal").modal("show");
+  } else {
+    document.getElementById("blockWebsitesModal").classList.add("show","in");
+    document.getElementById("blockWebsitesModal").style.display = "block";
+  }
+  // Fetch NAS list + existing blocks
+  try {
+    const r = await fetch("/api/website-blocks/for-customer/{{ cust.id }}");
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "load failed");
+    const sel = document.getElementById("bw_nas_id");
+    if (!j.nas_devices.length) {
+      sel.innerHTML = '<option value="">No active MikroTik configured</option>';
+    } else {
+      sel.innerHTML = j.nas_devices.map(n =>
+        `<option value="${n.id}" ${n.id===j.default_nas_id ? "selected" : ""}>${n.name} (${n.ip_address})</option>`
+      ).join("");
+    }
+    if (!j.blocks.length) {
+      list.innerHTML = '<span style="color:#94a3b8;">No active blocks for this subscriber yet.</span>';
+    } else {
+      list.innerHTML = j.blocks.map(b =>
+        `<div data-testid="bw-existing-row-${b.id}" style="margin-bottom:6px;">
+           <strong style="color:#0f172a;">${b.name || ('Block #'+b.id)}</strong>
+           — ${b.domains.length} domain(s) on <em>${b.nas_name || 'NAS#'+b.nas_id}</em>
+           <span style="color:#94a3b8;">· ${b.status}</span>
+           <div style="color:#64748b;font-size:11px;">${b.domains.join(", ")}</div>
+         </div>`).join("");
+    }
+  } catch (e) {
+    document.getElementById("bw_existing_list").innerText = "Error: " + (e.message || e);
+  }
+}
+
+async function submitBlockWebsites() {
+  const nas_id = parseInt(document.getElementById("bw_nas_id").value, 10);
+  const name = document.getElementById("bw_block_name").value.trim();
+  const raw = document.getElementById("bw_domains").value || "";
+  const domains = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  if (!nas_id) { alert("Please select a MikroTik device."); return; }
+  if (!domains.length) { alert("Enter at least one domain."); return; }
+  const btn = document.getElementById("bw_save_btn");
+  btn.disabled = true; btn.innerText = "Saving…";
+  try {
+    const r = await fetch("/api/website-blocks/save", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        nas_id: nas_id,
+        domains: domains,
+        customer_pks: [{{ cust.id }}],
+        name: name || null,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || j.detail || "save failed");
+    alert("Block saved. Pushed to MikroTik: " +
+          (j.pushed_summary || (domains.length + " domain(s) for this subscriber")));
+    if (typeof $ !== "undefined" && $.fn && $.fn.modal) {
+      $("#blockWebsitesModal").modal("hide");
+    } else {
+      document.getElementById("blockWebsitesModal").style.display = "none";
+    }
+  } catch (e) {
+    alert("Failed: " + (e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-ban"></i> Save & Push to MikroTik';
+  }
+}
+</script>
+
+
+<style>
+  /* s41d: Park Now button + universal hover-tooltip */
+  /* s41e: red/orange Park Now button — visually distinct, danger-tone */
+  .qa-btn.qa-park {
+    background: linear-gradient(135deg,#dc2626,#ea580c) !important;
+    color: #fff !important;
+    border-color: #dc2626 !important;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(220,38,38,.25);
+  }
+  .qa-btn.qa-park:hover {
+    background: linear-gradient(135deg,#b91c1c,#c2410c) !important;
+    box-shadow: 0 3px 10px rgba(220,38,38,.35);
+    transform: translateY(-1px);
+  }
+  .qa-btn.qa-park:active { transform: translateY(0); }
+  /* s41f: Unpark button — green/blue gradient (positive action). */
+  .qa-btn.qa-unpark {
+    background: linear-gradient(135deg,#059669,#0284c7) !important;
+    color: #fff !important;
+    border-color: #059669 !important;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(5,150,105,.25);
+  }
+  .qa-btn.qa-unpark:hover {
+    background: linear-gradient(135deg,#047857,#0369a1) !important;
+    box-shadow: 0 3px 10px rgba(5,150,105,.35);
+    transform: translateY(-1px);
+  }
+  .qa-btn.qa-unpark:active { transform: translateY(0); }
+  .ais-tip {
+    display: none;
+    position: fixed; z-index: 99999; pointer-events: none;
+    background: #0f172a; color: #e2e8f0; font-size: 12px;
+    line-height: 1.45; padding: 10px 12px; border-radius: 8px;
+    max-width: 320px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    opacity: 0; transition: opacity .15s ease;
+    border: 1px solid rgba(255,255,255,.10);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .ais-tip.show { opacity: 1; }
+  .ais-tip:before {
+    content:''; position:absolute; left:14px; bottom:-6px;
+    border-left:6px solid transparent; border-right:6px solid transparent;
+    border-top:6px solid #0f172a;
+  }
+</style>
+<script>
+// s41d: generic data-tip hover popup (admin/sub-lco/employee — anywhere
+// the customer subscriber page is reused). Works on any element with
+// . Uses a single shared <div>.
+(function(){
+  var tip = document.createElement('div');
+  tip.className = 'ais-tip';
+  tip.setAttribute('data-testid', 'ais-tooltip');
+  document.body.appendChild(tip);
+  function show(el){
+    var t = el.getAttribute('data-tip');
+    if(!t) return;
+    tip.textContent = t;
+    // s41e: tooltip must be visible (or at least laid out) BEFORE we read
+    // offsetHeight/offsetWidth, otherwise the very-first hover lands the
+    // tooltip at top=-10 (off-screen). Setting visibility:hidden +
+    // display:block forces layout without flashing.
+    tip.style.visibility = 'hidden';
+    tip.style.display = 'block';
+    tip.classList.add('show');
+    // Force reflow
+    void tip.offsetHeight;
+    var r = el.getBoundingClientRect();
+    var h = tip.offsetHeight, w = tip.offsetWidth;
+    var top = r.top - h - 10;
+    if (top < 6) top = r.bottom + 10;  // fallback below
+    var left = r.left;
+    var maxLeft = window.innerWidth - w - 12;
+    if (left > maxLeft) left = maxLeft;
+    if (left < 6) left = 6;
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+    tip.style.visibility = 'visible';
+  }
+  function hide(){ tip.classList.remove('show'); tip.style.display = 'none'; }
+  document.addEventListener('mouseover', function(e){
+    var el = e.target.closest && e.target.closest('[data-tip]');
+    if (el) show(el, e);
+  });
+  document.addEventListener('mouseout', function(e){
+    var el = e.target.closest && e.target.closest('[data-tip]');
+    if (el) hide();
+  });
+  document.addEventListener('focusin', function(e){
+    var el = e.target.closest && e.target.closest('[data-tip]');
+    if (el) show(el, e);
+  });
+  document.addEventListener('focusout', hide);
+  // keep tip aligned during scroll
+  window.addEventListener('scroll', hide, true);
+})();
+// s41d: Park Now — backend handles status flip + session kick + RADIUS resync.
+function parkNow(){
+  var msg = 'PARK this subscriber NOW?\n\n' +
+            '• Status will be flipped to Parked\n' +
+            '• Active PPPoE session will be dropped\n' +
+            '• RADIUS resync → parking-pool IP on next dial\n' +
+            '• Their device will auto-redirect to the pay page\n\n' +
+            'Continue?';
+  if(!confirm(msg)) return;
+  var btn = document.querySelector('[data-testid="sub-park-now-btn"]');
+  if (btn){ btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Parking…'; }
+  fetch('/api/subscribers/' + CUST_ID + '/park-now',
+        {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.success){
+        alert('OK — Subscriber parked.\n' +
+              'Kicked: ' + (d.kicked || 'no live session') + '\n' +
+              'RADIUS users written: ' + (d.users_written || 0));
+        setTimeout(function(){ location.reload(); }, 800);
+      } else {
+        alert('FAIL — ' + (d.message || 'unknown error'));
+        if (btn){ btn.disabled = false; btn.innerHTML = '<i class="fa fa-bolt"></i> Park Now'; }
+      }
+    })
+    .catch(function(e){
+      alert('Request error: ' + e);
+      if (btn){ btn.disabled = false; btn.innerHTML = '<i class="fa fa-bolt"></i> Park Now'; }
+    });
+}
+// s41f: Unpark — reactivate a Parked subscriber.
+function unparkNow(){
+  var msg = 'UNPARK this subscriber (reactivate)?\n\n' +
+            '• Status will be flipped to Active\n' +
+            '• Parking-pool session will be dropped\n' +
+            '• On next dial they get a real-pool IP\n\n' +
+            'Continue?';
+  if(!confirm(msg)) return;
+  var btn = document.querySelector('[data-testid="sub-unpark-btn"]');
+  if (btn){ btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Unparking\u2026'; }
+  fetch('/api/subscribers/' + CUST_ID + '/unpark',
+        {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if (d.success){
+        alert('OK \u2014 Subscriber reactivated.\n' +
+              'Kicked: ' + (d.kicked || 'no live session') + '\n' +
+              'RADIUS users written: ' + (d.users_written || 0));
+        setTimeout(function(){ location.reload(); }, 800);
+      } else {
+        alert('FAIL \u2014 ' + (d.message || 'unknown error'));
+        if (btn){ btn.disabled = false; btn.innerHTML = '<i class="fa fa-undo"></i> Unpark (Reactivate)'; }
+      }
+    })
+    .catch(function(e){
+      alert('Request error: ' + e);
+      if (btn){ btn.disabled = false; btn.innerHTML = '<i class="fa fa-undo"></i> Unpark (Reactivate)'; }
+    });
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAQ / Help Center - Auto ISP Billing</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        body { padding-top: 70px; background: #f8f9fa; }
+        .faq-container { max-width: 1000px; margin: 0 auto; padding: 40px 20px; }
+        .faq-header { text-align: center; margin-bottom: 50px; }
+        .faq-header h1 { color: #667eea; margin-bottom: 15px; }
+        .faq-header p { font-size: 18px; color: #666; }
+        .faq-search { max-width: 600px; margin: 0 auto 40px; }
+        .faq-search input { padding: 15px; font-size: 16px; border-radius: 25px; border: 2px solid #ddd; }
+        .faq-search input:focus { border-color: #667eea; outline: none; box-shadow: 0 0 10px rgba(102,126,234,0.2); }
+        .faq-categories { margin-bottom: 40px; }
+        .category-btn { margin: 5px; padding: 10px 20px; border-radius: 20px; border: 2px solid #667eea; background: white; color: #667eea; cursor: pointer; }
+        .category-btn.active { background: #667eea; color: white; }
+        .faq-section { background: white; border-radius: 8px; padding: 30px; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .faq-section h3 { color: #667eea; margin-bottom: 25px; border-bottom: 2px solid #f0f7ff; padding-bottom: 10px; }
+        .faq-item { margin-bottom: 20px; border-bottom: 1px solid #f0f0f0; padding-bottom: 20px; }
+        .faq-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .faq-question { font-weight: 600; color: #333; font-size: 16px; cursor: pointer; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
+        .faq-question:hover { color: #667eea; }
+        .faq-question i { transition: transform 0.3s; }
+        .faq-question.active i { transform: rotate(180deg); }
+        .faq-answer { color: #666; line-height: 1.8; margin-top: 10px; display: none; padding-left: 10px; }
+        .faq-answer.show { display: block; }
+        .contact-box { background: #f0f7ff; border-left: 4px solid #667eea; padding: 20px; margin-top: 30px; text-align: center; }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-default navbar-fixed-top">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/"><strong>Auto ISP Billing</strong></a>
+            </div>
+            <div class="collapse navbar-collapse" id="navbar-collapse">
+                <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/login">Login</a></li>
+                    <li><a href="/#demo">Request Demo</a></li>
+                    <li><a href="tel:+918085868114"><i class="fa fa-whatsapp"></i> {{ support_phone }}</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="faq-container">
+        <div class="faq-header">
+            <h1>Frequently Asked Questions</h1>
+            <p>Find answers to common questions about Auto ISP Billing</p>
+        </div>
+
+        <div class="faq-search">
+            <input type="text" class="form-control" id="faqSearch" placeholder="Search for answers...">
+        </div>
+
+        <div class="faq-categories text-center">
+            <button class="category-btn active" data-category="all">All</button>
+            <button class="category-btn" data-category="getting-started">Getting Started</button>
+            <button class="category-btn" data-category="billing">Billing & Payments</button>
+            <button class="category-btn" data-category="features">Features</button>
+            <button class="category-btn" data-category="integration">Integration</button>
+            <button class="category-btn" data-category="support">Support</button>
+        </div>
+
+        <!-- Getting Started -->
+        <div class="faq-section" data-category="getting-started">
+            <h3><i class="fa fa-rocket"></i> Getting Started</h3>
+            
+            <div class="faq-item">
+                <div class="faq-question">
+                    What is Auto ISP Billing?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Auto ISP Billing is a comprehensive software-as-a-service (SaaS) platform designed specifically for Internet Service Providers (ISPs). It automates billing, customer management, payment collection, invoice generation, and integrates with network equipment like MikroTik, RADIUS, Cisco, and Ubiquiti. The platform helps ISPs streamline operations, reduce manual work, and improve customer satisfaction.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    How do I get started with Auto ISP Billing?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Getting started is easy! Simply request a demo from our homepage, and we'll set up a 14-day free trial account for you. No credit card required. During the trial, you'll have access to all features with a limit of 10 test customers. Our support team will guide you through the setup process and help you import your existing customer data.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Do I need technical knowledge to use Auto ISP Billing?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    No! Auto ISP Billing is designed to be user-friendly and intuitive. While some technical knowledge helps with network integrations (MikroTik, RADIUS), the core billing and customer management features are easy to use. We provide comprehensive documentation, video tutorials, and dedicated support to help you every step of the way.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can I import my existing customer data?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! We support bulk import of customer data via Excel/CSV files. You can import customer details, plans, payment history, and more. Our support team can assist you with data migration to ensure a smooth transition from your current system.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Is there a free trial available?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! We offer a 14-day free trial with full access to all features. The trial is limited to 10 test customers and doesn't require any payment information. You can explore all features, test integrations, and see if Auto ISP Billing is the right fit for your business before committing to a paid plan.
+                </div>
+            </div>
+        </div>
+
+        <!-- Billing & Payments -->
+        <div class="faq-section" data-category="billing">
+            <h3><i class="fa fa-credit-card"></i> Billing & Payments</h3>
+            
+            <div class="faq-item">
+                <div class="faq-question">
+                    What subscription plans are available?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    We offer flexible subscription plans based on your customer count:
+                    <ul style="margin-top: 10px;">
+                        <li><strong>Starter:</strong> Up to 100 customers</li>
+                        <li><strong>Growth:</strong> Up to 500 customers</li>
+                        <li><strong>Professional:</strong> Up to 2000 customers</li>
+                        <li><strong>Enterprise:</strong> Up to 5000 customers</li>
+                        <li><strong>Unlimited:</strong> No customer limit</li>
+                    </ul>
+                    All plans include full features. You can upgrade or downgrade anytime based on your needs.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    What payment methods do you accept?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    We accept all major payment methods including Credit/Debit Cards, Net Banking, UPI, and Digital Wallets through our integrated payment gateways (Razorpay, PayU, CCAvenue). All payments are processed securely with 256-bit SSL encryption.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Is GST included in the pricing?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    No, GST is additional and calculated based on your location. The applicable GST rate will be shown during checkout before payment. We provide GST-compliant invoices for all transactions.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can I cancel my subscription anytime?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes, you can cancel your subscription anytime through your account settings. Cancellation takes effect at the end of your current billing period. You'll retain access until the paid period expires. We offer a 30-day money-back guarantee for first-time subscribers.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Do you offer refunds?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! We offer a 30-day money-back guarantee for first-time subscribers. If you're not satisfied within the first 30 days, you can request a full refund. Please see our <a href="/refund-policy">Refund Policy</a> for complete details.
+                </div>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="faq-section" data-category="features">
+            <h3><i class="fa fa-star"></i> Features & Functionality</h3>
+            
+            <div class="faq-item">
+                <div class="faq-question">
+                    What features does Auto ISP Billing include?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Auto ISP Billing includes comprehensive features:
+                    <ul style="margin-top: 10px;">
+                        <li>Customer Management & CAF Processing</li>
+                        <li>Automated Billing & Invoice Generation</li>
+                        <li>Payment Gateway Integration (Razorpay, PayU, CCAvenue)</li>
+                        <li>SMS & WhatsApp Notifications</li>
+                        <li>MikroTik, RADIUS, Cisco, Ubiquiti Integration</li>
+                        <li>Customer Self-Service Portal</li>
+                        <li>Employee Management & GPS Tracking</li>
+                        <li>Automated Renewal & Expiry Management</li>
+                        <li>Reports & Analytics Dashboard</li>
+                        <li>Transaction History & Revenue Tracking</li>
+                        <li>Support Ticket System</li>
+                        <li>Plan & Locality Management</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can customers pay online through the platform?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! Auto ISP Billing integrates with major payment gateways (Razorpay, PayU, CCAvenue) to enable online payments. Customers can pay via credit/debit cards, UPI, net banking, and wallets. Payment links can be sent via SMS, WhatsApp, or email. Payments are automatically recorded and invoices are generated instantly.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Does it support SMS and WhatsApp notifications?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! Auto ISP Billing supports automated SMS and WhatsApp notifications for:
+                    <ul style="margin-top: 10px;">
+                        <li>Payment reminders and due date alerts</li>
+                        <li>Payment confirmation receipts</li>
+                        <li>Service expiry notifications</li>
+                        <li>New connection activation</li>
+                        <li>Invoice delivery</li>
+                        <li>Custom promotional campaigns</li>
+                    </ul>
+                    You can customize message templates and schedule automated campaigns.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can I generate and send invoices automatically?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Absolutely! Auto ISP Billing automatically generates professional GST-compliant invoices for all transactions. Invoices can be automatically sent via email, SMS, or WhatsApp. You can customize invoice templates with your company logo, bank details, and terms. Invoices are available in PDF format for download and printing.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Does it support employee management?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! The platform includes comprehensive employee management features:
+                    <ul style="margin-top: 10px;">
+                        <li>Create employee accounts with role-based permissions</li>
+                        <li>GPS-based location tracking for field employees</li>
+                        <li>Assign customers to specific employees</li>
+                        <li>Track employee performance and collections</li>
+                        <li>Monitor employee login activity</li>
+                        <li>Restrict access to sensitive features</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Integration -->
+        <div class="faq-section" data-category="integration">
+            <h3><i class="fa fa-plug"></i> Network Integration</h3>
+            
+            <div class="faq-item">
+                <div class="faq-question">
+                    Does Auto ISP Billing integrate with MikroTik routers?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! Auto ISP Billing seamlessly integrates with MikroTik routers via API. You can:
+                    <ul style="margin-top: 10px;">
+                        <li>Automatically create/delete PPPoE users</li>
+                        <li>Enable/disable customer connections based on payment status</li>
+                        <li>Apply speed limits and bandwidth restrictions</li>
+                        <li>Monitor real-time connection status</li>
+                        <li>Sync customer data with MikroTik user database</li>
+                    </ul>
+                    Our support team can help you set up the integration.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Is RADIUS server integration supported?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! Auto ISP Billing supports RADIUS server integration for authentication and accounting. You can manage RADIUS users, track bandwidth usage, enforce data limits, and automatically disconnect users based on payment status. The platform works with FreeRADIUS and other standard RADIUS implementations.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    What other network equipment is supported?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Auto ISP Billing supports integration with:
+                    <ul style="margin-top: 10px;">
+                        <li><strong>MikroTik:</strong> Full API integration</li>
+                        <li><strong>RADIUS:</strong> Authentication and accounting</li>
+                        <li><strong>Cisco:</strong> Basic integration via SNMP</li>
+                        <li><strong>Ubiquiti:</strong> UniFi controller integration</li>
+                        <li><strong>pfSense:</strong> Captive portal integration</li>
+                    </ul>
+                    Contact our support team for specific integration requirements.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can I use my own payment gateway?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Auto ISP Billing comes with pre-integrated payment gateways (Razorpay, PayU, CCAvenue). You can configure your own merchant accounts with these gateways. If you need integration with a different payment gateway, please contact our support team to discuss custom integration options.
+                </div>
+            </div>
+        </div>
+
+        <!-- Support -->
+        <div class="faq-section" data-category="support">
+            <h3><i class="fa fa-life-ring"></i> Support & Assistance</h3>
+            
+            <div class="faq-item">
+                <div class="faq-question">
+                    What kind of support do you provide?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    We provide comprehensive support through multiple channels:
+                    <ul style="margin-top: 10px;">
+                        <li><strong>Email Support:</strong> Available for all plans (24-hour response time)</li>
+                        <li><strong>Phone Support:</strong> Available for Professional and Enterprise plans</li>
+                        <li><strong>WhatsApp Support:</strong> Quick response for urgent issues</li>
+                        <li><strong>Documentation:</strong> Comprehensive guides and tutorials</li>
+                        <li><strong>Video Tutorials:</strong> Step-by-step video guides</li>
+                        <li><strong>Priority Support:</strong> 4-hour response time for Enterprise plans</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    What are your support hours?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Our support team is available Monday to Saturday, 10:00 AM to 7:00 PM IST. Email and WhatsApp support requests received outside business hours will be responded to on the next business day. Emergency support for critical issues is available via WhatsApp 24/7 for Enterprise plan customers.
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Do you provide training for my team?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! We provide comprehensive onboarding training for all new customers. This includes:
+                    <ul style="margin-top: 10px;">
+                        <li>Initial setup and configuration walkthrough</li>
+                        <li>Video tutorials for all major features</li>
+                        <li>Documentation and user guides</li>
+                        <li>One-on-one training sessions (Enterprise plans)</li>
+                        <li>Ongoing support for questions and issues</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Is my data secure and backed up?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Absolutely! We take data security very seriously:
+                    <ul style="margin-top: 10px;">
+                        <li><strong>Encryption:</strong> 256-bit SSL/TLS encryption for all data transmission</li>
+                        <li><strong>Secure Storage:</strong> Encrypted database storage</li>
+                        <li><strong>Daily Backups:</strong> Automated daily backups with 30-day retention</li>
+                        <li><strong>Disaster Recovery:</strong> Multiple backup locations for redundancy</li>
+                        <li><strong>Access Control:</strong> Role-based access with multi-factor authentication</li>
+                        <li><strong>Compliance:</strong> PCI DSS compliant for payment data</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">
+                    Can I export my data if I decide to leave?
+                    <i class="fa fa-chevron-down"></i>
+                </div>
+                <div class="faq-answer">
+                    Yes! You own your data and can export it anytime in standard formats (CSV, Excel, PDF). Upon account cancellation, you have 30 days to export all your data before it's permanently deleted. We provide easy-to-use export tools for customer data, billing records, transaction history, and reports.
+                </div>
+            </div>
+        </div>
+
+        <div class="contact-box">
+            <h3 style="margin-top: 0;"><i class="fa fa-question-circle"></i> Still Have Questions?</h3>
+            <p>Can't find the answer you're looking for? Our support team is here to help!</p>
+            <div style="margin-top: 20px;">
+                <a href="/contact" class="btn btn-primary" style="margin: 5px;">
+                    <i class="fa fa-envelope"></i> Contact Support
+                </a>
+                <a href="tel:+918085868114" class="btn btn-success" style="margin: 5px;">
+                    <i class="fa fa-phone"></i> Call {{ support_phone }}
+                </a>
+                <a href="https://wa.me/918085868114" class="btn btn-success" style="margin: 5px;">
+                    <i class="fa fa-whatsapp"></i> WhatsApp Us
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h4>Auto ISP Billing</h4>
+                    <p>Complete ISP management solution for modern internet service providers</p>
+                </div>
+                <div class="col-md-4">
+                    <h4>Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="/">Home</a></li>
+                        <li><a href="/privacy-policy">Privacy Policy</a></li>
+                        <li><a href="/terms-of-service">Terms of Service</a></li>
+                        <li><a href="/refund-policy">Refund Policy</a></li>
+                        <li><a href="/contact">Contact Us</a></li>
+                        <li><a href="/faq">FAQ/Help Center</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h4>Contact Us</h4>
+                    <p><i class="fa fa-phone"></i> {{ support_phone }}</p>
+                    <p><i class="fa fa-envelope"></i> support@autoispbilling.com</p>
+                    <p><i class="fa fa-whatsapp"></i> WhatsApp Support Available</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12 text-center footer-bottom">
+                    <p>&copy; 2025 Auto ISP Billing. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // FAQ accordion
+            $('.faq-question').click(function() {
+                $(this).toggleClass('active');
+                $(this).next('.faq-answer').toggleClass('show');
+            });
+
+            // Category filter
+            $('.category-btn').click(function() {
+                $('.category-btn').removeClass('active');
+                $(this).addClass('active');
+                
+                var category = $(this).data('category');
+                if (category === 'all') {
+                    $('.faq-section').show();
+                } else {
+                    $('.faq-section').hide();
+                    $('.faq-section[data-category="' + category + '"]').show();
+                }
+            });
+
+            // Search functionality
+            $('#faqSearch').on('keyup', function() {
+                var searchTerm = $(this).val().toLowerCase();
+                
+                if (searchTerm === '') {
+                    $('.faq-item').show();
+                    $('.faq-section').show();
+                    return;
+                }
+                
+                $('.faq-item').each(function() {
+                    var question = $(this).find('.faq-question').text().toLowerCase();
+                    var answer = $(this).find('.faq-answer').text().toLowerCase();
+                    
+                    if (question.indexOf(searchTerm) > -1 || answer.indexOf(searchTerm) > -1) {
+                        $(this).show();
+                        $(this).closest('.faq-section').show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+                
+                // Hide sections with no visible items
+                $('.faq-section').each(function() {
+                    if ($(this).find('.faq-item:visible').length === 0) {
+                        $(this).hide();
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,368 @@
+{% extends "base_superadmin.html" %}
+
+{% block title %}WhatsApp Templates - Superadmin{% endblock %}
+
+{% block extra_css %}
+<!-- DataTables CSS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap.min.css">
+<style>
+    .config-section {
+        background: #f9f9f9;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+    .template-preview {
+        background: #fff;
+        border: 1px solid #ddd;
+        padding: 15px;
+        border-radius: 4px;
+        margin-top: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>WhatsApp Templates<small>Manage WhatsApp message templates</small></h1>
+</section>
+
+<section class="content">
+    <!-- API Configuration Section -->
+    <div class="box box-primary">
+        <div class="box-header with-border">
+            <h3 class="box-title">WhatsApp API Configuration</h3>
+        </div>
+        <div class="box-body">
+            <form id="configForm">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Business Account ID</label>
+                            <input type="text" class="form-control" id="business_account_id" name="business_account_id">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Phone Number ID</label>
+                            <input type="text" class="form-control" id="phone_number_id" name="phone_number_id">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Sender Phone Number</label>
+                            <input type="text" class="form-control" id="sender_phone" name="sender_phone" placeholder="+919876543210">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Access Token</label>
+                            <input type="password" class="form-control" id="access_token" name="access_token">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Webhook Verify Token</label>
+                            <input type="text" class="form-control" id="webhook_verify_token" name="webhook_verify_token">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select class="form-control" id="is_active" name="is_active">
+                                <option value="true">Active</option>
+                                <option value="false">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Configuration</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Templates List -->
+    <div class="box box-success">
+        <div class="box-header with-border">
+            <h3 class="box-title">Message Templates</h3>
+            <div class="box-tools pull-right">
+                <button type="button" class="btn btn-success btn-sm" data-toggle="modal" data-target="#addTemplateModal">
+                    <i class="fa fa-plus"></i> Add Template
+                </button>
+            </div>
+        </div>
+        <div class="box-body">
+            <table id="templatesTable" class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Language</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Add/Edit Template Modal -->
+<div class="modal fade" id="addTemplateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Add WhatsApp Template</h4>
+            </div>
+            <div class="modal-body">
+                <form id="templateForm">
+                    <input type="hidden" id="template_id" name="template_id">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Template Name *</label>
+                                <input type="text" class="form-control" id="template_name" name="name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Category *</label>
+                                <select class="form-control" id="category" name="category" required>
+                                    <option value="transactional">Transactional</option>
+                                    <option value="marketing">Marketing</option>
+                                    <option value="otp">OTP</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Language *</label>
+                                <select class="form-control" id="language" name="language" required>
+                                    <option value="en_US">English (US)</option>
+                                    <option value="en_GB">English (UK)</option>
+                                    <option value="hi">Hindi</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Header Type</label>
+                                <select class="form-control" id="header_type" name="header_type">
+                                    <option value="">None</option>
+                                    <option value="text">Text</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" id="header_text_group" style="display:none;">
+                        <label>Header Text</label>
+                        <input type="text" class="form-control" id="header_text" name="header_text">
+                    </div>
+                    <div class="form-group">
+                        <label>Body Text * (Use {{1}}, {{2}} for variables)</label>
+                        <textarea class="form-control" id="body_text" name="body_text" rows="4" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Footer Text</label>
+                        <input type="text" class="form-control" id="footer_text" name="footer_text">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" id="template_status" name="is_active">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveTemplateBtn">Save Template</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- DataTables JS -->
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Load configuration
+    loadConfig();
+    
+    // Initialize DataTable
+    var table = $('#templatesTable').DataTable({
+        ajax: {
+            url: '/api/superadmin/whatsapp/templates',
+            dataSrc: 'data'
+        },
+        columns: [
+            { data: 'name' },
+            { data: 'category' },
+            { data: 'language' },
+            { 
+                data: 'is_active',
+                render: function(data) {
+                    return data ? '<span class="label label-success">Active</span>' : '<span class="label label-default">Inactive</span>';
+                }
+            },
+            { 
+                data: 'created_at',
+                render: function(data) {
+                    return data ? new Date(data).toLocaleDateString() : 'N/A';
+                }
+            },
+            {
+                data: null,
+                render: function(data, type, row) {
+                    return '<button class="btn btn-xs btn-primary edit-btn" data-id="' + row.id + '"><i class="fa fa-edit"></i></button> ' +
+                           '<button class="btn btn-xs btn-danger delete-btn" data-id="' + row.id + '"><i class="fa fa-trash"></i></button>';
+                }
+            }
+        ]
+    });
+    
+    // Load configuration
+    function loadConfig() {
+        $.get('/api/superadmin/whatsapp/config', function(response) {
+            if (response.success && response.data) {
+                $('#business_account_id').val(response.data.business_account_id || '');
+                $('#phone_number_id').val(response.data.phone_number_id || '');
+                $('#sender_phone').val(response.data.sender_phone || '');
+                $('#webhook_verify_token').val(response.data.webhook_verify_token || '');
+                $('#is_active').val(response.data.is_active ? 'true' : 'false');
+            }
+        });
+    }
+    
+    // Save configuration
+    $('#configForm').submit(function(e) {
+        e.preventDefault();
+        var formData = {
+            business_account_id: $('#business_account_id').val(),
+            phone_number_id: $('#phone_number_id').val(),
+            sender_phone: $('#sender_phone').val(),
+            access_token: $('#access_token').val(),
+            webhook_verify_token: $('#webhook_verify_token').val(),
+            is_active: $('#is_active').val() === 'true'
+        };
+        
+        $.ajax({
+            url: '/api/superadmin/whatsapp/config',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                alert('Configuration saved successfully!');
+                $('#access_token').val(''); // Clear password field
+            },
+            error: function() {
+                alert('Error saving configuration');
+            }
+        });
+    });
+    
+    // Header type change
+    $('#header_type').change(function() {
+        if ($(this).val() === 'text') {
+            $('#header_text_group').show();
+        } else {
+            $('#header_text_group').hide();
+        }
+    });
+    
+    // Save template
+    $('#saveTemplateBtn').click(function() {
+        var formData = {
+            name: $('#template_name').val(),
+            category: $('#category').val(),
+            language: $('#language').val(),
+            header_type: $('#header_type').val() || null,
+            header_text: $('#header_text').val() || null,
+            body_text: $('#body_text').val(),
+            footer_text: $('#footer_text').val() || null,
+            is_active: $('#template_status').val() === 'true'
+        };
+        
+        var templateId = $('#template_id').val();
+        var url = templateId ? '/api/superadmin/whatsapp/templates/' + templateId : '/api/superadmin/whatsapp/templates';
+        var method = templateId ? 'PUT' : 'POST';
+        
+        $.ajax({
+            url: url,
+            method: method,
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                alert('Template saved successfully!');
+                $('#addTemplateModal').modal('hide');
+                $('#templateForm')[0].reset();
+                $('#template_id').val('');
+                table.ajax.reload();
+            },
+            error: function() {
+                alert('Error saving template');
+            }
+        });
+    });
+    
+    // Edit template
+    $('#templatesTable').on('click', '.edit-btn', function() {
+        var id = $(this).data('id');
+        $.get('/api/superadmin/whatsapp/templates/' + id, function(response) {
+            if (response.success) {
+                var data = response.data;
+                $('#template_id').val(data.id);
+                $('#template_name').val(data.name);
+                $('#category').val(data.category);
+                $('#language').val(data.language);
+                $('#header_type').val(data.header_type || '').trigger('change');
+                $('#header_text').val(data.header_text || '');
+                $('#body_text').val(data.body_text);
+                $('#footer_text').val(data.footer_text || '');
+                $('#template_status').val(data.is_active ? 'true' : 'false');
+                $('.modal-title').text('Edit WhatsApp Template');
+                $('#addTemplateModal').modal('show');
+            }
+        });
+    });
+    
+    // Delete template
+    $('#templatesTable').on('click', '.delete-btn', function() {
+        if (confirm('Are you sure you want to delete this template?')) {
+            var id = $(this).data('id');
+            $.ajax({
+                url: '/api/superadmin/whatsapp/templates/' + id,
+                method: 'DELETE',
+                success: function() {
+                    alert('Template deleted successfully!');
+                    table.ajax.reload();
+                },
+                error: function() {
+                    alert('Error deleting template');
+                }
+            });
+        }
+    });
+    
+    // Reset form when modal closes
+    $('#addTemplateModal').on('hidden.bs.modal', function() {
+        $('#templateForm')[0].reset();
+        $('#template_id').val('');
+        $('.modal-title').text('Add WhatsApp Template');
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,586 @@
+/*!
+ * E1 Modern v4 — Dark-only + runtime white-killer
+ *
+ *  KEY: scans every rendered element with getComputedStyle and force-darkens
+ *  any element whose background is white/light or whose text contrast is bad
+ *  against the dark page.  This works on ALL pages without per-template fixes.
+ *
+ *  Also:
+ *    - Removes legacy theme toggle + sidebar search (per user)
+ *    - Builds mobile bottom nav, animates KPI counters
+ *    - Re-runs on AJAX/Modal-open via MutationObserver
+ *    - Single rAF batched so it doesn't tank performance on big tables
+ */
+(function () {
+  'use strict';
+  var docEl = document.documentElement;
+
+  // ----- 0. Force dark always ---------------------------------------------
+  function forceDark() {
+    docEl.classList.add('e1-dark');
+    docEl.setAttribute('data-e1-theme', 'dark');
+    if (document.body) document.body.classList.add('e1-dark');
+    try { localStorage.setItem('e1-theme', 'dark'); } catch (e) {}
+  }
+  forceDark();
+
+  // ----- 1. Remove the legacy sidebar search + theme toggle ---------------
+  function removeChrome() {
+    document.querySelectorAll('.e1-sidebar-search').forEach(function (n) { n.remove(); });
+    var tog = document.getElementById('e1-theme-toggle');
+    if (tog) tog.remove();
+  }
+
+  // ----- 2. White-killer --------------------------------------------------
+  // Skip elements with a transparent / dark background already.
+  // Whitelist: pills/labels/badges that *should* keep light coloured bg
+  // (status pills are styled with intentional soft pastels).
+  var SKIP_TAGS = { 'IMG':1, 'SVG':1, 'PATH':1, 'CIRCLE':1, 'RECT':1, 'CANVAS':1, 'VIDEO':1, 'IFRAME':1, 'INPUT':1, 'SELECT':1, 'TEXTAREA':1, 'BUTTON':1, 'I':1, 'SPAN':1 };
+  var SKIP_CLASS_PARTS = [
+    'label','badge','pill','chip','status-','online','offline','tag-',
+    'btn-primary','btn-success','btn-danger','btn-warning','btn-info',
+    'progress','progress-bar','dot','indicator','sparkline','swatch',
+    'gradient','e1-skeleton','spinner','loader','tooltip-inner',
+    'small-box-footer'
+  ];
+  // Containers whose contents are ALREADY DARK-styled by CSS — leave them alone.
+  // IMPORTANT: .modal, .modal-content & friends are listed here so the walker
+  // does NOT descend into open modals/popups and darken inner .form-section,
+  // .well, .panel, etc. into near-transparent rgba(255,255,255,0.03) — which
+  // is what was making modals appear "see-through / non-visible" to users.
+  // CSS (e1-modern.css §28-30) handles all dark theming inside modals.
+  var SKIP_ANCESTORS_SELECTOR =
+    '.welcome-banner,.main-sidebar,.left-side,.main-header,.e1-mobile-bottom-nav,' +
+    '.small-box,.box-header,.panel-heading,.card-header,' +
+    '.dropdown-menu,.popover,.tooltip,.daterangepicker,.dataTables_wrapper .dataTables_paginate,' +
+    '.swal2-popup,.toast,.notyf__toast,.iziToast,.alertify,.ui-dialog,.ui-widget-content,' +
+    '.modal,.modal-dialog,.modal-content,.modal-body,.modal-header,.modal-footer,' +
+    '[role="dialog"],[role="alertdialog"]';
+  // The modal-content itself has a deliberate solid navy bg, so the walker
+  // won't touch it (its bg isn't white-ish).  Children inside the modal CAN
+  // have white inline styles or per-page classes — those get darkened.
+  function shouldSkip(el) {
+    if (!el || !el.tagName) return true;
+    if (el === docEl || el === document.body) return false;
+    if (SKIP_TAGS[el.tagName]) return true;
+    var cn = (el.className && typeof el.className === 'string') ? el.className : '';
+    for (var i = 0; i < SKIP_CLASS_PARTS.length; i++) {
+      if (cn.indexOf(SKIP_CLASS_PARTS[i]) !== -1) return true;
+    }
+    // CRITICAL: never darken the modal-content/dialog wrappers themselves.
+    // CSS already paints them solid navy.  If we darken to 3% transparent,
+    // the whole modal becomes semi-transparent → "non-visible" complaint.
+    if (cn.indexOf('modal-content') !== -1) return true;
+    if (cn.indexOf('modal-dialog') !== -1) return true;
+    if (cn === 'modal' || cn.indexOf(' modal ') !== -1 || cn.indexOf('modal ') === 0 || cn.indexOf(' modal') === cn.length - 6) return true;
+    if (el.classList && (el.classList.contains('modal') || el.classList.contains('modal-content') ||
+        el.classList.contains('modal-dialog') || el.classList.contains('modal-body') ||
+        el.classList.contains('modal-header') || el.classList.contains('modal-footer'))) return true;
+    // Skip if inside any already-dark container
+    if (el.closest && el.closest(SKIP_ANCESTORS_SELECTOR)) return true;
+    return false;
+  }
+  function parseColor(c) {
+    if (!c) return null;
+    var m = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
+    if (!m) return null;
+    return {
+      r: +m[1], g: +m[2], b: +m[3],
+      a: m[4] === undefined ? 1 : +m[4]
+    };
+  }
+  function isWhiteish(c) {
+    if (!c || c.a < 0.05) return false;
+    // very light = all channels > 220 OR pastel grey > 240
+    return (c.r > 220 && c.g > 220 && c.b > 220);
+  }
+  function isMediumLight(c) {
+    if (!c || c.a < 0.4) return false;
+    // light grey / pastel ranges
+    return (c.r > 200 && c.g > 200 && c.b > 200);
+  }
+
+  function darken(el) {
+    if (el.dataset.e1Darkened === '1') return;
+    el.style.setProperty('background-color', 'rgba(255,255,255,0.03)', 'important');
+    el.style.setProperty('background-image', 'none', 'important');
+    // upgrade text color too, if it was a dark slate (invisible on dark)
+    var tc = parseColor(getComputedStyle(el).color);
+    if (tc && (tc.r + tc.g + tc.b) < 380) {  // dark text
+      el.style.setProperty('color', '#E2E8F0', 'important');
+    }
+    // give the element a subtle dark border so it doesn't look orphan
+    var bc = el.style.borderColor || getComputedStyle(el).borderColor;
+    var bcp = parseColor(bc);
+    if (bcp && (bcp.r + bcp.g + bcp.b > 600)) {
+      el.style.setProperty('border-color', 'rgba(255,255,255,0.08)', 'important');
+    }
+    el.dataset.e1Darkened = '1';
+  }
+
+  function walk() {
+    if (!document.body) return;
+    // Use a fast queue-based walk; skip the sidebar (already dark)
+    var skipSubtrees = [
+      document.querySelector('.main-sidebar'),
+      document.querySelector('.left-side'),
+      document.querySelector('.main-header'),
+      document.querySelector('.e1-mobile-bottom-nav'),
+    ].filter(Boolean);
+
+    var all = document.body.getElementsByTagName('*');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      // skip if inside a skip subtree
+      var skip = false;
+      for (var j = 0; j < skipSubtrees.length; j++) {
+        if (skipSubtrees[j] && skipSubtrees[j].contains(el)) { skip = true; break; }
+      }
+      if (skip) continue;
+      if (shouldSkip(el)) continue;
+      var cs = getComputedStyle(el);
+      var bg = parseColor(cs.backgroundColor);
+      if (!bg) continue;
+      // Strong white → darken
+      if (isWhiteish(bg)) { darken(el); continue; }
+      // gradient with white → check background-image
+      var bi = cs.backgroundImage || '';
+      if (bi && /linear-gradient.*(#fff|#FFF|white|rgb\(255,\s*255,\s*255\))/.test(bi)) {
+        darken(el); continue;
+      }
+      // medium light (pastels) → only if explicitly tagged as page-content
+      // (.box / .panel / .card / form-section / etc.)
+      if (isMediumLight(bg) && /\b(?:box|panel|card|form|section|wrapper|container|page|portal-)\b/i.test(el.className)) {
+        darken(el); continue;
+      }
+    }
+
+    // Special: any element with computed color very close to background → bump
+    // text visible (handles "ghost text" cases like #fff on #fff)
+    fixGhostText();
+  }
+
+  function fixGhostText() {
+    if (!document.body) return;
+    var all = document.body.getElementsByTagName('*');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.dataset.e1TextFixed === '1') continue;
+      // Skip elements inside already-dark containers (CSS handles them)
+      if (el.closest && el.closest(SKIP_ANCESTORS_SELECTOR)) continue;
+      if (!el.firstChild || (el.children && el.children.length > 5)) continue;
+      var cs = getComputedStyle(el);
+      var fg = parseColor(cs.color);
+      var bg = parseColor(cs.backgroundColor);
+      if (!fg) continue;
+      // Walk up to find non-transparent bg
+      var node = el;
+      while (node && (!bg || bg.a < 0.05)) {
+        node = node.parentElement;
+        if (node) bg = parseColor(getComputedStyle(node).backgroundColor);
+        if (!node || node === document.body) break;
+      }
+      if (!bg) continue;
+      // If text and bg are within 60 luminance units of each other → bump text
+      var fgL = fg.r * 0.299 + fg.g * 0.587 + fg.b * 0.114;
+      var bgL = bg.r * 0.299 + bg.g * 0.587 + bg.b * 0.114;
+      if (Math.abs(fgL - bgL) < 60) {
+        if (bgL < 90) {
+          // dark bg → light text
+          el.style.setProperty('color', '#E2E8F0', 'important');
+        } else {
+          el.style.setProperty('color', '#0F172A', 'important');
+        }
+        el.dataset.e1TextFixed = '1';
+      }
+    }
+  }
+
+  // Debounced walk
+  var walkPending = false;
+  function scheduleWalk() {
+    if (walkPending) return;
+    walkPending = true;
+    requestAnimationFrame(function () {
+      walkPending = false;
+      try { walk(); } catch (e) {}
+    });
+  }
+
+  // ----- 3. Mobile bottom nav --------------------------------------------
+  // __S55C_BOTTOMNAV_FIXED__ — only 4 items, ordered.
+  function buildBottomNav() {
+    if (window.innerWidth > 767) return;
+    if (document.querySelector('.e1-mobile-bottom-nav')) return;
+    var ITEMS = [
+      { href: '/admin/dashboard',    icon: 'bi-grid-1x2-fill',     label: 'Dashboard' },
+      { href: '/admin/users',        icon: 'bi-people-fill',       label: 'Users' },
+      { href: '/admin/online-users', icon: 'bi-wifi',              label: 'Online' },
+      { href: '/admin/olt/onus',     icon: 'bi-hdd-network-fill',  label: 'ONT/ONU' },
+    ];
+    var nav = document.createElement('nav');
+    nav.className = 'e1-mobile-bottom-nav';
+    var inner = document.createElement('div');
+    inner.className = 'e1-mobile-bottom-nav-inner';
+    nav.appendChild(inner);
+    var cur = location.pathname.replace(/\/+$/, '');
+    ITEMS.forEach(function (it) {
+      var a = document.createElement('a');
+      a.href = it.href;
+      a.innerHTML = '<i class="bi ' + it.icon + '"></i><span>' + it.label + '</span>';
+      var hrefNorm = it.href.replace(/\/+$/, '');
+      if (hrefNorm === cur || cur.indexOf(hrefNorm) === 0) a.classList.add('active');
+      inner.appendChild(a);
+    });
+    document.body.appendChild(nav);
+  }
+
+  // ----- 4. KPI counters --------------------------------------------------
+  function animateCounters() {
+    var nodes = document.querySelectorAll('.small-box > .inner > h3, [data-e1-counter]');
+    nodes.forEach(function (el) {
+      if (el.dataset.e1Counted === '1') return;
+      var raw = (el.textContent || '').trim();
+      var m = raw.match(/^([^\d\-]*)([\d,]+(?:\.\d+)?)\s*(.*)$/);
+      if (!m) return;
+      var prefix = m[1] || '', numStr = m[2].replace(/,/g, ''), suffix = m[3] || '';
+      var target = parseFloat(numStr);
+      if (!isFinite(target) || target === 0) { el.dataset.e1Counted = '1'; return; }
+      if (target < 10 && !/\./.test(numStr)) { el.dataset.e1Counted = '1'; return; }
+      var hasComma = /,/.test(m[2]), decimals = (numStr.split('.')[1] || '').length;
+      function fmt(n) {
+        if (decimals > 0) n = n.toFixed(decimals); else n = Math.round(n).toString();
+        if (hasComma) { var p = n.split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); n = p.join('.'); }
+        return prefix + n + (suffix ? ' ' + suffix : '');
+      }
+      el.dataset.e1Counted = '1';
+      var dur = 900, start = performance.now();
+      function step(now) {
+        var p = Math.min(1, (now - start) / dur);
+        var e = 1 - Math.pow(1 - p, 3);
+        el.textContent = fmt(target * e);
+        if (p < 1) requestAnimationFrame(step); else el.textContent = fmt(target);
+      }
+      requestAnimationFrame(step);
+    });
+  }
+
+  function boot() {
+    try { removeChrome(); } catch (e) {}
+    try { buildBottomNav(); } catch (e) {}
+    try { animateCounters(); } catch (e) {}
+    try { walk(); } catch (e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  // Re-walk on AJAX content swaps & modal openings
+  if (window.MutationObserver) {
+    var moBody = new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) {
+        if (muts[i].addedNodes && muts[i].addedNodes.length) { scheduleWalk(); return; }
+      }
+    });
+    var startMO = function () {
+      if (document.body) moBody.observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.body) startMO();
+    else document.addEventListener('DOMContentLoaded', startMO);
+
+    var moHtml = new MutationObserver(function () {
+      if (!docEl.classList.contains('e1-dark')) forceDark();
+    });
+    moHtml.observe(docEl, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // Re-walk when a modal opens / closes (Bootstrap 3 events)
+  document.addEventListener('shown.bs.modal', scheduleWalk);
+  document.addEventListener('hidden.bs.modal', scheduleWalk);
+  document.addEventListener('e1:rewalk', scheduleWalk);
+
+  /* =====================================================================
+   * MODAL OVERLAP / STALE-BACKDROP GUARD
+   *
+   * Bootstrap 3 has a known stacking bug: rapidly opening/closing modals
+   * can leave orphan `.modal-backdrop` elements in the DOM (sometimes at
+   * z-index 1040 covering the next modal) and stick `body.modal-open` on
+   * even when no modal is visible.  Symptoms reported by users:
+   *   - Modal "sometimes" appears dim / translucent
+   *   - "Sometimes" you can't click Save/Cancel buttons
+   *   - Page becomes unscrollable after closing a popup
+   *
+   * Fix: every time a modal opens, prune all orphan backdrops + any
+   * leftover .modal-open class.  And every time a modal closes, after a
+   * short tick, verify no orphan backdrop remains.
+   *
+   * ALSO — Bootstrap "modal inside transform/filter ancestor" bug:
+   * If ANY ancestor of `.modal` in the DOM has `transform`, `filter`,
+   * `perspective`, or `will-change: transform`, then per the CSS spec the
+   * modal's `position: fixed` is scoped to THAT ancestor (not the viewport).
+   * The `.modal-backdrop` is appended to <body> at body-root, so its
+   * z-index 10500 is in the ROOT stacking context.  The modal's z-index
+   * 10550 is LOCAL to the transformed ancestor's stacking context — which
+   * may itself paint at z-auto in the root.  Result: backdrop paints on
+   * top of the modal globally, clicks miss the modal-content.
+   *
+   * Solution: on every modal show, MOVE the modal element to be a direct
+   * child of document.body so its position:fixed is viewport-relative and
+   * its z-index 10550 is in the root stacking context.
+   * ===================================================================== */
+  function pruneOrphanBackdrops() {
+    try {
+      var backdrops = document.querySelectorAll('.modal-backdrop');
+      var openModals = document.querySelectorAll('.modal.in, .modal.show');
+      // Visible modals → keep exactly that many backdrops, prune the rest
+      var needed = openModals.length;
+      if (backdrops.length > needed) {
+        // Remove the oldest backdrops, keep the most-recent ones.
+        for (var i = 0; i < backdrops.length - needed; i++) {
+          backdrops[i].parentNode && backdrops[i].parentNode.removeChild(backdrops[i]);
+        }
+      }
+      // If no modal is visible, force-clear body.modal-open + padding
+      if (needed === 0) {
+        document.body.classList.remove('modal-open');
+        document.body.style.paddingRight = '';
+        document.body.style.overflow = '';
+        // Also remove any straggler backdrops
+        var leftovers = document.querySelectorAll('.modal-backdrop');
+        for (var j = 0; j < leftovers.length; j++) {
+          leftovers[j].parentNode && leftovers[j].parentNode.removeChild(leftovers[j]);
+        }
+      }
+    } catch (e) { /* swallow — purely cosmetic */ }
+  }
+
+  /**
+   * Promote the given .modal element to be a direct child of document.body
+   * so its position:fixed escapes any transformed ancestor stacking context.
+   * Remembers the original parent + nextSibling so we can put it back on
+   * close (preserving any inline-defined data bindings the page has set up).
+   */
+  function promoteModalToBodyRoot(modalEl) {
+    try {
+      if (!modalEl || modalEl.parentNode === document.body) return;
+      // Remember original position to restore on hide
+      if (!modalEl.__e1OrigParent) {
+        modalEl.__e1OrigParent = modalEl.parentNode;
+        modalEl.__e1OrigNextSibling = modalEl.nextSibling;
+      }
+      document.body.appendChild(modalEl);
+    } catch (e) { /* defensive */ }
+  }
+
+  /**
+   * Put the modal back where it came from (so per-page JS that holds a
+   * reference to its original-parent's children selector still works).
+   */
+  function restoreModalToOrigin(modalEl) {
+    try {
+      if (!modalEl || !modalEl.__e1OrigParent) return;
+      var p = modalEl.__e1OrigParent;
+      var ns = modalEl.__e1OrigNextSibling;
+      // Re-insert
+      if (ns && ns.parentNode === p) {
+        p.insertBefore(modalEl, ns);
+      } else {
+        p.appendChild(modalEl);
+      }
+    } catch (e) { /* defensive */ }
+  }
+
+  // BS3 fires `show.bs.modal` BEFORE the modal is shown via jQuery — and
+  // since jQuery's custom events don't dispatch native DOM events, native
+  // `addEventListener('show.bs.modal', ...)` doesn't actually fire.  We
+  // therefore detect modal opens via a MutationObserver that watches for
+  // the `.in` / `.show` class being added to any `.modal` element, then
+  // promotes that modal to body root.
+  function checkAndPromoteVisibleModals() {
+    var modals = document.querySelectorAll('.modal.in, .modal.show');
+    modals.forEach(function (m) {
+      if (m.parentNode !== document.body) {
+        promoteModalToBodyRoot(m);
+      }
+    });
+    // ALSO catch custom-class modal backdrops (e.g. .s38w-modal-backdrop on
+    // complaints page).  Match anything ending in `-modal-backdrop` that
+    // currently shows .show class OR has inline display:flex.
+    var customBackdrops = document.querySelectorAll(
+      '[class*="-modal-backdrop"], .s38w-modal-backdrop'
+    );
+    customBackdrops.forEach(function (b) {
+      var visible = b.classList.contains('show') ||
+                    (b.style && (b.style.display === 'flex' ||
+                                 b.style.display === 'block'));
+      if (visible && b.parentNode !== document.body) {
+        promoteModalToBodyRoot(b);
+      }
+    });
+  }
+
+  var modalClassObserver = new MutationObserver(function (mutations) {
+    // Cheap check first
+    var openModals = document.querySelectorAll('.modal.in, .modal.show');
+    if (openModals.length > 0) {
+      openModals.forEach(function (m) {
+        if (m.parentNode !== document.body) {
+          promoteModalToBodyRoot(m);
+        }
+      });
+    }
+    // Also poll for custom-class backdrops
+    checkAndPromoteVisibleModals();
+  });
+  function startModalObserver() {
+    if (!document.body) return;
+    modalClassObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class', 'style'],
+      subtree: true,
+    });
+    // Also do an initial sweep in case a modal was rendered open from
+    // server-side template (rare but happens with auto-open modals).
+    checkAndPromoteVisibleModals();
+  }
+  if (document.body) startModalObserver();
+  else document.addEventListener('DOMContentLoaded', startModalObserver);
+
+  // Also (belt + braces) — listen on jQuery if it's present
+  if (window.jQuery) {
+    window.jQuery(document).on('show.bs.modal shown.bs.modal', function (ev) {
+      var m = ev.target;
+      if (m && m.classList && m.classList.contains('modal')) {
+        promoteModalToBodyRoot(m);
+      }
+    });
+    window.jQuery(document).on('hidden.bs.modal', function (ev) {
+      var m = ev.target;
+      if (m && m.classList && m.classList.contains('modal')) {
+        setTimeout(function () { restoreModalToOrigin(m); }, 50);
+      }
+      setTimeout(pruneOrphanBackdrops, 0);
+    });
+    window.jQuery(document).on('hide.bs.modal', function () {
+      setTimeout(pruneOrphanBackdrops, 350);
+    });
+  }
+
+  // BS3 fires `show.bs.modal` BEFORE the modal is shown — best time to
+  // promote it to body root.  BS4/5 also fire this event.
+  document.addEventListener('show.bs.modal', function (ev) {
+    var m = ev.target || (ev.relatedTarget && ev.relatedTarget.closest('.modal'));
+    if (m && m.classList && m.classList.contains('modal')) {
+      promoteModalToBodyRoot(m);
+    }
+  }, true /* capture phase, before BS handler */);
+
+  // On hide, schedule restore AFTER fade-out animation completes.
+  document.addEventListener('hidden.bs.modal', function (ev) {
+    var m = ev.target;
+    if (m && m.classList && m.classList.contains('modal')) {
+      setTimeout(function () { restoreModalToOrigin(m); }, 50);
+    }
+  });
+
+  // On modal close, prune (give Bootstrap 300ms for fade-out animation)
+  document.addEventListener('hide.bs.modal',  function () { setTimeout(pruneOrphanBackdrops, 350); });
+  document.addEventListener('hidden.bs.modal',function () { setTimeout(pruneOrphanBackdrops, 0); });
+  // ESC key — ensure cleanup also fires
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' || e.keyCode === 27) {
+      setTimeout(pruneOrphanBackdrops, 400);
+    }
+  });
+  // Defensive: run a janitor every 2s.  No-op if nothing to clean.
+  setInterval(pruneOrphanBackdrops, 2000);
+
+  /* Also: ensure any element with stuck `display: none` from a previous
+     `body.modal-open` state gets unhidden when no modal is open. */
+  function refreshFloatingUI() {
+    if (!document.body.classList.contains('modal-open')) {
+      var els = document.querySelectorAll(
+        '.e1-mobile-bottom-nav, #e1-back-to-top, .e1-back-to-top, ' +
+        '.floating-action-btn, .fab, .e1-fab'
+      );
+      for (var i = 0; i < els.length; i++) {
+        // Only clear inline display if it was added by our CSS forcing.
+        // CSS rule with !important overrides inline anyway, so this is safe.
+        els[i].style.removeProperty('display');
+        els[i].style.removeProperty('visibility');
+      }
+    }
+  }
+  document.addEventListener('hidden.bs.modal', function () { setTimeout(refreshFloatingUI, 0); });
+
+  // Resize → rebuild bottom nav
+  var rzt = null;
+  window.addEventListener('resize', function () {
+    if (rzt) clearTimeout(rzt);
+    rzt = setTimeout(function () {
+      var existing = document.querySelector('.e1-mobile-bottom-nav');
+      if (window.innerWidth > 767 && existing) existing.remove();
+      else if (window.innerWidth <= 767 && !existing) buildBottomNav();
+    }, 150);
+  });
+})();
+
+
+/* ═════ S55R · Global modal scroll-lock + re-parent (applies to every admin page) ═════ */
+(function () {
+  "use strict";
+  function reparentAll(){
+    document.querySelectorAll('.modal-back').forEach(function(m){
+      if (m.parentNode !== document.body) document.body.appendChild(m);
+    });
+  }
+  function refreshBodyLock(){
+    var any = !!document.querySelector('.modal-back.show');
+    if (any && !document.body.dataset._s55rLockY){
+      var y = window.scrollY || window.pageYOffset || 0;
+      document.body.dataset._s55rLockY = String(y);
+      document.body.style.position = 'fixed';
+      document.body.style.top = '-' + y + 'px';
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else if (!any && document.body.dataset._s55rLockY){
+      var y = parseInt(document.body.dataset._s55rLockY, 10) || 0;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+      delete document.body.dataset._s55rLockY;
+      window.scrollTo(0, y);
+    }
+  }
+  function hookAll(){
+    reparentAll();
+    document.querySelectorAll('.modal-back').forEach(function(m){
+      if (m.__s55rHooked) return;
+      m.__s55rHooked = true;
+      new MutationObserver(refreshBodyLock).observe(m, { attributes: true, attributeFilter: ['class','style'] });
+    });
+    refreshBodyLock();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ hookAll(); setTimeout(hookAll, 800); });
+  } else { hookAll(); setTimeout(hookAll, 800); }
+  /* Catch dynamically-injected modals */
+  new MutationObserver(function(muts){
+    var added = false;
+    muts.forEach(function(mu){ mu.addedNodes && mu.addedNodes.forEach(function(n){
+      if (n.nodeType === 1 && ((n.classList && n.classList.contains('modal-back')) || (n.querySelector && n.querySelector('.modal-back')))) added = true;
+    });});
+    if (added) hookAll();
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+/* ═════ /S55R ═════ */

@@ -1,0 +1,704 @@
+{% extends "base_admin.html" %}
+
+{% block title %}NAT (Public IP) - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .nat-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; margin-bottom:12px; }
+    .nat-action-pill { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .nat-action-pill.masquerade { background:#dbeafe; color:#1e40af; }
+    .nat-action-pill.netmap     { background:#ddd6fe; color:#5b21b6; }
+    .nat-action-pill.src-nat    { background:#fef3c7; color:#92400e; }
+    .nat-action-pill.\31 to1    { background:#fce7f3; color:#9d174d; }
+    .nat-status-pill { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .nat-status-pill.Active { background:#d1fae5; color:#065f46; }
+    .nat-status-pill.Error  { background:#fee2e2; color:#991b1b; }
+    .nat-tag { display:inline-block; padding:3px 9px; background:#f1f5f9;
+               color:#0f172a; border-radius:10px; font-size:11px; margin:2px;
+               font-family:monospace; }
+    .nat-empty { padding:60px 20px; text-align:center; color:#94a3b8; }
+    .nat-info { background:#eff6ff; color:#1e3a8a; padding:10px 14px; border-radius:6px;
+                border-left:4px solid #3b82f6; margin:10px 0; }
+    .nat-warn { background:#fff7ed; color:#9a3412; padding:10px 14px; border-radius:6px;
+                border-left:4px solid #f97316; margin:10px 0; }
+    .nat-action-card { border:2px solid #e5e7eb; border-radius:8px; padding:12px;
+                        cursor:pointer; transition:border-color 0.15s ease; height:100%; }
+    .nat-action-card:hover { border-color:#94a3b8; }
+    .nat-action-card.selected { border-color:#3b82f6; background:#eff6ff; }
+    .nat-action-card h5 { margin:0 0 4px; font-size:13px; font-weight:600; }
+    .nat-action-card p  { margin:0; font-size:11px; color:#64748b; line-height:1.4; }
+    .nat-pair-grid { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+    .nat-pair-grid th, .nat-pair-grid td { border:1px solid #e5e7eb; padding:6px; }
+    .nat-pair-grid th { background:#f8fafc; text-align:left; font-weight:600; font-size:12px; }
+    .nat-pair-grid td { vertical-align:middle; }
+    .nat-pair-grid .form-control { font-size:12px; padding:3px 6px; height:30px; }
+    .pair-row.error { background:#fef2f2; }
+    .nat-1to1-section { display:none; margin-top:18px; padding:14px; background:#fdf2f8;
+                        border:1px dashed #db2777; border-radius:8px; }
+    .nat-1to1-section.show { display:block; }
+    .nat-pair-meta { font-size:11px; color:#64748b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        <i class="bi bi-shuffle"></i> NAT (Public IP)
+        <small style="color:#64748b; font-size:14px; margin-left:10px;">
+            Outbound NAT &mdash; masquerade, netmap, src-NAT &amp; 1:1 dedicated IP
+        </small>
+        <button type="button" class="btn btn-primary pull-right"
+                onclick="natWiz.open()" data-testid="nat-add-btn">
+            <i class="fa fa-plus"></i> Add NAT
+        </button>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="nat-info">
+        <strong>How it works:</strong> Pick a NAS, enter (or select) the
+        public IP block (e.g. <code>36.60.119.111/29</code>), choose the WAN
+        interface, pick a NAT action, and we push the
+        <code>/ip/address</code> + <code>/ip/firewall/nat</code> rules
+        tagged <code>nat/autoispbilling-{id}</code>. Each 1:1 customer pair
+        gets a unique sub-tag <code>...-p{pair_id}</code> for surgical rollback.
+    </div>
+
+    {% if nat_configs %}
+        {% for c in nat_configs %}
+        <div class="nat-card" data-testid="nat-config-{{ c.id }}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div style="flex:1;">
+                    <h4 style="margin:0 0 6px;">
+                        <i class="bi bi-shuffle"></i>
+                        {{ c.name or ('NAT #' ~ c.id) }}
+                        <span class="nat-status-pill {{ c.status }}">{{ c.status }}</span>
+                        <span class="nat-action-pill {{ c.action }}">{{ c.action }}</span>
+                    </h4>
+                    <div style="color:#64748b; font-size:13px;">
+                        <span class="nat-tag">NAS: {{ c.nas_name or ('#' ~ c.nas_id) }}</span>
+                        <span class="nat-tag">Public: {{ c.nat_network }}</span>
+                        {% if c.nat_range %}<span class="nat-tag">Range: {{ c.nat_range }}</span>{% endif %}
+                        <span class="nat-tag">→ {{ c.interface }}</span>
+                        {% if c.source_address %}<span class="nat-tag">src: {{ c.source_address }}</span>{% endif %}
+                    </div>
+                    {% if c.action == '1to1' and c.pairs %}
+                    <table class="nat-pair-grid" style="margin-top:10px;">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Customer</th><th>Username</th>
+                                <th>Private IP</th><th>↔</th><th>Public IP</th><th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for p in c.pairs %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ p.customer_name or '—' }}</td>
+                                <td><code>{{ p.customer_username or '—' }}</code></td>
+                                <td><code>{{ p.private_ip }}</code></td>
+                                <td>↔</td>
+                                <td><code>{{ p.public_ip }}</code></td>
+                                <td><span class="nat-status-pill {{ p.status }}">{{ p.status }}</span>
+                                {% if p.last_error %}<div class="nat-pair-meta" style="color:#dc2626;">{{ p.last_error }}</div>{% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+                    {% if c.pushed_summary %}
+                    <div class="nat-pair-meta" style="margin-top:6px;">
+                        <strong>Pushed:</strong> {{ c.pushed_summary }}
+                    </div>
+                    {% endif %}
+                    <div class="nat-pair-meta" style="margin-top:4px;">
+                        Last applied: {{ c.last_applied or '—' }}
+                        {% if c.last_error %} · <span style="color:#dc2626;">Error: {{ c.last_error }}</span>{% endif %}
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn-warning" onclick="natDisable({{ c.id }})"
+                            data-testid="nat-disable-{{ c.id }}">
+                        <i class="bi bi-arrow-counterclockwise"></i> Rollback
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="nat-empty">
+            <i class="bi bi-shuffle" style="font-size:48px;"></i>
+            <p style="margin-top:12px; font-size:15px;">No NAT configurations yet.</p>
+            <button class="btn btn-primary" onclick="natWiz.open()" data-testid="nat-empty-add-btn">
+                <i class="fa fa-plus"></i> Configure your first NAT
+            </button>
+        </div>
+    {% endif %}
+</section>
+
+<!-- ============================================================ -->
+<!-- Add NAT modal                                                 -->
+<!-- ============================================================ -->
+<div class="modal fade" id="natModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background:#0f172a; color:#fff;">
+                <button type="button" class="close" data-dismiss="modal" style="color:#fff; opacity:0.9;">&times;</button>
+                <h4 class="modal-title"><i class="bi bi-shuffle"></i> Add NAT Configuration</h4>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label>NAS Device <span style="color:#dc2626;">*</span></label>
+                        <select class="form-control" id="nat-nas" data-testid="nat-nas"
+                                onchange="natWiz.loadInterfaces()">
+                            <option value="">-- choose NAS --</option>
+                            {% for n in nas_devices %}
+                            <option value="{{ n.id }}">{{ n.name }} ({{ n.ip_address }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label>Friendly name</label>
+                        <input type="text" class="form-control" id="nat-name"
+                               placeholder="e.g. Public block A — netmap"
+                               data-testid="nat-name">
+                    </div>
+                </div>
+
+                <hr>
+                <h5 style="margin-bottom:10px;">Public IP Block (the NAT pool)</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label>Pick from existing IP Pools (optional)</label>
+                        <select class="form-control" id="nat-pool" data-testid="nat-pool"
+                                onchange="natWiz.fillFromPool()">
+                            <option value="">-- enter manually below --</option>
+                            {% for p in ip_pools %}
+                            <option value="{{ p.id }}" data-network="{{ p.network }}"
+                                    data-role="{{ p.role }}">
+                                {{ p.name }} &mdash; {{ p.network }} ({{ p.role or '—' }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label>Public Block CIDR <span style="color:#dc2626;">*</span></label>
+                        <input type="text" class="form-control" id="nat-network"
+                               placeholder="e.g. 36.60.119.111/29"
+                               data-testid="nat-network"
+                               oninput="natWiz.refreshPool1to1IfShown()">
+                        <small style="color:#64748b;">
+                            Network &amp; broadcast are skipped automatically when deriving range.
+                        </small>
+                    </div>
+                </div>
+                <div class="row" style="margin-top:14px;">
+                    <div class="col-md-6">
+                        <label>NAT Range (auto-derived)</label>
+                        <input type="text" class="form-control" id="nat-range"
+                               placeholder="leave blank to auto-fill"
+                               data-testid="nat-range">
+                        <small style="color:#64748b;">
+                            Used by netmap / src-nat. Format: <code>start-end</code>.
+                        </small>
+                    </div>
+                    <div class="col-md-6">
+                        <label>Output Interface (WAN) <span style="color:#dc2626;">*</span></label>
+                        <select class="form-control" id="nat-iface" data-testid="nat-iface">
+                            <option value="">-- pick a NAS first --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <hr>
+                <div data-tag="_S39R5V_MULTIIP_NAT_"
+                     style="background:#fef3c7;border-left:4px solid #f59e0b;
+                            padding:12px 14px;border-radius:6px;margin-bottom:14px;
+                            font-size:12px;line-height:1.5;color:#78350f;">
+                  <strong style="font-size:13px;">
+                    <i class="bi bi-info-circle-fill"></i> Multiple public IPs (e.g. /29 block)?
+                  </strong><br>
+                  Pick <b>Src-NAT</b> and tick <b>Sticky distribution (PCC)</b> to spread
+                  users across all 6 usable IPs in your /29. This fixes session-logout
+                  issues caused by ports/state-table exhaustion on a single public IP
+                  (banking apps, WhatsApp, Zoom, gaming, etc.).<br>
+                  Make sure your ISP routes the entire /29 to your router, then enable
+                  <b>Auto-disable conflicting masquerade</b> below so the new rule isn't
+                  bypassed by your existing default masquerade.
+                </div>
+                <h5 style="margin-bottom:10px;">NAT Action</h5>
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="nat-action-card selected" data-action="masquerade"
+                             onclick="natWiz.pickAction(this)" data-testid="nat-act-masq">
+                            <h5><i class="bi bi-asterisk"></i> Masquerade</h5>
+                            <p>Outbound uses WAN's primary IP. Simplest. One IP enough.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="nat-action-card" data-action="netmap"
+                             onclick="natWiz.pickAction(this)" data-testid="nat-act-netmap">
+                            <h5><i class="bi bi-diagram-2"></i> Netmap</h5>
+                            <p>1:1 hash mapping across the public block. Best /29+.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="nat-action-card" data-action="src-nat"
+                             onclick="natWiz.pickAction(this)" data-testid="nat-act-srcnat">
+                            <h5><i class="bi bi-arrow-bar-right"></i> Src-NAT</h5>
+                            <p>Distribute users across a /29 range.
+                               <b>Best for fixing logout issues.</b></p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="nat-action-card" data-action="1to1"
+                             onclick="natWiz.pickAction(this)" data-testid="nat-act-1to1">
+                            <h5><i class="bi bi-person-fill-check"></i> 1:1 Mapping</h5>
+                            <p>Per-customer dedicated public IP.
+                            VIP / hosting plans.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- _S39R5V_MULTIIP_NAT_ multi-IP NAT advanced options -->
+                <div id="nat-multiip-opts" style="margin-top:14px;padding:12px 14px;
+                     background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;">
+                  <h6 style="margin:0 0 10px;font-size:12px;font-weight:600;
+                              color:#334155;letter-spacing:.5px;text-transform:uppercase;">
+                    Advanced NAT options
+                  </h6>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label style="display:flex;align-items:center;gap:8px;
+                                    cursor:pointer;font-weight:500;font-size:13px;">
+                        <input type="checkbox" id="nat-place-at-top" checked
+                               data-testid="nat-place-at-top">
+                        <span><i class="bi bi-arrow-up-circle"></i>
+                              Place rule at the top</span>
+                      </label>
+                      <small class="text-muted" style="display:block;margin-left:24px;font-size:11px;">
+                        Adds <code>place-before=0</code> so the rule runs first.
+                      </small>
+                    </div>
+                    <div class="col-md-4">
+                      <label style="display:flex;align-items:center;gap:8px;
+                                    cursor:pointer;font-weight:500;font-size:13px;">
+                        <input type="checkbox" id="nat-auto-disable-masq"
+                               data-testid="nat-auto-disable-masq">
+                        <span><i class="bi bi-pause-circle"></i>
+                              Auto-disable conflicting masquerade</span>
+                      </label>
+                      <small class="text-muted" style="display:block;margin-left:24px;font-size:11px;">
+                        Pauses any catch-all <code>masquerade</code> on the same out-interface.
+                      </small>
+                    </div>
+                    <div class="col-md-4" id="nat-pcc-wrap">
+                      <label style="display:flex;align-items:center;gap:8px;
+                                    cursor:pointer;font-weight:500;font-size:13px;">
+                        <input type="checkbox" id="nat-pcc-enabled"
+                               data-testid="nat-pcc-enabled">
+                        <span><i class="bi bi-shuffle"></i>
+                              Sticky distribution (PCC)</span>
+                      </label>
+                      <small class="text-muted" style="display:block;margin-left:24px;font-size:11px;">
+                        Each device hashes to a fixed public IP. Src-NAT only.
+                      </small>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 1:1 mapping section — appears only when action='1to1' -->
+                <div class="nat-1to1-section" id="nat-1to1-section">
+                    <h5 style="margin-top:0;">
+                        <i class="bi bi-people-fill"></i> Customer ↔ Public IP pairs
+                        <small style="color:#64748b; font-weight:normal; margin-left:8px;">
+                            <span id="nat-pair-count">0</span> pair(s) configured ·
+                            <span id="nat-avail-count">0</span> public IP(s) available
+                        </small>
+                    </h5>
+                    <div style="margin-bottom:10px;">
+                        <button class="btn btn-default btn-sm" onclick="natWiz.refreshPool1to1()"
+                                data-testid="nat-1to1-refresh">
+                            <i class="bi bi-arrow-clockwise"></i> Load eligible customers
+                        </button>
+                        <button class="btn btn-info btn-sm" onclick="natWiz.autoAssignPairs()"
+                                data-testid="nat-1to1-auto">
+                            <i class="bi bi-magic"></i> Auto-assign all eligible
+                        </button>
+                        <button class="btn btn-default btn-sm" onclick="natWiz.addPairRow()"
+                                data-testid="nat-1to1-addrow">
+                            <i class="bi bi-plus"></i> Add row
+                        </button>
+                    </div>
+                    <table class="nat-pair-grid" id="nat-pair-table">
+                        <thead>
+                            <tr>
+                                <th style="width:32%;">Customer</th>
+                                <th style="width:24%;">Private IP</th>
+                                <th style="width:6%; text-align:center;">↔</th>
+                                <th style="width:30%;">Public IP</th>
+                                <th style="width:8%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody data-testid="nat-pair-tbody"></tbody>
+                    </table>
+                    <div class="nat-pair-meta" style="margin-top:6px;">
+                        Tip: leave Customer blank to NAT a non-customer device
+                        (server, NVR, etc.) — just fill Private + Public IPs.
+                    </div>
+                </div>
+
+                <hr>
+                <details style="margin-top:14px;">
+                    <summary style="cursor:pointer; color:#64748b;">
+                        <i class="bi bi-sliders"></i> Advanced (source filter &amp; flags)
+                    </summary>
+                    <div style="margin-top:12px;" class="row">
+                        <div class="col-md-6">
+                            <label>Source Pool (optional, ignored for 1:1)</label>
+                            <select class="form-control" id="nat-src-pool" data-testid="nat-src-pool">
+                                <option value="">-- all internal traffic --</option>
+                                {% for p in ip_pools %}
+                                <option value="{{ p.id }}" data-network="{{ p.network }}">
+                                    {{ p.name }} &mdash; {{ p.network }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label>Source CIDR (overrides pool)</label>
+                            <input type="text" class="form-control" id="nat-src-addr"
+                                   placeholder="e.g. 10.0.0.0/24" data-testid="nat-src-addr">
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <label style="display:flex; align-items:center; gap:10px;">
+                            <input type="checkbox" id="nat-bind-addr" checked data-testid="nat-bind-addr">
+                            <span>Auto-add the public block as <code>/ip/address</code> on the chosen WAN.</span>
+                        </label>
+                    </div>
+                </details>
+
+                <div class="nat-warn" style="margin-top:14px;">
+                    <strong>Heads up:</strong> Saving will push live rules to your
+                    Mikrotik. Tag <code>nat/autoispbilling-{id}</code> + per-pair
+                    <code>...-p{pair_id}</code> for surgical Rollback later.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="natWiz.apply()"
+                        data-testid="nat-save-btn">
+                    <i class="bi bi-check-circle"></i> Save &amp; Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.natWiz = (function () {
+    let action = "masquerade";
+    let eligibleCustomers = [];
+    let availablePublicIPs = [];
+    let usedPublicIPs = [];   // [{public_ip, by}]
+
+    function open() {
+        document.getElementById("nat-nas").value = "";
+        document.getElementById("nat-name").value = "";
+        document.getElementById("nat-pool").value = "";
+        document.getElementById("nat-network").value = "";
+        document.getElementById("nat-range").value = "";
+        document.getElementById("nat-iface").innerHTML = '<option value="">-- pick a NAS first --</option>';
+        document.getElementById("nat-src-pool").value = "";
+        document.getElementById("nat-src-addr").value = "";
+        document.getElementById("nat-bind-addr").checked = true;
+        action = "masquerade";
+        document.querySelectorAll(".nat-action-card").forEach(c => c.classList.remove("selected"));
+        document.querySelector('.nat-action-card[data-action="masquerade"]').classList.add("selected");
+        document.getElementById("nat-1to1-section").classList.remove("show");
+        document.querySelector('[data-testid="nat-pair-tbody"]').innerHTML = "";
+        eligibleCustomers = [];
+        availablePublicIPs = [];
+        usedPublicIPs = [];
+        updatePairCounts();
+        $("#natModal").modal("show");
+    }
+
+    function fillFromPool() {
+        const sel = document.getElementById("nat-pool");
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt || !opt.dataset.network) return;
+        document.getElementById("nat-network").value = opt.dataset.network;
+        if (action === "1to1") refreshPool1to1();
+    }
+
+    async function loadInterfaces() {
+        const nasId = document.getElementById("nat-nas").value;
+        const sel = document.getElementById("nat-iface");
+        sel.innerHTML = '<option value="">loading…</option>';
+        if (!nasId) {
+            sel.innerHTML = '<option value="">-- pick a NAS first --</option>';
+            return;
+        }
+        try {
+            const r = await fetch(`/api/nat-config/interfaces?nas_id=${nasId}`);
+            const d = await r.json();
+            if (!d.ok) {
+                sel.innerHTML = `<option value="">router error: ${d.error}</option>`;
+                return;
+            }
+            sel.innerHTML = '<option value="">-- pick interface --</option>';
+            (d.interfaces || []).forEach(i => {
+                const opt = `<option value="${i.name}">${i.name} (${i.type || "—"})${i.running ? "" : " · DOWN"}</option>`;
+                sel.insertAdjacentHTML("beforeend", opt);
+            });
+        } catch (e) {
+            sel.innerHTML = `<option value="">network error: ${e}</option>`;
+        }
+    }
+
+    function pickAction(el) {
+        document.querySelectorAll(".nat-action-card").forEach(c => c.classList.remove("selected"));
+        el.classList.add("selected");
+        action = el.getAttribute("data-action");
+        const sec = document.getElementById("nat-1to1-section");
+        if (action === "1to1") {
+            sec.classList.add("show");
+            refreshPool1to1();
+        } else {
+            sec.classList.remove("show");
+        }
+    }
+
+    async function refreshPool1to1() {
+        const block = document.getElementById("nat-network").value.trim();
+        try {
+            const url = `/api/nat-config/static-customers?nat_network=${encodeURIComponent(block)}`;
+            const r = await fetch(url);
+            const d = await r.json();
+            if (!d.ok) {
+                alert("Failed to load customers: " + (d.error || "unknown"));
+                return;
+            }
+            eligibleCustomers = d.customers || [];
+            availablePublicIPs = d.available_public_ips || [];
+            usedPublicIPs = d.used_public_ips || [];
+            updatePairCounts();
+            // Refresh customer dropdowns in existing rows
+            document.querySelectorAll(".pair-cust-select").forEach(s => fillCustomerOptions(s));
+        } catch (e) {
+            alert("Network error: " + e);
+        }
+    }
+
+    function refreshPool1to1IfShown() {
+        if (action === "1to1" &&
+            document.getElementById("nat-1to1-section").classList.contains("show")) {
+            // Debounced refresh on CIDR change
+            clearTimeout(window.__natRefreshT);
+            window.__natRefreshT = setTimeout(refreshPool1to1, 500);
+        }
+    }
+
+    function updatePairCounts() {
+        const tbody = document.querySelector('[data-testid="nat-pair-tbody"]');
+        const rows = tbody ? tbody.querySelectorAll(".pair-row").length : 0;
+        document.getElementById("nat-pair-count").textContent = rows;
+        document.getElementById("nat-avail-count").textContent = availablePublicIPs.length;
+    }
+
+    function fillCustomerOptions(sel) {
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">-- non-customer / manual --</option>';
+        eligibleCustomers.forEach(c => {
+            const sip = c.static_ip || "(no static IP)";
+            sel.insertAdjacentHTML("beforeend",
+                `<option value="${c.pk}" data-username="${c.customer_id}" data-name="${(c.customer_name||"").replace(/"/g,"")}" data-ip="${c.static_ip||""}">${c.customer_name || c.customer_id} — ${sip}</option>`);
+        });
+        if (cur) sel.value = cur;
+    }
+
+    function nextAvailablePublic() {
+        // Skip ones already filled in current rows
+        const taken = new Set(
+            Array.from(document.querySelectorAll(".pair-pub-input"))
+                 .map(i => i.value.trim()).filter(Boolean)
+        );
+        for (const ip of availablePublicIPs) {
+            if (!taken.has(ip)) return ip;
+        }
+        return "";
+    }
+
+    function addPairRow(pre) {
+        pre = pre || {};
+        const tbody = document.querySelector('[data-testid="nat-pair-tbody"]');
+        const tr = document.createElement("tr");
+        tr.className = "pair-row";
+        tr.innerHTML = `
+            <td>
+                <select class="form-control pair-cust-select" data-testid="pair-cust-select"
+                        onchange="natWiz.onCustChange(this)"></select>
+            </td>
+            <td>
+                <input type="text" class="form-control pair-priv-input"
+                       placeholder="10.0.0.5" value="${pre.private_ip || ""}"
+                       data-testid="pair-priv-input">
+            </td>
+            <td style="text-align:center;">↔</td>
+            <td>
+                <input type="text" class="form-control pair-pub-input"
+                       placeholder="36.60.119.115" value="${pre.public_ip || ""}"
+                       data-testid="pair-pub-input">
+            </td>
+            <td style="text-align:center;">
+                <button class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); natWiz.updatePairCounts();" data-testid="pair-del">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+        const sel = tr.querySelector(".pair-cust-select");
+        fillCustomerOptions(sel);
+        if (pre.customer_pk) sel.value = String(pre.customer_pk);
+        // If no public IP supplied, suggest the next free one
+        const pubInp = tr.querySelector(".pair-pub-input");
+        if (!pubInp.value) pubInp.value = nextAvailablePublic();
+        updatePairCounts();
+    }
+
+    function onCustChange(sel) {
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt) return;
+        const ip = opt.dataset.ip || "";
+        const tr = sel.closest("tr");
+        if (!tr) return;
+        const privInp = tr.querySelector(".pair-priv-input");
+        if (ip && (!privInp.value || privInp.value === "")) {
+            privInp.value = ip;
+        }
+    }
+
+    function autoAssignPairs() {
+        const tbody = document.querySelector('[data-testid="nat-pair-tbody"]');
+        tbody.innerHTML = "";
+        if (!eligibleCustomers.length) {
+            alert("No eligible static-IP customers found. Use Add row to enter pairs manually.");
+            return;
+        }
+        if (!availablePublicIPs.length) {
+            alert("No available public IPs in the chosen block (all taken). Free some first or pick a larger CIDR.");
+            return;
+        }
+        const n = Math.min(eligibleCustomers.length, availablePublicIPs.length);
+        for (let i = 0; i < n; i++) {
+            const c = eligibleCustomers[i];
+            addPairRow({
+                customer_pk: c.pk,
+                private_ip: c.static_ip || "",
+                public_ip: availablePublicIPs[i],
+            });
+        }
+        alert(`Auto-assigned ${n} pair(s). ${eligibleCustomers.length - n} customer(s) unassigned (block exhausted).`);
+    }
+
+    function collectPairs() {
+        const out = [];
+        document.querySelectorAll(".pair-row").forEach(tr => {
+            const sel = tr.querySelector(".pair-cust-select");
+            const opt = sel.options[sel.selectedIndex];
+            const priv = tr.querySelector(".pair-priv-input").value.trim();
+            const pub = tr.querySelector(".pair-pub-input").value.trim();
+            if (!priv || !pub) return;
+            out.push({
+                customer_pk: parseInt(sel.value || 0),
+                customer_username: opt ? (opt.dataset.username || "") : "",
+                customer_name: opt ? (opt.dataset.name || "") : "",
+                private_ip: priv,
+                public_ip: pub,
+            });
+        });
+        return out;
+    }
+
+    async function apply() {
+        const payload = {
+            nas_id:         document.getElementById("nat-nas").value,
+            name:           document.getElementById("nat-name").value.trim(),
+            nat_pool_id:    document.getElementById("nat-pool").value,
+            nat_network:    document.getElementById("nat-network").value.trim(),
+            nat_range:      document.getElementById("nat-range").value.trim(),
+            interface:      document.getElementById("nat-iface").value,
+            action:         action,
+            source_pool_id: document.getElementById("nat-src-pool").value,
+            source_address: document.getElementById("nat-src-addr").value.trim(),
+            bind_address:   document.getElementById("nat-bind-addr").checked,
+            // _S39R5V_MULTIIP_NAT_ flags
+            place_at_top:      !!(document.getElementById("nat-place-at-top") || {}).checked,
+            auto_disable_masq: !!(document.getElementById("nat-auto-disable-masq") || {}).checked,
+            pcc_enabled:       !!(document.getElementById("nat-pcc-enabled") || {}).checked,
+        };
+        if (action === "1to1") {
+            payload.pairs = collectPairs();
+            if (!payload.pairs.length) {
+                alert("Add at least one customer-pair for 1:1 NAT.");
+                return;
+            }
+        }
+        if (!payload.nas_id) { alert("Pick a NAS"); return; }
+        if (!payload.nat_network) { alert("Public block (CIDR) required"); return; }
+        if (!payload.interface) { alert("Pick output interface"); return; }
+        try {
+            const r = await fetch("/api/nat-config/save", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                let msg = "Failed: " + (d.error || "unknown");
+                if (d.pair_results) {
+                    const errs = d.pair_results.filter(p => !p.ok);
+                    if (errs.length) msg += "\n\nPair errors:\n" + errs.map(p => `  ${p.private_ip} ↔ ${p.public_ip}: ${p.error}`).join("\n");
+                }
+                alert(msg);
+                return;
+            }
+            alert("NAT applied!\n\nPushed:\n" + (d.pushed || []).join("\n"));
+            $("#natModal").modal("hide");
+            location.reload();
+        } catch (e) {
+            alert("Network error: " + e);
+        }
+    }
+
+    return {
+        open, fillFromPool, loadInterfaces, pickAction, apply,
+        refreshPool1to1, refreshPool1to1IfShown, autoAssignPairs,
+        addPairRow, onCustChange, updatePairCounts,
+    };
+})();
+
+async function natDisable(id) {
+    if (!confirm("Roll back this NAT configuration?\n\nWe'll remove every matching /ip/address and /ip/firewall/nat rule from the router (parent + all pair children).")) return;
+    try {
+        const r = await fetch(`/api/nat-config/${id}/disable`, {method: "POST"});
+        const d = await r.json();
+        if (d.ok) {
+            alert(`Rolled back. ${d.purged || 0} rule(s) purged from router.${d.router_error ? "\n\nRouter error: " + d.router_error : ""}`);
+            location.reload();
+        } else {
+            alert("Failed: " + (d.error || "unknown"));
+        }
+    } catch (e) {
+        alert("Network error: " + e);
+    }
+}
+</script>
+{% endblock %}

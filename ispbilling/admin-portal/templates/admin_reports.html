@@ -1,0 +1,538 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Reports - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+/* __S38S_REPORTS__ — modern reports page */
+.rpt-wrap { padding: 6px 0 24px; }
+.rpt-hero { background:linear-gradient(135deg,#0ea5a4 0%,#0891b2 100%);
+            color:#fff;border-radius:14px;padding:22px 26px;margin-bottom:18px;
+            box-shadow:0 4px 14px rgba(14,165,164,.25); }
+.rpt-hero h1 { margin:0;font-size:24px;font-weight:700;letter-spacing:.3px; }
+.rpt-hero small { opacity:.85;font-size:13px;display:block;margin-top:4px; }
+
+.rpt-filters { background:#fff;border-radius:12px;padding:18px 20px;
+               box-shadow:0 1px 3px rgba(0,0,0,.06); margin-bottom:18px; }
+.rpt-filters .filter-row { display:grid;gap:12px;
+    grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); }
+.rpt-filters label { font-size:11.5px;font-weight:600;color:#475569;
+                     text-transform:uppercase;letter-spacing:.5px;
+                     display:block;margin-bottom:4px; }
+.rpt-filters select, .rpt-filters input[type="date"], .rpt-filters input[type="number"] {
+    width:100%;height:38px;border:1px solid #e2e8f0;border-radius:8px;
+    padding:0 10px;font-size:14px;background:#fff;
+    transition:border-color .15s;
+}
+.rpt-filters select:focus, .rpt-filters input:focus {
+    outline:none;border-color:#0ea5a4;box-shadow:0 0 0 3px rgba(14,165,164,.15);
+}
+.rpt-actions { display:flex;gap:10px;margin-top:14px;flex-wrap:wrap; }
+.rpt-actions .btn { height:38px;padding:0 18px;border-radius:8px;
+    font-weight:600;font-size:13.5px;display:inline-flex;align-items:center;gap:6px; }
+.rpt-btn-run { background:#0ea5a4;color:#fff;border:0; }
+.rpt-btn-run:hover { background:#0d9488;color:#fff; }
+.rpt-btn-reset { background:#f1f5f9;color:#475569;border:1px solid #e2e8f0; }
+.rpt-btn-csv { background:#10b981;color:#fff;border:0; }
+.rpt-btn-print { background:#6366f1;color:#fff;border:0; }
+
+/* Summary cards */
+.rpt-cards { display:grid;gap:14px;
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); margin-bottom:18px; }
+.rpt-card { background:#fff;border-radius:12px;padding:18px 20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:4px solid #0ea5a4;
+    display:flex;align-items:center;justify-content:space-between;
+    transition:transform .15s,box-shadow .15s; }
+.rpt-card:hover { transform:translateY(-2px);
+    box-shadow:0 6px 16px rgba(0,0,0,.08); }
+.rpt-card .kpi-label { font-size:12px;color:#64748b;font-weight:600;
+    text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px; }
+.rpt-card .kpi-value { font-size:22px;font-weight:700;color:#0f172a;
+    font-variant-numeric:tabular-nums; }
+.rpt-card .kpi-ico { font-size:28px;color:#0ea5a4;opacity:.35; }
+.rpt-card--green { border-left-color:#10b981; }
+.rpt-card--green .kpi-ico { color:#10b981; }
+.rpt-card--amber { border-left-color:#f59e0b; }
+.rpt-card--amber .kpi-ico { color:#f59e0b; }
+.rpt-card--red   { border-left-color:#ef4444; }
+.rpt-card--red   .kpi-ico { color:#ef4444; }
+.rpt-card--indigo{ border-left-color:#6366f1; }
+.rpt-card--indigo .kpi-ico { color:#6366f1; }
+
+/* Chart + table area */
+.rpt-grid { display:grid;gap:18px;grid-template-columns:2fr 1fr;
+    margin-bottom:18px; }
+@media (max-width: 1100px){ .rpt-grid { grid-template-columns:1fr; } }
+
+/* __S43Y_RPT_RESPONSIVE__ tablet + mobile breakpoints */
+@media (max-width: 900px) {
+  .rpt-summary { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .rpt-tbl { font-size:12px; }
+  .rpt-tbl thead th { padding:8px 8px;font-size:10px; }
+  .rpt-tbl tbody td { padding:7px 8px; }
+}
+@media (max-width: 640px) {
+  .rpt-filters .filter-row { grid-template-columns:1fr; gap:10px; }
+  .rpt-summary { grid-template-columns:repeat(2,1fr); gap:10px; }
+  .rpt-card { padding:12px 14px; }
+  .rpt-card .kpi-val { font-size:16px; }
+  .rpt-card .kpi-lbl { font-size:11px; }
+  .rpt-actions { gap:6px; }
+  .rpt-actions .btn { height:34px;padding:0 12px;font-size:12px;flex:1;min-width:90px; }
+  .rpt-panel { padding:12px; }
+  .rpt-tbl-wrap { max-height:none; }
+  .rpt-tbl { font-size:11px; }
+  .rpt-tbl thead th { padding:6px 6px;font-size:9px; }
+  .rpt-tbl tbody td { padding:6px 6px; }
+  .rpt-empty { padding:30px 12px;font-size:12px; }
+  .rpt-hero h2 { font-size:18px !important; }
+  .rpt-hero p { font-size:12px !important; }
+}
+@media (max-width: 420px) {
+  .rpt-summary { grid-template-columns:1fr; }
+}
+.rpt-panel { background:#fff;border-radius:12px;padding:18px 20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.rpt-panel-title { font-size:14px;font-weight:700;color:#0f172a;
+    margin-bottom:12px;display:flex;align-items:center;gap:8px; }
+.rpt-panel-title i { color:#0ea5a4; }
+.rpt-tbl-wrap { overflow-x:auto;max-height:560px;border-radius:8px; }
+.rpt-tbl { width:100%;border-collapse:collapse;font-size:13px; }
+.rpt-tbl thead th { background:#f8fafc;color:#475569;font-weight:600;
+    text-transform:uppercase;font-size:11px;letter-spacing:.4px;
+    padding:10px 12px;border-bottom:2px solid #e2e8f0;
+    position:sticky;top:0;z-index:1; text-align:left; }
+.rpt-tbl tbody td { padding:9px 12px;border-bottom:1px solid #f1f5f9;
+    color:#1e293b;vertical-align:middle; }
+.rpt-tbl tbody tr:hover { background:#f8fafc; }
+.rpt-tbl .num { text-align:right;font-variant-numeric:tabular-nums; }
+.rpt-empty { padding:60px 20px;text-align:center;color:#94a3b8;
+    font-size:14px;background:#fafbfc;border-radius:8px; }
+.rpt-empty i { font-size:42px;display:block;margin-bottom:10px;color:#cbd5e1; }
+.rpt-spinner { text-align:center;padding:50px;color:#64748b; }
+.rpt-spinner i { font-size:32px;color:#0ea5a4; }
+
+.rpt-status-badge { padding:3px 10px;border-radius:999px;font-size:11px;
+    font-weight:600;text-transform:uppercase;letter-spacing:.3px; }
+.rpt-status-badge--active { background:#d1fae5;color:#065f46; }
+.rpt-status-badge--inactive { background:#fee2e2;color:#991b1b; }
+.rpt-status-badge--pending { background:#fef3c7;color:#92400e; }
+.rpt-status-badge--resolved { background:#dbeafe;color:#1e40af; }
+
+/* Hide contextual filter by default */
+.rpt-ctx { display:none; }
+.rpt-ctx.show { display:block; }
+
+@media print {
+  .rpt-hero, .rpt-filters, .rpt-actions, aside, nav, .main-header, .main-footer { display:none !important; }
+  .rpt-panel { box-shadow:none;border:1px solid #e2e8f0; }
+  .rpt-grid { grid-template-columns:1fr; }
+  body { background:#fff !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<style>
+/* __S43ZG_RPT_RESP__ Reports — responsive on small screens */
+.rpt-grid { display: grid; grid-template-columns: 1fr 380px; gap: 16px; }
+@media (max-width: 1100px) {
+  .rpt-grid { grid-template-columns: 1fr; }
+}
+#rpt_table_area { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+#rpt_table_area table { min-width: 760px; }
+.rpt-panel { overflow: hidden; }
+@media (max-width: 720px) {
+  .rpt-cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rpt-actions { flex-wrap: wrap; gap: 6px; }
+  .rpt-filters { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rpt-filters > div { min-width: 0; }
+  .rpt-panel canvas#rpt_chart { max-height: 280px !important; }
+}
+@media (max-width: 480px) {
+  .rpt-cards { grid-template-columns: 1fr; }
+  .rpt-filters { grid-template-columns: 1fr; }
+}
+</style>
+<section class="content rpt-wrap">
+  <div class="rpt-hero">
+    <h1><i class="bi bi-bar-chart-line-fill"></i>&nbsp; Reports</h1>
+    <small>Pick a report, apply filters, and drill into the data. Export to CSV or print for offline review.</small>
+  </div>
+
+  <div class="rpt-filters" data-testid="rpt-filters">
+    <div class="filter-row">
+      <div>
+        <label>Service Type</label>
+        <select id="rpt_service_type" data-testid="rpt-service-type">
+          <!-- __S43N_RPT_ALL_SERVICE__ default to All so other filters
+               (location, employee, status) compose without surprises -->
+          <option value="" selected>All Services</option>
+          <option value="Broadband">Broadband</option>
+          <option value="Cable TV">Cable TV</option>
+        </select>
+      </div>
+      <div>
+        <label>Report Type</label>
+        <select id="rpt_type" data-testid="rpt-type">
+          <optgroup label="Revenue &amp; Collections">
+            <option value="collection" selected>Collection</option>
+            <option value="recharges">Recharges</option>
+            <option value="general_ledger">General Ledger</option>
+            <option value="amount_dues">Amount Dues</option>
+            <option value="non_paid">Non-Paid Customers</option>
+            <option value="transaction_history">Subscriber Transaction History</option>
+          </optgroup>
+          <optgroup label="Customers">
+            <option value="total_subscribers">Total Subscribers</option>
+            <option value="enrollments">Enrollments (New Connections)</option>
+            <option value="churns">Churns / Opt-Out</option>
+            <option value="near_expiry">Near-by Expiry</option>
+          </optgroup>
+          <optgroup label="Support">
+            <option value="complaints">Complaints</option>
+          </optgroup>
+          {# _S39R5FIX13_ — hide Analytics for employees #}
+          {% if path_prefix != '/employee' %}
+          <optgroup label="Analytics (enhanced)">
+            <option value="top_plans">Top Plans by Subscribers</option>
+            <option value="revenue_by_plan">Revenue by Plan</option>
+            <option value="revenue_by_location">Revenue by Location</option>
+            <option value="revenue_by_employee">Revenue by Employee</option>
+            <option value="revenue_by_sub_lco" data-testid="rpt-revenue-by-sub-lco">Revenue by Sub-LCO (Paid / Due / Earning)</option>
+            <option value="voucher_usage">Voucher Usage</option>
+          </optgroup>
+          {% endif %}
+        </select>
+      </div>
+      <div>
+        <label>Period</label>
+        <select id="rpt_period" data-testid="rpt-period">
+          <option value="today">Today</option>
+          <option value="7d">Last 7 Days</option>
+          <option value="30d" selected>Last 30 Days</option>
+          <option value="month">This Month</option>
+          <option value="custom">Custom Range</option>
+        </select>
+      </div>
+      <div class="rpt-ctx" data-show="custom">
+        <label>From</label>
+        <input type="date" id="rpt_from" data-testid="rpt-from">
+      </div>
+      <div class="rpt-ctx" data-show="custom">
+        <label>To</label>
+        <input type="date" id="rpt_to" data-testid="rpt-to">
+      </div>
+      <div>
+        <label>Employee (collector)</label>
+        <select id="rpt_employee" data-testid="rpt-employee"{% if user_type == "employee" %} disabled title="Locked to yourself"{% endif %}>
+          <option value="">All Employees</option>
+        </select>
+      </div>
+      <div>
+        <label>Location</label>
+        <select id="rpt_location" data-testid="rpt-location"
+          {%- if user_type in ("employee","sub_lco") %} title="Showing only your assigned locations"{%- endif %}>
+          <option value="">All Locations{% if user_type == "employee" %} (yours){% elif user_type == "sub_lco" %} (yours){% endif %}</option>
+        </select>
+      </div>
+      <div class="rpt-ctx" data-show="near_expiry">
+        <label>Expiring in (days)</label>
+        <input type="number" id="rpt_days_ahead" min="1" max="90" value="15" data-testid="rpt-days-ahead">
+      </div>
+      <div class="rpt-ctx" data-show="non_paid complaints total_subscribers churns enrollments">
+        <label>Status</label>
+        <select id="rpt_status" data-testid="rpt-status">
+          <option value="">All</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+          <option value="Suspended">Suspended</option>
+        </select>
+      </div>
+      <div class="rpt-ctx" data-show="complaints">
+        <label>Complaint Status</label>
+        <select id="rpt_complaint_status" data-testid="rpt-complaint-status">
+          <option value="">All</option>
+          <option value="Pending">Pending</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Resolved">Resolved</option>
+        </select>
+      </div>
+    </div>
+    <div class="rpt-actions">
+      <button class="btn rpt-btn-run" onclick="rptRun()" data-testid="rpt-run"><i class="bi bi-play-fill"></i> Run Report</button>
+      <button class="btn rpt-btn-reset" onclick="rptReset()" data-testid="rpt-reset"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
+      <button class="btn rpt-btn-csv" onclick="rptExportCsv()" data-testid="rpt-export-csv"><i class="bi bi-filetype-csv"></i> Export CSV</button>
+      <button class="btn rpt-btn-print" onclick="window.print()" data-testid="rpt-print"><i class="bi bi-printer"></i> Print</button>
+    </div>
+  </div>
+
+  <div id="rpt_cards" class="rpt-cards" data-testid="rpt-cards"></div>
+
+  <div class="rpt-grid">
+    <div class="rpt-panel">
+      <div class="rpt-panel-title">
+        <i class="bi bi-table"></i>
+        <span id="rpt_tbl_title">Results</span>
+        <span id="rpt_tbl_count" style="margin-left:auto;font-size:12px;color:#64748b;font-weight:500;"></span>
+      </div>
+      <div id="rpt_table_area" data-testid="rpt-table-area">
+        <div class="rpt-empty">
+          <i class="bi bi-clipboard-data"></i>
+          <div>Select a report type and click <b>Run Report</b> to begin.</div>
+        </div>
+      </div>
+    </div>
+    <div class="rpt-panel">
+      <div class="rpt-panel-title">
+        <i class="bi bi-graph-up"></i> Visual summary
+      </div>
+      <canvas id="rpt_chart" style="max-height:420px;" data-testid="rpt-chart"></canvas>
+      <div id="rpt_chart_empty" class="rpt-empty" style="display:none;">
+        <i class="bi bi-pie-chart"></i>
+        <div>Chart will appear once the report has data.</div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+/* __S38S_REPORTS__ */
+(function(){
+  let _chart = null;
+  let _lastRows = [];
+  let _lastCols = [];
+
+  // Load employees + locations into filter dropdowns
+  function populateDropdowns() {
+    // __S43H_COLLECTOR_DD__: source admins + employees + sub-LCOs from
+    // /api/admin/collectors so the option value matches the canonical
+    // Payment.employee_id text code (admin_id / employee_code / sub_lco_code).
+    fetch('/api/admin/collectors').then(r=>r.json()).then(d=>{
+      const sel = document.getElementById('rpt_employee');
+      const groups = { admin: [], sub_lco: [], employee: [] };
+      (d.collectors||[]).forEach(c => {
+        const g = c.type || 'employee';
+        if (!groups[g]) groups[g] = [];
+        groups[g].push(c);
+      });
+      const labelMap = {admin: 'Admin', sub_lco: 'Sub-LCO', employee: 'Employee'};
+      ['admin','sub_lco','employee'].forEach(k => {
+        if (!groups[k].length) return;
+        const og = document.createElement('optgroup');
+        og.label = labelMap[k] || k;
+        groups[k].forEach(c => {
+          const o = document.createElement('option');
+          o.value = c.id; o.textContent = c.name;
+          og.appendChild(o);
+        });
+        sel.appendChild(og);
+      });
+    }).catch(()=>{});
+    fetch('/api/locations/list').then(r=>r.json()).then(d=>{
+      const sel = document.getElementById('rpt_location');
+      (d.locations||d.rows||[]).forEach(l => {
+        const o=document.createElement('option');
+        o.value=l.id; o.textContent=l.name+(l.city?(', '+l.city):'');
+        sel.appendChild(o);
+      });
+    }).catch(()=>{});
+  }
+
+  // Show/hide contextual filters based on report type + period
+  function refreshCtx() {
+    const rtype = document.getElementById('rpt_type').value;
+    const period = document.getElementById('rpt_period').value;
+    document.querySelectorAll('.rpt-ctx').forEach(el => {
+      const show = (el.dataset.show || '').split(/\s+/);
+      el.classList.toggle('show', show.includes(rtype) || show.includes(period));
+    });
+  }
+  document.getElementById('rpt_type').addEventListener('change', refreshCtx);
+  document.getElementById('rpt_period').addEventListener('change', refreshCtx);
+
+  window.rptReset = function() {
+    document.getElementById('rpt_type').value = 'collection';
+    document.getElementById('rpt_period').value = '30d';
+    document.getElementById('rpt_employee').value = '';
+    document.getElementById('rpt_location').value = '';
+    document.getElementById('rpt_from').value = '';
+    document.getElementById('rpt_to').value = '';
+    refreshCtx();
+    document.getElementById('rpt_cards').innerHTML = '';
+    document.getElementById('rpt_table_area').innerHTML =
+      '<div class="rpt-empty"><i class="bi bi-clipboard-data"></i><div>Select a report type and click <b>Run Report</b> to begin.</div></div>';
+    if (_chart) { _chart.destroy(); _chart = null; }
+    document.getElementById('rpt_chart_empty').style.display = 'none';
+  };
+
+  function fmtINR(v){ return '₹ ' + Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:2}); }
+  function isNum(v){ return typeof v === 'number' || (!!v && !isNaN(v) && /^-?\d+(\.\d+)?$/.test(String(v))); }
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  function renderCards(summary){
+    const box = document.getElementById('rpt_cards');
+    box.innerHTML = '';
+    if (!summary || !Object.keys(summary).length) return;
+    const icons = { count:'bi-collection', total:'bi-currency-rupee', avg:'bi-bar-chart-fill',
+                    max:'bi-arrow-up-right-circle', min:'bi-arrow-down-right-circle',
+                    paid:'bi-check2-circle', pending:'bi-hourglass-split', active:'bi-person-check' };
+    const colors = { count:'', total:'rpt-card--green', avg:'rpt-card--indigo',
+                     max:'rpt-card--amber', min:'rpt-card--red',
+                     paid:'rpt-card--green', pending:'rpt-card--amber', active:'rpt-card--green' };
+    for (const k in summary) {
+      const it = summary[k];
+      const ico = icons[k.toLowerCase()] || 'bi-bar-chart';
+      const cls = colors[k.toLowerCase()] || '';
+      const val = it.is_currency ? fmtINR(it.value) : Number(it.value||0).toLocaleString('en-IN');
+      const label = it.label || k.replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
+      box.insertAdjacentHTML('beforeend', `
+        <div class="rpt-card ${cls}">
+          <div>
+            <div class="kpi-label">${escapeHtml(label)}</div>
+            <div class="kpi-value">${val}</div>
+          </div>
+          <i class="bi ${ico} kpi-ico"></i>
+        </div>`);
+    }
+  }
+
+  function renderTable(columns, rows){
+    _lastCols = columns; _lastRows = rows;
+    const area = document.getElementById('rpt_table_area');
+    document.getElementById('rpt_tbl_count').textContent = `${rows.length} row${rows.length===1?'':'s'}`;
+    if (!rows.length){
+      area.innerHTML = '<div class="rpt-empty"><i class="bi bi-inbox"></i><div>No data for the selected filters.</div></div>';
+      return;
+    }
+    let h = '<div class="rpt-tbl-wrap"><table class="rpt-tbl"><thead><tr>';
+    columns.forEach(c => { h += `<th${c.num?' class="num"':''}>${escapeHtml(c.label)}</th>`; });
+    h += '</tr></thead><tbody>';
+    rows.forEach(r => {
+      h += '<tr>';
+      columns.forEach(c => {
+        let v = r[c.key];
+        if (c.badge && v) {
+          const cls = ({Active:'active',Inactive:'inactive',Suspended:'inactive',
+                        Pending:'pending',Resolved:'resolved','In Progress':'pending'}[v] || 'pending');
+          v = `<span class="rpt-status-badge rpt-status-badge--${cls}">${escapeHtml(v)}</span>`;
+          h += `<td>${v}</td>`;
+        } else if (c.currency) {
+          h += `<td class="num">${fmtINR(v)}</td>`;
+        } else if (c.num) {
+          h += `<td class="num">${v==null?'':Number(v).toLocaleString('en-IN')}</td>`;
+        } else {
+          h += `<td>${escapeHtml(v==null?'':v)}</td>`;
+        }
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    area.innerHTML = h;
+  }
+
+  function renderChart(chart){
+    const el = document.getElementById('rpt_chart');
+    const empty = document.getElementById('rpt_chart_empty');
+    if (_chart) { _chart.destroy(); _chart = null; }
+    if (!chart || !chart.labels || !chart.labels.length){
+      el.style.display = 'none'; empty.style.display = 'block'; return;
+    }
+    el.style.display = 'block'; empty.style.display = 'none';
+    const palette = ['#0ea5a4','#10b981','#6366f1','#f59e0b','#ef4444','#06b6d4',
+                     '#8b5cf6','#ec4899','#14b8a6','#f97316'];
+    const cfg = {
+      type: chart.type || 'bar',
+      data: {
+        labels: chart.labels,
+        datasets: [{
+          label: chart.dataset_label || 'Value',
+          data: chart.data,
+          backgroundColor: chart.type === 'line' ? 'rgba(14,165,164,.12)' : palette,
+          borderColor: chart.type === 'line' ? '#0ea5a4' : '#fff',
+          borderWidth: chart.type === 'line' ? 2.5 : 1,
+          tension: 0.35,
+          fill: chart.type === 'line',
+          pointRadius: chart.type === 'line' ? 3 : 0,
+        }],
+      },
+      options: {
+        responsive:true,maintainAspectRatio:false,
+        plugins: {
+          legend: { display: chart.type === 'doughnut' || chart.type === 'pie', position:'bottom' },
+          tooltip: { callbacks: {
+            label: c => (chart.is_currency ? '₹ ' : '') + Number(c.parsed.y ?? c.parsed).toLocaleString('en-IN')
+          }},
+        },
+        scales: (chart.type === 'doughnut' || chart.type === 'pie') ? {} : {
+          y: { beginAtZero:true, ticks:{ callback:v=>(chart.is_currency?'₹ ':'')+Number(v).toLocaleString('en-IN') } }
+        },
+      },
+    };
+    _chart = new Chart(el, cfg);
+  }
+
+  window.rptRun = function(){
+    const qs = new URLSearchParams({
+      report_type: document.getElementById('rpt_type').value,
+      service_type: document.getElementById('rpt_service_type').value,
+      period: document.getElementById('rpt_period').value,
+      from_date: document.getElementById('rpt_from').value || '',
+      to_date: document.getElementById('rpt_to').value || '',
+      employee_id: document.getElementById('rpt_employee').value || '',
+      location_id: document.getElementById('rpt_location').value || '',
+      status: document.getElementById('rpt_status').value || '',
+      complaint_status: document.getElementById('rpt_complaint_status').value || '',
+      days_ahead: document.getElementById('rpt_days_ahead').value || '',
+    });
+    const area = document.getElementById('rpt_table_area');
+    area.innerHTML = '<div class="rpt-spinner"><i class="bi bi-arrow-repeat spin"></i> Running report…</div>';
+    document.getElementById('rpt_cards').innerHTML = '';
+    if (_chart) { _chart.destroy(); _chart = null; }
+    document.getElementById('rpt_chart_empty').style.display = 'none';
+
+    fetch('/api/admin/reports/run?'+qs.toString())
+      .then(r=>r.json()).then(d=>{
+        if (!d.ok) {
+          area.innerHTML = `<div class="rpt-empty"><i class="bi bi-x-circle"></i><div>${escapeHtml(d.error||'Error running report')}</div></div>`;
+          return;
+        }
+        document.getElementById('rpt_tbl_title').textContent = d.title || 'Results';
+        renderCards(d.summary || {});
+        renderTable(d.columns || [], d.rows || []);
+        renderChart(d.chart);
+      }).catch(e=>{
+        area.innerHTML = `<div class="rpt-empty"><i class="bi bi-x-circle"></i><div>Network error: ${escapeHtml(String(e))}</div></div>`;
+      });
+  };
+
+  window.rptExportCsv = function(){
+    if (!_lastRows.length) { alert('Run a report first.'); return; }
+    const header = _lastCols.map(c=>JSON.stringify(c.label)).join(',');
+    const body = _lastRows.map(r => _lastCols.map(c=>{
+      let v = r[c.key]; if (v==null) v='';
+      return JSON.stringify(String(v));
+    }).join(',')).join('\n');
+    const csv = header + '\n' + body;
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const rtype = document.getElementById('rpt_type').value;
+    a.href = url; a.download = `report_${rtype}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  };
+
+  // Init
+  populateDropdowns();
+  refreshCtx();
+  // Auto-run default report so page isn't empty
+  setTimeout(()=>window.rptRun(), 250);
+})();
+</script>
+<style>@keyframes s38s-spin{to{transform:rotate(360deg)}} .spin{display:inline-block;animation:s38s-spin 1s linear infinite;}</style>
+{% endblock %}

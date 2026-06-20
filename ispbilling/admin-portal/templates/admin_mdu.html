@@ -1,0 +1,278 @@
+{% extends layout_template|default("base_admin.html") %}
+{# s56V Phase B — Building / Floor / Unit Hierarchy (MDU) management #}
+{% block title %}MDU / Building Hierarchy{% endblock %}
+
+{% block content %}
+<style>
+  .mdu-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;margin-bottom:18px}
+  .mdu-grid{display:grid;grid-template-columns:1fr 2fr;gap:18px}
+  .b-list .b-row{padding:10px 12px;border-radius:8px;border:1px solid #e5e7eb;margin-bottom:8px;cursor:pointer}
+  .b-list .b-row.active{background:#eff6ff;border-color:#2563eb}
+  .b-list .b-meta{font-size:12px;color:#6b7280}
+  .tree-floor{margin-bottom:14px}
+  .tree-floor h6{margin:8px 0;color:#374151}
+  .units-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .unit-tile{padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;font-size:13px;cursor:pointer}
+  .unit-tile.linked{background:#d1fae5;border-color:#10b981}
+  .unit-tile.offline{background:#fee2e2;border-color:#ef4444}
+</style>
+
+<div class="container-fluid" data-testid="mdu-page">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">MDU / Buildings</h3>
+    <button class="btn btn-primary" id="btnAddBuilding" data-testid="btn-add-building">
+      <i class="bi bi-plus-circle"></i> Add Building
+    </button>
+  </div>
+
+  <div class="mdu-grid">
+    <div>
+      <div class="mdu-card">
+        <h6 class="mb-3">Buildings</h6>
+        <div class="b-list" id="bList" data-testid="building-list">
+          <div class="text-muted">Loading…</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="mdu-card" id="bTreeCard">
+        <div id="bTree" data-testid="building-tree" class="text-muted">Select a building to view its floors and units.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/edit building modal -->
+<div class="modal fade" id="bModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Building</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="bId">
+        <div class="mb-2"><label>Name *</label><input id="bName" class="form-control" data-testid="b-name"></div>
+        <div class="mb-2"><label>Address</label><input id="bAddress" class="form-control" data-testid="b-address"></div>
+        <div class="row">
+          <div class="col"><label>Lat</label><input id="bLat" class="form-control" type="number" step="0.000001" data-testid="b-lat"></div>
+          <div class="col"><label>Lng</label><input id="bLng" class="form-control" type="number" step="0.000001" data-testid="b-lng"></div>
+        </div>
+        <div class="row mt-2">
+          <div class="col"><label>Floors</label><input id="bFloors" class="form-control" type="number" min="1" value="1" data-testid="b-floors"></div>
+          <div class="col"><label>Units / floor</label><input id="bUnitsPF" class="form-control" type="number" min="1" value="1" data-testid="b-units-per-floor"></div>
+        </div>
+        <div class="mt-2"><label>Type</label>
+          <select id="bOwnerType" class="form-control" data-testid="b-owner-type">
+            <option value="residential">Residential</option>
+            <option value="commercial">Commercial</option>
+            <option value="mixed">Mixed</option>
+          </select>
+        </div>
+        <div class="mt-2"><label>Notes</label><textarea id="bNotes" class="form-control" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="bSave" data-testid="b-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Unit edit modal -->
+<div class="modal fade" id="uModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Unit</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="uId">
+        <div class="mb-2"><label>Label *</label><input id="uLabel" class="form-control" data-testid="u-label"></div>
+        <div class="mb-2"><label>Type</label>
+          <select id="uType" class="form-control" data-testid="u-type">
+            <option value="apartment">Apartment</option><option value="shop">Shop</option>
+            <option value="office">Office</option><option value="villa">Villa</option>
+          </select></div>
+        <div class="mb-2"><label>Linked ONU ID</label><input id="uOnu" type="number" class="form-control" data-testid="u-onu"></div>
+        <div class="mb-2"><label>Customer ID</label>
+          <div class="d-flex gap-2"><input id="uCustId" class="form-control" data-testid="u-cust-id"><button class="btn btn-success" id="uLinkCust" data-testid="u-link-cust">Link</button>
+          <button class="btn btn-outline-danger" id="uUnlinkCust" data-testid="u-unlink-cust">Unlink active</button></div>
+        </div>
+        <div class="mb-2"><label>Notes</label><textarea id="uNotes" class="form-control" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger me-auto" id="uDelete" data-testid="u-delete">Delete</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="uSave" data-testid="u-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  let selectedBid = null;
+
+  async function fjson(url, opts){
+    const r = await fetch(url, Object.assign({credentials:'include', headers:{'Content-Type':'application/json'}}, opts||{}));
+    if(!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+    return r.json();
+  }
+
+  async function loadBuildings(){
+    const d = await fjson('/api/admin/mdu/buildings');
+    const el = document.getElementById('bList');
+    if(!d.buildings.length){ el.innerHTML = '<div class="text-muted">No buildings yet. Click Add Building.</div>'; return; }
+    el.innerHTML = d.buildings.map(b=>`
+      <div class="b-row ${b.id===selectedBid?'active':''}" data-bid="${b.id}" data-testid="b-row-${b.id}">
+        <strong>${b.name}</strong>
+        <div class="b-meta">${b.address||'—'} · ${b.floors_n} floors · ${b.units_n} units · ${b.active_subs} active subs</div>
+      </div>
+    `).join('');
+    el.querySelectorAll('.b-row').forEach(r=>{
+      r.onclick = ()=>{ selectedBid=parseInt(r.dataset.bid,10); loadTree(); loadBuildings(); };
+      r.ondblclick = ()=>{ openBModal(parseInt(r.dataset.bid,10)); };
+    });
+  }
+
+  async function loadTree(){
+    if(!selectedBid){ return; }
+    const d = await fjson(`/api/admin/mdu/buildings/${selectedBid}/tree`);
+    const el = document.getElementById('bTree');
+    el.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div><h5 class="mb-0">${d.building.name}</h5><small class="text-muted">${d.building.address||''}</small></div>
+        <div>
+          <button class="btn btn-sm btn-outline-primary" id="btnEditB" data-testid="btn-edit-b">Edit</button>
+          <button class="btn btn-sm btn-outline-danger" id="btnDelB" data-testid="btn-del-b">Delete</button>
+        </div>
+      </div>
+      ${d.floors.map(f=>`
+        <div class="tree-floor">
+          <h6>Floor ${f.label} <small class="text-muted">(${f.units.length} units)</small></h6>
+          <div class="units-grid">
+            ${f.units.map(u=>`
+              <div class="unit-tile ${u.active_customer_id?'linked':''} ${u.onu_status==='offline'?'offline':''}"
+                   data-uid="${u.id}" data-testid="unit-tile-${u.id}"
+                   data-onu="${u.ref_onu_id||''}" data-cust="${u.active_customer_id||''}"
+                   data-label="${u.unit_label}" data-type="${u.unit_type||''}" data-notes="${u.notes||''}">
+                <strong>${u.unit_label}</strong>
+                <div style="font-size:11px">${u.active_customer_name||'<i>vacant</i>'}</div>
+                ${u.onu_serial?`<div style="font-size:10px;color:#6b7280">ONU ${u.onu_serial}</div>`:''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    `;
+    document.getElementById('btnEditB').onclick = ()=>openBModal(selectedBid);
+    document.getElementById('btnDelB').onclick = async ()=>{
+      if(!confirm('Delete building and all its floors/units?')) return;
+      await fjson(`/api/admin/mdu/buildings/${selectedBid}`, {method:'DELETE'});
+      selectedBid=null; loadBuildings(); document.getElementById('bTree').innerHTML='<div class="text-muted">Select a building.</div>';
+    };
+    el.querySelectorAll('.unit-tile').forEach(t=>{
+      t.onclick = ()=>openUModal(t.dataset);
+    });
+  }
+
+  function openBModal(bid){
+    document.getElementById('bId').value = bid||'';
+    if(bid){
+      fjson(`/api/admin/mdu/buildings/${bid}/tree`).then(d=>{
+        document.getElementById('bName').value = d.building.name||'';
+        document.getElementById('bAddress').value = d.building.address||'';
+        document.getElementById('bLat').value = d.building.lat||'';
+        document.getElementById('bLng').value = d.building.lng||'';
+        document.getElementById('bFloors').value = d.building.floors_count||1;
+        document.getElementById('bUnitsPF').value = d.building.units_per_floor||1;
+        document.getElementById('bOwnerType').value = d.building.owner_type||'residential';
+        document.getElementById('bNotes').value = d.building.notes||'';
+      });
+    } else {
+      ['bName','bAddress','bLat','bLng','bNotes'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('bFloors').value=1; document.getElementById('bUnitsPF').value=1;
+      document.getElementById('bOwnerType').value='residential';
+    }
+    new bootstrap.Modal(document.getElementById('bModal')).show();
+  }
+
+  document.getElementById('btnAddBuilding').onclick = ()=>openBModal(null);
+
+  document.getElementById('bSave').onclick = async ()=>{
+    const bid = document.getElementById('bId').value;
+    const payload = {
+      name: document.getElementById('bName').value.trim(),
+      address: document.getElementById('bAddress').value.trim(),
+      lat: parseFloat(document.getElementById('bLat').value)||null,
+      lng: parseFloat(document.getElementById('bLng').value)||null,
+      owner_type: document.getElementById('bOwnerType').value,
+      floors_count: parseInt(document.getElementById('bFloors').value,10)||1,
+      units_per_floor: parseInt(document.getElementById('bUnitsPF').value,10)||1,
+      notes: document.getElementById('bNotes').value.trim()
+    };
+    if(!payload.name){ alert('Name required'); return; }
+    try{
+      if(bid){
+        await fjson(`/api/admin/mdu/buildings/${bid}`, {method:'PATCH', body:JSON.stringify(payload)});
+      } else {
+        const r = await fjson('/api/admin/mdu/buildings', {method:'POST', body:JSON.stringify(payload)});
+        selectedBid = r.id;
+      }
+      bootstrap.Modal.getInstance(document.getElementById('bModal')).hide();
+      loadBuildings(); loadTree();
+    }catch(e){ alert('Save failed: '+e.message); }
+  };
+
+  function openUModal(ds){
+    document.getElementById('uId').value = ds.uid;
+    document.getElementById('uLabel').value = ds.label||'';
+    document.getElementById('uType').value = ds.type||'apartment';
+    document.getElementById('uOnu').value = ds.onu||'';
+    document.getElementById('uCustId').value = ds.cust||'';
+    document.getElementById('uNotes').value = ds.notes||'';
+    new bootstrap.Modal(document.getElementById('uModal')).show();
+  }
+
+  document.getElementById('uSave').onclick = async ()=>{
+    const uid = document.getElementById('uId').value;
+    const payload = {
+      unit_label: document.getElementById('uLabel').value.trim(),
+      unit_type: document.getElementById('uType').value,
+      ref_onu_id: parseInt(document.getElementById('uOnu').value,10)||null,
+      notes: document.getElementById('uNotes').value.trim()
+    };
+    try{
+      await fjson(`/api/admin/mdu/units/${uid}`, {method:'PATCH', body:JSON.stringify(payload)});
+      bootstrap.Modal.getInstance(document.getElementById('uModal')).hide();
+      loadTree();
+    }catch(e){ alert('Save failed: '+e.message); }
+  };
+  document.getElementById('uDelete').onclick = async ()=>{
+    const uid = document.getElementById('uId').value;
+    if(!confirm('Delete this unit?')) return;
+    try{
+      await fjson(`/api/admin/mdu/units/${uid}`, {method:'DELETE'});
+      bootstrap.Modal.getInstance(document.getElementById('uModal')).hide();
+      loadTree();
+    }catch(e){ alert('Delete failed: '+e.message); }
+  };
+  document.getElementById('uLinkCust').onclick = async ()=>{
+    const uid = document.getElementById('uId').value;
+    const cid = document.getElementById('uCustId').value.trim();
+    if(!cid){ alert('Customer ID required'); return; }
+    try{
+      await fjson(`/api/admin/mdu/units/${uid}/link-customer`, {method:'POST', body:JSON.stringify({customer_id:cid})});
+      alert('Linked. Reloading…'); loadTree();
+    }catch(e){ alert('Link failed: '+e.message); }
+  };
+  document.getElementById('uUnlinkCust').onclick = async ()=>{
+    const uid = document.getElementById('uId').value;
+    try{
+      await fjson(`/api/admin/mdu/units/${uid}/link-customer`, {method:'DELETE'});
+      loadTree();
+    }catch(e){ alert('Unlink failed: '+e.message); }
+  };
+
+  loadBuildings();
+})();
+</script>
+{% endblock %}

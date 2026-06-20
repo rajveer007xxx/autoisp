@@ -1,0 +1,256 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Edit Employee Locality - Auto ISP Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .edit-form {
+        background: white;
+        padding: 30px;
+        border: 1px solid #ddd;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .employee-info {
+        background: #e3f2fd;
+        padding: 15px;
+        margin-bottom: 25px;
+        border-left: 4px solid #2196f3;
+    }
+    
+    .employee-info h3 {
+        margin: 0 0 10px 0;
+        color: #1976d2;
+    }
+    
+    .employee-info p {
+        margin: 5px 0;
+        color: #555;
+    }
+    
+    .form-section {
+        margin-bottom: 25px;
+    }
+    
+    .form-section label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #333;
+    }
+    
+    .locality-checkboxes {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 15px;
+        background: #f9f9f9;
+    }
+    
+    .locality-item {
+        padding: 8px;
+        margin-bottom: 5px;
+        background: white;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .locality-item label {
+        font-weight: normal;
+        margin: 0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+    }
+    
+    .locality-item input[type="checkbox"] {
+        width: auto;
+        margin-right: 10px;
+    }
+    
+    .btn-container {
+        margin-top: 25px;
+        text-align: center;
+    }
+    
+    .btn-container .btn {
+        min-width: 150px;
+        margin: 0 10px;
+    }
+    
+    .search-localities {
+        margin-bottom: 15px;
+    }
+    
+    .select-all-container {
+        margin-bottom: 10px;
+        padding: 10px;
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Edit Employee Locality Assignment
+        <small>Manage {{ connection_type }} localities for {{ employee.employee_name }}</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="/admin/customer-distribution">Customer Distribution</a></li>
+        <li class="active">Edit Employee Locality</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="edit-form">
+        <div class="employee-info">
+            <h3><i class="fa fa-user"></i> Employee Information</h3>
+            <p><strong>Name:</strong> {{ employee.employee_name }}</p>
+            <p><strong>Employee Code:</strong> {{ employee.employee_code }}</p>
+            <p><strong>Connection Type:</strong> {{ connection_type }}</p>
+        </div>
+        
+        <form id="editForm" onsubmit="submitUpdate(event)">
+            <div class="form-section">
+                <label>Assigned Localities</label>
+                <div class="search-localities">
+                    <input type="text" id="localitySearch" class="form-control" 
+                           placeholder="Search localities..." onkeyup="filterLocalities()">
+                </div>
+                <div class="select-all-container">
+                    <label>
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                        <strong>Select All Localities</strong>
+                    </label>
+                </div>
+                <div class="locality-checkboxes" id="localityList">
+                    {% if all_localities %}
+                        {% for locality in all_localities %}
+                        <div class="locality-item">
+                            <label>
+                                <input type="checkbox" 
+                                       name="location_ids" 
+                                       value="{{ locality.id }}" 
+                                       class="locality-checkbox"
+                                       {% if locality in assigned_localities %}checked{% endif %}>
+                                {{ locality.name }}{% if locality.city %} - {{ locality.city }}{% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p style="text-align: center; color: #999;">No localities available</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="btn-container">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-save"></i> Update Localities
+                </button>
+                <a href="/admin/customer-distribution" class="btn btn-default">
+                    <i class="fa fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const employeeId = {{ employee.id }};
+const connectionType = '{{ connection_type }}';
+let allLocalityItems = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    allLocalityItems = Array.from(document.querySelectorAll('.locality-item'));
+    updateSelectAllState();
+});
+
+function filterLocalities() {
+    const searchTerm = document.getElementById('localitySearch').value.toLowerCase();
+    
+    allLocalityItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.locality-checkbox');
+    
+    checkboxes.forEach(cb => {
+        const item = cb.closest('.locality-item');
+        if (item.style.display !== 'none') {
+            cb.checked = selectAll.checked;
+        }
+    });
+}
+
+function updateSelectAllState() {
+    const checkboxes = document.querySelectorAll('.locality-checkbox');
+    const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
+        const item = cb.closest('.locality-item');
+        return item.style.display !== 'none';
+    });
+    
+    const allChecked = visibleCheckboxes.length > 0 && 
+                       visibleCheckboxes.every(cb => cb.checked);
+    
+    document.getElementById('selectAll').checked = allChecked;
+}
+
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('locality-checkbox')) {
+        updateSelectAllState();
+    }
+});
+
+function submitUpdate(event) {
+    event.preventDefault();
+    
+    const checkedBoxes = document.querySelectorAll('.locality-checkbox:checked');
+    const locationIds = Array.from(checkedBoxes)
+        .map(cb => Number(cb.value))
+        .filter(Number.isInteger);
+    
+    const data = {
+        employee_id: employeeId,
+        location_ids: locationIds,
+        connection_type: connectionType
+    };
+    
+    console.log('Submitting update:', data);
+    
+    fetch('/api/customer-distribution/update', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Localities updated successfully!');
+            window.location.href = '/admin/customer-distribution';
+        } else {
+            alert('Error: ' + (result.message || 'Failed to update localities'));
+        }
+    })
+    .catch(error => {
+        console.error('Error updating localities:', error);
+        alert('Failed to update localities. Please try again.');
+    });
+}
+</script>
+{% endblock %}

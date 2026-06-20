@@ -1,0 +1,11 @@
+[Unit]
+Description=Auto ISP Billing - Admin Auto-Renewal Timer (Daily at 2:00 AM IST)
+Requires=autoispbilling-auto-renew.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=autoispbilling-auto-renew.service
+
+[Install]
+WantedBy=timers.target

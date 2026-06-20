@@ -1,0 +1,13 @@
+{
+  "latest": "4.7.74",
+  "latest_code": 94,
+  "min_supported": "4.7.50",
+  "min_supported_code": 70,
+  "apk_url": "https://www.autoispbilling.com/AutoISPBilling-v4.7.74.apk",
+  "release_notes": "v4.7.74 — NAS Status page now surfaces Temperature, CPU Temp, Voltage (V), Current (mA), Power (W), Fan 1 / Fan 2 RPM, PSU 1 / PSU 2 state and overall Power Status (Dual-PSU OK / Single-PSU / FAULT) — only rendered when the router actually reports them (CCR / CRS hardware). Existing rows (CPU load, Memory, Uptime, Active Users) preserved.",
+  "force_update_message": "v4.7.74 adds full hardware-sensor block to the NAS Status page. Please update.",
+  "soft_update_message": "v4.7.74 — NAS Status: Temperature · Voltage · Current · Power · Fan RPM · PSU state · Power Status.",
+  "latest_version": "4.7.74",
+  "latest_version_code": 94,
+  "download_url": "https://www.autoispbilling.com/AutoISPBilling-v4.7.74.apk"
+}

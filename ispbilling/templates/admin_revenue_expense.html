@@ -1,0 +1,182 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Revenue & Expense - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Revenue & Expense
+        <small>Financial overview</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="row">
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-green">
+                <div class="inner">
+                    <h3>₹0</h3>
+                    <p>Total Revenue</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-arrow-up"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-red">
+                <div class="inner">
+                    <h3>₹0</h3>
+                    <p>Total Expense</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-arrow-down"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-blue">
+                <div class="inner">
+                    <h3>₹0</h3>
+                    <p>Net Profit</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-money"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6 col-xs-12">
+            <div class="small-box bg-yellow">
+                <div class="inner">
+                    <h3>0%</h3>
+                    <p>Profit Margin</p>
+                </div>
+                <div class="icon">
+                    <i class="fa fa-percent"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Period</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Period:</label>
+                    <select class="form-control">
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month" selected>This Month</option>
+                        <option value="year">This Year</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Start Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>End Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary">Apply Filter</button>
+                <button type="button" class="btn btn-success"><i class="fa fa-download"></i> Export Report</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="box box-success">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Revenue Breakdown</h3>
+                </div>
+                <div class="box-body">
+                    <table class="table table-bordered">
+                        <tr>
+                            <td>Subscription Revenue</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Installation Charges</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Addon Bills</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Other Income</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr class="bg-green">
+                            <th>Total Revenue</th>
+                            <th class="text-right">₹ 0.00</th>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="box box-danger">
+                <div class="box-header with-border">
+                    <h3 class="box-title">Expense Breakdown</h3>
+                </div>
+                <div class="box-body">
+                    <table class="table table-bordered">
+                        <tr>
+                            <td>Equipment</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Maintenance</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Salary</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Other Expenses</td>
+                            <td class="text-right">₹ 0.00</td>
+                        </tr>
+                        <tr class="bg-red">
+                            <th>Total Expense</th>
+                            <th class="text-right">₹ 0.00</th>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Monthly Comparison</h3>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th>Revenue</th>
+                            <th>Expense</th>
+                            <th>Profit</th>
+                            <th>Margin %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" class="text-center">No data available</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

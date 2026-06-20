@@ -1,0 +1,315 @@
+"""
+_S48A_  OLT Telnet Persistent Connection Pool.
+
+Replaces per-call telnet open/close cycles with a long-lived, thread-safe
+session per OLT host. This cuts OLT-side AAA login log spam by ~95%
+(typical poll cycle was logging in 4-6 times/minute per OLT — now once,
+then heartbeat).
+
+Design:
+  - One TelnetSession per (host, port) keyed by olt_id when available.
+  - Per-session threading.RLock so concurrent callers serialise commands
+    without colliding on the shared socket.
+  - Idle reaper closes sessions older than IDLE_KILL_S seconds.
+  - Auto-reconnect on EOFError / OSError / broken pipe.
+  - Health: light "\r\n" probe every PROBE_S; reconnect on no response.
+  - Cooperative interface: callers do
+        with telnet_session(olt) as ts:
+            out = ts.send("show ...")
+            ts.send_enter_pon(2)
+            ...
+    The connection is held for the duration of the with-block and
+    returned to the pool on exit (no logout).
+
+Vendor profiles: VSOL/Netlink/Syrotech/CData EPON OLTs use the same
+"login -> enable -> terminal length 0" entry sequence. The pool is
+designed to also serve OLT-side WRITE actions (ONU rename, WAN config,
+Wi-Fi push, LAN IP change) — see `olt_telnet_actions.py`.
+"""
+from __future__ import annotations
+
+import os
+import re
+import threading
+import time
+import fcntl                        # _S50C_FILE_LOCK
+import telnetlib
+from contextlib import contextmanager
+from typing import Dict, Optional, Tuple
+
+# Tunables ---------------------------------------------------------------
+IDLE_KILL_S   = int(os.environ.get("OLT_TELNET_IDLE_KILL", "180"))  # 3 min
+MAX_AGE_S     = int(os.environ.get("OLT_TELNET_MAX_AGE", "1800"))    # 30 min
+PROBE_S       = int(os.environ.get("OLT_TELNET_PROBE", "30"))
+CONNECT_TIMEO = float(os.environ.get("OLT_TELNET_CONNECT_T", "10"))
+READ_TIMEO    = float(os.environ.get("OLT_TELNET_READ_T", "2.0"))
+
+_PROMPT_RE = re.compile(rb"[\w\-./]+[>#]\s*$")
+
+
+class TelnetSession:
+    """A single persistent telnet session to one OLT host."""
+
+    def __init__(self, host: str, port: int, user: str, pwd: str,
+                 enable_pwd: str, vendor: str):
+        self.host       = host
+        self.port       = int(port or 23)
+        self.user       = user or "admin"
+        self.pwd        = pwd or "admin"
+        self.enable_pwd = enable_pwd or self.pwd
+        self.vendor     = (vendor or "").lower()
+        self.lock       = threading.RLock()
+        self.tn: Optional[telnetlib.Telnet] = None
+        self.opened_at  = 0.0
+        self.last_used  = 0.0
+        self._in_config_mode = False     # True after `configure terminal`
+        self._in_iface_pon: Optional[int] = None
+
+    # ----------------------------------------------------------------
+    def _login(self) -> None:
+        """Open the socket, walk login + enable + terminal length 0."""
+        if self.tn:
+            try: self.tn.close()
+            except Exception: pass
+            self.tn = None
+        self.tn = telnetlib.Telnet(self.host, self.port, timeout=CONNECT_TIMEO)
+        # Login -------------------------------------------------------
+        self.tn.read_until(b"login:", timeout=6)
+        self.tn.write((self.user + "\n").encode())
+        self.tn.read_until(b"assword:", timeout=6)
+        self.tn.write((self.pwd + "\n").encode())
+        time.sleep(1.4)
+        banner = self.tn.read_very_eager().decode("utf-8", errors="ignore")
+        if any(x in banner for x in ("Bad", "Failed", "Too many",
+                                      "ncorrect", "denied")):
+            try: self.tn.close()
+            except Exception: pass
+            self.tn = None
+            raise RuntimeError("telnet login refused")
+        # Enable + terminal length 0 ----------------------------------
+        self.tn.write(b"enable\n");          time.sleep(0.4)
+        self.tn.read_very_eager()
+        self.tn.write((self.enable_pwd + "\n").encode()); time.sleep(0.7)
+        self.tn.read_very_eager()
+        self.tn.write(b"terminal length 0\n"); time.sleep(0.25)
+        self.tn.read_very_eager()
+        self.opened_at = self.last_used = time.time()
+        self._in_config_mode = False
+        self._in_iface_pon = None
+
+    # ----------------------------------------------------------------
+    def ensure(self) -> bool:
+        """Lazy connect + heartbeat check. Returns True on success."""
+        now = time.time()
+        if self.tn and (now - self.opened_at) > MAX_AGE_S:
+            # rotate the session even when "healthy" to clear OLT-side
+            # AAA tracking buckets that some firmwares hoard.
+            try: self.tn.close()
+            except Exception: pass
+            self.tn = None
+        if self.tn and (now - self.last_used) > PROBE_S:
+            try:
+                self.tn.write(b"\r\n")
+                time.sleep(0.15)
+                buf = self.tn.read_very_eager()
+                if not buf:
+                    raise EOFError("no probe response")
+            except Exception:
+                try: self.tn.close()
+                except Exception: pass
+                self.tn = None
+        if self.tn:
+            return True
+        try:
+            self._login()
+            return True
+        except Exception:
+            self.tn = None
+            return False
+
+    # ----------------------------------------------------------------
+    def send(self, cmd: str, wait: float = 1.0, iters: int = 5) -> str:
+        """Send a command on the persistent session. Returns combined output."""
+        if not self.ensure():
+            return ""
+        try:
+            assert self.tn is not None
+            self.tn.write(cmd.encode() + b"\n")
+            time.sleep(wait)
+            buf = b""
+            for _ in range(iters):
+                try:
+                    chunk = self.tn.read_very_eager()
+                except Exception:
+                    break
+                if not chunk:
+                    time.sleep(0.25)
+                    continue
+                buf += chunk
+                # stop early if we see a prompt + newline tail
+                if _PROMPT_RE.search(buf[-40:]):
+                    break
+                time.sleep(0.15)
+            self.last_used = time.time()
+            return buf.decode("utf-8", errors="ignore")
+        except Exception:
+            try: self.tn.close()
+            except Exception: pass
+            self.tn = None
+            return ""
+
+    # ----------------------------------------------------------------
+    def enter_pon(self, pon: int) -> None:
+        """Push into `interface epon 0/<pon>` config context."""
+        if not self._in_config_mode:
+            self.send("configure terminal", wait=0.3, iters=2)
+            self._in_config_mode = True
+        if self._in_iface_pon != int(pon):
+            self.send(f"interface epon 0/{int(pon)}", wait=0.4, iters=2)
+            self._in_iface_pon = int(pon)
+
+    def exit_iface(self) -> None:
+        if self._in_iface_pon is not None:
+            self.send("exit", wait=0.2, iters=2)
+            self._in_iface_pon = None
+
+    def exit_config(self) -> None:
+        self.exit_iface()
+        if self._in_config_mode:
+            self.send("end", wait=0.2, iters=2)
+            self._in_config_mode = False
+
+    # ----------------------------------------------------------------
+    def close(self) -> None:
+        if self.tn:
+            try:
+                self.exit_config()
+                self.tn.write(b"exit\n")
+                time.sleep(0.2)
+                self.tn.close()
+            except Exception:
+                pass
+        self.tn = None
+
+
+# ── Module-level pool ─────────────────────────────────────────────────
+_pool_lock = threading.RLock()
+_pool: Dict[Tuple[str, int], TelnetSession] = {}
+
+
+def _key(olt: dict) -> Tuple[str, int]:
+    return ((olt.get("host") or "").strip(),
+            int(olt.get("telnet_port") or 23))
+
+
+_LOCK_DIR = "/run/isp-olt-locks"
+try:
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+except Exception:
+    _LOCK_DIR = "/tmp"
+
+
+def _lockfile_for(host: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", host or "noop")
+    return os.path.join(_LOCK_DIR, f"olt-telnet-{safe}.lock")
+
+
+@contextmanager
+def telnet_session(olt: dict):
+    """Acquire a persistent telnet session for the given OLT (dict row).
+       Yields a TelnetSession with its RLock held; releases on exit.
+
+       _S50C_FILE_LOCK — also holds a per-host fcntl flock so only ONE
+       uvicorn worker process at a time talks to the OLT. The VSOL
+       V1600D family only allows ~3 concurrent telnets and silently
+       drops commands when over-subscribed. Cross-process flock fixes
+       that without coordinating workers via Redis."""
+    k = _key(olt)
+    with _pool_lock:
+        sess = _pool.get(k)
+        if not sess:
+            sess = TelnetSession(
+                host=olt.get("host") or "",
+                port=int(olt.get("telnet_port") or 23),
+                user=(olt.get("cli_username") or "admin"),
+                pwd=(olt.get("cli_password") or "admin"),
+                enable_pwd=(olt.get("cli_enable_pwd") or
+                            olt.get("cli_password") or "admin"),
+                vendor=(olt.get("vendor") or ""),
+            )
+            _pool[k] = sess
+    # Per-host file lock (cross-process). Open in 'a+' so concurrent
+    # openers don't truncate. We exclusive-flock the file for the entire
+    # duration of the with-block.
+    lf_path = _lockfile_for(k[0])
+    lf = open(lf_path, "a+")
+    try:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+    except Exception:
+        pass  # fall through — best-effort
+    sess.lock.acquire()
+    try:
+        # If the lock-holder before us closed their session, our cached
+        # `sess.tn` may now be the only one using this socket — but if
+        # that socket was disconnected by the OLT during the wait, the
+        # heartbeat in ensure() will reconnect transparently.
+        yield sess
+    finally:
+        sess.last_used = time.time()
+        sess.lock.release()
+        try:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            lf.close()
+        except Exception:
+            pass
+
+
+def reap_idle(force: bool = False) -> int:
+    """Close sessions idle longer than IDLE_KILL_S. Returns count reaped."""
+    n = 0
+    now = time.time()
+    with _pool_lock:
+        for k, sess in list(_pool.items()):
+            if force or (now - sess.last_used) > IDLE_KILL_S:
+                with sess.lock:
+                    sess.close()
+                _pool.pop(k, None)
+                n += 1
+    return n
+
+
+def close_for_host(host: str) -> int:
+    """Close all sessions for the given host. Used on OLT delete/update."""
+    n = 0
+    with _pool_lock:
+        for k in list(_pool.keys()):
+            if k[0] == host:
+                sess = _pool.pop(k)
+                with sess.lock:
+                    sess.close()
+                n += 1
+    return n
+
+
+# Background reaper thread ----------------------------------------------
+def _reaper_loop():
+    while True:
+        try:
+            reap_idle()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+_reaper_started = False
+def start_reaper():
+    global _reaper_started
+    if _reaper_started:
+        return
+    _reaper_started = True
+    t = threading.Thread(target=_reaper_loop, name="olt-telnet-reaper",
+                         daemon=True)
+    t.start()

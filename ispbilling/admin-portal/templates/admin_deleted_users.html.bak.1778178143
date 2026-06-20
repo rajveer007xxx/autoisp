@@ -1,0 +1,194 @@
+{% extends base_template|default("base_admin.html") %}
+
+{% block title %}Deleted Users - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Deleted Users
+        <small>Restore deleted customers</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box box-warning">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="fa fa-warning"></i> Deleted Customers</h3>
+        </div>
+        <div class="box-body">
+            <p>These customers have been deleted and can be restored. Click the "Restore" button to move them back to the active customer list.</p>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Deleted Users</h3>
+            <div class="box-tools">
+                <span id="deleted-count" class="label label-danger">0 deleted customers</span>
+            </div>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table id="deletedCustomersTable" class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Customer ID</th>
+                            <th>Customer Name</th>
+                            <th>Mobile</th>
+                            <th>Address</th>
+                            <th>Status</th>
+                            <th>Plan</th>
+                            <th>Amount</th>
+                            <th>Balance</th>
+                            <th>Exp Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deletedCustomersBody">
+                        <tr>
+                            <td colspan="10" class="text-center">Loading deleted customers...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    loadDeletedCustomers();
+});
+
+function loadDeletedCustomers() {
+    $.ajax({
+        url: '/api/customers/deleted',
+        method: 'GET',
+        success: function(response) {
+            if (response.success) {
+                displayDeletedCustomers(response.customers);
+            } else {
+                $('#deletedCustomersBody').html('<tr><td colspan="10" class="text-center text-danger">Error: ' + response.message + '</td></tr>');
+            }
+        },
+        error: function(xhr) {
+            $('#deletedCustomersBody').html('<tr><td colspan="10" class="text-center text-danger">Failed to load deleted customers</td></tr>');
+        }
+    });
+}
+
+function displayDeletedCustomers(customers) {
+    var tbody = $('#deletedCustomersBody');
+    tbody.empty();
+    
+    if (customers.length === 0) {
+        tbody.html('<tr><td colspan="10" class="text-center">No deleted customers found</td></tr>');
+        $('#deleted-count').text('0 deleted customers');
+        return;
+    }
+    
+    $('#deleted-count').text(customers.length + ' deleted customer' + (customers.length > 1 ? 's' : ''));
+    
+    customers.forEach(function(customer) {
+        var row = $('<tr>');
+        
+        row.append($('<td>').html('<a href="#">' + customer.cust_id + '</a>'));
+        row.append($('<td>').text(customer.cust_name));
+        row.append($('<td>').text(customer.mobile));
+        row.append($('<td>').text(customer.address || '-'));
+        row.append($('<td>').html('<span class="label label-danger">Deleted</span>'));
+        row.append($('<td>').text(customer.plan || '-'));
+        row.append($('<td>').text('₹' + (customer.amount || 0)));
+        row.append($('<td>').text(customer.balance || '₹0'));
+        row.append($('<td>').text(customer.exp_date || 'N/A'));
+        
+        var actionsCell = $('<td>');
+        var restoreBtn = $('<button>')
+            .addClass('btn btn-success btn-xs')
+            .attr('data-customer-id', customer.cust_id)
+            .attr('data-customer-name', customer.cust_name)
+            .html('<i class="fa fa-undo"></i> Restore')
+            .css('margin-right', '5px')
+            .on('click', function() {
+                restoreCustomer($(this).data('customer-id'), $(this).data('customer-name'));
+            });
+        
+        var permanentDeleteBtn = $('<button>')
+            .addClass('btn btn-danger btn-xs')
+            .attr('data-customer-id', customer.cust_id)
+            .attr('data-customer-name', customer.cust_name)
+            .html('<i class="fa fa-trash"></i> Permanent Delete')
+            .on('click', function() {
+                permanentDeleteCustomer($(this).data('customer-id'), $(this).data('customer-name'));
+            });
+        
+        actionsCell.append(restoreBtn);
+        actionsCell.append(permanentDeleteBtn);
+        row.append(actionsCell);
+        
+        tbody.append(row);
+    });
+}
+
+function restoreCustomer(customerId, customerName) {
+    if (!confirm('Are you sure you want to restore customer "' + customerName + '"?')) {
+        return;
+    }
+    
+    $.ajax({
+        url: '/api/customers/' + encodeURIComponent(customerId) + '/restore',
+        method: 'POST',
+        success: function(response) {
+            if (response.success) {
+                alert(response.message);
+                loadDeletedCustomers();
+            } else {
+                alert('Error: ' + response.message);
+            }
+        },
+        error: function(xhr) {
+            var errorMsg = 'Failed to restore customer';
+            if (xhr.responseJSON && xhr.responseJSON.message) {
+                errorMsg = xhr.responseJSON.message;
+            }
+            alert(errorMsg);
+        }
+    });
+}
+
+function permanentDeleteCustomer(customerId, customerName) {
+    if (!confirm('⚠️ WARNING: This will PERMANENTLY delete customer "' + customerName + '" from the database.\n\nThis action CANNOT be undone!\n\nAre you absolutely sure?')) {
+        return;
+    }
+    
+    // Second confirmation
+    var confirmText = prompt('To confirm permanent deletion, please type the customer ID: ' + customerId);
+    if (confirmText !== customerId) {
+        alert('Customer ID does not match. Deletion cancelled.');
+        return;
+    }
+    
+    $.ajax({
+        url: '/api/customers/' + encodeURIComponent(customerId) + '/permanent',
+        method: 'DELETE',
+        success: function(response) {
+            if (response.success) {
+                alert(response.message);
+                loadDeletedCustomers();
+            } else {
+                alert('Error: ' + response.message);
+            }
+        },
+        error: function(xhr) {
+            var errorMsg = 'Failed to permanently delete customer';
+            if (xhr.responseJSON && xhr.responseJSON.message) {
+                errorMsg = xhr.responseJSON.message;
+            }
+            alert(errorMsg);
+        }
+    });
+}
+</script>
+{% endblock %}

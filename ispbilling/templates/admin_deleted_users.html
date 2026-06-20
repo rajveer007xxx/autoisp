@@ -1,0 +1,74 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Deleted Users - Auto ISP Billing{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>
+        Deleted Users
+        <small>Soft delete and recovery</small>
+    </h1>
+</section>
+
+<section class="content">
+    <div class="box box-warning">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="fa fa-warning"></i> Deleted Customers</h3>
+        </div>
+        <div class="box-body">
+            <p>These customers have been deleted but can be restored within 30 days. After 30 days, they will be permanently removed from the system.</p>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">Filter Deleted Users</h3>
+        </div>
+        <div class="box-body">
+            <form class="form-inline">
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Deleted Date:</label>
+                    <input type="date" class="form-control">
+                </div>
+                <div class="form-group" style="margin-right: 10px;">
+                    <label>Search:</label>
+                    <input type="text" class="form-control" placeholder="Customer ID or Name">
+                </div>
+                <button type="button" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="box">
+        <div class="box-header with-border">
+            <h3 class="box-title">All Deleted Users</h3>
+            <div class="box-tools">
+                <button type="button" class="btn btn-sm btn-danger">Permanently Delete All</button>
+            </div>
+        </div>
+        <div class="box-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Customer ID</th>
+                            <th>Customer Name</th>
+                            <th>Mobile</th>
+                            <th>Plan</th>
+                            <th>Deleted Date</th>
+                            <th>Deleted By</th>
+                            <th>Days Remaining</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="8" class="text-center">No deleted users found</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends base_template|default("base_admin.html") %}
+{% block title %}Lawful Interception Orders{% endblock %}
+{% block content %}
+<section class="content-header" style="padding:14px 20px;">
+  <h1 style="font-size:20px; margin:0;"><i class="bi bi-shield-lock"></i> Lawful Interception Orders
+    <small style="font-size:12px; color:#64748b; margin-left:8px;">DoT 2026 — interception records, auto-destroy after 2 months</small>
+  </h1>
+</section>
+<section class="content" style="padding:0 20px 20px;">
+  <div class="box box-primary">
+    <div class="box-header"><h3 class="box-title">Add new interception order</h3></div>
+    <div class="box-body">
+      <form id="li-form" class="form-inline" style="display:flex;flex-wrap:wrap;gap:8px;">
+        <input type="text" name="order_no" class="form-control input-sm" placeholder="Order No (e.g. LIO/2026/00012)" required style="min-width:240px">
+        <input type="text" name="agency" class="form-control input-sm" placeholder="Agency / Authority" required style="min-width:200px">
+        <input type="text" name="target_username" class="form-control input-sm" placeholder="Target user / IP / customer_id" required style="min-width:240px">
+        <input type="date" name="ordered_on" class="form-control input-sm" required>
+        <input type="date" name="ends_on" class="form-control input-sm" required>
+        <input type="text" name="notes" class="form-control input-sm" placeholder="Reference / notes" style="min-width:280px">
+        <button class="btn btn-primary btn-sm">Record Order</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="box-header"><h3 class="box-title">Active & past orders</h3></div>
+    <div class="box-body table-responsive">
+      <table class="table table-striped" id="li-table" data-testid="li-orders-table">
+        <thead><tr>
+          <th>#</th><th>Order No</th><th>Agency</th><th>Target</th><th>Ordered</th><th>Ends</th>
+          <th>Auto-destroy at</th><th>Status</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody id="li-rows"><tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:30px;">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+async function loadOrders(){
+  const r = await fetch('/api/compliance/li-orders', {credentials:'same-origin'});
+  const j = await r.json();
+  const tb = document.getElementById('li-rows');
+  if (!j.items || !j.items.length) {
+    tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:30px;">No interception orders on record.</td></tr>';
+    return;
+  }
+  tb.innerHTML = j.items.map((x,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td><code>${x.order_no}</code></td>
+      <td>${x.agency}</td>
+      <td>${x.target_username}</td>
+      <td>${x.ordered_on||''}</td>
+      <td>${x.ends_on||''}</td>
+      <td>${x.destroy_at||''}</td>
+      <td><span class="label label-${x.status==='active'?'success':(x.status==='destroyed'?'default':'warning')}">${x.status}</span></td>
+      <td>${x.notes||''}</td>
+      <td><a class="btn btn-xs btn-success" href="/admin/compliance/li-orders/${x.id}/bundle.zip" data-testid="li-bundle-${x.id}" title="Download forensic ZIP for this order"><i class="bi bi-file-earmark-zip"></i> Bundle</a> <button class="btn btn-xs btn-danger" onclick="del(${x.id})" title="Mark as destroyed"><i class="bi bi-trash"></i></button></td>
+    </tr>`).join('');
+}
+async function del(id){
+  if(!confirm('Mark as destroyed?')) return;
+  await fetch('/api/compliance/li-orders/'+id, {method:'DELETE',credentials:'same-origin'});
+  loadOrders();
+}
+document.getElementById('li-form').addEventListener('submit', async(e)=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const r = await fetch('/api/compliance/li-orders', {method:'POST',body:fd,credentials:'same-origin'});
+  const j = await r.json().catch(()=>({}));
+  if(r.ok && j.ok){ e.target.reset(); loadOrders(); }
+  else alert('Error: '+(j.error||r.status));
+});
+loadOrders();
+</script>
+{% endblock %}

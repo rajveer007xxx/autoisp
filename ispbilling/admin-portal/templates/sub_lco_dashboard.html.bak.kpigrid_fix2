@@ -1,0 +1,277 @@
+{# __KPIGRID_FIX__ applied #}
+{% extends "base_sub_lco.html" %}
+{% block title %}Dashboard — Sub-LCO Portal{% endblock %}
+
+{% block extra_css %}
+<style>
+  .welcome-banner{
+    border-radius: 12px;
+    background: linear-gradient(135deg, #1e3a8a 0%, #312e81 60%, #4338ca 100%);
+    color: #fff; padding: 24px 28px; position: relative; overflow: hidden;
+    box-shadow: 0 10px 30px rgba(30,58,138,.30);
+    margin: 0 0 20px 0;
+  }
+  .welcome-banner::before{
+    content:''; position:absolute; right:-60px; top:-60px;
+    width:240px; height:240px; border-radius:50%; background:rgba(255,255,255,.08);
+  }
+  .welcome-banner h2{ margin:0 0 6px; color:#fff; font-weight:800; font-size:22px; }
+  .welcome-banner p{ margin:0; color:rgba(255,255,255,.85); font-size:13px; }
+  .welcome-banner .welcome-actions{ position:relative; z-index:2; margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; }
+  .welcome-banner .welcome-actions .btn{
+    background: rgba(255,255,255,.18) !important; color:#fff !important;
+    border: 1px solid rgba(255,255,255,.35) !important;
+  }
+  .welcome-banner .welcome-actions .btn:hover{ background: rgba(255,255,255,.28) !important; }
+  .small-box{ position:relative; border-radius:8px; padding:16px 18px; color:#fff; box-shadow:0 4px 14px rgba(0,0,0,.06); margin-bottom:14px; }
+  .small-box h3{ margin:0; font-size:30px; font-weight:800; line-height:1; }
+  .small-box p{ margin:4px 0 0; opacity:.9; font-size:13px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; }
+  .small-box .stat-sub{ margin-top:10px; font-size:11.5px; }
+  .small-box .stat-sub .chip{ display:inline-block; padding:2px 9px; border-radius:20px; background:rgba(255,255,255,.20); margin-right:4px; margin-top:3px; }
+  .small-box .icon-bg{ position:absolute; right:14px; top:14px; opacity:.25; font-size:36px; }
+  .bg-blue{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
+  .bg-green{ background:linear-gradient(135deg,#10b981,#059669); }
+  .bg-yellow{ background:linear-gradient(135deg,#f59e0b,#d97706); }
+  .bg-purple{ background:linear-gradient(135deg,#8b5cf6,#7c3aed); }
+  .bg-rose{ background:linear-gradient(135deg,#f43f5e,#e11d48); }
+  .bg-slate{ background:linear-gradient(135deg,#64748b,#475569); }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content">
+  <div class="welcome-banner" data-testid="slco-welcome">
+    <h2>Welcome back, {{ sub_lco.name or user_name }}</h2>
+    <p>Here's a snapshot of <strong>your franchise</strong> — customers, revenue and commission earnings.</p>
+    <div class="welcome-actions">
+      <a href="/sub-lco/customers/add" class="btn btn-sm" data-testid="wb-add-customer"><i class="fa fa-plus"></i> Add Customer</a>
+      <a href="/sub-lco/customers" class="btn btn-sm" data-testid="wb-users"><i class="fa fa-users"></i> User Management</a>
+      <a href="/sub-lco/online-users" class="btn btn-sm" data-testid="wb-online"><i class="fa fa-wifi"></i> Online Users</a>
+      <a href="/sub-lco/commissions" class="btn btn-sm" data-testid="wb-commissions"><i class="fa fa-money"></i> Commissions</a>
+      <a href="/sub-lco/payment-history" class="btn btn-sm" data-testid="wb-payments"><i class="fa fa-history"></i> Payment History</a>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-blue" data-testid="stat-total">
+        <i class="fa fa-users icon-bg"></i>
+        <h3 id="dTotal">0</h3><p>Total Customers</p>
+        <div class="stat-sub">
+          <span class="chip">Active <b id="dActive">0</b></span>
+          <span class="chip">Deactive <b id="dDeac">0</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-green" data-testid="stat-revenue">
+        <i class="fa fa-rupee icon-bg"></i>
+        <h3>&#8377; <span id="dRev">0.00</span></h3><p>Plan Revenue (Lifetime)</p>
+        <div class="stat-sub"><span class="chip">This Month &#8377; <b id="dRevMtd">0.00</b></span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-yellow" data-testid="stat-commission">
+        <i class="fa fa-money icon-bg"></i>
+        <h3>&#8377; <span id="dCom">0.00</span></h3><p>Commission Earned</p>
+        <div class="stat-sub">
+          <span class="chip">MTD &#8377; <b id="dComMtd">0.00</b></span>
+          <span class="chip">Pending &#8377; <b id="dComPending">0.00</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-rose" data-testid="stat-online-now">
+        <i class="bi bi-wifi icon-bg"></i>
+        <h3 id="dOnline">0</h3><p>Currently Online</p>
+        <div class="stat-sub"><span class="chip">Live PPPoE / Hotspot</span></div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-yellow" data-testid="stat-dues">
+        <i class="bi bi-cash-stack icon-bg"></i>
+        <h3>&#8377; <span id="dDues">0.00</span></h3><p>Total Dues</p>
+        <div class="stat-sub"><span class="chip">Across your customers</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-slate" data-testid="stat-expired">
+        <i class="bi bi-x-circle icon-bg"></i>
+        <h3 id="dExpired">0</h3><p>Expired Users</p>
+        <div class="stat-sub"><span class="chip">Past expiry date</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-rose" data-testid="stat-critical-alerts">
+        <i class="bi bi-exclamation-octagon icon-bg"></i>
+        <h3 id="dAlerts">0</h3><p>Critical ONT / ONU Alerts</p>
+        <div class="stat-sub"><span class="chip">Unacknowledged</span></div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-yellow" data-testid="stat-open-complaints">
+        <i class="bi bi-chat-left-text icon-bg"></i>
+        <h3 id="dCompOpen">0</h3><p>Open Complaints</p>
+        <div class="stat-sub"><span class="chip">Pending / In-Progress</span></div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-lg-3 col-md-6 col-sm-6">
+      <div class="small-box bg-purple" data-testid="stat-rate">
+        <i class="fa fa-percent icon-bg"></i>
+        <h3 id="dRate">{{ '%.2f' % sub_lco.commission_percent }}%</h3><p>Your Commission Rate</p>
+        <div class="stat-sub"><span class="chip">SLCO {{ sub_lco.code or sub_lco.sub_lco_code }}</span></div>
+      </div>
+  </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="box">
+        <div class="box-header with-border">
+          <h3 class="box-title" style="display:flex;align-items:center;gap:8px;">Recent Customers<input type="search" id="slcoRecCustSearch" data-testid="slco-rec-cust-search" placeholder="Search customers…" style="margin-left:auto;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;font-weight:normal;width:200px;"></h3>
+          <div class="box-tools pull-right"><a href="/sub-lco/customers" class="btn btn-xs btn-default">View all</a></div>
+        </div>
+        <div class="box-body">
+          <table class="table table-striped table-condensed" data-dt-skip="1" id="recCustTable">
+            <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Status</th><th>End</th></tr></thead>
+            <tbody>
+            {% for c in recent_customers %}
+              <tr>
+                <td><code>{{ c.customer_id }}</code></td>
+                <td>{{ c.customer_name }}</td>
+                <td>{{ c.customer_phone or '—' }}</td>
+                <td>
+                  {% if (c.status or '')|lower == 'active' %}
+                    <span class="label label-success">Active</span>
+                  {% else %}
+                    <span class="label label-default">{{ c.status or '—' }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ c.end_date or '—' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="text-center text-muted">No customers yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="box">
+        <div class="box-header with-border">
+          <h3 class="box-title" style="display:flex;align-items:center;gap:8px;">Recent Payments<input type="search" id="slcoRecPaySearch" data-testid="slco-rec-pay-search" placeholder="Search payments…" style="margin-left:auto;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;font-weight:normal;width:200px;"></h3>
+          <div class="box-tools pull-right"><a href="/sub-lco/payment-history" class="btn btn-xs btn-default">View all</a></div>
+        </div>
+        <div class="box-body">
+          <table class="table table-striped table-condensed" data-dt-skip="1" id="recPayTable">
+            <thead><tr><th>When</th><th>Customer</th><th>Mode</th><th>Amount</th></tr></thead>
+            <tbody><tr><td colspan="4" class="text-center text-muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function escD(s){return (s||'').toString().replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmtN(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtIST(s){
+  if(!s) return '';
+  var iso = String(s).replace(' ','T');
+  if(!/(?:Z|[+\-]\d{2}:?\d{2})$/.test(iso)) iso += 'Z';
+  var d = new Date(iso); if(isNaN(d.getTime())) return String(s).substring(0,16).replace('T',' ');
+  var p = function(n){return n<10?'0'+n:''+n;};
+  var u = new Date(d.getTime() + (5*60+30)*60*1000);
+  var h24 = u.getUTCHours(), ap = h24>=12 ? 'PM' : 'AM', h12 = h24%12 || 12;
+  return p(u.getUTCDate())+'-'+p(u.getUTCMonth()+1)+'-'+u.getUTCFullYear()+' '+p(h12)+':'+p(u.getUTCMinutes())+' '+ap;
+}
+$(function(){
+  $.get('/api/sub-lco/dashboard/stats', function(r){
+    if(!r.success) return;
+    $('#dTotal').text(r.stats.total_customers);
+    $('#dActive').text(r.stats.active_count);
+    $('#dDeac').text(r.stats.deactive_count);
+    $('#dRev').text(fmtN(r.stats.revenue_total));
+    $('#dRevMtd').text(fmtN(r.stats.revenue_mtd));
+    $('#dCom').text(fmtN(r.stats.commission_total));
+    $('#dComMtd').text(fmtN(r.stats.commission_mtd));
+    $('#dComPending').text(fmtN(r.stats.commission_pending));
+    // __S43ZG__ NEW tiles
+    if (document.getElementById('dOnline'))  $('#dOnline').text(r.stats.online_now || 0);
+    if (document.getElementById('dDues'))    $('#dDues').text(fmtN(r.stats.total_dues || 0));
+    if (document.getElementById('dExpired')) $('#dExpired').text(r.stats.expired_count || 0);
+    if (document.getElementById('dAlerts'))  $('#dAlerts').text(r.stats.critical_alerts || 0);
+    if (document.getElementById('dCompOpen'))$('#dCompOpen').text(r.stats.open_complaints || 0);
+    var $tb = $('#recPayTable tbody').empty();
+    if (!r.recent_payments.length){
+      $tb.append('<tr><td colspan="4" class="text-center text-muted">No payments yet.</td></tr>'); return;
+    }
+    r.recent_payments.forEach(function(p){
+      $tb.append('<tr>'+
+        '<td>'+escD(fmtIST(p.paid_at))+'</td>'+
+        '<td>'+escD(p.customer_name)+' <code>'+escD(p.customer_id)+'</code></td>'+
+        '<td>'+escD(p.payment_mode)+'</td>'+
+        '<td>&#8377; '+fmtN(p.amount)+'</td>'+
+      '</tr>');
+    });
+  });
+});
+</script>
+
+<script>
+/* __S43ZG__ populate the new sub-LCO tiles */
+(function(){
+  function fmtMoney(n){ try{return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}catch(_){return Number(n||0).toFixed(2);} }
+  function tick(){
+    fetch('/api/sub-lco/dashboard/stats').then(r=>r.json()).then(d=>{
+      if(!d || !d.success) return;
+      var s = d.stats || {};
+      var el;
+      el = document.getElementById('dOnline');  if(el) el.textContent = (s.online_now||0);
+      el = document.getElementById('dDues');    if(el) el.textContent = fmtMoney(s.total_dues||0);
+      el = document.getElementById('dExpired'); if(el) el.textContent = (s.expired_count||0);
+    }).catch(()=>{});
+  }
+  document.addEventListener('DOMContentLoaded', tick);
+  setInterval(tick, 60000);
+})();
+</script>
+
+<script>
+/* __S43ZH__ SLCO dashboard table search — plain CSS row hide */
+(function(){
+  function attach(inputId, tableId){
+    var inp = document.getElementById(inputId);
+    var tbl = document.getElementById(tableId);
+    if(!inp || !tbl) return;
+    function doFilter(){
+      var q = (inp.value || '').toLowerCase().trim();
+      var trs = tbl.querySelectorAll('tbody tr');
+      trs.forEach(function(tr){
+        if (!q) { tr.style.setProperty('display','','important'); tr.style.removeProperty('display'); return; }
+        if (tr.textContent.toLowerCase().indexOf(q) === -1) tr.style.setProperty('display','none','important');
+        else { tr.style.setProperty('display','','important'); tr.style.removeProperty('display'); }
+      });
+    }
+    inp.addEventListener('input', doFilter);
+    // Re-apply filter after any tbody mutation (AJAX refresh)
+    if (window.MutationObserver) {
+      var obs = new MutationObserver(doFilter);
+      var tbody = tbl.querySelector('tbody');
+      if (tbody) obs.observe(tbody, { childList: true });
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    attach('slcoRecCustSearch', 'recCustTable');
+    attach('slcoRecPaySearch',  'recPayTable');
+  });
+})();
+</script>
+{% endblock %}

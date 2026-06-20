@@ -1,0 +1,113 @@
+{% extends "base_sub_lco.html" %}
+{% block title %}Add Customer — Sub-LCO Portal{% endblock %}
+{% block content %}
+<section class="content-header">
+  <h1>Add Customer <small>Register a new customer under your account</small></h1>
+</section>
+
+<section class="content">
+<div class="slco-card">
+  <h3>New Customer</h3>
+  <form id="newCustForm" data-testid="slco-new-customer-form">
+    <div class="row">
+      <div class="col-sm-6 form-group">
+        <label>Customer ID *</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-control" name="customer_id" id="cid" readonly required>
+          <button type="button" class="btn btn-default" id="regenCid" title="Regenerate"><i class="fa fa-refresh"></i></button>
+        </div>
+      </div>
+      <div class="col-sm-6 form-group">
+        <label>Service *</label>
+        <select class="form-control" name="service_type" id="service" required>
+          <option value="Broadband">Broadband</option>
+          <option value="Cable TV">Cable TV</option>
+        </select>
+      </div>
+      <div class="col-sm-6 form-group"><label>Full Name *</label><input class="form-control" name="name" required></div>
+      <div class="col-sm-6 form-group"><label>Mobile *</label><input class="form-control" name="mobile" pattern="[0-9+ \-]{7,15}" required></div>
+      <div class="col-sm-6 form-group"><label>Email</label><input class="form-control" name="email" type="email"></div>
+      <div class="col-sm-6 form-group"><label>Alt. Mobile</label><input class="form-control" name="alt_mobile"></div>
+      <div class="col-sm-6 form-group"><label>Username (PPPoE) *</label><input class="form-control" name="username" required></div>
+      <div class="col-sm-6 form-group"><label>Password *</label><input class="form-control" name="password" type="text" minlength="6" required></div>
+
+      <div class="col-sm-12 form-group"><label>Address</label><input class="form-control" name="address"></div>
+      <div class="col-sm-6 form-group">
+        <label>Locality *</label>
+        <select class="form-control" name="locality" required>
+          <option value="">-- Select --</option>
+          {% for l in locations %}<option value="{{ l.name }}">{{ l.name }} {% if l.city %}({{ l.city }}){% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3 form-group"><label>City</label><input class="form-control" name="city"></div>
+      <div class="col-sm-3 form-group"><label>Pincode</label><input class="form-control" name="pincode"></div>
+
+      <div class="col-sm-6 form-group">
+        <label>Plan *</label>
+        <select class="form-control" name="plan_id" id="plan" required>
+          <option value="">-- Select --</option>
+          {% for p in plans %}<option value="{{ p.id }}" data-price="{{ p.price }}" data-service="{{ p.service }}" data-validity="{{ p.validity_days }}">{{ p.plan_name }} — ₹{{ '%.0f' % p.price }} / {{ p.speed }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3 form-group"><label>Monthly Amount</label><input class="form-control" name="monthly_amount" id="amt"></div>
+      <div class="col-sm-3 form-group">
+        <label>Customer Type</label>
+        <select class="form-control" name="customer_type"><option>Postpaid</option><option>Prepaid</option></select>
+      </div>
+      <div class="col-sm-6 form-group">
+        <label>DNS Content-Filter Profile</label>
+        <select class="form-control" name="dns_profile_id" data-testid="slco-add-dns-profile">
+          <option value="">— Use plan default —</option>
+          {% for d in (dns_profiles or []) %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+        </select>
+        <small class="text-muted">Override the plan-level DNS profile for this customer.</small>
+      </div>
+
+      <div class="col-sm-4 form-group"><label>Start Date</label><input class="form-control" name="start_date" type="date" value="{{ request.url.path }}" id="sd"></div>
+      <div class="col-sm-4 form-group"><label>Period (months)</label><input class="form-control" name="period" type="number" min="1" value="1"></div>
+      <div class="col-sm-4 form-group">
+        <label>Payment Mode</label>
+        <select class="form-control" name="payment_mode">
+          <option value="">—</option>
+          <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+        </select>
+      </div>
+      <div class="col-sm-4 form-group"><label>Received Amount</label><input class="form-control" name="received_amount"></div>
+      <div class="col-sm-4 form-group"><label>Installation Charges</label><input class="form-control" name="installation_charges" value="0"></div>
+      <div class="col-sm-4 form-group"><label>Security Deposit</label><input class="form-control" name="security_deposit" value="0"></div>
+    </div>
+    <div style="text-align:right;margin-top:8px">
+      <a href="/sub-lco/customers" class="btn btn-default">Cancel</a>
+      <button type="submit" class="btn btn-brand" data-testid="slco-save-customer-btn"><i class="fa fa-save"></i> Save Customer</button>
+    </div>
+  </form>
+</div>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+function genCid(){ return String(Math.floor(10000000 + Math.random()*90000000)); }
+$(function(){
+  $('#cid').val(genCid());
+  $('#regenCid').on('click', function(){ $('#cid').val(genCid()); });
+  // Set today as default start date
+  var t = new Date(); var iso = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+  $('#sd').val(iso);
+  $('#plan').on('change', function(){
+    var opt = this.options[this.selectedIndex];
+    if(opt && opt.dataset.price) $('#amt').val(opt.dataset.price);
+    if(opt && opt.dataset.service) $('#service').val(opt.dataset.service === 'cable' ? 'Cable TV' : (opt.dataset.service || 'Broadband'));
+  });
+  $('#newCustForm').on('submit', function(e){
+    e.preventDefault();
+    var data = Object.fromEntries(new FormData(this));
+    $.ajax({url:'/api/sub-lco/customers/create', method:'POST',
+      contentType:'application/json', data: JSON.stringify(data)})
+    .done(function(r){
+      if(r.success){ alert('Customer added: '+r.customer_id); window.location = '/sub-lco/customers'; }
+      else alert(r.message || 'Failed');
+    }).fail(function(x){ alert((x.responseJSON && x.responseJSON.message) || 'Failed'); });
+  });
+});
+</script>
+{% endblock %}

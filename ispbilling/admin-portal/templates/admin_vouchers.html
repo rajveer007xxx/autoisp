@@ -1,0 +1,298 @@
+{% extends "base_admin.html" %}
+{% block title %}Hotspot Vouchers{% endblock %}
+
+{% block content %}
+<section class="content-header">
+    <h1>Hotspot Vouchers <small>Pre-paid voucher codes for captive-portal login</small></h1>
+    <ol class="breadcrumb">
+        <li><a href="/admin/dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+        <li class="active">Vouchers</li>
+    </ol>
+</section>
+
+<section class="content">
+    <div class="box box-primary" style="border-top-color:#7c3aed;">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-ticket-perforated-fill"></i> Generate Voucher Batch</h3>
+        </div>
+        <div class="box-body">
+            <!-- __S38L_VOUCHER_FOLLOWUP__: compact single-row generator + full-width delivery -->
+            <form id="s36b7-gen-form">
+                <div class="row" style="margin-bottom:4px;">
+                    <div class="col-sm-2 col-xs-6" style="padding-right:6px;">
+                        <label style="font-size:12px;margin-bottom:2px;">Count</label>
+                        <input type="number" id="s36b7-count" class="form-control input-sm"
+                               value="10" min="1" max="500" data-testid="voucher-count">
+                    </div>
+                    <div class="col-sm-3 col-xs-6" style="padding-right:6px;">
+                        <label style="font-size:12px;margin-bottom:2px;">Plan (optional)</label>
+                        <select id="s36b7-plan" class="form-control input-sm" data-testid="voucher-plan">
+                            <option value="">— none —</option>
+                            {% for p in plans %}
+                            <option value="{{p.id}}">{{p.plan_name}}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-sm-2 col-xs-4" style="padding-right:6px;">
+                        <label style="font-size:12px;margin-bottom:2px;" title="0 = unlimited">Duration (min)</label>
+                        <input type="number" id="s36b7-duration" class="form-control input-sm"
+                               value="0" min="0" data-testid="voucher-duration" placeholder="0 = ∞">
+                    </div>
+                    <div class="col-sm-2 col-xs-4" style="padding-right:6px;">
+                        <label style="font-size:12px;margin-bottom:2px;" title="0 = unlimited">Data Cap (MB)</label>
+                        <input type="number" id="s36b7-cap" class="form-control input-sm"
+                               value="0" min="0" data-testid="voucher-cap" placeholder="0 = ∞">
+                    </div>
+                    <div class="col-sm-1 col-xs-4" style="padding-right:6px;">
+                        <label style="font-size:12px;margin-bottom:2px;">Expires (d)</label>
+                        <input type="number" id="s36b7-expires" class="form-control input-sm"
+                               value="30" min="0" data-testid="voucher-expires">
+                    </div>
+                    <div class="col-sm-2 col-xs-12" style="padding-right:0;">
+                        <label style="font-size:12px;margin-bottom:2px;visibility:hidden;">&nbsp;</label>
+                        <button type="submit" class="btn btn-sm btn-primary btn-block"
+                                data-testid="voucher-generate-btn">
+                            <i class="bi bi-plus-circle"></i> Generate
+                        </button>
+                    </div>
+                </div>
+<!-- __S38M_CLEANUP__: WhatsApp delivery UI removed (keep hidden inputs for JS compat) -->
+                <input type="hidden" id="s36d-wa-enabled" data-testid="voucher-delivery-whatsapp">
+                <textarea id="s36d-phones" data-testid="voucher-phones" style="display:none;"></textarea>
+            </form>
+        </div>
+    </div>
+
+    <div class="box box-info" style="border-top-color:#0ea5e9;">
+        <div class="box-header with-border">
+            <h3 class="box-title"><i class="bi bi-list-ul"></i> Voucher List (latest 500)</h3>
+            <div class="box-tools pull-right">
+                <button class="btn btn-sm btn-default" onclick="s36b7LoadList()" data-testid="voucher-refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-default" onclick="s36b7Print()" data-testid="voucher-print"><i class="bi bi-printer"></i> Print List</button>
+                    <button type="button" class="btn btn-sm btn-default dropdown-toggle" data-toggle="dropdown" data-testid="voucher-pdf-menu">
+                        <i class="bi bi-file-earmark-pdf"></i> Cards PDF <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-right" id="s36b8-batch-dropdown" style="min-width:260px;"></ul>
+                </div>
+            </div>
+        </div>
+        <div class="box-body">
+            <!-- __S38K_VOUCHER_REDESIGN__: compact table + bulk-select + pagination -->
+            <div class="s38k-toolbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12px;">
+                <label style="margin:0;font-weight:600;">
+                    <input type="checkbox" id="s38k-select-all" data-testid="voucher-select-all"> Select all
+                </label>
+                <button id="s38k-delete-btn" class="btn btn-xs btn-danger" disabled
+                        onclick="s38kDeleteSelected()" data-testid="voucher-bulk-delete">
+                    <i class="bi bi-trash"></i> Delete selected (<span id="s38k-sel-count">0</span>)
+                </button>
+                <span style="flex:1"></span>
+                <label style="margin:0;color:#64748b;">Show
+                    <select id="s38k-page-size" class="form-control input-sm" style="display:inline-block;width:auto;padding:2px 6px;margin:0 4px;" data-testid="voucher-page-size">
+                        <option value="15" selected>15</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="0">All</option>
+                    </select>
+                    per page
+                </label>
+                <span id="s38k-pager" style="display:inline-flex;align-items:center;gap:4px;">
+                    <button class="btn btn-xs btn-default" id="s38k-prev" onclick="s38kPrevPage()" data-testid="voucher-prev">&laquo;</button>
+                    <span id="s38k-page-info" style="padding:0 6px;color:#475569;min-width:110px;text-align:center;">Page 1 of 1</span>
+                    <button class="btn btn-xs btn-default" id="s38k-next" onclick="s38kNextPage()" data-testid="voucher-next">&raquo;</button>
+                </span>
+            </div>
+            <table class="table table-condensed table-hover no-dt s38k-vouch-table" id="s36b7-table" data-testid="voucher-table">
+                <thead>
+                    <tr style="background:#f1f5f9;font-size:12px;">
+                        <th style="width:28px;padding:6px 4px;"></th>
+                        <th style="width:40px;padding:6px 4px;">#</th>
+                        <th style="padding:6px 6px;">Code</th>
+                        <th style="width:90px;padding:6px 4px;">Batch</th>
+                        <th style="padding:6px 4px;">Plan</th>
+                        <th style="width:60px;padding:6px 4px;">Dur</th>
+                        <th style="width:60px;padding:6px 4px;">Cap</th>
+                        <th style="width:72px;padding:6px 4px;">Status</th>
+                        <th style="width:110px;padding:6px 4px;">Used By</th>
+                        <th style="width:86px;padding:6px 4px;">Expires</th>
+                        <th style="width:56px;padding:6px 4px;text-align:center;">&times;</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div id="s38k-empty" class="text-muted text-center" style="display:none;padding:20px 0;">No vouchers to show.</div>
+        </div>
+    </div>
+</section>
+
+<style>
+.voucher-badge-unused  { background:#10b981; color:#fff; padding:3px 8px; border-radius:4px; }
+.voucher-badge-used    { background:#64748b; color:#fff; padding:3px 8px; border-radius:4px; }
+.voucher-badge-expired { background:#f59e0b; color:#fff; padding:3px 8px; border-radius:4px; }
+.voucher-badge-revoked { background:#ef4444; color:#fff; padding:3px 8px; border-radius:4px; }
+.voucher-code { font-family:"Courier New",monospace; font-weight:700; letter-spacing:1px; font-size:14px; color:#7c3aed; }
+@media print {
+    .box-header .box-tools, .content-header, .main-sidebar, .main-header, form { display:none !important; }
+}
+</style>
+
+<script>
+function s36b7Fmt(d){ if(!d) return '—'; try { return new Date(d).toLocaleDateString(); } catch(e){ return d; } }
+// S38k — voucher list state
+window.__s38k = { rows: [], page: 1 };
+function s38kPageSize(){ var v = parseInt(document.getElementById('s38k-page-size').value,10); return isNaN(v)?15:v; }
+function s38kSelectedIds(){
+    return Array.from(document.querySelectorAll('.s38k-row-check:checked')).map(function(cb){
+        return parseInt(cb.getAttribute('data-id'),10);
+    });
+}
+function s38kUpdateSelUI(){
+    var sel = s38kSelectedIds();
+    document.getElementById('s38k-sel-count').textContent = sel.length;
+    document.getElementById('s38k-delete-btn').disabled = sel.length === 0;
+    var all = document.querySelectorAll('.s38k-row-check');
+    var chk = document.getElementById('s38k-select-all');
+    if (chk && all.length) chk.checked = (sel.length === all.length);
+}
+function s38kRender(){
+    var tb = document.querySelector('#s36b7-table tbody');
+    tb.innerHTML = '';
+    var rows = window.__s38k.rows || [];
+    var size = s38kPageSize();
+    var total = rows.length;
+    var totalPages = size === 0 ? 1 : Math.max(1, Math.ceil(total / size));
+    if (window.__s38k.page > totalPages) window.__s38k.page = totalPages;
+    if (window.__s38k.page < 1) window.__s38k.page = 1;
+    var start = size === 0 ? 0 : (window.__s38k.page - 1) * size;
+    var end   = size === 0 ? total : Math.min(total, start + size);
+    var slice = rows.slice(start, end);
+    document.getElementById('s38k-empty').style.display = total === 0 ? '' : 'none';
+    document.getElementById('s38k-page-info').textContent =
+        'Page ' + window.__s38k.page + ' of ' + totalPages + ' (' + total + ' total)';
+    document.getElementById('s38k-prev').disabled = window.__s38k.page <= 1;
+    document.getElementById('s38k-next').disabled = window.__s38k.page >= totalPages;
+    slice.forEach(function(v) {
+        var badge = '<span class="voucher-badge-' + v.status + '" style="font-size:10px;padding:2px 6px;">' + v.status.toUpperCase() + '</span>';
+        var dur = v.duration_minutes ? (v.duration_minutes + 'm') : '<em>&#8734;</em>';
+        var cap = v.data_cap_mb ? (v.data_cap_mb + 'MB') : '<em>&#8734;</em>';
+        var actions = v.status === 'unused'
+            ? '<button class="btn btn-xs btn-link" style="color:#dc2626;padding:0;" title="Revoke" onclick="s36b7Revoke('+v.id+')" data-testid="voucher-revoke-'+v.id+'"><i class="bi bi-slash-circle"></i></button>'
+            : '<span class="text-muted">&mdash;</span>';
+        var batchShort = (v.batch_id||'').slice(-6);
+        tb.insertAdjacentHTML('beforeend',
+            '<tr style="font-size:12px;">'+
+              '<td style="padding:4px;"><input type="checkbox" class="s38k-row-check" data-id="'+v.id+'" data-testid="voucher-check-'+v.id+'" onchange="s38kUpdateSelUI()"></td>'+
+              '<td style="padding:4px;">'+v.id+'</td>'+
+              '<td class="voucher-code" style="padding:4px 6px;font-size:13px;">'+v.code+'</td>'+
+              '<td style="padding:4px;"><small title="'+(v.batch_id||'')+'">...'+batchShort+'</small></td>'+
+              '<td style="padding:4px;">'+(v.plan_name||'&mdash;')+'</td>'+
+              '<td style="padding:4px;">'+dur+'</td>'+
+              '<td style="padding:4px;">'+cap+'</td>'+
+              '<td style="padding:4px;">'+badge+'</td>'+
+              '<td style="padding:4px;"><small>'+(v.used_by||'&mdash;')+'</small></td>'+
+              '<td style="padding:4px;"><small>'+s36b7Fmt(v.expires_at)+'</small></td>'+
+              '<td style="padding:4px;text-align:center;">'+actions+'</td>'+
+            '</tr>');
+    });
+    s38kUpdateSelUI();
+}
+function s36b7LoadList(){
+    fetch('/api/vouchers/list', {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            window.__s38k.rows = j.rows || j.vouchers || [];
+            window.__s38k.page = 1;
+            s38kRender();
+        });
+}
+function s38kPrevPage(){ window.__s38k.page--; s38kRender(); }
+function s38kNextPage(){ window.__s38k.page++; s38kRender(); }
+function s38kDeleteSelected(){
+    var ids = s38kSelectedIds();
+    if (!ids.length) return;
+    if (!confirm('Delete ' + ids.length + ' voucher(s)? This cannot be undone.')) return;
+    fetch('/api/vouchers/delete', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ids: ids})
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+          if (j.ok) { s36b7LoadList(); }
+          else { alert('Delete failed: ' + (j.error||'unknown')); }
+      });
+}
+// Re-wire page-size select + select-all
+document.addEventListener('DOMContentLoaded', function(){
+    var sz = document.getElementById('s38k-page-size');
+    if (sz) sz.addEventListener('change', function(){ window.__s38k.page = 1; s38kRender(); });
+    var all = document.getElementById('s38k-select-all');
+    if (all) all.addEventListener('change', function(){
+        document.querySelectorAll('.s38k-row-check').forEach(function(cb){ cb.checked = all.checked; });
+        s38kUpdateSelUI();
+    });
+});
+function s36b7Revoke(id){
+    if (!confirm('Revoke this voucher? It will no longer be usable.')) return;
+    fetch('/api/vouchers/'+id+'/revoke', {method:'POST', credentials:'same-origin'})
+        .then(r => r.json()).then(j => {
+            if (j.ok) s36b7LoadList();
+            else alert('Revoke failed: ' + (j.error||'unknown'));
+        });
+}
+function s36b7Print(){ window.print(); }
+document.getElementById('s36b7-gen-form').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var _s36d_wa_pre = document.getElementById('s36d-wa-enabled');
+    var _s36d_ph_pre = document.getElementById('s36d-phones');
+    var body = {
+        count: parseInt(document.getElementById('s36b7-count').value) || 10,
+        plan_id: parseInt(document.getElementById('s36b7-plan').value) || null,
+        duration_minutes: parseInt(document.getElementById('s36b7-duration').value) || 0,
+        data_cap_mb: parseInt(document.getElementById('s36b7-cap').value) || 0,
+        expires_days: parseInt(document.getElementById('s36b7-expires').value) || 0,
+        delivery: (_s36d_wa_pre && _s36d_wa_pre.checked) ? 'whatsapp' : 'none',
+        phones: _s36d_ph_pre ? _s36d_ph_pre.value.split('\n').map(function(s){return s.trim();}).filter(Boolean) : [],
+    };
+    var _s36d_wa = document.getElementById('s36d-wa-enabled');
+    var _s36d_ph = document.getElementById('s36d-phones');
+    var _s36d_delivery = (_s36d_wa && _s36d_wa.checked) ? 'whatsapp' : 'none';
+    var _s36d_phones = _s36d_ph ? _s36d_ph.value.split('\n').map(function(s){return s.trim();}).filter(Boolean) : [];
+    fetch('/api/vouchers/generate', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    }).then(r => r.json()).then(j => {
+        if (j.ok){
+            alert('Generated ' + j.generated + ' vouchers in batch ' + j.batch_id + (j.whatsapp_queued ? (' · WhatsApp queued: ' + j.whatsapp_queued) : ''));
+            s36b7LoadList();
+        } else {
+            alert('Generate failed: ' + (j.error||'unknown'));
+        }
+    });
+});
+document.addEventListener('DOMContentLoaded', s36b7LoadList);
+// s36b8-print-batch — populate Cards-PDF menu with unique batch_ids
+function s36b8RefreshBatchDropdown(){
+    fetch('/api/vouchers/list', {credentials:'same-origin'})
+      .then(r=>r.json()).then(j=>{
+        var menu = document.getElementById('s36b8-batch-dropdown');
+        var seen = new Set(); menu.innerHTML = '';
+        (j.rows || j.vouchers || []).forEach(v=>{
+            if (seen.has(v.batch_id)) return;
+            seen.add(v.batch_id);
+            var li = document.createElement('li');
+            li.innerHTML = '<a href="/api/vouchers/batch/'+encodeURIComponent(v.batch_id)+'/pdf" target="_blank" data-testid="voucher-batch-pdf-'+v.batch_id+'"><i class="bi bi-download"></i> '+v.batch_id+'</a>';
+            menu.appendChild(li);
+        });
+        if (!seen.size) { menu.innerHTML = '<li><a href="#" onclick="return false;" style="color:#94a3b8;">No batches yet</a></li>'; }
+    });
+}
+document.addEventListener('DOMContentLoaded', s36b8RefreshBatchDropdown);
+// also refresh dropdown after a fresh list load
+var _origList = s36b7LoadList;
+s36b7LoadList = function(){ _origList(); setTimeout(s36b8RefreshBatchDropdown, 500); };
+
+</script>
+{% endblock %}

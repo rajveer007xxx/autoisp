@@ -1,0 +1,873 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}ONU / ONT Manager · AutoISP Billing{% endblock %}
+
+{% block content %}
+<script>window.OLT_PORTAL_PREFIX = "{{ olt_url_prefix or '/admin/olt' }}";</script>
+<style>
+  :root{
+    --olt-card:#161D2E; --olt-line:#1F2940; --olt-fg:#E7ECF5;
+    --olt-mute:#8A93A6; --olt-cyan:#00E5FF; --olt-violet:#7C5CFF;
+    --olt-green:#22C55E; --olt-amber:#F59E0B; --olt-red:#EF4444;
+  }
+  .ws { color:var(--olt-fg); padding:18px 6px 60px; }
+  .ws h1 { font-size:22px; font-weight:800; letter-spacing:-.4px; margin:0 0 4px; }
+  .ws .sub { color:var(--olt-mute); font-size:13px; margin-bottom:18px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--olt-mute);
+    border:1px solid var(--olt-line); background:var(--olt-card); }
+  .tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    border-color:transparent; font-weight:700; }
+  .filterbar { display:grid; gap:10px;
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:14px; padding:14px; margin-bottom:14px; }
+  .filterbar label { display:flex; flex-direction:column; gap:4px;
+    font-size:11px; letter-spacing:.6px; text-transform:uppercase;
+    color:var(--olt-mute); }
+  .filterbar select, .filterbar input {
+    background:#0B0F1A; border:1px solid var(--olt-line); color:var(--olt-fg);
+    border-radius:10px; padding:9px 10px; font-size:13px; outline:none; }
+  .filterbar select:focus, .filterbar input:focus { border-color:var(--olt-cyan); }
+  .panel { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:0; overflow:hidden; }
+  table.olt { width:100%; border-collapse:collapse; }
+  table.olt th, table.olt td { padding:10px 12px; border-bottom:1px solid
+    var(--olt-line); font-size:12.5px; text-align:left; vertical-align:middle; }
+  table.olt th { color:var(--olt-mute); font-weight:600; font-size:10.5px;
+    letter-spacing:.8px; text-transform:uppercase; background:#101725; }
+  table.olt tr:hover td { background:rgba(0,229,255,.04); }
+  .pill { display:inline-flex; padding:3px 10px; border-radius:99px;
+    font-size:10.5px; font-weight:700; letter-spacing:.4px; }
+  .pill.online { background:rgba(34,197,94,.12); color:#34D399; }
+  .pill.offline { background:rgba(239,68,68,.14); color:#F87171; }
+  .pill.unknown { background:rgba(138,147,166,.14); color:var(--olt-mute); }
+  .rx-bad{color:#F87171;font-weight:700} .rx-warn{color:#FBBF24;font-weight:700}
+  .rx-good{color:#34D399;font-weight:700}
+  .actbtn { padding:5px 9px; border-radius:8px; border:1px solid var(--olt-line);
+    background:transparent; color:var(--olt-fg); font-size:11px; cursor:pointer;
+    margin-right:3px; margin-bottom:3px; white-space:nowrap; font-weight:600; }
+  .actbtn:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }
+  .actbtn.primary { background:rgba(0,229,255,.12); border-color:rgba(0,229,255,.3); color:#67E8F9; }
+  .actbtn.warn:hover { border-color:var(--olt-amber); color:var(--olt-amber); }
+  .actbtn.danger:hover { border-color:var(--olt-red); color:var(--olt-red); }
+  .actcell { min-width:340px; }
+  .empty { text-align:center; padding:60px 10px; color:var(--olt-mute); }
+
+  /* Modals */
+  .modal-back { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+    z-index:9999; align-items:center; justify-content:center; padding:20px; }
+  .modal-back.show { display:flex; }
+  .modal-card { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:24px; max-width:560px; width:100%;
+    color:var(--olt-fg); max-height:90vh; overflow:auto; }
+  .modal-h { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .modal-h h3 { margin:0; font-size:16px; }
+  .modal-x { background:transparent; border:none; color:var(--olt-mute); font-size:22px; cursor:pointer; }
+  .field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+  .field label { font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:var(--olt-mute); }
+  .field input, .field select { background:#0B0F1A; border:1px solid var(--olt-line);
+    color:var(--olt-fg); border-radius:10px; padding:10px 12px; font-size:13.5px; outline:none; }
+  .field input:focus, .field select:focus { border-color:var(--olt-cyan); }
+  .row2 { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+  .btn { padding:10px 16px; border-radius:10px; border:1px solid var(--olt-line);
+    background:var(--olt-card); color:var(--olt-fg); font-size:13px;
+    cursor:pointer; font-weight:700; }
+  .btn.primary { background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet));
+    color:#0B0F1A; border-color:transparent; }
+  .ctx-info { background:rgba(0,229,255,.06); border:1px solid rgba(0,229,255,.2);
+    border-radius:10px; padding:10px 12px; font-size:12px; color:#9DDDF0; margin-bottom:14px; }
+  .ctx-info b { color:#E7ECF5; }
+</style>
+
+<section class="ws" data-testid="olt-onus-page">
+  <h1>ONU / ONT Manager</h1>
+  <p class="sub">Filter, monitor and remotely control every ONT on your network — Wi-Fi, WAN (PPPoE / Static / DHCP / Bridge), reboot &amp; reset.</p>
+
+  <nav class="tabs">
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/dashboard">Dashboard</a>
+    <a class="on" href="{{ olt_url_prefix or '/admin/olt' }}/onus">ONU / ONT Manage</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/alerts">Alerts</a>
+    {% if scope and scope.role == "admin" %}<a href="/admin/olt/system-config">System Config</a>{% endif %}
+  </nav>
+
+  <div class="filterbar" data-testid="onu-filters">
+    <label>OLT
+      <select id="f_olt" data-testid="filter-olt">
+        <option value="">All OLTs</option>
+        {% for o in olts %}<option value="{{o.id}}">{{o.name}} ({{o.vendor}})</option>{% endfor %}
+      </select></label>
+    <label>Status
+      <select id="f_status" data-testid="filter-status">
+        <option value="">All</option><option value="online">Online</option>
+        <option value="offline">Offline</option></select></label>
+    <label>PON Port
+      <select id="f_pon" data-testid="filter-pon">
+        <option value="">All ports (select an OLT)</option>
+      </select></label>
+    <label>RX ≤ dBm
+      <input id="f_rx" type="number" step="0.5" placeholder="-25"
+        data-testid="filter-rx"></label>
+    <label>Search
+      <input id="f_q" type="text" placeholder="serial / mac / customer"
+        data-testid="filter-q"></label>
+    <!-- _S40b_ — bulk re-push to ACS -->
+    <button class="btn primary" type="button"
+            style="margin-left:auto;"
+            onclick="openBulkRepush()"
+            data-testid="bulk-repush-btn"
+            title="Force every linked ONU to re-sync Wi-Fi/PPPoE settings to GenieACS">
+      ↻ Re-push All to ACS
+    </button>
+  </div>
+
+  <div class="panel">
+    <table class="olt">
+      <thead><tr>
+        <th>OLT / PON</th><th>Serial / MAC</th><th>Vendor</th>
+        <th>Customer</th><th>Status</th><th>RX</th><th>TX</th>
+        <th>Fiber Link</th><th>TR-069</th><th>WAN</th>
+        <th>Last Seen</th><th class="actcell">Actions</th></tr></thead>
+      <tbody id="onu_tbody" data-testid="onu-tbody">
+        <tr><td colspan="12" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<!-- ONU Edit modal (OLT-3.4) -->
+<div id="edit_modal" class="modal-back" data-testid="edit-modal">
+  <div class="modal-card">
+    <div class="modal-h"><h3>Edit ONU</h3>
+      <button class="modal-x" onclick="closeModal('edit_modal')">×</button></div>
+    <div class="ctx-info" id="edit_ctx"></div>
+    <form id="edit_form" onsubmit="event.preventDefault(); saveEdit();">
+      <input type="hidden" name="onu_id"/>
+      <div class="row2">
+        <div class="field"><label>ONU Name (label)</label>
+          <input name="name" placeholder="e.g. Hemlata-Home"
+            data-testid="edit-name"/></div>
+        <div class="field"><label>Vendor</label>
+          <input name="vendor" placeholder="Huawei / Nokia / VSOL …"
+            data-testid="edit-vendor"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Model</label>
+          <input name="model" placeholder="HG8310M / G-1425 / V2802 …"
+            data-testid="edit-model"/></div>
+        <div class="field"><label>&nbsp;</label>
+          <div style="font-size:11px;color:var(--olt-mute);
+               background:rgba(245,158,11,.06);
+               border:1px solid rgba(245,158,11,.2);
+               border-radius:8px;padding:8px 10px;">
+             Vendor / Model will <b>persist</b> across polls (manual override).
+          </div></div>
+      </div>
+      <div class="field"><label>Customer</label>
+        <input name="customer_search" id="cust_search"
+          placeholder="Type customer name / phone / id / username …"
+          autocomplete="off"
+          oninput="custSearch(this.value)"
+          data-testid="edit-customer-search"/>
+        <div id="cust_results"
+          style="position:relative;"></div>
+        <input type="hidden" name="customer_id" id="cust_id_hidden"/>
+        <div id="cust_chosen" style="margin-top:6px;font-size:12px;
+             color:#67E8F9;"></div>
+      </div>
+      <div class="field"><label>Notes</label>
+        <input name="notes" placeholder="Internal note (optional)"
+          data-testid="edit-notes"/></div>
+      <div style="display:flex;gap:8px;justify-content:space-between;
+                  align-items:center;margin-top:14px">
+        <button type="button" class="btn"
+          onclick="clearCustomer()"
+          style="border-color:rgba(239,68,68,.3);color:#F87171;"
+          data-testid="edit-unlink-customer">Unlink customer</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn" onclick="closeModal('edit_modal')">Cancel</button>
+          <button type="submit" class="btn primary" data-testid="edit-save">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  .cust-result-list {
+    background:#0B0F1A;border:1px solid var(--olt-line);
+    border-radius:10px;margin-top:6px;max-height:200px;overflow:auto;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  .cust-result {
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 12px;border-bottom:1px solid var(--olt-line);
+    cursor:pointer;font-size:12.5px;
+  }
+  .cust-result:hover { background:rgba(0,229,255,.08); }
+  .cust-result:last-child { border-bottom:0; }
+</style>
+
+<script>
+let _custTimer = null;
+async function custSearch(q){
+  clearTimeout(_custTimer);
+  _custTimer = setTimeout(async ()=>{
+    const box = document.getElementById('cust_results');
+    if (!q || q.length < 2){ box.innerHTML = ''; return; }
+    const r = await fetch('/api/admin/olt/customers/search?q='+encodeURIComponent(q));
+    const j = await r.json();
+    if (!j.items || j.items.length === 0){
+      box.innerHTML = '<div class="cust-result-list"><div class="cust-result" style="color:#8A93A6">No matches</div></div>';
+      return;
+    }
+    let html = '<div class="cust-result-list">';
+    for (const c of j.items){
+      html += `<div class="cust-result" data-testid="cust-pick-${c.customer_id}"
+        onclick="pickCustomer('${c.customer_id}','${(c.customer_name||'').replace(/'/g,'&#39;')}','${(c.phone||'').replace(/'/g,'&#39;')}')">
+        <div><b>${c.customer_name||'(no name)'}</b><br>
+          <span style="color:#8A93A6;font-size:11px">${c.customer_id} · ${c.username||''}</span></div>
+        <div style="color:#8A93A6;font-size:11px">${c.phone||''}</div>
+      </div>`;
+    }
+    html += '</div>';
+    box.innerHTML = html;
+  }, 250);
+}
+function pickCustomer(id, name, phone){
+  document.getElementById('cust_id_hidden').value = id;
+  document.getElementById('cust_chosen').innerHTML =
+    `Linked: <b>${name}</b> (${id}) ${phone ? '· '+phone : ''}`;
+  document.getElementById('cust_results').innerHTML = '';
+  document.getElementById('cust_search').value = `${name} (${id})`;
+}
+function clearCustomer(){
+  if (!confirm('Unlink customer from this ONU?')) return;
+  document.getElementById('cust_id_hidden').value = '';
+  document.getElementById('cust_chosen').innerHTML =
+    '<span style="color:#F87171">Will be unlinked on save.</span>';
+  document.getElementById('cust_search').value = '';
+}
+
+async function openEdit(onuId){
+  const r = await fetch(`/api/admin/olt/onus/${onuId}`);
+  const j = await r.json();
+  if (!j.ok){ alert('Cannot load ONU'); return; }
+  const o = j.onu;
+  const f = document.getElementById('edit_form');
+  f.onu_id.value = onuId;
+  f.name.value   = o.name   || '';
+  f.vendor.value = o.vendor || '';
+  f.model.value  = o.model  || '';
+  f.notes.value  = o.notes  || '';
+  document.getElementById('cust_id_hidden').value = o.customer_id || '';
+  document.getElementById('cust_search').value = '';
+  document.getElementById('cust_results').innerHTML = '';
+  document.getElementById('cust_chosen').innerHTML = '';
+  // Pre-fill customer info if linked
+  if (o.customer_id){
+    const cr = await fetch('/api/admin/olt/customers/search?q=' +
+                            encodeURIComponent(o.customer_id));
+    const cj = await cr.json();
+    const match = (cj.items || []).find(x => x.customer_id == o.customer_id);
+    if (match){
+      pickCustomer(match.customer_id, match.customer_name, match.phone);
+    } else {
+      document.getElementById('cust_chosen').innerHTML =
+        `Currently linked: <b>${o.customer_id}</b>`;
+      document.getElementById('cust_search').value = o.customer_id;
+    }
+  }
+  document.getElementById('edit_ctx').innerHTML =
+    `<b>${o.serial||'—'}</b> · ${o.olt_name||('#'+o.olt_id)} · PON ${o.pon_port_index}/${o.onu_index}`;
+  document.getElementById('edit_modal').classList.add('show');
+}
+
+async function saveEdit(){
+  const f = document.getElementById('edit_form');
+  const id = f.onu_id.value;
+  const body = {
+    name:   f.name.value || null,
+    vendor: f.vendor.value || null,
+    model:  f.model.value || null,
+    notes:  f.notes.value || null,
+    customer_id: document.getElementById('cust_id_hidden').value || null,
+  };
+  // If user typed in search but didn't pick + didn't have prior id, send null.
+  const r = await fetch(`/api/admin/olt/onus/${id}`,
+    {method:'PATCH', headers:{'Content-Type':'application/json'},
+     body: JSON.stringify(body)});
+  if (r.ok){ closeModal('edit_modal'); loadOnus(); }
+  else { alert('Save failed: '+await r.text()); }
+}
+</script>
+
+</section>
+
+<!-- _S40c_DUALBAND_ Wi-Fi modal -->
+<style>
+  /* Dual-band card layout — overrides .modal-card width on this modal */
+  #wifi_modal .modal-card { max-width: 760px; width: 96%; }
+  .wb-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-top:8px; }
+  @media (max-width: 820px) { .wb-grid { grid-template-columns: 1fr; } }
+  .wb-card { border:1px solid var(--olt-line); border-radius:10px; padding:12px;
+             background: rgba(124,92,255,.05); }
+  .wb-card.b5 { background: rgba(0,229,255,.05); }
+  .wb-head { display:flex; align-items:center; justify-content:space-between;
+             margin-bottom:8px; font-weight:700; font-size:13px;
+             color:var(--olt-fg); }
+  .wb-head .badge { font-size:10px; padding:2px 6px; border-radius:4px;
+                    color:#0B0F1A; background:linear-gradient(135deg,var(--olt-cyan),var(--olt-violet)); }
+  .wb-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12px; color:var(--olt-mute); }
+  .wb-row label { flex:1; }
+  .wb-row input, .wb-row select { width:100%; }
+  .wb-toggle { display:flex; align-items:center; gap:6px; user-select:none; cursor:pointer; }
+  .wb-disabled { opacity: 0.5; pointer-events: none; }
+  .wb-split-row { display:flex; align-items:center; gap:10px;
+                  margin: 4px 0 12px; font-size:12.5px; color:var(--olt-fg); }
+</style>
+<div id="wifi_modal" class="modal-back" data-testid="wifi-modal">
+  <div class="modal-card">
+    <div class="modal-h"><h3>Wi-Fi Settings (Dual-Band)</h3>
+      <button class="modal-x" onclick="closeModal('wifi_modal')">×</button></div>
+    <div class="ctx-info" id="wifi_ctx"></div>
+    <form id="wifi_form" onsubmit="event.preventDefault(); saveWifi();">
+      <input type="hidden" name="onu_id"/>
+
+      <div class="wb-split-row">
+        <label class="wb-toggle">
+          <input type="checkbox" name="band_split" id="wb_split"
+                 data-testid="wifi-band-split" onchange="wbToggleSplit()"/>
+          Use a different SSID / password for the 5 GHz band
+        </label>
+        <span style="margin-left:auto;color:var(--olt-mute);font-size:11px;">
+          Single-band ONUs will safely ignore the 5 GHz fields.
+        </span>
+      </div>
+
+      <div class="wb-grid">
+        <!-- 2.4 GHz card -->
+        <div class="wb-card b24">
+          <div class="wb-head">📶 2.4 GHz <span class="badge">PRIMARY</span></div>
+          <div class="wb-row"><label>Radio
+            <select name="radio_24_enabled" data-testid="wifi-r24-enabled">
+              <option value="1">Enabled</option><option value="0">Disabled</option>
+            </select></label></div>
+          <div class="wb-row"><label>SSID
+            <input name="ssid" placeholder="Home_WiFi" data-testid="wifi-ssid"/></label></div>
+          <div class="wb-row"><label>Password
+            <input name="password" placeholder="(unchanged if empty)" data-testid="wifi-pass"/></label></div>
+          <div class="wb-row">
+            <label class="wb-toggle">
+              <input type="checkbox" name="auto_24" id="wb_auto_24"
+                     checked data-testid="wifi-auto-24"
+                     onchange="wbToggleChan(24)"/>
+              Auto channel
+            </label>
+          </div>
+          <div class="wb-row" id="wb_ch_row_24"><label>Channel
+            <select name="channel_24" data-testid="wifi-ch-24">
+              <option value="">—</option>
+              <option>1</option><option>2</option><option>3</option><option>4</option>
+              <option>5</option><option>6</option><option>7</option><option>8</option>
+              <option>9</option><option>10</option><option>11</option><option>12</option>
+              <option>13</option>
+            </select></label></div>
+          <div class="wb-row"><label>Bandwidth
+            <select name="bw_24" data-testid="wifi-bw-24">
+              <option value="Auto">Auto</option>
+              <option>20MHz</option><option>40MHz</option>
+            </select></label></div>
+        </div>
+
+        <!-- 5 GHz card -->
+        <div class="wb-card b5" id="wb_card_5">
+          <div class="wb-head">📡 5 GHz <span class="badge">DUAL-BAND</span></div>
+          <div class="wb-row"><label>Radio
+            <select name="radio_5_enabled" data-testid="wifi-r5-enabled">
+              <option value="1">Enabled</option><option value="0">Disabled</option>
+            </select></label></div>
+          <div class="wb-row" id="wb_ssid5_row"><label>SSID (5 GHz)
+            <input name="ssid_5g" placeholder="(same as 2.4 GHz)"
+                   data-testid="wifi-ssid-5g"/></label></div>
+          <div class="wb-row" id="wb_pw5_row"><label>Password (5 GHz)
+            <input name="password_5g" placeholder="(same as 2.4 GHz)"
+                   data-testid="wifi-pass-5g"/></label></div>
+          <div class="wb-row">
+            <label class="wb-toggle">
+              <input type="checkbox" name="auto_5" id="wb_auto_5"
+                     checked data-testid="wifi-auto-5"
+                     onchange="wbToggleChan(5)"/>
+              Auto channel
+            </label>
+          </div>
+          <div class="wb-row" id="wb_ch_row_5"><label>Channel
+            <select name="channel_5" data-testid="wifi-ch-5">
+              <option value="">—</option>
+              <option>36</option><option>40</option><option>44</option>
+              <option>48</option><option>149</option><option>153</option>
+              <option>157</option><option>161</option><option>165</option>
+            </select></label></div>
+          <div class="wb-row"><label>Bandwidth
+            <select name="bw_5" data-testid="wifi-bw-5">
+              <option value="Auto">Auto</option>
+              <option>20MHz</option><option>40MHz</option>
+              <option>80MHz</option><option>160MHz</option>
+            </select></label></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn" onclick="closeModal('wifi_modal')">Cancel</button>
+        <button type="submit" class="btn primary" data-testid="wifi-save">Save &amp; Push</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // _S40c_DUALBAND_ helpers
+  function wbToggleSplit() {
+    const split = document.getElementById("wb_split").checked;
+    const ssidRow = document.getElementById("wb_ssid5_row");
+    const pwRow = document.getElementById("wb_pw5_row");
+    if (split) {
+      ssidRow.querySelector("input").placeholder = "WiFi-5G";
+      pwRow.querySelector("input").placeholder = "(unchanged if empty)";
+    } else {
+      ssidRow.querySelector("input").value = "";
+      pwRow.querySelector("input").value = "";
+      ssidRow.querySelector("input").placeholder = "(same as 2.4 GHz)";
+      pwRow.querySelector("input").placeholder = "(same as 2.4 GHz)";
+    }
+  }
+  function wbToggleChan(band) {
+    const auto = document.getElementById("wb_auto_" + band).checked;
+    const row = document.getElementById("wb_ch_row_" + band);
+    row.classList.toggle("wb-disabled", auto);
+  }
+</script>
+
+<!-- WAN modal -->
+<div id="wan_modal" class="modal-back" data-testid="wan-modal">
+  <div class="modal-card">
+    <div class="modal-h"><h3>WAN Settings</h3>
+      <button class="modal-x" onclick="closeModal('wan_modal')">×</button></div>
+    <div class="ctx-info" id="wan_ctx"></div>
+    <form id="wan_form" onsubmit="event.preventDefault(); saveWan();">
+      <input type="hidden" name="onu_id"/>
+      <div class="row2">
+        <div class="field"><label>Mode *</label>
+          <select name="wan_mode" id="wan_mode_sel" data-testid="wan-mode" onchange="wanModeUI()">
+            <option value="pppoe">PPPoE</option>
+            <option value="static">Static IP</option>
+            <option value="dhcp">DHCP (auto)</option>
+            <option value="bridge">Bridge / Passthrough</option>
+          </select></div>
+        <div class="field"><label>VLAN ID</label>
+          <input name="wan_vlan" type="number" placeholder="(none)" data-testid="wan-vlan"/></div>
+        <div class="field"><label>Service Name</label>
+          <input name="wan_service_name" type="text" placeholder="e.g. INTERNET / TR069_VOIP / VLAN tag label" maxlength="64" data-testid="wan-service-name"/></div>
+      </div>
+      <div class="wan-pppoe">
+        <div class="row2">
+          <div class="field"><label>PPPoE username</label>
+            <input name="wan_username" data-testid="wan-user"/></div>
+          <div class="field"><label>PPPoE password</label>
+            <input name="wan_password" data-testid="wan-pass"/></div>
+        </div>
+      </div>
+      <div class="wan-static">
+        <div class="row2">
+          <div class="field"><label>IP address</label>
+            <input name="wan_static_ip" placeholder="203.0.113.10" data-testid="wan-ip"/></div>
+          <div class="field"><label>Netmask</label>
+            <input name="wan_netmask" placeholder="255.255.255.0" data-testid="wan-mask"/></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Gateway</label>
+            <input name="wan_gateway" placeholder="203.0.113.1" data-testid="wan-gw"/></div>
+          <div class="field"><label>DNS</label>
+            <input name="wan_dns" placeholder="8.8.8.8, 1.1.1.1" data-testid="wan-dns"/></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn" onclick="closeModal('wan_modal')">Cancel</button>
+        <button type="submit" class="btn primary" data-testid="wan-save">Save &amp; Push</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const IS_ADMIN_OLT = {{ 'true' if scope and scope.role == 'admin' else 'false' }};
+window.IS_ADMIN_OLT = IS_ADMIN_OLT;
+const $$ = (id)=>document.getElementById(id);
+function closeModal(id){ $$(id).classList.remove('show'); }
+
+async function loadOnus(){
+  const params = new URLSearchParams();
+  const olt = $$('f_olt').value, st = $$('f_status').value,
+    pon = $$('f_pon').value, rx = $$('f_rx').value, q = $$('f_q').value;
+  if (olt) params.set('olt_id', olt);
+  if (st)  params.set('status', st);
+  if (pon) params.set('pon_port_index', pon);
+  if (rx)  params.set('rx_max', rx);
+  if (q)   params.set('q', q);
+  const r = await fetch('/api/admin/olt/onus?'+params.toString());
+  const j = await r.json();
+  const tb = $$('onu_tbody'); tb.innerHTML = '';
+  if (!j.items || j.items.length===0){
+    tb.innerHTML = '<tr><td colspan="12" class="empty">No ONUs match filters.</td></tr>';
+    return;
+  }
+  for (const o of j.items){
+    const rxc = o.rx_power===null ? '' :
+      (o.rx_power <= -28 ? 'rx-bad' : (o.rx_power <= -25 ? 'rx-warn' : 'rx-good'));
+    const rxText = o.rx_power===null ? '—' : (o.rx_power.toFixed(1)+' dBm');
+    const tr = document.createElement('tr');
+    tr.dataset.testid = 'onu-row-'+o.id;
+    // _S46A_  Fiber-link pill + TR-069 status
+    const flMap = { down:['#F87171','rgba(239,68,68,.16)','Down'],
+                    critical:['#F87171','rgba(239,68,68,.16)','Critical'],
+                    warn:['#FBBF24','rgba(245,158,11,.16)','Warn'],
+                    good:['#34D399','rgba(34,197,94,.14)','Good'],
+                    ok:['#67E8F9','rgba(0,229,255,.12)','OK'] };
+    const fl = flMap[o.fiber_link] || flMap.ok;
+    const flKm = (o.fiber_distance_km!=null) ? ' · '+o.fiber_distance_km+' km' : '';
+    const trCol = o.tr069_enabled
+      ? '<span style="padding:3px 8px;border-radius:99px;font-size:10.5px;font-weight:700;background:rgba(34,197,94,.14);color:#34D399">Enabled</span>'
+      : '<span style="padding:3px 8px;border-radius:99px;font-size:10.5px;font-weight:700;background:rgba(138,147,166,.14);color:#8A93A6">Disabled</span>';
+    // Serial / MAC dual-line cell — robust against EPON OLTs that only
+    // expose a MAC (we copy the MAC into both fields server-side).
+    const serMacCell =
+      (o.serial && o.serial !== o.mac)
+        ? `<code>${o.serial||'—'}</code><br><code style="color:#8A93A6;font-size:10.5px">${o.mac||'—'}</code>`
+        : `<code style="font-size:11px">${o.mac || o.serial || '—'}</code>`;
+    tr.innerHTML = `
+      <td><b>${o.olt_name||('#'+o.olt_id)}</b><br><span style="color:#8A93A6;font-size:11px">PON ${o.pon_port_index}/${o.onu_index}</span></td>
+      <td>${serMacCell}</td>
+      <td>${o.vendor||'—'}<br><span style="color:#8A93A6;font-size:11px">${o.model||''}</span></td>
+      <td>${o.customer_id ? `<b>${o.customer_name||'(no name)'}</b><br><span style="color:#8A93A6;font-size:11px">${o.customer_id}</span>` : '<span style="color:#8A93A6">—</span>'}</td>
+      <td><span class="pill ${o.status}">${o.status}</span></td>
+      <td class="${rxc}">${rxText}</td>
+      <td>${o.tx_power!==null?o.tx_power.toFixed(1)+' dBm':'—'}</td>
+      <td><span style="padding:3px 8px;border-radius:99px;font-size:10.5px;font-weight:700;background:${fl[1]};color:${fl[0]}">${fl[2]}</span><br><span style="color:#8A93A6;font-size:10.5px">${o.distance_m?(o.distance_m+' m'+flKm):''}</span></td>
+      <td>${trCol}</td>
+      <td><span style="color:#8A93A6;font-size:11px">—</span></td>
+      <td style="color:#8A93A6;font-size:11px">${fmtLastSeen(o.last_seen)}</td>
+      <td class="actcell">
+        <button class="actbtn" style="background:#7c3aed;color:#fff" data-testid="onu-map-${o.id}" onclick="onuMap(${o.id})" title="Show on / place on Network Map">🗺️ Map</button>
+        <button class="actbtn" data-testid="onu-edit-${o.id}" onclick="openEdit(${o.id})">✏️ Edit</button>
+        <button class="actbtn primary" data-testid="onu-wifi-${o.id}" onclick="openWifi(${o.id},'${(o.serial||'').replace(/'/g,"")}','${(o.olt_name||'').replace(/'/g,"")}',${o.pon_port_index},${o.onu_index})">⚡ Wi-Fi</button>
+        <button class="actbtn primary" data-testid="onu-wan-${o.id}" onclick="openWan(${o.id},'${(o.serial||'').replace(/'/g,"")}','${(o.olt_name||'').replace(/'/g,"")}',${o.pon_port_index},${o.onu_index})">🌐 WAN</button>
+        <button class="actbtn warn" data-testid="onu-reboot-${o.id}" onclick="onuAct(${o.id},'reboot')">↻ Reboot</button>
+        ${(window.IS_ADMIN_OLT? `<button class="actbtn" data-testid="onu-activate-${o.id}" onclick="onuAct(${o.id},\'activate\')">✓ Activate</button>
+        <button class="actbtn danger" data-testid="onu-reset-${o.id}" onclick="onuAct(${o.id},\'factory-reset\')">⚠ Reset</button>
+        <button class="actbtn danger" data-testid="onu-delete-${o.id}" style="background:#7f1d1d" onclick="onuDelete(${o.id},\'${(o.serial||'').replace(/\'/g,"")}\',\'${(o.status||'').toLowerCase()}\')">🗑 Delete</button>` : ``)}
+      </td>`;
+    // Refresh WAN cell with a label
+    const wanLabel = (data) => {
+      if (!data || !data.wan_mode) return '<span style="color:#8A93A6;font-size:11px">—</span>';
+      const m = data.wan_mode;
+      let extra = '';
+      if (m === 'pppoe') extra = data.wan_username || '';
+      else if (m === 'static') extra = data.wan_static_ip || '';
+      return `<b>${m.toUpperCase()}</b>${extra?'<br><span style="color:#8A93A6;font-size:11px">'+extra+'</span>':''}`;
+    };
+    tr.children[9].innerHTML = wanLabel(o);
+    tb.appendChild(tr);
+  }
+}
+
+function _ctx(serial, olt, pon, onu){
+  return `<b>${serial||'—'}</b> · ${olt} · PON ${pon}/${onu}`;
+}
+
+async function openWifi(onuId, serial, olt, pon, onu){
+  const r = await fetch(`/api/admin/olt/onus/${onuId}`);
+  const j = await r.json();
+  const o = (j && j.onu) || {};
+  const f = $$('wifi_form');
+  f.onu_id.value = onuId;
+  // 2.4 GHz
+  f.ssid.value = o.wifi_ssid || '';
+  f.password.value = '';
+  f.radio_24_enabled.value = String(o.wifi_radio_24_enabled === 0 ? 0 : 1);
+  document.getElementById("wb_auto_24").checked = (o.wifi_auto_24 !== 0);
+  f.channel_24.value = o.wifi_channel_24 ? String(o.wifi_channel_24) : '';
+  f.bw_24.value = o.wifi_bw_24 || 'Auto';
+  // 5 GHz
+  f.radio_5_enabled.value = String(o.wifi_radio_5_enabled === 0 ? 0 : 1);
+  document.getElementById("wb_split").checked = !!o.wifi_band_split;
+  f.ssid_5g.value = (o.wifi_band_split && o.wifi_ssid_5g) ? o.wifi_ssid_5g : '';
+  f.password_5g.value = '';
+  document.getElementById("wb_auto_5").checked = (o.wifi_auto_5 !== 0);
+  f.channel_5.value = o.wifi_channel_5 ? String(o.wifi_channel_5) : '';
+  f.bw_5.value = o.wifi_bw_5 || 'Auto';
+  // refresh enabled-state of channel rows + 5G placeholders
+  wbToggleChan(24); wbToggleChan(5); wbToggleSplit();
+  $$('wifi_ctx').innerHTML = _ctx(serial, olt, pon, onu);
+  $$('wifi_modal').classList.add('show');
+}
+async function saveWifi(){
+  const f = $$('wifi_form');
+  const id = f.onu_id.value;
+  const split = document.getElementById("wb_split").checked ? 1 : 0;
+  const auto24 = document.getElementById("wb_auto_24").checked ? 1 : 0;
+  const auto5 = document.getElementById("wb_auto_5").checked ? 1 : 0;
+  const body = {
+    ssid: f.ssid.value || null,
+    password: f.password.value || null,
+    band_split: split,
+    radio_24_enabled: parseInt(f.radio_24_enabled.value, 10),
+    radio_5_enabled: parseInt(f.radio_5_enabled.value, 10),
+    auto_24: auto24, auto_5: auto5,
+    channel_24: (auto24 || !f.channel_24.value) ? null : parseInt(f.channel_24.value, 10),
+    channel_5:  (auto5  || !f.channel_5.value)  ? null : parseInt(f.channel_5.value, 10),
+    bw_24: f.bw_24.value || null,
+    bw_5: f.bw_5.value || null,
+  };
+  if (split) {
+    body.ssid_5g = f.ssid_5g.value || null;
+    body.password_5g = f.password_5g.value || null;
+  } else {
+    // explicit nulls so backend keeps old values intact when un-split
+    body.ssid_5g = null;
+    body.password_5g = null;
+  }
+  const r = await fetch(`/api/admin/olt/onus/${id}/wifi`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if (r.ok){ closeModal('wifi_modal'); loadOnus(); }
+  else alert('Save failed: '+await r.text());
+}
+
+function wanModeUI(){
+  const m = $$('wan_mode_sel').value;
+  document.querySelectorAll('.wan-pppoe').forEach(e=>e.style.display = m==='pppoe' ? '' : 'none');
+  document.querySelectorAll('.wan-static').forEach(e=>e.style.display = m==='static' ? '' : 'none');
+}
+async function openWan(onuId, serial, olt, pon, onu){
+  const r = await fetch(`/api/admin/olt/onus/${onuId}`);
+  const j = await r.json();
+  const f = $$('wan_form');
+  f.onu_id.value = onuId;
+  const o = j.onu || {};
+  f.wan_mode.value = o.wan_mode || 'pppoe';
+  f.wan_vlan.value = o.wan_vlan || '';
+  f.wan_service_name.value = o.wan_service_name || '';
+  f.wan_username.value = o.wan_username || '';
+  f.wan_password.value = o.wan_password || '';
+  f.wan_static_ip.value = o.wan_static_ip || '';
+  f.wan_netmask.value = o.wan_netmask || '';
+  f.wan_gateway.value = o.wan_gateway || '';
+  f.wan_dns.value = o.wan_dns || '';
+  $$('wan_ctx').innerHTML = _ctx(serial, olt, pon, onu);
+  wanModeUI();
+  $$('wan_modal').classList.add('show');
+}
+async function saveWan(){
+  const f = $$('wan_form');
+  const id = f.onu_id.value;
+  const body = {
+    wan_mode: f.wan_mode.value,
+    wan_username: f.wan_username.value || null,
+    wan_password: f.wan_password.value || null,
+    wan_static_ip: f.wan_static_ip.value || null,
+    wan_netmask: f.wan_netmask.value || null,
+    wan_gateway: f.wan_gateway.value || null,
+    wan_dns: f.wan_dns.value || null,
+    wan_vlan: f.wan_vlan.value ? parseInt(f.wan_vlan.value, 10) : null,
+    wan_service_name: f.wan_service_name.value || null,
+  };
+  const r = await fetch(`/api/admin/olt/onus/${id}/wan`, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if (r.ok){ closeModal('wan_modal'); loadOnus(); }
+  else alert('Save failed: '+await r.text());
+}
+
+function fmtLastSeen(s){
+  // ISO 8601 -> 'DD-MM-YYYY HH:MM' (UTC offset preserved as local).
+  if (!s) return '\u2014';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    const p = n => String(n).padStart(2,'0');
+    return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+' '+
+           p(d.getHours())+':'+p(d.getMinutes());
+  } catch(e){ return s; }
+}
+
+async function onuDelete(id, serial, status){
+  /* _S40zy_  Hard-delete an ONU. Backend refuses to delete an ONLINE ONU. */
+  if (status === 'online') {
+    alert('This ONU is currently ONLINE.\n\nPlease factory-reset it first so it disconnects, then delete.');
+    return;
+  }
+  if (!confirm(`Delete ONU "${serial || ('#'+id)}" permanently?\n\nThis cannot be undone. The serial will be free to be re-provisioned.`)) return;
+  if (!confirm('Are you absolutely sure? Type-confirm by clicking OK once more.')) return;
+  const r = await fetch(`/api/admin/olt/onus/${id}`, {method:'DELETE'});
+  if (r.ok){
+    let j = {};
+    try { j = await r.json(); } catch(e){}
+    alert('ONU deleted ✓\n\n' + (j.message || ''));
+    loadOnus();
+  } else {
+    alert('Delete failed:\n' + await r.text());
+  }
+}
+
+async function onuAct(id, action){
+  if (action==='factory-reset' && !confirm('Factory reset this ONU? It will be unprovisioned.')) return;
+  if (action==='reboot' && !confirm('Reboot this ONU now?')) return;
+  const r = await fetch(`/api/admin/olt/onus/${id}/${action}`, {method:'POST'});
+  if (r.ok){
+    let j = {};
+    try { j = await r.json(); } catch(e){}
+    const labels = {reboot:'Reboot', 'factory-reset':'Factory Reset', activate:'Activate', wifi:'Wi-Fi'};
+    const head = labels[action] || action;
+    alert(`${head} \u2713\n\n${j.message || 'Action dispatched to ONU.'}`);
+    loadOnus();   // refresh status pill / last_seen
+  } else {
+    alert(`${action} failed:\n` + await r.text());
+  }
+}
+// _S46A_  Repopulate PON dropdown from selected OLT's pon_port_count
+async function refreshPonFilter(){
+  const sel = document.getElementById('f_pon');
+  const oltSel = document.getElementById('f_olt');
+  const oltId = oltSel.value;
+  let cnt = 0;
+  if (oltId){
+    try {
+      const r = await fetch('/api/admin/olt/olts');
+      const j = await r.json();
+      const o = (j.items||[]).find(x => String(x.id) === String(oltId));
+      cnt = (o && o.pon_port_count) || 0;
+    } catch(e){}
+  }
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All ports'
+    + (oltId ? '' : ' (select an OLT)') + '</option>';
+  for (let p=1; p<=cnt; p++){
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = 'PON '+p;
+    if (String(cur) === String(p)) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+document.getElementById('f_olt').addEventListener('change', refreshPonFilter);
+refreshPonFilter();
+
+['f_olt','f_status','f_pon','f_rx','f_q'].forEach(id=>{
+  $$(id).addEventListener('change', loadOnus);
+  $$(id).addEventListener('keyup', (e)=>{ if(e.key==='Enter') loadOnus(); });
+});
+
+// OLT-3.2 — read ?status=online|offline from URL and pre-select filter
+(function(){
+  try {
+    const qs = new URLSearchParams(location.search);
+    const st = qs.get('status');
+    if (st && (st === 'online' || st === 'offline')){
+      const sel = document.getElementById('f_status');
+      if (sel) sel.value = st;
+    }
+    const olt = qs.get('olt_id');
+    if (olt){
+      const sel = document.getElementById('f_olt');
+      if (sel) sel.value = olt;
+    }
+  } catch(e){}
+})();
+
+loadOnus();
+</script>
+
+<!-- _S40b_ — Bulk Re-push to ACS modal -->
+<div id="bulk_repush_modal" class="modal-back" data-testid="bulk-repush-modal">
+  <div class="modal-card" style="max-width:560px;">
+    <div class="modal-head">
+      <h3 style="margin:0;">Re-push to ACS</h3>
+      <button class="modal-x" onclick="closeModal('bulk_repush_modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;color:#9aa3b2;font-size:13px;">
+        Forces every ONU bound to a customer to re-send its Wi-Fi /
+        PPPoE settings to GenieACS. Use after a firmware roll, OLT swap,
+        or long ACS outage. Up to 200 ONUs per call.
+      </p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
+        <input type="checkbox" id="repush_only_linked" checked
+               data-testid="repush-only-linked" />
+        Only ONUs bound to a customer
+      </label>
+      <div style="margin-top:8px;">
+        <label style="font-size:13px;color:#9aa3b2;">Restrict to OLT
+          <select id="repush_olt_id" data-testid="repush-olt-select"
+                  style="margin-left:6px;">
+            <option value="">All OLTs</option>
+            {% for o in olts %}<option value="{{o.id}}">{{o.name}}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div id="repush_result" data-testid="repush-result"
+           style="margin-top:14px;font-size:13px;color:#9aa3b2;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('bulk_repush_modal')">Cancel</button>
+      <button class="btn primary" id="btn_run_repush" onclick="runBulkRepush()"
+              data-testid="run-bulk-repush">Re-push Now</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openBulkRepush() {
+  document.getElementById("repush_result").innerText = "";
+  document.getElementById("bulk_repush_modal").classList.add("show");
+}
+async function runBulkRepush() {
+  const btn = document.getElementById("btn_run_repush");
+  const out = document.getElementById("repush_result");
+  const onlyLinked = document.getElementById("repush_only_linked").checked;
+  const oltSel = document.getElementById("repush_olt_id").value;
+  btn.disabled = true; btn.innerText = "Pushing…";
+  out.innerText = "Submitting…";
+  try {
+    const body = { only_linked: onlyLinked };
+    if (oltSel) body.olt_id = parseInt(oltSel, 10);
+    const r = await fetch("/api/admin/olt/onus/bulk-repush", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.detail || j.error || "request failed");
+    if (j.total === 0) {
+      out.innerText = j.message || "No matching ONUs found.";
+    } else {
+      let msg = `Processed ${j.processed}/${j.total} — OK ${j.ok_count}, Fail ${j.fail_count}`;
+      if (j.capped) msg += " (capped at 200; run again to continue)";
+      out.innerHTML = msg + (j.results && j.results.length
+        ? `<details style="margin-top:8px;"><summary style="cursor:pointer;color:#67b3ff;">View per-ONU results</summary>
+            <ul style="margin:6px 0 0 18px;font-family:monospace;font-size:12px;line-height:1.5;">` +
+          j.results.map(x => `<li>ONU #${x.onu_id} — ${x.ok ? "✓ OK" : "✗ " + (x.skip || x.error || "fail")}</li>`).join("") +
+          `</ul></details>` : "");
+    }
+  } catch (e) {
+    out.innerText = "Error: " + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.innerText = "Re-push Now";
+  }
+}
+
+// _S40j_NETMAP_  Place / show ONU on the Network Map page
+function onuMap(id) {
+  // Open the company-scoped Network Map (same tab) focused on this ONU
+  var prefix = (window.OLT_PORTAL_PREFIX || '/admin/olt').replace(/\/olt$/, '');
+  var url = prefix + '/network-map?focus_onu=' + id;
+  window.location.href = url;
+}
+
+</script>
+{% endblock %}

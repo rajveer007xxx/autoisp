@@ -1,0 +1,549 @@
+{% extends base_template|default("base_admin.html") %}
+{# _v4727_  Operator FAQ page #}
+{% block content %}
+<style>
+  /* Theme-neutral surface palette: uses each shell's CSS variables but
+     falls back to neutral light values so the FAQ looks correct in admin
+     (dark), employee (light) and sub-lco (light) layouts alike. */
+  .faq-wrap { max-width: 900px; margin: 24px auto 48px;
+              padding: 16px 16px 0;
+              color: var(--text-1, #1F2937); }
+  .faq-title   { font-size: 24px; font-weight: 700; margin: 0 0 8px;
+                 color: var(--text-1, #111827); }
+  .faq-subtitle{ font-size: 14px; margin: 0 0 16px;
+                 color: var(--text-muted, #6B7280); }
+  .faq-section-title { color: var(--brand-2, #2563EB);
+                       font-size: 13px; text-transform: uppercase;
+                       letter-spacing: 0.8px; margin: 22px 0 10px;
+                       font-weight: 600; }
+  .faq-card { background: var(--card-bg, #FFFFFF);
+              border: 1px solid var(--border-1, #E5E7EB);
+              border-radius: 14px; padding: 18px 20px; margin-bottom: 16px;
+              color: var(--text-1, #1F2937);
+              box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .faq-q    { font-size: 16px; font-weight: 700;
+              color: var(--text-1, #111827); margin: 0; cursor: pointer;
+              display: flex; align-items: center;
+              justify-content: space-between; gap: 12px; }
+  .faq-q::after { content: "+"; color: var(--brand-2, #2563EB);
+                  font-weight: 700; font-size: 22px; line-height: 1; }
+  .faq-card.open .faq-q::after { content: "\2212"; }
+  .faq-card.open .faq-q { margin-bottom: 12px;
+                          padding-bottom: 12px;
+                          border-bottom: 1px solid var(--border-1, #E5E7EB); }
+  .faq-a    { display: none; font-size: 14px; line-height: 1.6;
+              color: var(--text-2, #374151); }
+  .faq-card.open .faq-a { display: block; }
+  .faq-a h4 { margin: 14px 0 6px; color: var(--text-1, #111827);
+              font-size: 14px; font-weight: 700; }
+  .faq-a code { background: var(--code-bg, #F3F4F6);
+                color: var(--code-fg, #B45309);
+                padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .faq-a pre  { background: var(--code-bg, #0B1226);
+                color: var(--code-pre-fg, #E5E7EB);
+                padding: 12px; border-radius: 8px; overflow-x: auto;
+                font-size: 13px; margin: 8px 0; }
+  .faq-a ol, .faq-a ul { padding-left: 22px; margin: 6px 0; }
+  .faq-a li { margin-bottom: 4px; }
+  /* When rendered inside the admin (dark) shell, use the dark palette. */
+  body.dark-mode .faq-wrap,
+  [data-bs-theme="dark"] .faq-wrap,
+  .admin-portal .faq-wrap {
+      --card-bg: #161D2E;
+      --border-1: #1F2940;
+      --text-1: #FFFFFF;
+      --text-2: #cbd5e1;
+      --text-muted: #9aa9c7;
+      --code-bg: #0B1226;
+      --code-fg: #FFD479;
+      --code-pre-fg: #cbd5e1;
+      --brand-2: #7AB8FF;
+  }
+
+  .faq-note { margin-top: 14px; font-size: 13px;
+              color: var(--text-muted, #6B7280); }
+
+  .faq-callout      { background: var(--callout-bg, #EFF6FF);
+                      border: 1px solid var(--callout-border, #BFDBFE);
+                      border-left: 4px solid var(--brand-2, #2563EB);
+                      padding: 12px 14px; border-radius: 10px;
+                      margin: 12px 0; font-size: 13px;
+                      color: var(--text-2, #1F2937);
+                      display: flex; flex-direction: column; gap: 4px; }
+  .faq-callout span { display: block; }
+  .faq-callout-warn { background: var(--warn-bg, #FFFBEB);
+                      border: 1px solid var(--warn-border, #FCD34D);
+                      border-left: 4px solid #D97706;
+                      padding: 10px 14px; border-radius: 10px;
+                      margin: 12px 0; font-size: 13px;
+                      color: var(--text-2, #1F2937); }
+  body.dark-mode .faq-wrap,
+  [data-bs-theme="dark"] .faq-wrap,
+  .admin-portal .faq-wrap {
+      --callout-bg: rgba(56, 117, 224, 0.10);
+      --callout-border: rgba(122, 184, 255, 0.30);
+      --warn-bg: rgba(217, 119, 6, 0.08);
+      --warn-border: rgba(252, 211, 77, 0.40);
+  }
+</style>
+
+<div class="faq-wrap">
+  <h2 class="faq-title">Frequently Asked Questions</h2>
+  <p class="faq-subtitle">
+    Quick answers for admins, sub-LCOs and employees. Tap any question to expand.
+  </p>
+
+  <div class="faq-section-title">Network &amp; OLT</div>
+
+  <div class="faq-card" id="olt-vpn">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I add an OLT (Syrotech / Netlink / V-SOL / Huawei) that doesn't have a public IP? — full step-by-step (no tech background needed)
+    </div>
+    <div class="faq-a">
+
+      <!-- __S44D__  Troubleshooting banner — common pitfalls -->
+      <div style="background:#3b2f0e;border:1px solid #78350f;border-radius:10px;padding:14px 16px;margin-bottom:16px;color:#fde68a;font-size:13px;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px;">
+          <i class="bi bi-shield-exclamation"></i> Tunnel won't connect? Verify these 3 things first
+        </div>
+        <ol style="margin:6px 0 0 18px;line-height:1.7;">
+          <li><b>Endpoint must be the server IP, not a hostname:</b> use
+              <code style="background:#1f1408;padding:1px 6px;border-radius:4px;">185.199.53.93:51820</code>
+              on Mikrotik / OpenWrt. The hostname <code>vpn.autoispbilling.com</code>
+              has no DNS record — older FAQ versions referenced it; that was a typo.</li>
+          <li><b>Persistent Keepalive = 25</b> is <u>mandatory</u> on Mikrotik
+              (and any router behind NAT). Without it, the carrier-grade NAT
+              closes the UDP mapping after ~30 seconds and the OLT goes silent.
+              Open the peer in WinBox &rarr; <i>Persistent Keepalive</i> = 25.</li>
+          <li><b>Use the "Check VPN" button</b> on the OLT row in
+              <i>OLT Manager &rarr; System Config</i>. It calls the server's
+              live <code>wg show</code> and tells you whether a handshake
+              ever happened, the last seen endpoint IP, and how many bytes
+              flowed. This is the fastest way to diagnose a stuck tunnel.</li>
+        </ol>
+      </div>
+
+      <p>
+        Most OLTs deployed in the field sit behind a customer router and have no
+        public internet IP, so the platform can't reach them directly. AutoISP
+        Billing ships with a built-in <b>WireGuard VPN</b> server that solves
+        this. Once you do the one-time setup, the OLT phones home over a secure
+        tunnel and appears in your dashboard exactly as if it had a public IP —
+        no port forwarding, no static IP from your ISP, no firewall changes on
+        the customer's side.
+      </p>
+
+      <p class="faq-callout">
+        <b>What you'll need:</b>
+        <span>(1) Physical access to the OLT (Syrotech / Netlink / V-SOL / Huawei).</span>
+        <span>(2) The OLT's local LAN IP &amp; admin password (usually
+          <code>192.168.1.1</code> / <code>admin/admin</code> for Syrotech,
+          <code>192.168.1.100</code> / <code>admin/admin</code> for Netlink —
+          check the sticker on the unit).</span>
+        <span>(3) ANY ONE of: a Windows / Mac laptop on the same LAN as the
+          OLT, an Android phone on the same Wi-Fi, an OpenWrt router, or a
+          Mikrotik router. Pick whichever is easiest.</span>
+        <span>(4) Working internet from that device (mobile-hotspot is fine).</span>
+        <span>You do <b>not</b> need a public IP, port forwarding, static IP,
+          or any router configuration from the customer.</span>
+      </p>
+
+      <h4>Step 1 — Add the OLT in the admin portal</h4>
+      <ol>
+        <li>Open the admin portal &rarr; left sidebar &rarr; <b>OLT Manager</b>
+            &rarr; <b>System</b>.</li>
+        <li>Click the green <b>+ Add OLT</b> button at the top-right of the
+            page.</li>
+        <li>Fill in the form:
+          <ul>
+            <li><b>Name</b> — anything readable, e.g. <code>Main Tower OLT</code>
+                or the customer site name.</li>
+            <li><b>Vendor</b> — pick <code>Syrotech</code> / <code>Netlink</code>
+                / <code>V-SOL</code> / <code>Huawei</code>.</li>
+            <li><b>Model</b> — usually printed on the front sticker
+                (e.g. <code>SY-GPON-1600-WDONT</code>, <code>NL-GP1600-D</code>).</li>
+            <li><b>Host / IP address</b> — <b>leave blank</b>. The platform
+                will fill it in automatically once you generate the VPN
+                config.</li>
+            <li><b>SNMP community</b> — leave as <code>public</code> unless
+                you've changed it on the OLT.</li>
+            <li><b>SSH/Telnet user / pass</b> — the OLT's <i>login</i>
+                credentials (NOT the GPON ONU password). For Syrotech the
+                default is <code>admin</code> / <code>admin</code>. For
+                Netlink it's usually <code>root</code> / <code>admin</code>.</li>
+            <li><b>Connection</b> — change the dropdown from
+                <code>Public IP</code> to <b><code>WireGuard VPN</code></b>.
+                This is the most important step.</li>
+          </ul>
+        </li>
+        <li>Click <b>Save</b>. The OLT row appears in the list with a yellow
+            "VPN pending" badge.</li>
+      </ol>
+
+      <h4>Step 2 — Download the WireGuard config from the portal</h4>
+      <ol>
+        <li>Find your new OLT row in <b>OLT Manager &rarr; System</b>.</li>
+        <li>On the right-hand side of the row, click the blue
+            <b>VPN</b> button (icon: <i class="bi bi-shield-lock"></i>).</li>
+        <li>A file named like <code>olt-12-wg.conf</code> downloads
+            automatically. <b>Save it somewhere you can find it again</b> —
+            this is the keys + address the OLT will use.</li>
+        <li>The portal also automatically assigns the OLT an internal
+            VPN address (e.g. <code>10.50.0.7</code>) and writes it into the
+            OLT's Host field — refresh the page to see it. The yellow badge
+            turns gray ("VPN ready").</li>
+      </ol>
+      <p class="faq-callout-warn">
+        <b>Keep the <code>.conf</code> file private.</b> It contains the OLT's
+        private key. If you lose it or it's exposed, click <b>VPN</b> again on
+        the OLT row — the platform rotates the key and gives you a fresh file.
+        The old one stops working immediately.
+      </p>
+
+      <h4>Step 3 — Install WireGuard on the on-site device</h4>
+      <p>
+        You now have to "load" that <code>.conf</code> file onto something on
+        the customer's site that can talk to both the internet (so the tunnel
+        comes up) <i>and</i> the OLT (so traffic can flow). Pick the option
+        that matches what's available at the site:
+      </p>
+
+      <p><b>Option A — Windows PC / laptop (the easiest)</b></p>
+      <ol>
+        <li>On a Windows machine plugged into the same network as the OLT,
+            download the official WireGuard client from
+            <a href="https://www.wireguard.com/install/" target="_blank">
+              wireguard.com/install</a> and install it (Next &rarr; Next &rarr;
+            Finish).</li>
+        <li>Open WireGuard. Click <b>Add Tunnel &rarr; Import tunnel(s) from
+            file</b> and pick the <code>olt-12-wg.conf</code> you just
+            downloaded.</li>
+        <li>Click <b>Activate</b>. The status turns green and the title bar
+            says "Active". You're connected to the platform's VPN.</li>
+        <li>Leave the laptop on. As long as that laptop is awake and the
+            tunnel is Active, the OLT is reachable from the dashboard. (For
+            permanent installs, switch to Option C or D below.)</li>
+      </ol>
+
+      <p><b>Option B — Android phone (good for a quick proof-of-life)</b></p>
+      <ol>
+        <li>Install the free <b>WireGuard</b> app from Play Store.</li>
+        <li>Open the app &rarr; bottom-right <b>+</b> button &rarr; <b>Create
+            from file or archive</b> &rarr; pick the <code>.conf</code> you
+            transferred to the phone (USB / Drive / email — your choice).</li>
+        <li>Toggle the tunnel ON. The status reads "Connected".</li>
+        <li>Keep the phone on the same Wi-Fi as the OLT. (Mobile data
+            alone is NOT enough — the phone has to be able to reach the
+            OLT's IP <code>192.168.1.1</code>.)</li>
+      </ol>
+
+      <p><b>Option C — OpenWrt router (recommended for permanent installs)</b></p>
+      <ol>
+        <li>SSH or LuCI into the customer router. Install the packages:
+            <code>opkg update &amp;&amp; opkg install wireguard-tools
+            luci-app-wireguard luci-proto-wireguard</code></li>
+        <li>In LuCI &rarr; <b>Network &rarr; Interfaces &rarr; Add new
+            interface</b>. Name it <code>olt_vpn</code>, protocol
+            <b>WireGuard VPN</b>. Click <b>Create interface</b>.</li>
+        <li>Open <code>olt-12-wg.conf</code> in a text editor. Copy the
+            <code>PrivateKey</code> value into the <b>Private Key</b> field
+            and the <code>Address</code> (e.g. <code>10.50.0.7/32</code>)
+            into the <b>IP Addresses</b> field.</li>
+        <li>Switch to the <b>Peers</b> tab &rarr; <b>Add peer</b>. From the
+            same file's <code>[Peer]</code> section, copy
+            <code>PublicKey</code>, <code>AllowedIPs =
+            0.0.0.0/0</code> (or just the platform subnet — see below),
+            <code>Endpoint = 185.199.53.93:51820</code>,
+            <code>PersistentKeepalive = 25</code>.</li>
+        <li><b>Save &amp; Apply</b>. In <b>Network &rarr; Firewall</b> add a
+            zone rule for <code>olt_vpn</code> with input/output/forward set
+            to ACCEPT, and add a Masquerade rule from <code>olt_vpn</code>
+            to LAN so the platform's traffic gets translated to the OLT.</li>
+      </ol>
+
+      <p><b>Option D — Mikrotik RouterOS 7.x</b></p>
+      <ol>
+        <li>In WinBox: <b>Interfaces &rarr; +</b> &rarr; type <b>WireGuard</b>.
+            Name it <code>wg-olt</code>, paste the <code>PrivateKey</code>
+            from the <code>.conf</code> file. Listen Port = 51820. Click
+            <b>OK</b>.</li>
+        <li><b>IP &rarr; Addresses &rarr; +</b>. Address =
+            <code>10.50.0.7/32</code> (use the exact value from the
+            <code>Address</code> line in your <code>.conf</code> file),
+            Interface = <code>wg-olt</code>.</li>
+        <li><b>WireGuard &rarr; Peers &rarr; +</b>. Interface =
+            <code>wg-olt</code>, Public Key = the <code>PublicKey</code> from
+            the file's <code>[Peer]</code> section, Endpoint =
+            <code>185.199.53.93</code>, Endpoint Port = 51820,
+            Allowed Address = <code>10.50.0.0/16</code>, Persistent Keepalive
+            = 25. Click <b>OK</b>.</li>
+        <li><b>IP &rarr; Firewall &rarr; NAT &rarr; +</b>: chain=srcnat,
+            out-interface=ether-to-OLT, action=masquerade. This lets traffic
+            arriving over the VPN reach the OLT.</li>
+      </ol>
+
+      <p><b>Option E — Linux PC / Raspberry Pi (advanced / self-hosted)</b></p>
+      <pre>sudo apt update &amp;&amp; sudo apt install -y wireguard
+sudo cp olt-12-wg.conf /etc/wireguard/wg0.conf
+sudo chmod 600 /etc/wireguard/wg0.conf
+sudo wg-quick up wg0
+sudo systemctl enable wg-quick@wg0
+sudo wg show   # verify a handshake appears within ~30s</pre>
+
+      <h4>Step 4 — Forward the tunnel traffic to the OLT (one-time on the device that holds the tunnel)</h4>
+      <p>
+        WireGuard is now up, but the platform still needs to reach the OLT's
+        LAN IP (typically <code>192.168.1.1</code> on Syrotech or
+        <code>192.168.1.100</code> on Netlink) from the tunnel address.
+        Pick the option that matches the device from Step 3:
+      </p>
+      <ul>
+        <li><b>Windows / Android</b>: nothing to do — the WireGuard client
+            already routes traffic for you because the device sits on the
+            same LAN as the OLT.</li>
+        <li><b>OpenWrt / Mikrotik</b>: the masquerade NAT rule you added in
+            Step 3 already takes care of it. No extra work.</li>
+        <li><b>Linux PC / Raspberry Pi</b>: run these commands once
+            (replace <code>192.168.1.1</code> with the OLT's actual LAN IP
+            and <code>eth0</code> with the interface facing the OLT):
+            <pre>sudo iptables -t nat -A PREROUTING -i wg0 \
+  -p udp --dport 161 -j DNAT --to-destination 192.168.1.1:161
+sudo iptables -t nat -A PREROUTING -i wg0 \
+  -p tcp --dport 22  -j DNAT --to-destination 192.168.1.1:22
+sudo iptables -t nat -A PREROUTING -i wg0 \
+  -p tcp --dport 23  -j DNAT --to-destination 192.168.1.1:23
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo apt install -y iptables-persistent &amp;&amp; sudo netfilter-persistent save</pre>
+        </li>
+      </ul>
+
+      <h4>Step 5 — Confirm the OLT is reachable from the platform</h4>
+      <ol>
+        <li>Back in the admin portal, go to <b>OLT Manager &rarr; System</b>
+            and find your OLT row.</li>
+        <li>Click the <b>Poll Now</b> button on the right of the row
+            (icon: <i class="bi bi-arrow-clockwise"></i>).</li>
+        <li>Within ~10 seconds the status should flip to a green
+            <b>Up</b> badge. The platform also fills in <b>uptime</b>,
+            <b>firmware</b> and <b>PON port count</b> as soon as the first
+            SNMP poll succeeds.</li>
+        <li>Click on the OLT name to open its dashboard — you should see
+            ONUs / ONTs being discovered. From here, everything works
+            <i>identically</i> to a public-IP OLT: provisioning, traffic
+            shaping, ONU reboot, optical power readings, etc.</li>
+      </ol>
+
+      <h4>What if the OLT still won't come up?</h4>
+      <ol>
+        <li><b>Tunnel itself.</b> On the on-site device check the WireGuard
+            status:
+            <ul>
+              <li>Windows client: status box shows "Active" and a recent
+                  handshake timestamp.</li>
+              <li>Android: app shows "Connected" and bytes increasing.</li>
+              <li>OpenWrt: <code>wg show</code> on SSH — there must be a
+                  "latest handshake" line less than 2 min old.</li>
+              <li>Mikrotik: <b>WireGuard &rarr; Peers</b> — "Last Handshake"
+                  column should be a recent timestamp, not "never".</li>
+              <li>Linux: <code>sudo wg show</code> — same idea.</li>
+            </ul>
+            If there's no handshake, the on-site device probably can't reach
+            <code>185.199.53.93:51820/UDP</code> — ask the
+            customer's ISP if UDP/51820 is being blocked (rare).</li>
+        <li><b>OLT itself.</b> From the on-site device, try to
+            <code>ping 192.168.1.1</code> (or whatever the OLT's LAN IP is).
+            If that doesn't work, the device isn't actually on the OLT's
+            LAN — move it / re-cable it.</li>
+        <li><b>Forwarding.</b> If both above work but the platform's
+            <b>Poll Now</b> still fails, the NAT/forward rule from Step 4
+            is the culprit. Re-check the OLT's LAN IP — Syrotech defaults
+            to <code>192.168.1.1</code>, Netlink to
+            <code>192.168.1.100</code>, V-SOL to <code>192.168.8.1</code>.
+            Some operators change them; check the sticker.</li>
+        <li><b>Credentials.</b> If the OLT comes Up but ONU stats are
+            empty, the SNMP community or SSH password on the OLT row is
+            wrong. Edit the OLT, fix it, click <b>Poll Now</b> again.</li>
+        <li><b>Still stuck?</b> Hit the chat-support icon at the bottom-right
+            of the portal — include the OLT name and the timestamp of your
+            last failed poll. The platform logs every WireGuard handshake
+            and every SNMP attempt server-side, so support can usually pin
+            down the issue in under a minute.</li>
+      </ol>
+
+      <p class="faq-note">
+        <b>Security notes.</b> The platform's WireGuard server only listens
+        on UDP/51820 with public-key authentication — there is no password
+        to brute-force. Every OLT gets a unique keypair; deleting the OLT
+        row removes its peer entry from the server immediately. Traffic
+        between the OLT and the platform is encrypted end-to-end with
+        ChaCha20-Poly1305, the same cipher used by Signal &amp; WhatsApp.
+      </p>
+    </div>
+  </div>
+
+  <!-- __S44E_FAQ__  Multi-VPN protocol guides -->
+  <div class="faq-card" id="olt-openvpn">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I add an OLT using OpenVPN? (Recommended for most ISPs)
+    </div>
+    <div class="faq-a">
+      <p>
+        OpenVPN is the <b>most reliable</b> VPN protocol for OLTs because it
+        works on almost every modern router (Mikrotik &ge; 7.6, OpenWrt, EdgeOS,
+        Linux boxes) and traverses NAT cleanly. The platform now ships with
+        its own OpenVPN server pre-configured.
+      </p>
+      <h4>Step-by-step (5&ndash;7 minutes)</h4>
+      <ol>
+        <li>In <b>OLT Manager &rarr; System Config &rarr; Add OLT</b>, fill the
+          Friendly Name + Local IP + ports + Username/Password as usual.</li>
+        <li>Under <b>VPN Connectivity</b>, set <b>VPN Type = OpenVPN</b>.
+          The Endpoint field will auto-fill with
+          <code>185.199.53.93:1194</code>. Save the OLT.</li>
+        <li>On the new OLT's row, click <b>Provision VPN</b>. A popup will
+          show the complete <code>.ovpn</code> file. Click <b>Download</b>.</li>
+        <li>Upload that <code>.ovpn</code> to the on-site router. On Mikrotik:
+          <ul>
+            <li><i>Files &rarr; Upload</i> the .ovpn file.</li>
+            <li><i>PPP &rarr; Interface &rarr; + (Add) &rarr; OVPN Client</i>.</li>
+            <li>Name: <code>ovpn-out1</code>, Connect To:
+              <code>185.199.53.93</code>, Port: 1194, Mode: ip, Protocol: udp,
+              Certificate: import from the uploaded file, Cipher: aes-256-gcm,
+              Auth: sha256.</li>
+            <li>Apply. The interface should show "running" within 10 seconds.</li>
+          </ul></li>
+        <li>The OLT now has a tunnel IP in <code>10.51.0.0/24</code>.
+          The platform's poller reaches it through the tunnel automatically.</li>
+      </ol>
+      <p class="faq-callout">
+        <b>Why prefer OpenVPN over WireGuard?</b> Mikrotik's WireGuard
+        implementation requires version 7+ and is fussy about
+        Persistent Keepalive. OpenVPN has been on Mikrotik since v6.x and
+        "just works".
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card" id="olt-l2tp">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I add an OLT using L2TP/IPsec? (For stock routers without OpenVPN)
+    </div>
+    <div class="faq-a">
+      <p>
+        L2TP/IPsec is built into <b>every</b> modern router by default
+        (TP-Link, D-Link, Tenda, ASUS, Mikrotik, etc.). It's the right
+        choice when the OLT site doesn't have an OpenVPN-capable router
+        but you still want strong encryption.
+      </p>
+      <h4>Step-by-step</h4>
+      <ol>
+        <li>In <b>Add OLT</b>, set <b>VPN Type = L2TP/IPsec</b> and save.</li>
+        <li>Click <b>Provision VPN</b> on the new row. The popup shows:
+          <ul>
+            <li>Server IP: <code>185.199.53.93</code></li>
+            <li>Pre-shared key (PSK)</li>
+            <li>Username + Password (unique per OLT)</li>
+          </ul>
+          Click <b>Download</b> to save these details.</li>
+        <li>On the on-site router:
+          <ul>
+            <li><b>Mikrotik:</b> PPP &rarr; Interface &rarr; +Add &rarr; L2TP Client.
+              Connect To = <code>185.199.53.93</code>,
+              User/Password from popup, Use IPsec = <i>yes</i>,
+              IPsec Secret = PSK from popup.</li>
+            <li><b>TP-Link/D-Link:</b> Network &rarr; WAN &rarr;
+              Connection Type = L2TP, fill server IP + PSK + username/password.</li>
+          </ul></li>
+        <li>Once connected the router gets a 10.52.0.0/24 IP. Update the
+          OLT's Local IP field on our portal to the LAN-side IP reachable
+          via the tunnel.</li>
+      </ol>
+      <p class="faq-callout">
+        <i class="bi bi-info-circle"></i> Ports the on-site router must
+        allow OUT: UDP 500, UDP 4500, UDP 1701.
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card" id="olt-pptp">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I add an OLT using PPTP? (Legacy &mdash; last-resort compatibility)
+    </div>
+    <div class="faq-a">
+      <p>
+        <b>PPTP is supported only for compatibility with very old routers.</b>
+        The MS-CHAPv2 authentication used by PPTP is cryptographically weak
+        and can be cracked offline in hours. Use OpenVPN or L2TP/IPsec
+        unless you have no alternative.
+      </p>
+      <h4>Step-by-step</h4>
+      <ol>
+        <li>In <b>Add OLT</b>, set <b>VPN Type = PPTP</b> and save.</li>
+        <li>Click <b>Provision VPN</b> on the row &rarr; <b>Download</b>
+          credentials.</li>
+        <li>On the on-site router (Mikrotik):
+          <ul>
+            <li>PPP &rarr; Interface &rarr; +Add &rarr; PPTP Client.</li>
+            <li>Connect To: <code>185.199.53.93</code>, User/Password from
+              popup, Profile: default-encryption.</li>
+          </ul></li>
+        <li>Tunnel pool is <code>10.53.0.10-100</code>.</li>
+      </ol>
+      <p class="faq-callout" style="background:#fef3c7;color:#92400e;">
+        <b>Warning:</b> Some ISPs and corporate firewalls block GRE
+        (protocol 47), which PPTP requires. If the tunnel won't come up,
+        switch the OLT's VPN Type to L2TP/IPsec or OpenVPN.
+      </p>
+    </div>
+  </div>
+
+  <div class="faq-card" id="olt-revoke">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I revoke VPN access for a removed/decommissioned OLT?
+    </div>
+    <div class="faq-a">
+      <p>
+        When you delete an OLT or move it to a different tunnel protocol,
+        you can revoke the old VPN credentials so the on-site router can
+        no longer reach the platform's internal network:
+      </p>
+      <ol>
+        <li><b>WireGuard:</b> click <b>VPN &rarr; Revoke</b> on the OLT row.
+          This removes the peer from the live WireGuard server config.</li>
+        <li><b>OpenVPN / L2TP / PPTP:</b> the system's
+          <code>DELETE /api/admin/olt/olts/{id}/vpn-revoke</code> endpoint
+          revokes the cert (OpenVPN) or removes the username/password line
+          from <code>/etc/ppp/chap-secrets</code> (L2TP/PPTP). It runs
+          automatically when you delete an OLT from System Config.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="faq-card">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      What's the difference between Public IP and VPN connection modes?
+    </div>
+    <div class="faq-a">
+      <p><b>Public IP</b> — your OLT already has a static public IP and SNMP/CLI
+         ports are open. The platform connects directly. Fastest, no extra
+         hardware needed.</p>
+      <p><b>WireGuard VPN</b> — your OLT is on a private LAN. The on-site device
+         dials home to the platform over UDP/51820 and the OLT becomes reachable
+         at a <code>10.50.0.X</code> private address. No port forwarding, no
+         static IP, and traffic is encrypted.</p>
+    </div>
+  </div>
+
+  <div class="faq-card">
+    <div class="faq-q" onclick="this.parentNode.classList.toggle('open')">
+      How do I rotate a compromised OLT VPN key?
+    </div>
+    <div class="faq-a">
+      <p>Open the OLT row, click <b>VPN</b> again — the platform regenerates the
+         keypair, appends the new peer, and gives you a fresh
+         <code>.conf</code> to upload to the on-site device. The old key is
+         retired the next time WireGuard reloads.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

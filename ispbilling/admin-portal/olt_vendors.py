@@ -1,0 +1,894 @@
+"""
+OLT vendor adapters — Session OLT-2 (rev. net-snmp).
+
+Strategy: shell out to system `snmpget` / `snmpbulkwalk` from the
+`snmp` package (net-snmp 5.9+).  This is more reliable than the
+fragmented pysnmp ecosystem and is what production NMS tools use.
+
+Each adapter exposes:
+    poll_real(olt) -> (ok: bool, error: str|None, olt_meta: dict, onus: list)
+"""
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import socket
+import subprocess
+import time
+from typing import Tuple, List, Dict, Any, Optional
+
+_SNMPGET = shutil.which("snmpget")
+_SNMPWALK = shutil.which("snmpbulkwalk") or shutil.which("snmpwalk")
+_SNMP_AVAILABLE = bool(_SNMPGET and _SNMPWALK)
+
+
+VENDOR_PROFILES: Dict[str, Dict[str, Any]] = {
+    "huawei": {
+        "label":     "Huawei MA56xx / MA58xx",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "cpu":       "1.3.6.1.4.1.2011.6.3.4.1.3.0",
+        "mem":       "1.3.6.1.4.1.2011.6.3.5.1.1.2.1.5.0",
+        "temp":      "1.3.6.1.4.1.2011.6.3.6.1.1.10.1.1",
+        "onu_serial":  "1.3.6.1.4.1.2011.6.128.1.1.2.43.1.3",
+        "onu_status":  "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15",
+        "onu_rx":      "1.3.6.1.4.1.2011.6.128.1.1.2.51.1.4",
+        "onu_tx":      "1.3.6.1.4.1.2011.6.128.1.1.2.51.1.6",
+        "onu_distance": "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.20",
+    },
+    "nokia": {
+        "label":     "Nokia 7360 ISAM",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.637.61.1.35.4.1.4",
+        "onu_status":  "1.3.6.1.4.1.637.61.1.35.4.1.10",
+        "onu_rx":      "1.3.6.1.4.1.637.61.1.35.6.1.10",
+        "onu_tx":      "1.3.6.1.4.1.637.61.1.35.6.1.11",
+        "onu_distance": "1.3.6.1.4.1.637.61.1.35.4.1.20",
+    },
+    "vsol": {
+        "label":     "VSOL V1600D / V160x",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "syrotech": {
+        "label":     "Syrotech GPON / EPON",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.21317.1.1.5.1.2.1.6",
+        "onu_status":  "1.3.6.1.4.1.21317.1.1.5.1.2.1.5",
+        "onu_rx":      "1.3.6.1.4.1.21317.1.1.5.1.2.1.10",
+        "onu_tx":      "1.3.6.1.4.1.21317.1.1.5.1.2.1.11",
+        "onu_distance": "1.3.6.1.4.1.21317.1.1.5.1.2.1.12",
+    },
+    "zte": {
+        "label":     "ZTE C300 / C320",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.3902.1012.3.28.1.1.5",
+        "onu_status":  "1.3.6.1.4.1.3902.1012.3.28.1.1.4",
+        "onu_rx":      "1.3.6.1.4.1.3902.1012.3.50.12.1.1.10",
+        "onu_tx":      "1.3.6.1.4.1.3902.1012.3.50.12.1.1.14",
+        "onu_distance": "1.3.6.1.4.1.3902.1012.3.28.1.1.20",
+    },
+    "fiberhome": {
+        "label":     "Fiberhome AN5516",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.5875.800.3.10.1.1.1.2",
+        "onu_status":  "1.3.6.1.4.1.5875.800.3.10.1.1.1.5",
+        "onu_rx":      "1.3.6.1.4.1.5875.800.3.10.6.1.1.10",
+        "onu_tx":      "1.3.6.1.4.1.5875.800.3.10.6.1.1.11",
+        "onu_distance": "1.3.6.1.4.1.5875.800.3.10.1.1.1.20",
+    },
+    "optilink": {
+        "label":     "Optilink GPON",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.34592.1.1.5.1.2.1.6",
+        "onu_status":  "1.3.6.1.4.1.34592.1.1.5.1.2.1.5",
+        "onu_rx":      "1.3.6.1.4.1.34592.1.1.5.1.2.1.10",
+        "onu_tx":      "1.3.6.1.4.1.34592.1.1.5.1.2.1.11",
+        "onu_distance": "1.3.6.1.4.1.34592.1.1.5.1.2.1.12",
+    },
+    # _S45F_VSOL_V1600D — Netlink / Syrotech / CData / VSOL V1600D EPON
+    # OLTs. The vsol EPON OID branch is NOT 13.2.1.* — it is 12.1.9.1.*
+    # with:
+    #   .1.X = PON port number (0..7)
+    #   .2.X = vendor-internal status code (5/6/etc)
+    #   .3.X = ONU index within PON
+    #   .4.X = auth message ("auth success", "deregistered", "ranging")
+    #   .5.X = ONU MAC address (canonical identifier)
+    # Per-ONU TX/RX power and distance are NOT exposed on this branch
+    # for the V1600D; we leave those OIDs empty (the poller will skip).
+    # online_keywords list lets the generic parser map vendor-specific
+    # status strings to canonical online/offline (case-insensitive
+    # substring match).
+    "netlink_epon": {
+        "label":     "Netlink EPON (VSOL OEM)",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        # _S46A_ VSOL V1600D EPON branch — .5=MAC, .3=PON, .4=auth_msg
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "netlink": {
+        "label":     "Netlink (VSOL OEM)",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "syrotech_epon": {
+        "label":     "Syrotech EPON (VSOL OEM)",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "cdata_epon": {
+        "label":     "CData EPON (VSOL OEM)",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "cdata": {
+        "label":     "CData (VSOL OEM)",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+    "vsol_epon": {
+        "label":     "VSOL EPON",
+        "sys_descr": "1.3.6.1.2.1.1.1.0",
+        "sys_uptime": "1.3.6.1.2.1.1.3.0",
+        "onu_serial":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_mac":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.5",
+        "onu_status":  "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.4",
+        "onu_pon":     "1.3.6.1.4.1.37950.1.1.5.12.1.9.1.3",
+        "onu_rx":      "",
+        "onu_tx":      "",
+        "onu_distance": "",
+        "online_keywords": ["success", "active", "online", "auth ok", "los_ok"],
+    },
+}
+
+
+def _reachable(host: str, timeout: float = 1.0) -> bool:
+    if not host:
+        return False
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.gethostbyname(host)
+        return True
+    except Exception:
+        return False
+
+
+_VAL_RE = re.compile(r"^(?P<oid>\S+)\s*=\s*(?:\S+:\s*)?(?P<val>.*)$")
+
+
+def _parse_line(line: str) -> Optional[Tuple[str, str]]:
+    m = _VAL_RE.match(line)
+    if not m:
+        return None
+    raw = m.group("val").strip()
+    if raw.startswith('"') and raw.endswith('"'):
+        raw = raw[1:-1]
+    return m.group("oid"), raw
+
+
+def _snmp_get(host: str, community: str, port: int, oid: str,
+              version: str = "v2c", timeout: float = 2.0) -> Optional[str]:
+    if not _SNMPGET:
+        return None
+    cmd = [_SNMPGET, "-v", "2c" if version != "v3" else "3", "-c", community,
+           "-On", "-Ovq", "-t", str(int(timeout)), "-r", "0",
+           f"{host}:{int(port)}", oid]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout + 1.5)
+        if out.returncode != 0:
+            return None
+        return out.stdout.strip().strip('"')
+    except Exception:
+        return None
+
+
+def _snmp_walk(host: str, community: str, port: int, base_oid: str,
+               version: str = "v2c", timeout: float = 3.0
+               ) -> List[Tuple[str, str]]:
+    if not _SNMPWALK:
+        return []
+    # _S45F_SNMPWALK_FIX — Remove invalid '-Cr20' flag (that's a snmpbulkwalk
+    # option). Normalize OID prefix matching so both '.1.3.6...' (output of
+    # snmpwalk -On) and '1.3.6...' (config-supplied base_oid) match. This was
+    # silently returning 0 rows for every poll.
+    cmd = [_SNMPWALK, "-v", "2c" if version != "v3" else "3", "-c", community,
+           "-On", "-t", str(int(timeout)), "-r", "1",
+           f"{host}:{int(port)}", base_oid]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout + 8.0)
+        if out.returncode != 0 and not out.stdout.strip():
+            return []
+        rows: List[Tuple[str, str]] = []
+        nbase = base_oid.lstrip(".")
+        for line in out.stdout.splitlines():
+            p = _parse_line(line)
+            if not p:
+                continue
+            full, val = p
+            nfull = full.lstrip(".")
+            if not nfull.startswith(nbase):
+                continue
+            suffix = nfull[len(nbase):].lstrip(".")
+            rows.append((suffix, val))
+        return rows
+    except Exception:
+        return []
+
+
+def poll_real(olt: dict) -> Tuple[bool, Optional[str], dict, list]:
+    vendor = (olt.get("vendor") or "").lower()
+    profile = VENDOR_PROFILES.get(vendor)
+    if not profile:
+        return False, f"No SNMP profile for vendor '{vendor}'", {}, []
+    if not _SNMP_AVAILABLE:
+        return False, ("net-snmp tools not installed (`apt install snmp`) "
+                       "— required for live SNMP polling."), {}, []
+    host = olt.get("host") or ""
+    if not _reachable(host):
+        return False, f"Host {host} not resolvable / unreachable", {}, []
+    community = olt.get("snmp_community") or "public"
+    port = int(olt.get("snmp_port") or 161)
+    version = (olt.get("snmp_version") or "v2c").lower()
+
+    sys_descr = _snmp_get(host, community, port, profile["sys_descr"], version)
+    if sys_descr is None:
+        return False, (f"SNMP timeout against {host}:{port} (community "
+                       f"'{community}'). Verify the OLT allows SNMP from "
+                       "this server's IP and the community matches."), {}, []
+
+    def _f(oid_key: str, default: float = 0.0) -> float:
+        oid = profile.get(oid_key)
+        if not oid:
+            return default
+        v = _snmp_get(host, community, port, oid, version)
+        try:
+            f = float(v) if v is not None else default
+            return f
+        except Exception:
+            return default
+
+    olt_meta = {
+        "status": "online",
+        "uptime_sec": int(_f("sys_uptime") / 100),
+        "cpu_pct": _f("cpu"),
+        "mem_pct": _f("mem"),
+        "temp_c": _f("temp"),
+        "sys_descr": sys_descr,
+    }
+
+    serials  = dict(_snmp_walk(host, community, port, profile["onu_serial"], version))
+    statuses = dict(_snmp_walk(host, community, port, profile["onu_status"], version))
+    rxs      = dict(_snmp_walk(host, community, port, profile["onu_rx"], version)) if profile.get("onu_rx") else {}
+    txs      = dict(_snmp_walk(host, community, port, profile["onu_tx"], version)) if profile.get("onu_tx") else {}
+    dists    = dict(_snmp_walk(host, community, port,
+                               profile.get("onu_distance") or
+                               profile["onu_status"], version)) if profile.get("onu_distance") else {}
+    # _S46A_  Separate MAC walk when vendor exposes it (EPON V1600D uses
+    # the same OID for canonical id AND mac — both ok).
+    macs     = dict(_snmp_walk(host, community, port, profile["onu_mac"], version))                if profile.get("onu_mac") else {}
+
+    # _S45F_PON_INDEX — when the profile defines a separate onu_pon OID
+    # (PON-port lookup), use it instead of guessing from the OID suffix.
+    pons_lookup = {}
+    if profile.get("onu_pon"):
+        pons_lookup = dict(_snmp_walk(host, community, port,
+                                       profile["onu_pon"], version))
+    onus: List[Dict[str, Any]] = []
+    # _S46O_  Use the STANDARD IF-MIB as the authoritative source
+    # of PON↔ONU↔MAC mapping (same approach as LibreNMS, Zabbix,
+    # Observium, PRTG). ifIndex is the join key.
+    #   ifDescr       → "EPON<P>ONU<N> <CUSTOMER_NAME>"
+    #   ifPhysAddress → real MAC of the ONU
+    #   ifOperStatus  → 1=up (online), 2=down (offline)
+    #   ifLastChange  → centiseconds since last state change
+    ifdescr   = dict(_snmp_walk(host, community, port,
+                                "1.3.6.1.2.1.2.2.1.2", version, timeout=3.0)) or {}
+    ifmacs    = dict(_snmp_walk(host, community, port,
+                                "1.3.6.1.2.1.2.2.1.6", version, timeout=3.0)) or {}
+    ifstatus  = dict(_snmp_walk(host, community, port,
+                                "1.3.6.1.2.1.2.2.1.8", version, timeout=3.0)) or {}
+    iflast    = dict(_snmp_walk(host, community, port,
+                                "1.3.6.1.2.1.2.2.1.9", version, timeout=3.0)) or {}
+    import re as _re
+    epon_re = _re.compile(
+        r"^(?:epon|gpon)(\d+)(?:/|onu)(\d+)(?:[\s_].*)?$", _re.I)
+
+    def _norm_mac(v: str) -> str:
+        v = (v or "").strip().replace('"', '')
+        # ifPhysAddress comes back as Hex-STRING "14 A7 2B ..." — convert.
+        m = _re.findall(r"[0-9a-fA-F]{2}", v)
+        if len(m) >= 6:
+            return ":".join(s.lower() for s in m[:6])
+        return v
+
+    # Build PON upper bound from ifDescr
+    pon_max = 0
+    for _ifdx, name in ifdescr.items():
+        m_ = epon_re.match((name or "").strip())
+        if m_:
+            try: pon_max = max(pon_max, int(m_.group(1)))
+            except Exception: pass
+    if pon_max <= 0: pon_max = 8
+    _pon_upper = max(1, min(8, pon_max))
+
+    onus: List[Dict[str, Any]] = []
+    # Iterate ifIndex in numeric order — ifIndex is the SOURCE OF TRUTH.
+    for ifidx in sorted({int(k) for k in ifdescr if str(k).isdigit()}):
+        name = ifdescr.get(str(ifidx)) or ifdescr.get(ifidx) or ""
+        m_ = epon_re.match(name.strip())
+        if not m_:
+            continue
+        try:
+            pon = int(m_.group(1))
+            idx = int(m_.group(2))
+        except Exception:
+            continue
+        pon = max(1, min(_pon_upper, pon))
+        idx = max(1, idx)
+        tail = name.split(None, 1)
+        cust_name = tail[1] if len(tail) > 1 else ""
+        mac_val = _norm_mac(ifmacs.get(str(ifidx)) or ifmacs.get(ifidx) or "")
+        try:
+            st_int = int(ifstatus.get(str(ifidx)) or
+                          ifstatus.get(ifidx) or 2)
+        except Exception:
+            st_int = 2
+        status = "online" if st_int == 1 else "offline"
+        # ifLastChange is centiseconds since sysUpTime; we don't need
+        # an exact wall clock — just record current wall time when up.
+        last_seen = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        onus.append({
+            "pon_port_index": pon,
+            "onu_index": idx,
+            "global_id": ifidx,           # ifIndex doubles as global id
+            "serial": mac_val or f"asp-{ifidx}",
+            "mac": mac_val,
+            "vendor": vendor,
+            "model": profile.get("label", ""),
+            "rx_power": None,             # not exposed by VSOL/Netlink EPON
+            "tx_power": None,
+            "distance_m": 0,
+            "status": status,
+            "uptime_sec": 0,
+            "name_hint": cust_name or None,
+            "last_seen": last_seen,
+        })
+    return True, None, olt_meta, onus
+
+
+# _S47A_  VSOL EPON Telnet scraper with real optical metrics
+#   - `show onu opm-diag`  -> per-ONU RX/TX/Temp/Voltage/Bias
+#   - `show pon optical transceiver` -> per-PON-port OLT TX power/Temp
+#   - `show running-config` -> ONU name, Wi-Fi SSID, PPPoE/static WAN
+
+# _S52G_TELNET_CACHE — cross-worker cache so 4 uvicorn workers don't
+# race-poll the same OLT and clobber each other's results.
+_TELNET_CACHE_DIR = "/run/isp-olt-cache"
+_TELNET_CACHE_TTL = 30  # seconds
+
+def _telnet_cache_path(olt: dict) -> str:
+    import os, re
+    try:
+        os.makedirs(_TELNET_CACHE_DIR, exist_ok=True)
+        d = _TELNET_CACHE_DIR
+    except Exception:
+        d = "/tmp"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", (olt.get("host") or "noop"))
+    return os.path.join(d, f"olt-telnet-{safe}.json")
+
+
+def _telnet_cache_read(olt: dict):
+    import os, json, time
+    p = _telnet_cache_path(olt)
+    try:
+        st = os.stat(p)
+        if (time.time() - st.st_mtime) > _TELNET_CACHE_TTL:
+            return None
+        with open(p) as f:
+            data = json.load(f)
+        # tuple keys were serialised as "p|i" strings — restore.
+        def _restore(d):
+            out = {}
+            for k, v in (d or {}).items():
+                if "|" in k:
+                    a, b = k.split("|", 1)
+                    out[(int(a), int(b))] = v
+                else:
+                    try:
+                        out[int(k)] = v
+                    except Exception:
+                        out[k] = v
+            return out
+        for tk in ("optical", "onu_metrics", "distance",
+                   "exchange", "name_by_pi", "status_by_pi"):
+            if tk in data:
+                data[tk] = _restore(data[tk])
+        if "pon_metrics" in data:
+            data["pon_metrics"] = {int(k): v
+                                    for k, v in data["pon_metrics"].items()}
+        if "config" in data:
+            data["config"] = {int(k): v
+                               for k, v in data["config"].items()}
+        return data
+    except Exception:
+        return None
+
+
+def _telnet_cache_write(olt: dict, data: dict) -> None:
+    import os, json, tempfile
+    if not data:
+        return
+    p = _telnet_cache_path(olt)
+    try:
+        ser = {}
+        for k, v in data.items():
+            if isinstance(v, dict) and v and isinstance(
+                    next(iter(v.keys())), tuple):
+                ser[k] = {f"{tk[0]}|{tk[1]}": tv for tk, tv in v.items()}
+            else:
+                ser[k] = v
+        with tempfile.NamedTemporaryFile("w", dir=os.path.dirname(p),
+                                          delete=False, prefix=".cache.") as tf:
+            json.dump(ser, tf)
+            tmp = tf.name
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
+
+# _S58P_CLI_CPU_SCRAPE_  Best-effort CPU/MEM scrape over the existing
+#   telnet pool for vendors whose Web UI is JS-rendered (NETLINK / VSOL /
+#   SYROTECH EPON) and whose SNMP MIBs don't expose CPU. Returns
+#   {"cpu_pct": float, "mem_pct": float} or {} on any failure.
+#   Safe to call from any poll context; failures are silent.
+
+# _S58Q_CPU_DEBUG_  Sample raw CLI output once per OLT per 12 h when
+#   the parser failed, so the regex can be refined off-line.
+def _cpu_debug_capture(olt: dict, cmd_outputs: dict) -> None:
+    try:
+        import os, time, json
+        log_dir = "/var/log/ispbilling"
+        os.makedirs(log_dir, exist_ok=True)
+        stamp_path = os.path.join(log_dir, f"_cpu_debug_olt{int(olt.get('id') or 0)}.stamp")
+        now = time.time()
+        last = 0.0
+        try:
+            with open(stamp_path) as fh:
+                last = float(fh.read().strip() or 0)
+        except Exception:
+            pass
+        if now - last < 12 * 3600:    # already captured in last 12h
+            return
+        with open(stamp_path, "w") as fh:
+            fh.write(str(now))
+        payload = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "olt_id": olt.get("id"),
+            "olt_name": olt.get("name"),
+            "vendor": olt.get("vendor"),
+            "host": olt.get("host"),
+            "outputs": {k: (v or "")[:2000] for k, v in cmd_outputs.items()},
+        }
+        with open(os.path.join(log_dir, "cpu_cli_debug.log"), "a") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+def _cli_cpu_mem_scrape(olt: dict) -> dict:
+    try:
+        from olt_telnet_pool import telnet_session
+    except Exception:
+        return {}
+    import re as _re_cpu
+    host = (olt.get("host") or "").strip()
+    pwd  = (olt.get("cli_password") or olt.get("snmp_community") or "admin").strip()
+    if not host or not pwd:
+        return {}
+    vendor = (olt.get("vendor") or "").lower()
+    cmds = []
+    if vendor in ("vsol", "vsol_epon", "netlink", "netlink_epon"):
+        cmds = ["show system", "show cpu", "show memory"]
+    elif vendor in ("syrotech", "syrotech_epon", "cdata", "cdata_epon"):
+        cmds = ["show system-resource", "show system", "show cpu"]
+    elif vendor in ("optilink",):
+        cmds = ["show cpu", "show memory", "show running-status"]
+    elif vendor in ("huawei", "huawei_gpon"):
+        cmds = ["display cpu", "display memory-usage"]
+    elif vendor in ("zte", "zte_gpon", "c320", "c300", "c200"):
+        cmds = ["show processor", "show memory", "show cpu"]
+    elif vendor in ("bdcom", "bdcom_epon"):
+        cmds = ["show processes cpu", "show memory"]
+    elif vendor in ("nokia", "nokia_isam"):
+        cmds = ["show equipment slot detail", "show equipment temperature"]
+    else:
+        cmds = ["show system", "show cpu", "show memory", "show resource"]
+    out = {}
+    try:
+        with telnet_session(olt) as sess:
+            outs = {}
+            for cmd in cmds:
+                try:
+                    text = sess.run(cmd, timeout=5) or ""
+                except Exception:
+                    continue
+                outs[cmd] = text
+                if "cpu_pct" not in out:
+                    for pat in (
+                        r"CPU(?:\s+(?:Usage|Util\w*|Load))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+                        r"CPU\s+(\d+(?:\.\d+)?)\s*%",
+                        r"five seconds:\s*(\d+(?:\.\d+)?)\s*%",
+                    ):
+                        m = _re_cpu.search(pat, text, _re_cpu.I)
+                        if m:
+                            try:
+                                v = float(m.group(1))
+                                if 0 < v <= 100:
+                                    out["cpu_pct"] = v
+                                    break
+                            except Exception:
+                                pass
+                if "mem_pct" not in out:
+                    for pat in (
+                        r"(?:Memory|Mem|RAM)(?:\s+(?:Usage|Util\w*))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+                        r"Used\s+Memory\s*[:=]?\s*\d+\s*KB\s*\((\d+(?:\.\d+)?)%\)",
+                    ):
+                        m = _re_cpu.search(pat, text, _re_cpu.I)
+                        if m:
+                            try:
+                                v = float(m.group(1))
+                                if 0 < v <= 100:
+                                    out["mem_pct"] = v
+                                    break
+                            except Exception:
+                                pass
+                if "cpu_pct" in out and "mem_pct" in out:
+                    break
+    except Exception:
+        return out
+    if not out:
+        try: _cpu_debug_capture(olt, outs)
+        except Exception: pass
+    return out
+
+def poll_via_telnet(olt: dict) -> dict:
+    """_S52G_  Memoised wrapper.  Returns cached result for the same
+       OLT within _TELNET_CACHE_TTL seconds; falls through to the real
+       implementation otherwise."""
+    cached = _telnet_cache_read(olt)
+    if cached is not None:
+        return cached
+    result = _poll_via_telnet_impl(olt)
+    if result and (result.get("pon_metrics") or result.get("optical")
+                    or result.get("distance")):
+        _telnet_cache_write(olt, result)
+    return result
+
+
+def _poll_via_telnet_impl(olt: dict) -> dict:
+    """_S48A_  Pooled persistent-session version.
+
+    Reuses one logged-in telnet socket per OLT via olt_telnet_pool — no
+    login/logout per poll cycle. Cuts OLT AAA log spam ~95% and shaves
+    1-2 seconds per poll.
+
+    Returns dict with:
+        optical: {(pon,idx): (rx_dbm, tx_dbm)}  legacy
+        onu_metrics: {(pon,idx): {rx,tx,temp,voltage,bias}}
+        pon_metrics: {pon: {tx_dbm, temp_c, voltage_v, bias_ma}}
+        config:  {global_idx: {name, wifi_ssid, wan_mode, wan_username, ...}}
+    Best-effort; empty results on any failure."""
+    host = (olt.get("host") or "").strip()
+    pwd  = (olt.get("cli_password") or olt.get("snmp_community") or "admin").strip()
+    result = {"optical": {}, "onu_metrics": {}, "pon_metrics": {},
+              "config": {}, "distance": {}}
+
+    # _S47D_  VSOL per-ONU distance via SNMP (RTT_TQ × 1.4 ≈ metres)
+    try:
+        comm = (olt.get("snmp_community") or "public").strip() or "public"
+        for ifidx, val in _snmp_walk(host, comm, 161,
+                                     "1.3.6.1.4.1.37950.1.1.5.12.1.17.1.3",
+                                     "v2c", timeout=2.5):
+            parts = str(ifidx).split(".")
+            if len(parts) >= 2:
+                try:
+                    p = int(parts[-2]); i = int(parts[-1])
+                    rtt_tq = float(val)
+                    d = rtt_tq * 1.4
+                    if 0 < d < 200000:
+                        result["distance"][(p, i)] = round(d, 1)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if not host or not pwd:
+        return result
+
+    try:
+        from olt_telnet_pool import telnet_session, start_reaper
+        start_reaper()
+    except Exception:
+        # Pool unavailable → caller can still rely on SNMP distance dict.
+        return result
+
+    try:
+        import re as _re
+        opm_re = _re.compile(
+            r"EPON\s*0/(\d+)\s*:\s*(\d+)\s+"
+            r"(-?\d+(?:\.\d+)?)\s+"          # temp
+            r"(-?\d+(?:\.\d+)?)\s+"          # voltage
+            r"(-?\d+(?:\.\d+)?)\s+"          # bias
+            r"(-?\d+(?:\.\d+)?)\s+"          # tx_dbm
+            r"(-?\d+(?:\.\d+)?)",              # rx_dbm
+            _re.I)
+        pon_opt_re = _re.compile(
+            r"Tempperature\s*:\s*(-?\d+(?:\.\d+)?)\s*\.?C\s*"
+            r"Voltage\s*:\s*(-?\d+(?:\.\d+)?)\s*V\s*"
+            r"Bias\s*Current\s*:\s*(-?\d+(?:\.\d+)?)\s*mA\s*"
+            r"Transmit\s*Power\s*:\s*\d+\s*uW\s*\(\s*(-?\d+(?:\.\d+)?)\s*dBm",
+            _re.I)
+
+        with telnet_session(olt) as ts:
+            if not ts.ensure():
+                return result
+
+            # ---- discover PON port count (default 8 for V1600D8) ----
+            ver = ts.send("show running-config", wait=2.5, iters=8)
+            pon_ports = set()
+            for m in _re.finditer(r"interface\s+epon\s+0/(\d+)", ver, _re.I):
+                try: pon_ports.add(int(m.group(1)))
+                except Exception: pass
+            if not pon_ports:
+                pon_ports = set(range(1, 9))
+            pon_ports = sorted(p for p in pon_ports if 1 <= p <= 16)
+
+            # ---- per-PON: enter context, run opm-diag + pon optical ----
+            for p in pon_ports:
+                ts.enter_pon(p)
+                blob_o = ts.send("show onu opm-diag", wait=2.0, iters=6)
+                blob_p = ts.send("show pon optical transceiver",
+                                  wait=1.0, iters=4)
+                for m in opm_re.finditer(blob_o):
+                    try:
+                        pon = int(m.group(1)); idx = int(m.group(2))
+                        temp = float(m.group(3)); volt = float(m.group(4))
+                        bias = float(m.group(5)); tx = float(m.group(6))
+                        rx   = float(m.group(7))
+                        if -45 <= rx <= 5 and -45 <= tx <= 10:
+                            result["optical"][(pon, idx)] = (rx, tx)
+                            result["onu_metrics"][(pon, idx)] = {
+                                "rx_power": rx, "tx_power": tx,
+                                "temperature_c": temp, "voltage_v": volt,
+                                "bias_current_ma": bias,
+                            }
+                    except Exception:
+                        pass
+                for m in pon_opt_re.finditer(blob_p):
+                    try:
+                        result["pon_metrics"][p] = {
+                            "temp_c": float(m.group(1)),
+                            "voltage_v": float(m.group(2)),
+                            "bias_current_ma": float(m.group(3)),
+                            "tx_power": float(m.group(4)),
+                        }
+                    except Exception:
+                        pass
+                # __s56_show_onu__ : pull per-ONU register/deregister/reason
+                # from the OLT's authoritative ONU Status table.
+                try:
+                    blob_s = ts.send("show onu status", wait=2.5, iters=10)
+                    # If the OLT silently ignores 'show onu' it may need
+                    # 'show onu information' — try the longer form too.
+                    # Verified column layout (Netlink/VSOL V1600D):
+                    # 0:head  1:status  2:mac  3:dist  4:rtt
+                    # 5:LastRegTime  6:LastDeregTime  7:LastDeregReason
+                    # 8:AliveTime    9:Upgrade
+                    result.setdefault("status_by_pi", {})
+                    for line in blob_s.split("\n"):
+                        line = line.rstrip("\r ")
+                        if not line.startswith("EPON"):
+                            continue
+                        cols = _re.split(r"\s{2,}", line.strip())
+                        if len(cols) < 6:
+                            continue
+                        head = cols[0]
+                        mh = _re.match(r"EPON\s*0/(\d+)\s*:\s*(\d+)", head, _re.I)
+                        if not mh:
+                            continue
+                        try:
+                            pon_n = int(mh.group(1)); idx_n = int(mh.group(2))
+                        except Exception:
+                            continue
+                        def _col(i):
+                            try:
+                                v = (cols[i] or "").strip()
+                                return v if v and v.upper() not in ("N/A", "NULL", "-", "---") else ""
+                            except Exception:
+                                return ""
+                        status_s = _col(1).lower()
+                        mac_s    = _col(2)
+                        reg_s    = _col(5)
+                        dereg_s  = _col(6)
+                        reason_s = _col(7)
+                        entry = {}
+                        if mac_s:    entry["mac"]  = mac_s
+                        if status_s: entry["status"] = status_s
+                        if reg_s:    entry["last_register_raw"]   = reg_s
+                        if dereg_s:  entry["last_deregister_raw"] = dereg_s
+                        if reason_s: entry["deregister_reason"]   = reason_s
+                        if entry:
+                            result["status_by_pi"][(pon_n, idx_n)] = entry
+                except Exception as _es:
+                    print(f"[telnet show onu] pon {p} err: {_es}", flush=True)
+
+                # __s56b_perPON_authinfo__ : capture ONU description per PON.
+                # (Existing code only ran auth-info on PON1 — that's why
+                #  only PON1 had names. Now we also run it inside the loop.)
+                try:
+                    blob_ap = ts.send("show onu auth-info", wait=2.5, iters=10)
+                    result.setdefault("name_by_pi", {})
+                    result.setdefault("exchange", {})
+                    # Auth-info row layout (Netlink/VSOL V1600D):
+                    #   EPON0/<p>:<i> LLID Status MAC RTT Description Type Authflag Exchange AuthMode Loid/Pwd
+                    # Description and Type are sometimes separated by only
+                    # a single space (when desc is long), so split-on-"2+"-
+                    # spaces fails. Use a strict regex that captures each
+                    # whitespace-delimited token in order.
+                    ROW = _re.compile(
+                        r"^EPON\s*0/(\d+)\s*:\s*(\d+)\s+"   # head
+                        r"\S+\s+"                              # LLID
+                        r"(\S+)\s+"                            # status
+                        r"(\S+)\s+"                            # MAC
+                        r"\S+\s+"                              # RTT
+                        r"(\S+)"                               # Description
+                        r"(?:\s+(\S+))?"                       # Type (optional)
+                        r"(?:\s+(\S+))?"                       # Authflag (optional)
+                        r"(?:\s+(\S+))?"                       # Exchange (optional)
+                    )
+                    for line in blob_ap.split("\n"):
+                        line = line.rstrip("\r ")
+                        if not line.lstrip().startswith("EPON"):
+                            continue
+                        m = ROW.match(line.lstrip())
+                        if not m:
+                            continue
+                        try:
+                            pn = int(m.group(1)); ix = int(m.group(2))
+                        except Exception:
+                            continue
+                        st   = (m.group(3) or "").strip().lower()
+                        desc = (m.group(5) or "").strip()
+                        exch = (m.group(8) or "").strip()
+                        if desc and desc.upper() not in ("N/A", "NULL", "-", "---"):
+                            result["name_by_pi"][(pn, ix)] = desc
+                        if exch and exch.upper() not in ("N/A", "NULL"):
+                            result["exchange"][(pn, ix)] = {
+                                "exchange": exch, "auth_state": st}
+                except Exception as _eai:
+                    pass
+
+
+            # ---- auth-info (post per-PON loop) ----
+            try:
+                ts.enter_pon(pon_ports[0] if pon_ports else 1)
+                blob_a = ts.send("show onu auth-info", wait=2.5, iters=10)
+                result.setdefault("exchange", {})
+                for line in blob_a.split("\n"):
+                    line = line.rstrip("\r ")
+                    if not line.startswith("EPON"):
+                        continue
+                    cols = _re.split(r"\s{2,}", line)
+                    if len(cols) < 9:
+                        continue
+                    head = cols[0]
+                    mh = _re.match(r"EPON\s*0/(\d+)\s*:\s*(\d+)", head, _re.I)
+                    if not mh:
+                        continue
+                    try:
+                        pon_n = int(mh.group(1)); idx_n = int(mh.group(2))
+                        st    = (cols[2] or "").strip().lower()
+                        rtt   = int(cols[4])
+                        exch  = (cols[8] if len(cols) > 8 else "").strip()
+                        if exch:
+                            result["exchange"][(pon_n, idx_n)] = {
+                                "exchange": exch, "auth_state": st}
+                        desc = (cols[5] if len(cols) > 5 else "").strip()
+                        if desc and desc.upper() not in ("N/A", "NULL", "-"):
+                            result.setdefault("name_by_pi", {})[
+                                (pon_n, idx_n)] = desc
+                        if rtt > 0:
+                            result["distance"][(pon_n, idx_n)] = round(rtt * 1.4, 1)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+            # ---- parse running-config for ONU description / Wi-Fi / WAN ----
+            cfg = ver
+            if "interface epon" not in cfg.lower():
+                cfg = ts.send("show running-config", wait=2.5, iters=8)
+            ts.exit_config()
+            for m in _re.finditer(r"^onu\s+(\d+)\s+description\s+(\S+)",
+                                  cfg, _re.M):
+                idx = int(m.group(1))
+                result["config"].setdefault(idx, {})["name"] = m.group(2).strip()
+            for m in _re.finditer(
+                r"^onu\s+(\d+)\s+pri\s+wifi_ssid\s+\d+\s+name\s+(\S+)",
+                cfg, _re.M):
+                idx = int(m.group(1))
+                result["config"].setdefault(idx, {})["wifi_ssid"] = m.group(2).strip()
+            for m in _re.finditer(
+                r"^onu\s+(\d+)\s+pri\s+wan_adv\s+index\s+\d+\s+route\s+ipv4\s+pppoe[^\n]*user\s+(\S+)",
+                cfg, _re.M):
+                idx = int(m.group(1))
+                d = result["config"].setdefault(idx, {})
+                d["wan_mode"] = "pppoe"; d["wan_username"] = m.group(2).strip()
+            for m in _re.finditer(
+                r"^onu\s+(\d+)\s+pri\s+wan_conn\s+index\s+\d+\s+route\s+internet[^\n]*static\s+ip\s+(\S+)",
+                cfg, _re.M):
+                idx = int(m.group(1))
+                d = result["config"].setdefault(idx, {})
+                d["wan_mode"] = "static"; d["wan_static_ip"] = m.group(2).strip()
+    except Exception:
+        pass
+    return result
+
+
+def poll_optical_via_telnet(olt: dict) -> Dict[tuple, tuple]:
+    return (poll_via_telnet(olt) or {}).get("optical", {}) or {}

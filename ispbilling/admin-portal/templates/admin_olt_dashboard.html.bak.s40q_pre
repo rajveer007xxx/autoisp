@@ -1,0 +1,517 @@
+{% extends layout_template|default("base_admin.html") %}
+{% block title %}OLT Command Center · AutoISP Billing
+<!-- _S40j_PON_STATUS_MODAL_ -->
+<div id="ponModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);" data-testid="pon-modal">
+  <div style="max-width:920px;margin:40px auto;background:#0f172a;border:1px solid rgba(99,102,241,.3);border-radius:14px;padding:22px;color:#e2e8f0;max-height:88vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="margin:0;color:#a5b4fc;font-size:18px">⚡ <span id="ponModalTitle">PON Port Status</span></h2>
+      <button onclick="closePon()" style="background:transparent;border:none;color:#94a3b8;font-size:22px;cursor:pointer">×</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+      <div>
+        <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px">🌐 Backbone Uplinks</h4>
+        <div style="background:#1e293b;border-radius:8px;padding:0" id="ponUplinkList">
+          <div style="padding:14px;color:#94a3b8;font-size:12px">Backbone uplink telemetry surfaces from the live SNMP poll. Showing summary from latest poll.</div>
+        </div>
+      </div>
+      <div>
+        <h4 style="font-size:12px;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px">⚡ PON Port Status</h4>
+        <div id="ponPortList" style="display:grid;gap:10px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+async function oltPonStatus(oltId, name) {
+  const m = document.getElementById('ponModal');
+  document.getElementById('ponModalTitle').textContent = "PON Port Status \u2014 " + name;
+  document.getElementById('ponPortList').innerHTML = '<div style="color:#94a3b8;padding:14px">Loading\u2026</div>';
+  m.style.display = 'block';
+  let r;
+  try { r = await fetch('/api/admin/olt/olts/' + oltId + '/pon-status', {credentials:'include'}); }
+  catch(e){ document.getElementById('ponPortList').innerHTML = '<div style="color:#fca5a5">Network error.</div>'; return; }
+  if (!r.ok) { document.getElementById('ponPortList').innerHTML = '<div style="color:#fca5a5">Failed: HTTP '+r.status+'</div>'; return; }
+  const j = await r.json();
+  const list = document.getElementById('ponPortList');
+  list.innerHTML = '';
+  if (!j.ports || !j.ports.length) {
+    list.innerHTML = '<div style="color:#94a3b8;padding:14px;background:#1e293b;border-radius:8px">No PON ports discovered yet \u2014 wait for the first poll cycle to complete.</div>';
+    return;
+  }
+  j.ports.forEach(function(p) {
+    var upClass = p.admin_up
+      ? 'background:rgba(16,185,129,.2);color:#34d399;border:1px solid rgba(16,185,129,.4)'
+      : 'background:rgba(220,38,38,.2);color:#fca5a5;border:1px solid rgba(220,38,38,.4)';
+    var upTxt = p.admin_up ? 'UP' : 'DOWN';
+    var rxStr = (p.rx_power_avg !== null && p.rx_power_avg !== undefined)
+                 ? p.rx_power_avg.toFixed(2)+' dBm' : '\u2014';
+    var txStr = (p.tx_power !== null && p.tx_power !== undefined)
+                 ? p.tx_power.toFixed(2)+' dBm' : '\u2014';
+    var isAdmin = !!window.IS_ADMIN_OLT;
+    var tgt = !p.admin_up;   // we offer the opposite
+    var togglebtn = isAdmin
+      ? '<button onclick="ponToggle('+oltId+','+p.port_index+','+tgt+')" style="padding:6px 12px;border-radius:6px;border:none;cursor:pointer;font-weight:600;font-size:11px;background:'+(tgt?'#10b981':'#dc2626')+';color:#fff">'+(tgt?'Enable':'Disable')+' Port</button>'
+      : '<span style="font-size:11px;color:#94a3b8">Read-only role</span>';
+    var html =
+      '<div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid rgba(99,102,241,.15)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+          '<div><b style="color:#a5b4fc;font-size:14px">'+p.name+'</b>' +
+            '<span style="'+upClass+';margin-left:8px;padding:3px 9px;border-radius:9999px;font-size:11px;font-weight:700">'+upTxt+'</span></div>' +
+          togglebtn +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">' +
+          '<div style="background:#0f172a;padding:8px 10px;border-radius:6px">RX POWER <span style="float:right;color:#34d399;font-weight:700">'+rxStr+'</span></div>' +
+          '<div style="background:#0f172a;padding:8px 10px;border-radius:6px">TX POWER <input id="pon-tx-'+oltId+'-'+p.port_index+'" type="number" step="0.1" placeholder="'+txStr+'" style="width:60px;background:#1e293b;border:1px solid #334155;color:#fff;border-radius:4px;padding:2px 4px;font-size:11px;margin-left:4px"/><button onclick="ponSetTx('+oltId+', '+p.port_index+')" style="margin-left:4px;background:#7c3aed;color:#fff;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">SET</button></div>' +
+          '<div style="background:#0f172a;padding:8px 10px;border-radius:6px">Voltage <span style="float:right;color:#67e8f9;font-weight:700">'+(p.voltage?p.voltage.toFixed(2)+' V':'\u2014')+'</span></div>' +
+          '<div style="background:#0f172a;padding:8px 10px;border-radius:6px">Bias curr <span style="float:right;color:#67e8f9;font-weight:700">'+(p.bias_curr_ma?p.bias_curr_ma.toFixed(1)+' mA':'\u2014')+'</span></div>' +
+          '<div style="background:#0f172a;padding:8px 10px;border-radius:6px;grid-column:1/-1">LOAD <span style="float:right;color:#7dd3fc;font-weight:700">'+p.online_onus+'/'+p.total_onus+' ONU</span></div>' +
+        '</div>' +
+      '</div>';
+    list.insertAdjacentHTML('beforeend', html);
+  });
+}
+async function ponToggle(oltId, portIdx, enable) {
+  var msg = (enable ? 'Enable' : 'Disable') + ' PON port ' + portIdx + '?\n\n' +
+             (enable ? 'ONUs on this port will reconnect.'
+                     : 'All ONUs on this port will go offline immediately.');
+  if (!confirm(msg)) return;
+  var r = await fetch('/api/admin/olt/olts/' + oltId + '/pon/' + portIdx + '/toggle', {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({enable: !!enable}) });
+  var j = await r.json();
+  if (j.ok) {
+    alert((enable ? 'Enabled' : 'Disabled') + ' OK.\n\n' + (j.message || ''));
+    var t = document.getElementById('ponModalTitle').textContent.replace(/^PON Port Status \u2014 /, '');
+    oltPonStatus(oltId, t);
+  } else alert('Failed: ' + JSON.stringify(j));
+}
+function closePon(){ document.getElementById('ponModal').style.display='none'; }
+window.addEventListener('keydown', function(e){ if (e.key === 'Escape') closePon(); });
+async function ponSetTx(oltId, portIdx) {
+  var el = document.getElementById('pon-tx-' + oltId + '-' + portIdx);
+  if (!el) return;
+  var v = parseFloat(el.value);
+  if (isNaN(v)) return alert('Enter a valid TX value (e.g. +5.0)');
+  var r = await fetch('/api/admin/olt/olts/' + oltId + '/pon/' + portIdx + '/set-tx', {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tx_power: v}) });
+  var j = await r.json();
+  if (j.ok) {
+    el.placeholder = v.toFixed(2) + ' dBm';
+    el.value = '';
+    var t = document.getElementById('ponModalTitle').textContent
+              .replace(/^PON Port Status \u2014 /, '');
+    oltPonStatus(oltId, t);     // reload modal to show new TX
+  } else alert('Failed: ' + JSON.stringify(j));
+}
+window._S40p_SET_TX_ = true;
+
+window.IS_ADMIN_OLT = window.IS_ADMIN_OLT || {{ 'true' if scope and scope.role == 'admin' else 'false' }};
+</script>
+
+{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --olt-bg:#0B0F1A; --olt-card:#161D2E; --olt-line:#1F2940;
+    --olt-fg:#E7ECF5; --olt-mute:#8A93A6; --olt-cyan:#00E5FF;
+    --olt-violet:#7C5CFF; --olt-green:#22C55E; --olt-amber:#F59E0B;
+    --olt-red:#EF4444;
+  }
+  .olt-shell { color:var(--olt-fg); padding:18px 6px 60px; }
+  .olt-h1 { font-size:22px; font-weight:800; letter-spacing:-.4px;
+    margin:0 0 4px; }
+  .olt-sub { color:var(--olt-mute); font-size:13px; margin-bottom:18px; }
+  .olt-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .olt-tabs a { padding:8px 14px; border-radius:99px; font-size:12.5px;
+    text-decoration:none; color:var(--olt-mute);
+    border:1px solid var(--olt-line); background:var(--olt-card); }
+  .olt-tabs a.on { color:#0B0F1A; background:linear-gradient(135deg,
+    var(--olt-cyan), var(--olt-violet)); border-color:transparent;
+    font-weight:700; }
+  .olt-grid { display:grid; gap:14px;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+  .kpi { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:18px; position:relative; overflow:hidden; }
+  .kpi::after { content:''; position:absolute; right:-30px; top:-30px;
+    width:80px; height:80px; border-radius:50%;
+    background:radial-gradient(circle, rgba(0,229,255,.12), transparent 70%); }
+  .kpi-l { font-size:11px; letter-spacing:1.4px; text-transform:uppercase;
+    color:var(--olt-mute); }
+  .kpi-v { font-size:30px; font-weight:800; margin-top:6px; }
+  .kpi-d { font-size:12px; color:var(--olt-mute); margin-top:4px; }
+  .kpi.green .kpi-v { color:var(--olt-green); }
+  .kpi.amber .kpi-v { color:var(--olt-amber); }
+  .kpi.red   .kpi-v { color:var(--olt-red); }
+  .kpi.cyan  .kpi-v { color:var(--olt-cyan); }
+  .panel { background:var(--olt-card); border:1px solid var(--olt-line);
+    border-radius:18px; padding:18px; margin-top:18px; }
+  .panel h3 { font-size:14px; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--olt-mute); margin:0 0 14px; }
+  table.olt { width:100%; border-collapse:collapse; }
+  table.olt th, table.olt td { padding:10px 8px; border-bottom:1px solid
+    var(--olt-line); font-size:13px; text-align:left; }
+  table.olt th { color:var(--olt-mute); font-weight:600; font-size:11px;
+    letter-spacing:.8px; text-transform:uppercase; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px;
+    border-radius:99px; font-size:11px; font-weight:700;
+    letter-spacing:.4px; }
+  .pill.online  { background:rgba(34,197,94,.12); color:#34D399; }
+  .pill.offline { background:rgba(239,68,68,.14); color:#F87171; }
+  .pill.error   { background:rgba(245,158,11,.14); color:#FBBF24; }
+  .pill.unknown { background:rgba(138,147,166,.14); color:var(--olt-mute); }
+  .pill.warn     { background:rgba(245,158,11,.14); color:#FBBF24; }
+  .pill.critical { background:rgba(239,68,68,.18); color:#F87171; }
+  .pill.info     { background:rgba(0,229,255,.12); color:#67E8F9; }
+  .rx-bad   { color:#F87171; font-weight:700; }
+  .rx-warn  { color:#FBBF24; font-weight:700; }
+  .rx-good  { color:#34D399; font-weight:700; }
+  .empty { text-align:center; padding:40px 10px; color:var(--olt-mute); }
+  .btn-mini { padding:5px 12px; border-radius:8px; border:1px solid
+    var(--olt-line); background:transparent; color:var(--olt-fg);
+    font-size:12px; cursor:pointer; }
+  .btn-mini:hover { border-color:var(--olt-cyan); color:var(--olt-cyan); }  body .main-sidebar .treeview-menu > li.active > a,
+  body .sidebar .treeview-menu > li.active > a { color:#67E8F9 !important; }
+  body .main-sidebar .treeview-menu > li > a:hover,
+  body .sidebar .treeview-menu > li > a:hover { color:#67E8F9 !important; }
+
+  .kpi-clickable { display:block; text-decoration:none !important; color:inherit;
+    cursor:pointer; transition: transform .12s ease, box-shadow .12s ease,
+                 border-color .12s ease; }
+  .kpi-clickable:hover { transform: translateY(-2px);
+    box-shadow: 0 14px 40px rgba(0,229,255,.10);
+    border-color: rgba(0,229,255,.45) !important; }
+  .kpi-clickable:focus { outline: 2px solid var(--olt-cyan); outline-offset: 3px; }
+</style>
+
+<section class="olt-shell" data-testid="olt-dashboard">
+  <h1 class="olt-h1">OLT Command Center</h1>
+  <p class="olt-sub">24/7 telemetry · fiber-cut detection · remote ONU control —
+     scoped to your company.</p>
+
+  <nav class="olt-tabs">
+    <a class="on" href="{{ olt_url_prefix or '/admin/olt' }}/dashboard" data-testid="olt-tab-dashboard">Dashboard</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/onus" data-testid="olt-tab-onus">ONU / ONT Manage</a>
+    <a href="{{ olt_url_prefix or '/admin/olt' }}/alerts" data-testid="olt-tab-alerts">Alerts</a>
+    {% if scope and scope.role == "admin" %}<a href="/admin/olt/system-config" data-testid="olt-tab-system">System Config</a>{% endif %}
+  </nav>
+
+  <div class="olt-grid">
+    <a class="kpi cyan kpi-clickable" data-testid="kpi-olts-online-card"
+       href="javascript:void(0)" onclick="openOltEnv()" role="button" tabindex="0">
+      <div class="kpi-l">OLTs Online</div>
+      <div class="kpi-v" data-testid="kpi-olts-online">{{data.kpis.olts_online}}/{{data.kpis.olts_total}}</div>
+      <div class="kpi-d">{{data.kpis.olts_offline}} offline · <span style="color:#67E8F9">view details →</span></div>
+    </a>
+    <a class="kpi green kpi-clickable" data-testid="kpi-onus-online-card"
+       href="{{ olt_url_prefix or '/admin/olt' }}/onus?status=online">
+      <div class="kpi-l">ONUs Online</div>
+      <div class="kpi-v" data-testid="kpi-onus-online">{{data.kpis.onus_online}}</div>
+      <div class="kpi-d">of {{data.kpis.onus_total}} provisioned · <span style="color:#67E8F9">view list →</span></div>
+    </a>
+    <a class="kpi red kpi-clickable" data-testid="kpi-onus-offline-card"
+       href="{{ olt_url_prefix or '/admin/olt' }}/onus?status=offline">
+      <div class="kpi-l">ONUs Offline</div>
+      <div class="kpi-v" data-testid="kpi-onus-offline">{{data.kpis.onus_offline}}</div>
+      <div class="kpi-d">last poll cycle · <span style="color:#67E8F9">view list →</span></div>
+    </a>
+    <a class="kpi amber kpi-clickable" data-testid="kpi-alerts-card"
+       href="{{ olt_url_prefix or '/admin/olt' }}/alerts">
+      <div class="kpi-l">Open Alerts</div>
+      <div class="kpi-v" data-testid="kpi-alerts-open">{{data.kpis.alerts_open}}</div>
+      <div class="kpi-d">{{data.kpis.alerts_critical}} critical · <span style="color:#67E8F9">view all →</span></div>
+    </a>
+  </div>
+
+  <div class="panel">
+    <h3>OLT Fleet</h3>
+    {% if data.olts %}
+    <table class="olt">
+      <thead><tr><th>Name</th><th>Vendor</th><th>Host</th><th>Status</th>
+        <th>ONUs</th><th>CPU</th><th>Temp</th><th>Last Poll</th><th></th></tr></thead>
+      <tbody>
+        {% for o in data.olts %}
+        <tr data-testid="olt-row-{{o.id}}" data-olt-id="{{o.id}}">
+          <td><b>{{o.name}}</b><br><span style="color:var(--olt-mute);font-size:11px">{{o.location or '—'}}</span></td>
+          <td>{{o.vendor|capitalize}}<br><span style="color:var(--olt-mute);font-size:11px">{{o.model or '—'}}</span></td>
+          <td><code>{{o.host}}</code></td>
+          <td><span class="pill {{o.status}}">{{o.status}}</span></td>
+          <td>{{o.online_onus}}/{{o.total_onus}}</td>
+          <td>{{ '%.1f'|format(o.cpu_pct) }}%</td>
+          <td>{{ '%.1f'|format(o.temp_c) }}°C</td>
+          <td style="color:var(--olt-mute);font-size:11px">{{o.last_polled or '—'}}</td>
+          <td>{% if scope and scope.role == "admin" %}<button class="btn-mini" data-testid="poll-now-{{o.id}}" onclick="oltPoll({{o.id}})">Poll Now</button><div data-activity-spark style="margin-top:4px;width:90px"></div>{% else %}<span style="color:#8A93A6;font-size:11px">read-only</span>{% endif %}<br><button class="btn-mini" style="background:#7c3aed;color:#fff;margin-top:4px" data-testid="pon-status-{{o.id}}" onclick="oltPonStatus({{o.id}}, {{ o.name|tojson }})">⚡ PON Ports</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No OLT registered yet — go to
+      {% if scope and scope.role == "admin" %}<a href="/admin/olt/system-config" style="color:var(--olt-cyan)">System Config</a>{% endif %}
+      to add one.</div>
+    {% endif %}
+  </div>
+
+  <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-top:0;">
+  <div class="panel">
+    <h3>Worst RX Power</h3>
+    {% if data.worst_rx %}
+    <table class="olt">
+      <thead><tr><th>Serial</th><th>OLT</th><th>PON</th><th>RX dBm</th></tr></thead>
+      <tbody>
+        {% for w in data.worst_rx %}
+          <tr><td><code>{{w.serial}}</code></td>
+            <td>#{{w.olt_id}}</td>
+            <td>{{w.pon_port_index}}/{{w.onu_index}}</td>
+            <td class="{% if w.rx_power<=-28 %}rx-bad{% elif w.rx_power<=-25 %}rx-warn{% else %}rx-good{% endif %}">
+              {{ '%.1f'|format(w.rx_power) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty">No optical telemetry yet.</div>{% endif %}
+  </div>
+  <div class="panel">
+    <h3>Recent Alerts</h3>
+    {% if data.recent_alerts %}
+    <table class="olt">
+      <thead><tr><th>Lvl</th><th>Title</th><th>When</th></tr></thead>
+      <tbody>
+        {% for a in data.recent_alerts[:8] %}
+          <tr><td><span class="pill {{a.level}}">{{a.level}}</span></td>
+            <td>{{a.title}}<br><span style="color:var(--olt-mute);font-size:11px">{{a.message or ''}}</span></td>
+            <td style="color:var(--olt-mute);font-size:11px">{{a.created_at}}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="margin-top:12px"><a href="{{ olt_url_prefix or '/admin/olt' }}/alerts"
+      style="color:var(--olt-cyan);font-size:12px;text-decoration:none">All alerts →</a></div>
+    {% else %}<div class="empty">No alerts. All clear.</div>{% endif %}
+  </div>
+  </div>
+
+  <div class="panel" data-testid="olt-activity-panel">
+    <h3>Recent Activity {% if scope and scope.role != 'admin' %}<span style="color:var(--olt-cyan);font-size:11px;letter-spacing:1px;margin-left:8px">SCOPED</span>{% endif %}</h3>
+    <table class="olt">
+      <thead><tr><th>Lvl</th><th>What</th><th>OLT</th><th>When</th></tr></thead>
+      <tbody id="activity_tbody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <script>
+    (async function loadActivity(){
+      try {
+        const r = await fetch('/api/admin/olt/activity?limit=25');
+        const j = await r.json();
+        const tb = document.getElementById('activity_tbody');
+        if (!j.ok || !j.items || j.items.length===0){
+          tb.innerHTML = '<tr><td colspan="4" class="empty">No recent activity for your role yet.</td></tr>';
+          return;
+        }
+        tb.innerHTML = '';
+        for (const a of j.items){
+          const tr = document.createElement('tr');
+          tr.dataset.testid = 'activity-row-'+a.id;
+          tr.innerHTML = `
+            <td><span class="pill ${a.level}">${a.level}</span></td>
+            <td><b>${a.title}</b><br><span style="color:#8A93A6;font-size:11px">${a.message||''}</span></td>
+            <td>${a.olt_name||('#'+(a.olt_id||'-'))}</td>
+            <td style="color:#8A93A6;font-size:11px">${a.created_at}</td>`;
+          tb.appendChild(tr);
+        }
+      } catch(e){ document.getElementById('activity_tbody').innerHTML =
+        '<tr><td colspan="4" class="empty">Failed to load activity.</td></tr>'; }
+    })();
+  </script>
+
+</section>
+
+<div id="olt_env_modal" data-testid="olt-env-modal"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
+            z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#161D2E;border:1px solid #1F2940;border-radius:18px;
+       padding:24px;max-width:1100px;width:100%;color:#E7ECF5;
+       max-height:92vh;overflow:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                margin-bottom:14px;">
+      <h3 style="margin:0;font-size:18px;letter-spacing:-.3px;">OLT Environment</h3>
+      <button onclick="closeOltEnv()" data-testid="olt-env-close"
+        style="background:transparent;border:0;color:#8A93A6;font-size:26px;
+               cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="olt_env_grid" style="display:grid;gap:14px;
+         grid-template-columns:repeat(auto-fit,minmax(260px,1fr));">
+      <div style="grid-column:1/-1;text-align:center;color:#8A93A6;padding:30px">
+        Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function _envBadge(label){
+  const map = {
+    Normal: ['#22C55E','rgba(34,197,94,.14)'],
+    Slow: ['#FBBF24','rgba(245,158,11,.14)'],
+    High: ['#FBBF24','rgba(245,158,11,.14)'],
+    Overheat: ['#FBBF24','rgba(245,158,11,.14)'],
+    Critical: ['#EF4444','rgba(239,68,68,.18)'],
+    Malfunctional: ['#EF4444','rgba(239,68,68,.18)'],
+    Unknown: ['#8A93A6','rgba(138,147,166,.14)'],
+  };
+  const [fg, bg] = map[label] || ['#8A93A6','rgba(138,147,166,.14)'];
+  return `<span style="display:inline-block;padding:2px 9px;border-radius:99px;
+    background:${bg};color:${fg};font-size:11px;font-weight:700;">${label}</span>`;
+}
+async function openOltEnv(){
+  const modal = document.getElementById('olt_env_modal');
+  const grid = document.getElementById('olt_env_grid');
+  modal.style.display = 'flex';
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#8A93A6;padding:30px">Loading…</div>';
+  try {
+    const r = await fetch('/api/admin/olt/dashboard');
+    const j = await r.json();
+    if (!j.olts || j.olts.length === 0){
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#8A93A6;padding:30px">No OLTs registered yet.</div>';
+      return;
+    }
+    grid.innerHTML = '';
+    for (const o of j.olts){
+      const card = document.createElement('div');
+      card.dataset.testid = 'olt-env-card-' + o.id;
+      const offline = o.status !== 'online';
+      const cardBg  = offline ? 'rgba(239,68,68,.06)' : 'rgba(0,229,255,.04)';
+      const cardBd  = offline ? 'rgba(239,68,68,.30)' : 'rgba(0,229,255,.20)';
+      card.style.cssText = `border:1px solid ${cardBd};background:${cardBg};
+        border-radius:14px;padding:16px;`;
+      if (offline){
+        card.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-weight:800;font-size:15px;letter-spacing:-.2px">${o.name}</div>
+            <span style="display:inline-block;padding:3px 10px;border-radius:99px;
+              background:rgba(239,68,68,.18);color:#F87171;font-size:11px;font-weight:700;">OFFLINE</span>
+          </div>
+          <div style="color:#8A93A6;font-size:11px;margin-top:6px">Telemetry unavailable while OLT is unreachable.</div>`;
+      } else {
+        const tempLabel = o.temp_label || 'Normal';
+        const fanLabel  = o.fan_status || 'Normal';
+        card.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin-bottom:12px;">
+            <div>
+              <div style="font-weight:800;font-size:15px;letter-spacing:-.2px">${o.name}</div>
+              <div style="color:#8A93A6;font-size:11px;margin-top:2px">${o.location||'—'}</div>
+            </div>
+            <span style="display:inline-block;padding:3px 10px;border-radius:99px;
+              background:rgba(34,197,94,.14);color:#34D399;font-size:11px;font-weight:700;">ONLINE</span>
+          </div>
+          <div style="display:grid;gap:8px;grid-template-columns:1fr 1fr;
+                      font-size:12.5px;">
+            <div><div style="color:#8A93A6;font-size:10.5px;letter-spacing:.6px;
+                  text-transform:uppercase">Type</div>
+              <div style="font-weight:700;margin-top:2px">${o.pon_type||'GPON'}</div></div>
+            <div><div style="color:#8A93A6;font-size:10.5px;letter-spacing:.6px;
+                  text-transform:uppercase">CPU Load</div>
+              <div style="font-weight:700;margin-top:2px">${(o.cpu_pct||o.cpu_load||0).toFixed(1)}%</div></div>
+            <div><div style="color:#8A93A6;font-size:10.5px;letter-spacing:.6px;
+                  text-transform:uppercase">Core Temperature</div>
+              <div style="font-weight:700;margin-top:2px">${(o.temp_c||0).toFixed(1)}°C
+                &nbsp; ${_envBadge(tempLabel)}</div></div>
+            <div><div style="color:#8A93A6;font-size:10.5px;letter-spacing:.6px;
+                  text-transform:uppercase">Fan Control</div>
+              <div style="font-weight:700;margin-top:2px">${_envBadge(fanLabel)}</div></div>
+          </div>
+          <!-- _S39R5L_SPARKLINE — 24h history (CPU + RX) -->
+          <div data-sparkholder="${o.id}" style="margin-top:12px;padding-top:10px;
+               border-top:1px dashed rgba(138,147,166,.18);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;
+                 font-size:10.5px;color:#8A93A6;text-transform:uppercase;letter-spacing:.6px;
+                 margin-bottom:6px;"><span>CPU last 24h</span><span data-sparklabel="cpu-${o.id}">…</span></div>
+            <svg data-sparksvg="cpu-${o.id}" viewBox="0 0 100 28" preserveAspectRatio="none"
+                 style="width:100%;height:34px;display:block;"></svg>
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;
+                 font-size:10.5px;color:#8A93A6;text-transform:uppercase;letter-spacing:.6px;
+                 margin:8px 0 6px;"><span>Avg RX (dBm)</span><span data-sparklabel="rx-${o.id}">…</span></div>
+            <svg data-sparksvg="rx-${o.id}" viewBox="0 0 100 28" preserveAspectRatio="none"
+                 style="width:100%;height:34px;display:block;"></svg>
+          </div>`;
+      }
+      grid.appendChild(card);
+      // _S39R5L_SPARK — fetch 24h history per OLT (non-blocking)
+      if (o.status === "online") (async()=>{ try {
+        const hr = await fetch(`/api/admin/olt/olts/${o.id}/history?hours=24&points=60`);
+        const hj = await hr.json();
+        if (!hj.ok || !(hj.items||[]).length) return;
+        const cpu = hj.items.map(x=>x.cpu_pct);
+        const rx  = hj.items.map(x=>x.avg_rx).filter(v=>v!==null);
+        _renderSpark(`cpu-${o.id}`, cpu, "#34D399", "%", 0, 100);
+        if (rx.length) _renderSpark(`rx-${o.id}`, rx, "#60A5FA", " dBm", null, null);
+      } catch(e){} })();
+    }
+  } catch(e){
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#F87171;padding:30px">Failed to load: '+e+'</div>';
+  }
+}
+function _renderSpark(key, vals, stroke, suffix, fmin, fmax){
+  const svg = document.querySelector(`[data-sparksvg="${key}"]`);
+  const lab = document.querySelector(`[data-sparklabel="${key}"]`);
+  if (!svg || !vals || !vals.length) return;
+  const n = vals.length;
+  const mn = (fmin !== null && fmin !== undefined) ? fmin : Math.min.apply(null, vals);
+  const mx = (fmax !== null && fmax !== undefined) ? fmax : Math.max.apply(null, vals);
+  const span = (mx - mn) || 1;
+  const pts = vals.map((v,i)=>{
+    const x = (i/(n-1||1))*100;
+    const y = 26 - ((v - mn)/span) * 22;
+    return x.toFixed(2)+","+y.toFixed(2);
+  }).join(" ");
+  svg.innerHTML = `<polyline points="0,28 ${pts} 100,28" fill="${stroke}" fill-opacity="0.12" stroke="none"/><polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="${(26 - ((vals[n-1]-mn)/span)*22).toFixed(2)}" r="1.6" fill="${stroke}"/>`;
+  if (lab) lab.textContent = vals[n-1].toFixed(1) + suffix;
+}
+function closeOltEnv(){ document.getElementById('olt_env_modal').style.display = 'none'; }
+document.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape') closeOltEnv();
+});
+document.getElementById('olt_env_modal')?.addEventListener('click', (e)=>{
+  if (e.target.id === 'olt_env_modal') closeOltEnv();
+});
+</script>
+
+
+<script>
+// _S39R5L_ACTIVITY_SPARK — 2h online-ONU sparkline under each OLT card
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('[data-olt-id]').forEach(async (el) => {
+    const oltId = el.dataset.oltId;
+    const holder = el.querySelector('[data-activity-spark]');
+    if (!holder) return;
+    try {
+      const r = await fetch(`/api/admin/olt/olts/${oltId}/history?hours=2&points=24`);
+      const j = await r.json();
+      if (!j.ok || !(j.items||[]).length) { holder.innerHTML=""; return; }
+      const vals = j.items.map(x => x.online_onus);
+      const n = vals.length;
+      const mn = Math.min.apply(null, vals);
+      const mx = Math.max.apply(null, vals);
+      const span = (mx - mn) || 1;
+      const pts = vals.map((v,i) => {
+        const x = (i/(n-1||1))*100;
+        const y = 14 - ((v - mn)/span) * 11;
+        return x.toFixed(2)+","+y.toFixed(2);
+      }).join(" ");
+      holder.innerHTML = `<svg viewBox="0 0 100 16" preserveAspectRatio="none" style="width:100%;height:18px;display:block;margin-top:4px;"><polyline points="${pts}" fill="none" stroke="#22C55E" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><div style="font-size:10px;color:#8A93A6;letter-spacing:.5px;text-transform:uppercase;margin-top:1px;">Online ONUs · last 2h · ${vals[n-1]||0}/${j.items[n-1].total_onus||0}</div>`;
+    } catch(e){}
+  });
+});
+async function oltPoll(id){
+  const btn = document.querySelector(`[data-testid="poll-now-${id}"]`);
+  if (btn){ btn.disabled = true; btn.textContent = 'Polling…'; }
+  try {
+    const r = await fetch(`/api/admin/olt/olts/${id}/poll-now`, {method:'POST'});
+    if (!r.ok) throw new Error(await r.text());
+    location.reload();
+  } catch(e){ alert('Poll failed: '+e); if(btn){btn.disabled=false; btn.textContent='Poll Now';} }
+}
+</script>
+{% endblock %}
