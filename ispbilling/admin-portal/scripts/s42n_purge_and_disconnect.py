@@ -33,6 +33,18 @@ import routeros_provision as rp  # noqa: E402
 
 RADACCT = os.getenv("RADACCT_DB_PATH", "/var/lib/freeradius/radacct.db")
 
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
+
 
 def step_backup() -> str:
     ts = int(time.time())
@@ -43,7 +55,7 @@ def step_backup() -> str:
 
 
 def step_purge_radacct() -> dict:
-    con = sqlite3.connect(RADACCT, timeout=10)
+    con = _radacct_pg_connect()
     cur = con.cursor()
     before = cur.execute("SELECT COUNT(*) FROM radacct").fetchone()[0]
     cur.execute("DELETE FROM radacct")

@@ -352,7 +352,7 @@ def startup_event():
     
     init_db()
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
     cursor = conn.cursor()
     
     cursor.execute("PRAGMA table_info(customers)")

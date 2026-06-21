@@ -20,6 +20,18 @@ router = APIRouter(tags=["vouchers"])
 import sqlite3 as _voucher_sqlite3, os as _voucher_os
 _FREERADIUS_DB = "/var/lib/freeradius/radacct.db"
 
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
+
 
 def _radius_provision_voucher(v):
     """Idempotently install <code> as a Hotspot-authable user in FreeRADIUS.
@@ -28,7 +40,7 @@ def _radius_provision_voucher(v):
         print(f"[voucher-radius] FreeRADIUS DB missing at {_FREERADIUS_DB}")
         return False
     try:
-        con = _voucher_sqlite3.connect(_FREERADIUS_DB, timeout=5)
+        con = _voucher__radacct_pg_connect()
         try:
             con.execute("PRAGMA busy_timeout = 3000")
             cur = con.cursor()
@@ -70,7 +82,7 @@ def _radius_revoke_voucher(code):
     if not _voucher_os.path.exists(_FREERADIUS_DB):
         return
     try:
-        con = _voucher_sqlite3.connect(_FREERADIUS_DB, timeout=5)
+        con = _voucher__radacct_pg_connect()
         cur = con.cursor()
         cur.execute("DELETE FROM radcheck WHERE username = ?", (code,))
         cur.execute("DELETE FROM radreply WHERE username = ?", (code,))

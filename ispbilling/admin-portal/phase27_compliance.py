@@ -42,6 +42,13 @@ IST = timezone(timedelta(hours=5, minutes=30))
 DB_PATH = os.environ.get("ISPBILLING_DB",
                          "/var/lib/autoispbilling/autoispbilling.db")
 RADACCT_DB = "/var/lib/freeradius/radacct.db"
+# __PHASE_RADACCT_PG__
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
 
 
 # ───────────────────────────────────────────── DDL (idempotent)
@@ -292,7 +299,7 @@ def _run_retention_once(scope_company_id: str = None) -> dict:
     # because radacct is not per-tenant scoped at the row level.
     if not scope_company_id:
         try:
-            rcon = sqlite3.connect(RADACCT_DB, timeout=10)
+            rcon = _radacct_pg_connect()
             ra_cnt = rcon.execute(
                 "SELECT COUNT(*) FROM radacct WHERE acctstarttime IS NOT NULL "
                 " AND acctstarttime < datetime(?, 'unixepoch')",
@@ -1229,7 +1236,7 @@ add name="isp-urllog-push-v2" policy=read,write,policy,test source={{
                           "acctsessiontime", "acctinputoctets", "acctoutputoctets",
                           "acctterminatecause"])
             try:
-                rcon = sqlite3.connect(RADACCT_DB, timeout=10)
+                rcon = _radacct_pg_connect()
                 rcon.row_factory = sqlite3.Row
                 # S42J — backfill + strict company_id fence on LI exports.
                 try:

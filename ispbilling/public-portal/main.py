@@ -1,3 +1,14 @@
+# __SQLITE_GUARD_BOOT__
+import sqlite3 as __sq3_g; __sq3_g._orig_connect = __sq3_g.connect
+def __sq3_guard(*a, **kw):
+    p = a[0] if a else kw.get("database","")
+    if isinstance(p, str) and ("/var/lib/autoispbilling/autoispbilling.db" in p or "/var/lib/freeradius/radacct.db" in p):
+        import sys as _sys_sg
+        if "/opt/ispbilling" not in _sys_sg.path: _sys_sg.path.insert(0, "/opt/ispbilling")
+        import db_compat
+        return db_compat.get_raw_conn(timeout=kw.get("timeout",10))
+    return __sq3_g._orig_connect(*a, **kw)
+__sq3_g.connect = __sq3_guard
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -155,8 +166,9 @@ async def api_account_deletion_request(
     when = _dt.datetime.now().strftime("%d %b %Y, %H:%M IST")
     # Log request to DB (best-effort)
     try:
-        import sqlite3 as _sql
-        c = _sql.connect("/var/lib/autoispbilling/autoispbilling.db", timeout=20)
+        import sys as _sys_rd; _sys_rd.path.insert(0, "/opt/ispbilling")
+        from db_compat import get_raw_conn as _compat_conn
+        c = _compat_conn(timeout=20)
         c.execute(
             "INSERT INTO account_deletion_requests "
             "(name,email,phone,customer_id,isp,scope,notes,ip,user_agent) "
@@ -374,12 +386,12 @@ if __name__ == "__main__":
 # _S39R5E_PRICING — Pricing page that fetches active packages from superadmin
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page(request: Request):
-    import sqlite3 as _sql
-    db_path = "/var/lib/autoispbilling/autoispbilling.db"
+    import sys as _sys_rd; _sys_rd.path.insert(0, "/opt/ispbilling")
+    from db_compat import get_raw_conn as _compat_conn
+    db_path = None
     pkgs = []
     try:
-        c = _sql.connect(db_path)
-        c.row_factory = _sql.Row
+        c = _compat_conn(timeout=10)
         rows = c.execute(
             "SELECT id, package_name, user_count, package_type, package_price, "
             "       description, cgst_rate, sgst_rate, igst_rate "

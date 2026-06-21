@@ -32,6 +32,18 @@ from sqlalchemy import text as _sql
 RADACCT = os.environ.get("RADACCT_DB_PATH", "/var/lib/freeradius/radacct.db")
 MAX_AGE_H = 168  # 7 days
 
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
+
 def _latest_passwords_for(uname_cid_pairs):
     """Return {(username, company_id): (password, authdate)} for latest
     Access-Accept capture within MAX_AGE_H hours.
@@ -45,7 +57,7 @@ def _latest_passwords_for(uname_cid_pairs):
     if not uname_cid_pairs: return out
     usernames = sorted({u for (u, _c) in uname_cid_pairs if u})
     try:
-        con = sqlite3.connect(f"file:{RADACCT}?mode=ro", uri=True, timeout=5)
+        con = _radacct_pg_connect()
         cur = con.cursor()
         # Chunk to stay under SQLite IN-list limit
         for i in range(0, len(usernames), 400):
@@ -80,7 +92,7 @@ def main():
         try:
             from radpostauth_tenant import (ensure_company_id_column,
                                             backfill_company_id)
-            con_bf = sqlite3.connect(RADACCT, timeout=5)
+            con_bf = _radacct_pg_connect()
             try:
                 ensure_company_id_column(con_bf)
             finally:

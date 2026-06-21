@@ -36,6 +36,18 @@ router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # ------------------------------------------------------------------ helpers
+
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
 def _parse_date(s: Optional[str]):
     if not s:
         return None
@@ -135,7 +147,7 @@ def _fetch_ipnat_rows(company_id: str, usernames: Optional[set] = None,
     radpostauth_tenant). Username filter is kept as a UX scope, not as
     a security boundary."""
     try:
-        con = sqlite3.connect(_RADACCT_DB)
+        con = _radacct_pg_connect()
         cur = con.cursor()
     except Exception:
         return 0, []
@@ -482,7 +494,7 @@ def mount(app, templates, get_db, require_admin):
                     _rp_bfa2(db, radacct_path=_RADACCT_DB, limit=2000)
                 except Exception:
                     pass
-                con = sqlite3.connect(_RADACCT_DB)
+                con = _radacct_pg_connect()
                 cur = con.cursor()
                 cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
                 plist = ",".join(["?"] * len(uns))
@@ -647,7 +659,7 @@ def mount(app, templates, get_db, require_admin):
                         _rp_bfa3(db, radacct_path=_RADACCT_DB, limit=2000)
                     except Exception:
                         pass
-                    con = sqlite3.connect(_RADACCT_DB)
+                    con = _radacct_pg_connect()
                     cur = con.cursor()
                     cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
                     plist = ",".join(["?"] * len(uns))

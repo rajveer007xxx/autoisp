@@ -1,3 +1,14 @@
+# __SQLITE_GUARD_BOOT__
+import sqlite3 as __sq3_g; __sq3_g._orig_connect = __sq3_g.connect
+def __sq3_guard(*a, **kw):
+    p = a[0] if a else kw.get("database","")
+    if isinstance(p, str) and ("/var/lib/autoispbilling/autoispbilling.db" in p or "/var/lib/freeradius/radacct.db" in p):
+        import sys as _sys_sg
+        if "/opt/ispbilling" not in _sys_sg.path: _sys_sg.path.insert(0, "/opt/ispbilling")
+        import db_compat
+        return db_compat.get_raw_conn(timeout=kw.get("timeout",10))
+    return __sq3_g._orig_connect(*a, **kw)
+__sq3_g.connect = __sq3_guard
 class _ESkipInv(Exception): pass
 from fastapi import WebSocket, WebSocketDisconnect,  FastAPI, UploadFile, File, Form, Request, Depends, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -522,7 +533,7 @@ def startup_event():
     # (19 feature + 6 app + 10 report) always exist. INSERT OR IGNORE so
     # admins' existing grants are untouched.
     try:
-        conn_p = sqlite3.connect(DB_PATH)
+        conn_p = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
         cur_p = conn_p.cursor()
         _DEFAULT_PERMS = [
             # (key, label, category)
@@ -572,7 +583,7 @@ def startup_event():
         print(f"[perm-seed WARN] {_e}")
 
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
     cursor = conn.cursor()
     
     cursor.execute("PRAGMA table_info(customers)")
@@ -604,7 +615,7 @@ def startup_event():
 
     # --- Migrate `plans` table: add extended bandwidth / RouterOS columns ---
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
         cur = conn.cursor()
 
         # nas_devices extra columns

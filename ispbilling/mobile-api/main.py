@@ -1,3 +1,14 @@
+# __SQLITE_GUARD_BOOT__
+import sqlite3 as __sq3_g; __sq3_g._orig_connect = __sq3_g.connect
+def __sq3_guard(*a, **kw):
+    p = a[0] if a else kw.get("database","")
+    if isinstance(p, str) and ("/var/lib/autoispbilling/autoispbilling.db" in p or "/var/lib/freeradius/radacct.db" in p):
+        import sys as _sys_sg
+        if "/opt/ispbilling" not in _sys_sg.path: _sys_sg.path.insert(0, "/opt/ispbilling")
+        import db_compat
+        return db_compat.get_raw_conn(timeout=kw.get("timeout",10))
+    return __sq3_g._orig_connect(*a, **kw)
+__sq3_g.connect = __sq3_guard
 # __PHASE0_BUSY_TIMEOUT_INSTALL__ — must run before any sqlite3.connect
 import sys as _phase0_sys
 _phase0_sys.path.insert(0, '/opt/ispbilling')
@@ -60,6 +71,18 @@ app.add_middleware(
 )
 
 # ---------------- DB helper ----------------
+
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
 def _conn():
     c = _compat_conn(timeout=10)
     c.row_factory = sqlite3.Row
@@ -91,7 +114,7 @@ def _ra_ts_to_ist_iso(v):
         return None
 
 def _ra_conn():
-    return sqlite3.connect(f"file:{RADACCT_PATH}?mode=ro", uri=True, timeout=5)
+    return _radacct_pg_connect()
 
 # ---------------- Real-time online detection ----------------
 # A radacct row with acctstoptime IS NULL is "open", but if the NAS crashed

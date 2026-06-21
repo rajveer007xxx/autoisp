@@ -3176,8 +3176,8 @@ def install(app, *, _conn, _require_auth):
             if not t:
                 return {"optical_power": None, "link_status": "Unknown"}
             r = c.execute(
-                "# _S58X_ONU_ENRICH_ include last_seen + traffic for app display
-                SELECT rx_power, tx_power, status, wan_ip, wan_status, last_seen, "
+                # _S58X_ONU_ENRICH_ include last_seen + traffic for app display
+                "SELECT rx_power, tx_power, status, wan_ip, wan_status, last_seen, "
                 "wifi_ssid, wifi_password, wifi_ssid_5g, wifi_password_5g, "
                 "wifi_band_split, serial, mac, wan_mode, "
                 "wan_username, wan_password, wan_static_ip, wan_netmask, "

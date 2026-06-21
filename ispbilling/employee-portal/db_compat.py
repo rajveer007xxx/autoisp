@@ -913,3 +913,31 @@ def smoke_test() -> dict:
 if __name__ == "__main__":
     import json
     print(json.dumps(smoke_test(), indent=2))
+
+# __PHASE_FINAL_SQLITE_GUARD__
+# Monkey-patch sqlite3.connect so any attempt to open the quarantined
+# legacy paths /var/lib/autoispbilling/autoispbilling.db and
+# /var/lib/freeradius/radacct.db is transparently routed through the
+# PostgreSQL-backed db_compat shim. Other paths (tests, temp DBs)
+# pass through unchanged.
+try:
+    import sqlite3 as __sqlite3_for_guard
+    _QUARANTINED_PATHS = (
+        "/var/lib/autoispbilling/autoispbilling.db",
+        "/var/lib/freeradius/radacct.db",
+    )
+    _original_sqlite3_connect = __sqlite3_for_guard.connect
+    def __guarded_sqlite3_connect(*args, **kwargs):
+        path = args[0] if args else kwargs.get("database", "")
+        try:
+            path_s = str(path)
+        except Exception:
+            path_s = ""
+        if any(p in path_s for p in _QUARANTINED_PATHS):
+            # Reroute to PG via the same module's get_raw_conn.
+            return get_raw_conn(timeout=kwargs.get("timeout", 10.0))
+        return _original_sqlite3_connect(*args, **kwargs)
+    __sqlite3_for_guard.connect = __guarded_sqlite3_connect
+except Exception as _gxe:
+    import sys as _gxe_sys
+    print(f"[db_compat] sqlite-guard install failed: {_gxe}", file=_gxe_sys.stderr)

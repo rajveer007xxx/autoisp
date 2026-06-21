@@ -3429,8 +3429,7 @@ def register_network_routes(app, templates, require_admin, require_auth, get_adm
             _wg_pub = ""
             try:
                 import sqlite3 as _sql
-                _con = _sql.connect("/var/lib/autoispbilling/autoispbilling.db",
-                                    timeout=5)
+                _con = __import__("db_compat").get_raw_conn(timeout=20)
                 _row = _con.execute(
                     "SELECT COALESCE(wg_peer_pubkey,'') FROM nas_devices "
                     "WHERE id=?", (nas.id,)).fetchone()

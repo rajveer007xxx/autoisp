@@ -1,3 +1,14 @@
+# __SQLITE_GUARD_BOOT__
+import sqlite3 as __sq3_g; __sq3_g._orig_connect = __sq3_g.connect
+def __sq3_guard(*a, **kw):
+    p = a[0] if a else kw.get("database","")
+    if isinstance(p, str) and ("/var/lib/autoispbilling/autoispbilling.db" in p or "/var/lib/freeradius/radacct.db" in p):
+        import sys as _sys_sg
+        if "/opt/ispbilling" not in _sys_sg.path: _sys_sg.path.insert(0, "/opt/ispbilling")
+        import db_compat
+        return db_compat.get_raw_conn(timeout=kw.get("timeout",10))
+    return __sq3_g._orig_connect(*a, **kw)
+__sq3_g.connect = __sq3_guard
 from fastapi import FastAPI, Request, Depends, Form, BackgroundTasks, UploadFile, File
 from db_compat import get_raw_conn as _compat_conn  # __s56Z_compat__
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse

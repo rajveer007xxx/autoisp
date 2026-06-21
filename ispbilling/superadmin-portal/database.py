@@ -596,7 +596,7 @@ def migrate_db():
     
     Base.metadata.create_all(bind=engine)
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
     cursor = conn.cursor()
     
     try:
@@ -1075,7 +1075,7 @@ def seed_superadmin_packages():
     """Seed default superadmin packages if they don't exist"""
     import sqlite3
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = __import__("db_compat").get_raw_conn(timeout=10)  # __PHASE_PG__
     cursor = conn.cursor()
     
     try:

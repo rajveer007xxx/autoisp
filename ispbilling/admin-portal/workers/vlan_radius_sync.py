@@ -35,6 +35,18 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
+
 
 def open_admin() -> sqlite3.Connection:
     """Open admin DB read-only via URI (WAL safe)."""
@@ -42,7 +54,7 @@ def open_admin() -> sqlite3.Connection:
 
 
 def open_rad() -> sqlite3.Connection:
-    c = sqlite3.connect(RAD_DB, timeout=10)
+    c = _radacct_pg_connect()
     c.execute("PRAGMA journal_mode=WAL")
     return c
 

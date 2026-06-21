@@ -22,6 +22,18 @@ ENFORCE_LIVE_SESSION_KICK = True
 APP_DB     = '/var/lib/autoispbilling/autoispbilling.db'
 RADIUS_DB  = '/var/lib/freeradius/radacct.db'
 
+# __PHASE_RADACCT_PG__  FreeRADIUS now writes its tables (radacct, radpostauth,
+# radcheck, radreply, ...) into the central PostgreSQL `autoispbilling` DB.
+# We expose a tiny adapter so the legacy `sqlite3.connect(RADACCT)` calls
+# below keep working without touching any of their SQL.
+def _radacct_pg_connect(*_a, **_kw):
+    import sys as _sys_rd
+    if "/opt/ispbilling" not in _sys_rd.path:
+        _sys_rd.path.insert(0, "/opt/ispbilling")
+    import db_compat as _db_compat_rd
+    return _db_compat_rd.get_raw_conn(timeout=10.0)
+
+
 
 def sync_voucher_redemptions(limit: int = 1000) -> dict:
     """Returns: {marked_used: int, revoked: int, scanned: int}"""
@@ -32,7 +44,7 @@ def sync_voucher_redemptions(limit: int = 1000) -> dict:
 
     # 1. Load codes that are NOT already 'used' (i.e. still need marking).
     app = sqlite3.connect(APP_DB, timeout=10); app.row_factory = sqlite3.Row
-    rad = sqlite3.connect(RADIUS_DB, timeout=10); rad.row_factory = sqlite3.Row
+    rad = _radacct_pg_connect(); rad.row_factory = sqlite3.Row
 
     rows = app.execute(
         "SELECT id, company_id, code, batch_id, plan_name, duration_minutes, "
