@@ -114,7 +114,7 @@ def _vsol_wifi_one(ts, oid: int, slot: int, ssid: Optional[str],
     out = []
     if ssid and password:
         out.append(ts.send(
-            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable "
+            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable enable "
             f"auth_mode wpapsk/wpa2psk encrypt_type tkipaes "
             f"shared_key {password} rekey_interval 86400",
             wait=0.9, iters=5))
@@ -123,7 +123,7 @@ def _vsol_wifi_one(ts, oid: int, slot: int, ssid: Optional[str],
         # the user can re-save shortly. (VSOL syntax requires shared_key
         # be present on every wifi_ssid command.)
         out.append(ts.send(
-            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable "
+            f"onu {oid} pri wifi_ssid {slot} name {ssid} hide disable enable "
             f"auth_mode wpapsk/wpa2psk encrypt_type tkipaes "
             f"shared_key 12345678 rekey_interval 86400",
             wait=0.9, iters=5))

@@ -121,30 +121,31 @@ $(document).ready(function() {
     function initMap() {
         map = L.map('map').setView([20.5937, 78.9629], 5);
 
-        // __PHASE19_10__  Multi-layer setup matching the OLT Network Map.
-        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap', maxZoom: 19
-        });
+        // __PHASE19_11__  EXACT same Google Maps tile layers used on the OLT
+        // Network Map page — Hybrid (lyrs=y) is the default since it shows
+        // roads + place names + satellite imagery together.
+        var hybrid = L.tileLayer(
+            "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+            { subdomains:["0","1","2","3"], attribution:"&copy; Google Maps",
+              maxZoom:20, minZoom:3 });
+        var streets = L.tileLayer(
+            "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+            { subdomains:["0","1","2","3"], attribution:"&copy; Google Maps",
+              maxZoom:20, minZoom:3 });
         var satellite = L.tileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            { attribution: 'Tiles © Esri', maxZoom: 19 }
-        );
-        var hybridLabels = L.tileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-            { attribution: '', maxZoom: 19, opacity: 0.9 }
-        );
-        var hybrid = L.layerGroup([satellite, hybridLabels]);
-        var dark = L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            { attribution: '© CARTO', maxZoom: 19 }
-        );
-
-        osm.addTo(map);  // default
+            "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+            { subdomains:["0","1","2","3"], attribution:"&copy; Google Maps",
+              maxZoom:20, minZoom:3 });
+        var terrain = L.tileLayer(
+            "https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}",
+            { subdomains:["0","1","2","3"], attribution:"&copy; Google Maps",
+              maxZoom:20, minZoom:3 });
+        hybrid.addTo(map);  // default = Hybrid (matches Network Map)
         L.control.layers(
-            { 'Map':       osm,
+            { 'Hybrid':    hybrid,
               'Satellite': satellite,
-              'Hybrid':    hybrid,
-              'Dark':      dark },
+              'Street':    streets,
+              'Terrain':   terrain },
             null,
             { position: 'topright', collapsed: false }
         ).addTo(map);
