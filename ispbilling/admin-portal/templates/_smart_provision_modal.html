@@ -196,18 +196,30 @@
             </div>
           </div>
 
-          {# ─ WAN tab ─  __PHASE19_3__ #}
+          {# ─ WAN tab ─  __PHASE19_3_4__ #}
           <div class="tab-pane fade" id="sp-tab-wan" role="tabpanel">
-            <div class="alert alert-info" style="font-size:12px;">
-              <i class="bi bi-info-circle"></i>
-              WAN settings are read from the linked customer\'s account
-              (PPPoE creds, static IP, VLAN). Override here if you want.
+            <div class="row" style="align-items:flex-end;">
+              <div class="col-md-5 form-group">
+                <label class="small">WAN Source</label>
+                <select class="form-control form-control-sm"
+                        id="sp_wan_source" data-testid="sp-wan-source">
+                  <option value="auto" selected>Auto-fetch from customer account (recommended)</option>
+                  <option value="manual">Manual entry (override)</option>
+                </select>
+              </div>
+              <div class="col-md-7" style="padding-bottom:14px;">
+                <div class="alert alert-info" style="font-size:12px;margin-bottom:0;padding:6px 10px;">
+                  <i class="bi bi-info-circle"></i>
+                  <span id="sp_wan_source_hint">Locked to the values stored on the customer\'s account — prevents accidental drift between billing config and ONU config.</span>
+                </div>
+              </div>
             </div>
+
             <div class="row">
               <div class="col-md-4 form-group">
                 <label class="small">WAN Mode</label>
                 <select class="form-control form-control-sm"
-                        id="sp_wan_mode" data-testid="sp-wan-mode">
+                        id="sp_wan_mode" data-testid="sp-wan-mode" disabled>
                   <option value="pppoe">PPPoE</option>
                   <option value="static_ip">Static IP</option>
                   <option value="dhcp">DHCP</option>
@@ -217,56 +229,67 @@
               <div class="col-md-4 form-group">
                 <label class="small">VLAN ID <span class="text-muted">(blank = untagged)</span></label>
                 <input type="number" min="0" max="4094" step="1"
-                       class="form-control form-control-sm"
-                       id="sp_wan_vlan" data-testid="sp-wan-vlan" />
+                       class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_vlan" data-testid="sp-wan-vlan" disabled />
               </div>
               <div class="col-md-4 form-group">
                 <label class="small">PPPoE Service Name <span class="text-muted">(optional)</span></label>
-                <input type="text" class="form-control form-control-sm"
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
                        id="sp_wan_svc" data-testid="sp-wan-svc"
-                       placeholder="any" />
+                       placeholder="any" disabled />
               </div>
             </div>
+
             <div id="sp_wan_pppoe" class="row sp-wan-group">
               <div class="col-md-6 form-group">
                 <label class="small">PPPoE Username</label>
-                <input type="text" class="form-control form-control-sm"
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
                        id="sp_wan_user" data-testid="sp-wan-user"
-                       placeholder="from customer account" />
+                       placeholder="from customer account" disabled />
               </div>
               <div class="col-md-6 form-group">
                 <label class="small">PPPoE Password</label>
-                <input type="text" class="form-control form-control-sm"
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
                        id="sp_wan_pw" data-testid="sp-wan-pw"
-                       placeholder="from customer account" />
+                       placeholder="from customer account" disabled />
               </div>
             </div>
+
             <div id="sp_wan_static" class="row sp-wan-group" style="display:none;">
               <div class="col-md-3 form-group">
                 <label class="small">Static IP</label>
-                <input type="text" class="form-control form-control-sm"
-                       id="sp_wan_ip" placeholder="203.0.113.10" />
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_ip" placeholder="203.0.113.10" disabled />
               </div>
               <div class="col-md-3 form-group">
                 <label class="small">Netmask</label>
-                <input type="text" class="form-control form-control-sm"
-                       id="sp_wan_mask" placeholder="255.255.255.0" />
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_mask" placeholder="255.255.255.0" disabled />
               </div>
               <div class="col-md-3 form-group">
                 <label class="small">Gateway</label>
-                <input type="text" class="form-control form-control-sm"
-                       id="sp_wan_gw" placeholder="203.0.113.1" />
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_gw" placeholder="203.0.113.1" disabled />
               </div>
               <div class="col-md-3 form-group">
-                <label class="small">DNS (comma sep)</label>
-                <input type="text" class="form-control form-control-sm"
-                       id="sp_wan_dns" placeholder="8.8.8.8,1.1.1.1" />
+                <label class="small">DNS <span class="text-muted">(comma sep)</span></label>
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_dns" placeholder="8.8.8.8,1.1.1.1" disabled />
               </div>
             </div>
+
+            <div id="sp_wan_dhcp" class="row sp-wan-group" style="display:none;">
+              <div class="col-md-6 form-group">
+                <label class="small">DNS <span class="text-muted">(comma sep — leave blank for ISP-assigned)</span></label>
+                <input type="text" class="form-control form-control-sm sp-wan-fld"
+                       id="sp_wan_dns_dhcp" placeholder="8.8.8.8,1.1.1.1" disabled />
+              </div>
+            </div>
+
             <div id="sp_wan_bridge" class="alert alert-warning"
                  style="font-size:12px;display:none;">
               <i class="bi bi-bricks"></i> Bridge mode — the ONU will be
-              a transparent L2 pipe; downstream router handles WAN.
+              a transparent L2 pipe; the downstream router handles WAN auth.
             </div>
           </div>
 
@@ -440,16 +463,56 @@
     _setVal('sp_wan_mask', R.wan_netmask);
     _setVal('sp_wan_gw',   R.wan_gateway);
     _setVal('sp_wan_dns',  R.wan_dns);
+    _setVal('sp_wan_dns_dhcp', R.wan_dns);
     _toggleWanMode();
+    _applyWanSource();
   }
 
   function _toggleWanMode(){
     const m = ($('#sp_wan_mode').val() || 'pppoe').toLowerCase();
     $('#sp_wan_pppoe').toggle(m === 'pppoe');
     $('#sp_wan_static').toggle(m === 'static_ip' || m === 'static');
+    $('#sp_wan_dhcp').toggle(m === 'dhcp');
     $('#sp_wan_bridge').toggle(m === 'bridge');
   }
   $(document).on('change', '#sp_wan_mode', _toggleWanMode);
+
+  // __PHASE19_4__  WAN Source toggle: auto = read-only & re-fetched;
+  // manual = editable.
+  function _applyWanSource(){
+    const isAuto = ($('#sp_wan_source').val() || 'auto') === 'auto';
+    $('#sp_wan_mode, .sp-wan-fld').prop('disabled', isAuto);
+    $('#sp_wan_source_hint').text(isAuto
+      ? "Locked to the values stored on the customer\'s account — prevents accidental drift between billing config and ONU config."
+      : "Manual override mode — any value you type here will be persisted onto the ONU row and pushed via OLT-CLI + GenieACS.");
+    if (isAuto){
+      // Re-pull from customer account every time the operator flips back
+      // to auto, so any post-edit re-read shows the canonical values.
+      _refreshPreview();
+    }
+  }
+  $(document).on('change', '#sp_wan_source', _applyWanSource);
+
+  // __PHASE19_4__  When user dismisses the modal mid-flow, make sure any
+  // leftover toast / progress div from older code is hidden, so they
+  // don\'t see a phantom "Running…" popup.
+  $(document).on('hidden.bs.modal hide.bs.modal', '#smartProvisionModal', function(){
+    // Reset Provision button + output pane so reopens are clean.
+    const btn = document.getElementById('sp_submit_btn');
+    if (btn){
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
+    }
+    const out = document.getElementById('sp_output');
+    if (out){ out.style.display = 'none'; out.textContent = ''; }
+    // Kill any legacy "_show()" popups from older pages.
+    document.querySelectorAll('.alert.alert-info, .toast, .toaster, .progress-modal').forEach(el => {
+      const txt = (el.textContent || '').toLowerCase();
+      if (txt.includes('running zero-touch') || txt.includes('provisioning…') || txt.includes('provisioning...')){
+        try { el.remove(); } catch(e){}
+      }
+    });
+  });
 
   async function _refreshPreview(){
     const cust = ($('#sp_customer_id').val() || '').trim();
@@ -465,12 +528,61 @@
     } catch(e){}
   }
 
+  // __PHASE19_4__  tiny non-blocking toast (auto-fades, no overlay)
+  function _spToast(msg, ok){
+    const wrap = document.getElementById('sp_toast_wrap') || (function(){
+      const el = document.createElement('div');
+      el.id = 'sp_toast_wrap';
+      el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;';
+      document.body.appendChild(el); return el;
+    })();
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'background:' + (ok!==false ? '#10b981' : '#ef4444') +
+      ';color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;' +
+      'box-shadow:0 6px 14px rgba(0,0,0,.25);opacity:0;transition:opacity .25s;';
+    wrap.appendChild(t);
+    requestAnimationFrame(()=>{ t.style.opacity = '1'; });
+    setTimeout(()=>{ t.style.opacity = '0'; setTimeout(()=>t.remove(), 300); }, 2500);
+  }
+
+  // __PHASE19_4__  Fetch ONU summary (serial + OLT name + bound customer)
+  // so we can show real labels regardless of how the modal was opened.
+  async function _fetchOnuMeta(id){
+    if (!id) return {};
+    try {
+      const r = await fetch('/api/admin/olt/onus/' + id);
+      const j = await r.json();
+      return j && j.onu ? j.onu : {};
+    } catch(e){ return {}; }
+  }
+
   window.openSmartProvision = async function(opts){
     opts = opts || {};
     $('#sp_onu_id').val(opts.onu_id || '');
     $('#sp_onu_label').val(opts.label || ('#' + (opts.onu_id || '')));
     $('#sp_olt_label').val(opts.olt_label || '');
     $('#sp_customer_id').val(opts.customer_id || '');
+
+    // Always pull canonical metadata when an onu_id is known. This makes
+    // labels (serial / OLT name / linked customer) reliable on every page.
+    if (opts.onu_id){
+      const meta = await _fetchOnuMeta(opts.onu_id);
+      if (meta && meta.id){
+        if (!opts.label) {
+          $('#sp_onu_label').val(meta.serial || meta.mac || ('#'+opts.onu_id));
+        }
+        if (!opts.olt_label) {
+          const oltStr = (meta.olt_name || '')
+            + (meta.pon_port_index ? ' / PON ' + meta.pon_port_index : '')
+            + (meta.onu_index != null ? ' / ONU ' + meta.onu_index : '');
+          $('#sp_olt_label').val(oltStr.trim());
+        }
+        if (!opts.customer_id && meta.customer_id){
+          $('#sp_customer_id').val(meta.customer_id);
+        }
+      }
+    }
     $('#sp_subtitle').text(opts.label ? (' — ' + opts.label) : '');
     $('#sp_output').hide().text('');
 
@@ -507,7 +619,17 @@
     _spDebounce = setTimeout(_refreshPreview, 500);
   });
 
-  $(document).on('click', '#sp_preview_btn', _refreshPreview);
+  $(document).on('click', '#sp_preview_btn', async function(){
+    const btn = this;
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Loading…';
+    try { await _refreshPreview(); _spToast('Smart defaults loaded', true); }
+    catch(e){ _spToast('Preview failed: ' + e.message, false); }
+    finally {
+      btn.disabled = false; btn.innerHTML = orig;
+    }
+  });
 
   $(document).on('click', '#sp_submit_btn', async function(){
     const id = $('#sp_onu_id').val();
@@ -517,9 +639,11 @@
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Provisioning…';
     out.style.display = 'block'; out.textContent = 'Working…';
+    const wanIsManual = ($('#sp_wan_source').val() || 'auto') === 'manual';
     const payload = {
       customer_id: ($('#sp_customer_id').val()||'').trim() || null,
       profile_id:  parseInt($('#sp_profile_id').val()||'0', 10) || null,
+      wan_source:  wanIsManual ? 'manual' : 'auto',
       wifi_ssid:        ($('#sp_ssid_24').val()||'').trim() || null,
       wifi_password:    ($('#sp_pw_24').val()||'').trim() || null,
       wifi_radio_24_enabled: $('#sp_radio_24').is(':checked') ? 1 : 0,
@@ -540,17 +664,21 @@
       dhcp_end:    ($('#sp_dhcp_end').val()||'').trim() || null,
       inform_interval: parseInt($('#sp_inform_int').val()||'60', 10),
       factory_reset_on_push: $('#sp_factory_reset').is(':checked') ? 1 : 0,
-      // __PHASE19_3__ — WAN payload
-      wan_mode:         ($('#sp_wan_mode').val() || 'pppoe'),
-      wan_username:     ($('#sp_wan_user').val()||'').trim() || null,
-      wan_password:     ($('#sp_wan_pw').val()||'').trim() || null,
-      wan_vlan:         parseInt($('#sp_wan_vlan').val()||'0', 10) || null,
-      wan_service_name: ($('#sp_wan_svc').val()||'').trim() || null,
-      wan_static_ip:    ($('#sp_wan_ip').val()||'').trim() || null,
-      wan_netmask:      ($('#sp_wan_mask').val()||'').trim() || null,
-      wan_gateway:      ($('#sp_wan_gw').val()||'').trim() || null,
-      wan_dns:          ($('#sp_wan_dns').val()||'').trim() || null,
     };
+    if (wanIsManual){
+      const m = ($('#sp_wan_mode').val() || 'pppoe').toLowerCase();
+      payload.wan_mode         = m;
+      payload.wan_vlan         = parseInt($('#sp_wan_vlan').val()||'0', 10) || null;
+      payload.wan_service_name = ($('#sp_wan_svc').val()||'').trim() || null;
+      payload.wan_username     = ($('#sp_wan_user').val()||'').trim() || null;
+      payload.wan_password     = ($('#sp_wan_pw').val()||'').trim() || null;
+      payload.wan_static_ip    = ($('#sp_wan_ip').val()||'').trim() || null;
+      payload.wan_netmask      = ($('#sp_wan_mask').val()||'').trim() || null;
+      payload.wan_gateway      = ($('#sp_wan_gw').val()||'').trim() || null;
+      payload.wan_dns          = (m === 'dhcp')
+        ? (($('#sp_wan_dns_dhcp').val()||'').trim() || null)
+        : (($('#sp_wan_dns').val()||'').trim() || null);
+    }
     try {
       const r = await fetch('/api/admin/olt/onus/' + id + '/zero-touch-provision', {
         method:'POST', headers:{'Content-Type':'application/json'},

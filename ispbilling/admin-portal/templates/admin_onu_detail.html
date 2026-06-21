@@ -1203,14 +1203,14 @@ async function actTr069Clear(){
   _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/tr069-cli-clear`, {}));
 }
 async function actZTP(){
-  if (!confirm('Zero-Touch Provision this ONU?\n\nWill push:\n  1) WAN config\n  2) Wi-Fi config\n  3) TR-069 ACS URL\nvia the OLT CLI. Works on factory-reset CPEs.')) return;
-  _show('Running Zero-Touch Provision…');
-  // __PHASE19_2_  Open Smart Provision modal instead of blind POST.
-    if (typeof window.openSmartProvision === 'function'){
-      window.openSmartProvision({onu_id: ONU_ID, label: (window.ONU_LABEL||('#'+ONU_ID)), olt_label: (window.OLT_LABEL||'')});
-    } else {
-      _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/zero-touch-provision`, {}));
-    }
+  // __PHASE19_4__  Open Smart Provision modal directly — no confirm/toast.
+  if (typeof window.openSmartProvision === 'function'){
+    window.openSmartProvision({onu_id: ONU_ID});
+  } else {
+    if (!confirm('Smart Provision UI not loaded. Run blind ZTP?')) return;
+    _show('Running Zero-Touch Provision…');
+    _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/zero-touch-provision`, {}));
+  }
 }
 async function actFactoryReset(){
   if (!confirm('FACTORY-RESET this ONU and re-provision it?\n\nAll local settings (Wi-Fi, LAN, WAN) will be wiped, then the saved profile is pushed back.\n\nContinue?')) return;

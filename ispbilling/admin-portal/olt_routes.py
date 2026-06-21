@@ -3529,7 +3529,15 @@ def api_onu_zero_touch_provision(request: Request, onu_id: int,
         defaults = build_smart_defaults(
             sc0["company_id"], cust,
             profile_id=(body or {}).get("profile_id"))
-        resolved = merge_with_overrides(defaults, body or {})
+        # __PHASE19_4__  When source=auto, strip wan_* keys so customer's
+        # account is always the truth. Manual mode passes them through.
+        _body_for_merge = dict(body or {})
+        if (_body_for_merge.get("wan_source") or "auto").lower() == "auto":
+            for _k in ("wan_mode", "wan_username", "wan_password",
+                       "wan_static_ip", "wan_netmask", "wan_gateway",
+                       "wan_dns", "wan_vlan", "wan_service_name"):
+                _body_for_merge.pop(_k, None)
+        resolved = merge_with_overrides(defaults, _body_for_merge)
         persist_to_onu(sc0["company_id"], onu_id, resolved)
         # When the operator picked a different profile, mirror it onto the row.
         if (body or {}).get("profile_id"):
@@ -4852,6 +4860,32 @@ def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
             params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username"] = wan_user
             if wan_pw:
                 params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Password"] = wan_pw
+
+        # __PHASE19_4__  ACS reachability for EVERY WAN mode (not just PPPoE).
+        # Pulls ACS URL + creds from tenant superadmin_settings so the embedded
+        # CWMP client always points at the configured GenieACS even after the
+        # ONU is bridged/static/dhcp'd.
+        try:
+            with engine.begin() as _cs:
+                _ss = _cs.exec_driver_sql(
+                    "SELECT tr069_acs_url, tr069_acs_username, tr069_acs_password "
+                    "FROM superadmin_settings WHERE company_id=%s LIMIT 1",
+                    (cid,)).fetchone()
+            if _ss:
+                _acs_url, _acs_u, _acs_p = _ss
+                MS = "InternetGatewayDevice.ManagementServer"
+                if _acs_url:
+                    params[f"{MS}.URL"] = str(_acs_url)
+                if _acs_u:
+                    params[f"{MS}.Username"] = str(_acs_u)
+                if _acs_p:
+                    params[f"{MS}.Password"] = str(_acs_p)
+                # Always enable periodic-inform so the ONU phones home
+                # regardless of WAN mode.
+                params[f"{MS}.PeriodicInformEnable"] = "true"
+                params[f"{MS}.PeriodicInformInterval"] = "60"
+        except Exception:
+            pass
         # __PHASE19_2_LAN__ — LAN gateway + DHCP server config
         LHC = "InternetGatewayDevice.LANDevice.1.LANHostConfigManagement"
         if lan_ip:
