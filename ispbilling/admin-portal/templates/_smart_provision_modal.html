@@ -73,6 +73,10 @@
           </li>
           <li class="nav-item">
             <a class="nav-link" data-toggle="tab" data-bs-toggle="tab"
+               href="#sp-tab-wan" role="tab">WAN</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" data-bs-toggle="tab"
                href="#sp-tab-lan" role="tab">LAN / DHCP</a>
           </li>
           <li class="nav-item">
@@ -189,6 +193,80 @@
                   <option>160MHz</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          {# ─ WAN tab ─  __PHASE19_3__ #}
+          <div class="tab-pane fade" id="sp-tab-wan" role="tabpanel">
+            <div class="alert alert-info" style="font-size:12px;">
+              <i class="bi bi-info-circle"></i>
+              WAN settings are read from the linked customer\'s account
+              (PPPoE creds, static IP, VLAN). Override here if you want.
+            </div>
+            <div class="row">
+              <div class="col-md-4 form-group">
+                <label class="small">WAN Mode</label>
+                <select class="form-control form-control-sm"
+                        id="sp_wan_mode" data-testid="sp-wan-mode">
+                  <option value="pppoe">PPPoE</option>
+                  <option value="static_ip">Static IP</option>
+                  <option value="dhcp">DHCP</option>
+                  <option value="bridge">Bridge</option>
+                </select>
+              </div>
+              <div class="col-md-4 form-group">
+                <label class="small">VLAN ID <span class="text-muted">(blank = untagged)</span></label>
+                <input type="number" min="0" max="4094" step="1"
+                       class="form-control form-control-sm"
+                       id="sp_wan_vlan" data-testid="sp-wan-vlan" />
+              </div>
+              <div class="col-md-4 form-group">
+                <label class="small">PPPoE Service Name <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_svc" data-testid="sp-wan-svc"
+                       placeholder="any" />
+              </div>
+            </div>
+            <div id="sp_wan_pppoe" class="row sp-wan-group">
+              <div class="col-md-6 form-group">
+                <label class="small">PPPoE Username</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_user" data-testid="sp-wan-user"
+                       placeholder="from customer account" />
+              </div>
+              <div class="col-md-6 form-group">
+                <label class="small">PPPoE Password</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_pw" data-testid="sp-wan-pw"
+                       placeholder="from customer account" />
+              </div>
+            </div>
+            <div id="sp_wan_static" class="row sp-wan-group" style="display:none;">
+              <div class="col-md-3 form-group">
+                <label class="small">Static IP</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_ip" placeholder="203.0.113.10" />
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Netmask</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_mask" placeholder="255.255.255.0" />
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Gateway</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_gw" placeholder="203.0.113.1" />
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">DNS (comma sep)</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_wan_dns" placeholder="8.8.8.8,1.1.1.1" />
+              </div>
+            </div>
+            <div id="sp_wan_bridge" class="alert alert-warning"
+                 style="font-size:12px;display:none;">
+              <i class="bi bi-bricks"></i> Bridge mode — the ONU will be
+              a transparent L2 pipe; downstream router handles WAN.
             </div>
           </div>
 
@@ -352,7 +430,26 @@
     _setVal('sp_dhcp_end',   R.dhcp_end);
     _setVal('sp_inform_int', R.inform_interval);
     _setVal('sp_factory_reset', R.factory_reset_on_push);
+    // __PHASE19_3__ — WAN
+    _setVal('sp_wan_mode', R.wan_mode || 'pppoe');
+    _setVal('sp_wan_user', R.wan_username);
+    _setVal('sp_wan_pw',   R.wan_password);
+    _setVal('sp_wan_vlan', R.wan_vlan);
+    _setVal('sp_wan_svc',  R.wan_service_name);
+    _setVal('sp_wan_ip',   R.wan_static_ip);
+    _setVal('sp_wan_mask', R.wan_netmask);
+    _setVal('sp_wan_gw',   R.wan_gateway);
+    _setVal('sp_wan_dns',  R.wan_dns);
+    _toggleWanMode();
   }
+
+  function _toggleWanMode(){
+    const m = ($('#sp_wan_mode').val() || 'pppoe').toLowerCase();
+    $('#sp_wan_pppoe').toggle(m === 'pppoe');
+    $('#sp_wan_static').toggle(m === 'static_ip' || m === 'static');
+    $('#sp_wan_bridge').toggle(m === 'bridge');
+  }
+  $(document).on('change', '#sp_wan_mode', _toggleWanMode);
 
   async function _refreshPreview(){
     const cust = ($('#sp_customer_id').val() || '').trim();
@@ -443,6 +540,16 @@
       dhcp_end:    ($('#sp_dhcp_end').val()||'').trim() || null,
       inform_interval: parseInt($('#sp_inform_int').val()||'60', 10),
       factory_reset_on_push: $('#sp_factory_reset').is(':checked') ? 1 : 0,
+      // __PHASE19_3__ — WAN payload
+      wan_mode:         ($('#sp_wan_mode').val() || 'pppoe'),
+      wan_username:     ($('#sp_wan_user').val()||'').trim() || null,
+      wan_password:     ($('#sp_wan_pw').val()||'').trim() || null,
+      wan_vlan:         parseInt($('#sp_wan_vlan').val()||'0', 10) || null,
+      wan_service_name: ($('#sp_wan_svc').val()||'').trim() || null,
+      wan_static_ip:    ($('#sp_wan_ip').val()||'').trim() || null,
+      wan_netmask:      ($('#sp_wan_mask').val()||'').trim() || null,
+      wan_gateway:      ($('#sp_wan_gw').val()||'').trim() || null,
+      wan_dns:          ($('#sp_wan_dns').val()||'').trim() || null,
     };
     try {
       const r = await fetch('/api/admin/olt/onus/' + id + '/zero-touch-provision', {

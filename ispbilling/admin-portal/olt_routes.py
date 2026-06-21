@@ -3519,7 +3519,7 @@ def api_onu_zero_touch_provision(request: Request, onu_id: int,
     try:
         from smart_provision import (
             build_smart_defaults, fetch_customer_for_onu,
-            merge_with_overrides, persist_to_onu)
+            merge_with_overrides, persist_to_onu, build_wan_for_onu)
         sc0 = _require_scope(request)
         _enforce_onu_scope(request, sc0, onu_id)
         cust = fetch_customer_for_onu(
@@ -4779,8 +4779,76 @@ def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
             params[f"{WL5}.Channel"] = str(int(ch_5))
         if bw_5 and bw_5.lower() != "auto":
             params[f"{WL5}.OperatingChannelBandwidth"] = bw_5
-        # ── WAN / PPPoE ─────────────────────────────────────────────
-        if (wan_mode or "").lower() == "pppoe" and wan_user:
+        # ── WAN (__PHASE19_3__  full 4-mode: pppoe / static / dhcp / bridge) ──
+        WCD = "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1"
+        WEL = "InternetGatewayDevice.WANDevice.1.WANEthernetLinkConfig"
+        wm = (wan_mode or "").lower().replace("-", "_")
+        # Normalize legacy aliases
+        wm = {"static": "static_ip", "staticip": "static_ip",
+              "dynamic": "dhcp", "bridged": "bridge"}.get(wm, wm)
+        # Pull WAN-mode auxiliaries from the ONU row (read once)
+        wan_static_ip = wan_mask_v = wan_gw_v = wan_dns_v = wan_svc = None
+        try:
+            with engine.begin() as _cwan:
+                _rwan = _cwan.exec_driver_sql(
+                    "SELECT wan_static_ip, wan_netmask, wan_gateway, wan_dns, wan_service_name "
+                    "FROM onus WHERE id=%s AND company_id=%s",
+                    (int(onu_id), cid)).fetchone()
+            if _rwan:
+                wan_static_ip, wan_mask_v, wan_gw_v, wan_dns_v, wan_svc = _rwan
+        except Exception:
+            pass
+
+        # VLAN — applies in any mode
+        if wan_vlan is not None and str(wan_vlan).strip() not in ("", "0"):
+            try:
+                vid = int(wan_vlan)
+                params[f"{WEL}.VLANIDMark"] = str(vid)
+                params[f"{WEL}.VLAN"] = str(vid)        # vendor alias
+            except Exception:
+                pass
+
+        if wm == "pppoe":
+            if wan_user:
+                params[f"{WCD}.WANPPPConnection.1.Username"] = wan_user
+                params[f"{WCD}.WANPPPConnection.1.Enable"] = "true"
+                params[f"{WCD}.WANPPPConnection.1.ConnectionType"] = "IP_Routed"
+                if wan_pw:
+                    params[f"{WCD}.WANPPPConnection.1.Password"] = wan_pw
+                if wan_svc:
+                    params[f"{WCD}.WANPPPConnection.1.PPPoEServiceName"] = wan_svc
+            # Belt-and-braces: disable any conflicting WANIPConnection
+            params[f"{WCD}.WANIPConnection.1.Enable"] = "false"
+
+        elif wm == "static_ip":
+            params[f"{WCD}.WANIPConnection.1.Enable"] = "true"
+            params[f"{WCD}.WANIPConnection.1.ConnectionType"] = "IP_Routed"
+            params[f"{WCD}.WANIPConnection.1.AddressingType"] = "Static"
+            if wan_static_ip:
+                params[f"{WCD}.WANIPConnection.1.ExternalIPAddress"] = wan_static_ip
+            if wan_mask_v:
+                params[f"{WCD}.WANIPConnection.1.SubnetMask"] = wan_mask_v
+            if wan_gw_v:
+                params[f"{WCD}.WANIPConnection.1.DefaultGateway"] = wan_gw_v
+            if wan_dns_v:
+                params[f"{WCD}.WANIPConnection.1.DNSServers"] = wan_dns_v
+            params[f"{WCD}.WANPPPConnection.1.Enable"] = "false"
+
+        elif wm == "dhcp":
+            params[f"{WCD}.WANIPConnection.1.Enable"] = "true"
+            params[f"{WCD}.WANIPConnection.1.ConnectionType"] = "IP_Routed"
+            params[f"{WCD}.WANIPConnection.1.AddressingType"] = "DHCP"
+            params[f"{WCD}.WANPPPConnection.1.Enable"] = "false"
+
+        elif wm == "bridge":
+            # Bridge mode: turn off both routed connections + set bridge.
+            params[f"{WCD}.WANIPConnection.1.Enable"] = "false"
+            params[f"{WCD}.WANPPPConnection.1.Enable"] = "false"
+            # Many ITU-T OEMs accept ConnectionType=IP_Bridged
+            params[f"{WCD}.WANIPConnection.1.ConnectionType"] = "IP_Bridged"
+
+        # Legacy unprefixed paths for backwards-compat with old presets.
+        if wm == "pppoe" and wan_user:
             params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username"] = wan_user
             if wan_pw:
                 params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Password"] = wan_pw

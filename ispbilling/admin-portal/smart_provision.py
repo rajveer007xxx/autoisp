@@ -65,13 +65,37 @@ def _first4_name(name: Optional[str]) -> str:
     return (cleaned[:4] or "user").ljust(4, "x")
 
 
+def _first_token(name: Optional[str]) -> str:
+    """__PHASE19_3__  Return the customer's first name token, sanitized.
+    Splits on whitespace + dots + dashes + underscores so usernames like
+    ``mp.sehbaz.fibernet`` and real names like ``Rajveer Singh`` both
+    resolve correctly. Falls back to ``User``."""
+    if not name:
+        return "User"
+    parts = re.split(r"[\s._\-]+", str(name).strip())
+    for token in parts:
+        cleaned = re.sub(r"[^A-Za-z0-9]+", "", token)
+        if len(cleaned) >= 1:
+            return cleaned
+    return "User"
+
+
+def _first_name_4(name: Optional[str]) -> str:
+    """First 4 letters of the first name token (no padding)."""
+    first = _first_token(name)
+    return first[:4]
+
+
 def _substitute(template: Optional[str], cust: Dict) -> Optional[str]:
-    """Replace {mobile_last4} / {name_first4} / {customer_id} placeholders."""
+    """Replace template tokens against the customer record."""
     if template is None:
         return None
+    name = cust.get("name")
     return (template
+            .replace("{first_name4}",  _first_name_4(name))
+            .replace("{first_name}",   _first_token(name))
             .replace("{mobile_last4}", _last4_digits(cust.get("phone")))
-            .replace("{name_first4}",  _first4_name(cust.get("name")))
+            .replace("{name_first4}",  _first4_name(name))  # legacy alias
             .replace("{customer_id}",  str(cust.get("customer_id") or "")))
 
 
@@ -172,6 +196,8 @@ def build_smart_defaults(cid: str, customer: Dict,
         "factory_reset_on_push": int(p.get("factory_reset_on_push") or 0),
         "_profile_id":         p.get("_profile_id"),
     }
+    # __PHASE19_3__ — splice in WAN config derived from the customer.
+    out.update(build_wan_for_onu(customer))
     return out
 
 
@@ -189,13 +215,69 @@ def fetch_customer_for_onu(cid: str, customer_id: Optional[str],
         return {"customer_id": None, "name": None, "phone": None}
     with engine.begin() as conn:
         r = conn.exec_driver_sql(
-            "SELECT customer_id, customer_name AS name, customer_phone AS phone "
+            "SELECT customer_id, customer_name AS name, customer_phone AS phone, "
+            "       username, pppoe_password, auth_type, "
+            "       static_ip_address, static_netmask, fix_ip_address, "
+            "       vlan_enabled, vlan_id "
             "FROM customers WHERE company_id=%s AND "
-            "(customer_id=%s OR username=%s) LIMIT 1",
+            "      (customer_id=%s OR username=%s) LIMIT 1",
             (cid, customer_id, customer_id)).fetchone()
     if not r:
-        return {"customer_id": customer_id, "name": None, "phone": None}
-    return {"customer_id": r[0], "name": r[1], "phone": r[2]}
+        return {"customer_id": customer_id, "name": None, "phone": None,
+                "wan": {"mode": None}}
+    return {
+        "customer_id": r[0], "name": r[1], "phone": r[2],
+        "wan": {
+            "mode": (r[5] or "pppoe").lower(),       # pppoe / static_ip / dhcp / bridge
+            "username": r[3],
+            "password": r[4],
+            "static_ip": (r[6] or None),
+            "static_netmask": (r[7] or "255.255.255.0"),
+            "fix_ip": (r[8] or "No"),
+            "vlan_enabled": int(r[9] or 0),
+            "vlan_id": r[10],
+        },
+    }
+
+
+def build_wan_for_onu(customer: Dict) -> Dict:
+    """__PHASE19_3__  Map customer.wan{} to ONU.wan_* columns.
+
+    Supports four authoritative modes:
+      * ``pppoe``     — Username + Password + optional Service-Name + VLAN
+      * ``static_ip`` — IP + Netmask + Gateway + DNS + VLAN
+      * ``dhcp``      — DHCP client + VLAN
+      * ``bridge``    — Bridge mode, only VLAN matters
+    """
+    wan = (customer or {}).get("wan") or {}
+    raw_mode = (wan.get("mode") or "pppoe").lower().replace("-", "_")
+    # Normalize legacy values: 'static_ip' vs 'static', 'PPPoE' vs 'pppoe'
+    mode = {
+        "static": "static_ip", "static_ip": "static_ip", "staticip": "static_ip",
+        "ppp": "pppoe", "pppoe": "pppoe",
+        "dhcp": "dhcp", "dynamic": "dhcp",
+        "bridge": "bridge", "bridged": "bridge",
+    }.get(raw_mode, raw_mode)
+    out = {
+        "wan_mode": mode,
+        "wan_username": None, "wan_password": None,
+        "wan_static_ip": None, "wan_netmask": None,
+        "wan_gateway": None, "wan_dns": None,
+        "wan_vlan": None, "wan_service_name": None,
+    }
+    if mode == "pppoe":
+        out["wan_username"] = wan.get("username")
+        out["wan_password"] = wan.get("password")
+    elif mode == "static_ip":
+        out["wan_static_ip"] = wan.get("static_ip")
+        out["wan_netmask"] = wan.get("static_netmask") or "255.255.255.0"
+    # VLAN applies in every mode if enabled on the customer
+    if int(wan.get("vlan_enabled") or 0) == 1 and wan.get("vlan_id"):
+        try:
+            out["wan_vlan"] = int(wan["vlan_id"])
+        except Exception:
+            out["wan_vlan"] = None
+    return out
 
 
 def merge_with_overrides(defaults: Dict, body: Dict) -> Dict:
@@ -218,6 +300,12 @@ def merge_with_overrides(defaults: Dict, body: Dict) -> Dict:
         "dhcp_start": "dhcp_start", "dhcp_end": "dhcp_end",
         "inform_interval": "inform_interval",
         "factory_reset_on_push": "factory_reset_on_push",
+        # __PHASE19_3__ — WAN overrides
+        "wan_mode": "wan_mode",
+        "wan_username": "wan_username", "wan_password": "wan_password",
+        "wan_static_ip": "wan_static_ip", "wan_netmask": "wan_netmask",
+        "wan_gateway": "wan_gateway", "wan_dns": "wan_dns",
+        "wan_vlan": "wan_vlan", "wan_service_name": "wan_service_name",
     }
     for src, dst in field_map.items():
         if src in body and body[src] not in (None, ""):
@@ -249,6 +337,12 @@ def persist_to_onu(cid: str, onu_id: int, resolved: Dict) -> None:
         "dhcp_enabled": "dhcp_enabled",
         "dhcp_start": "dhcp_start", "dhcp_end": "dhcp_end",
         "factory_reset_on_push": "factory_reset_on_push",
+        # __PHASE19_3__ — WAN columns
+        "wan_mode": "wan_mode",
+        "wan_username": "wan_username", "wan_password": "wan_password",
+        "wan_static_ip": "wan_static_ip", "wan_netmask": "wan_netmask",
+        "wan_gateway": "wan_gateway", "wan_dns": "wan_dns",
+        "wan_vlan": "wan_vlan", "wan_service_name": "wan_service_name",
     }
     for k, col in db_map.items():
         v = resolved.get(k)
