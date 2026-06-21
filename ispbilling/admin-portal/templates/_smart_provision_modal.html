@@ -318,15 +318,21 @@
             </div>
             <div id="sp_dhcp_range">
               <div class="row">
-                <div class="col-md-6 form-group">
+                <div class="col-md-4 form-group">
                   <label class="small">DHCP Range Start</label>
                   <input type="text" class="form-control form-control-sm"
                          id="sp_dhcp_start" placeholder="192.168.1.2" />
                 </div>
-                <div class="col-md-6 form-group">
+                <div class="col-md-4 form-group">
                   <label class="small">DHCP Range End</label>
                   <input type="text" class="form-control form-control-sm"
                          id="sp_dhcp_end" placeholder="192.168.1.254" />
+                </div>
+                <div class="col-md-4 form-group">
+                  <label class="small">LAN DNS <span class="text-muted">(comma sep)</span></label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="sp_lan_dns" data-testid="sp-lan-dns"
+                         placeholder="8.8.8.8,1.1.1.1" />
                 </div>
               </div>
             </div>
@@ -451,6 +457,7 @@
     _setVal('sp_dhcp_en', R.dhcp_enabled);
     _setVal('sp_dhcp_start', R.dhcp_start);
     _setVal('sp_dhcp_end',   R.dhcp_end);
+    _setVal('sp_lan_dns',    R.wan_dns);
     _setVal('sp_inform_int', R.inform_interval);
     _setVal('sp_factory_reset', R.factory_reset_on_push);
     // __PHASE19_3__ — WAN
@@ -662,6 +669,8 @@
       dhcp_enabled: $('#sp_dhcp_en').is(':checked') ? 1 : 0,
       dhcp_start:  ($('#sp_dhcp_start').val()||'').trim() || null,
       dhcp_end:    ($('#sp_dhcp_end').val()||'').trim() || null,
+      // __PHASE19_5__  LAN DNS — piggybacks on the wan_dns column.
+      wan_dns:     ($('#sp_lan_dns').val()||'').trim() || undefined,
       inform_interval: parseInt($('#sp_inform_int').val()||'60', 10),
       factory_reset_on_push: $('#sp_factory_reset').is(':checked') ? 1 : 0,
     };

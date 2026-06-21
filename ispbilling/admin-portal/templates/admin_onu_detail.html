@@ -568,8 +568,34 @@
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3"><label class="form-label">LAN IP</label><input id="li_ip"  class="form-control" placeholder="192.168.1.1" data-testid="li-ip"></div>
-          <div class="mb-3"><label class="form-label">Subnet Mask</label><input id="li_mask" class="form-control" placeholder="255.255.255.0" data-testid="li-mask"></div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">LAN Gateway IP</label>
+              <input id="li_ip"  class="form-control" placeholder="192.168.1.1" data-testid="li-ip">
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Subnet Mask</label>
+              <input id="li_mask" class="form-control" placeholder="255.255.255.0" data-testid="li-mask" value="255.255.255.0">
+            </div>
+          </div>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="li_dhcp_en" checked>
+            <label class="form-check-label" for="li_dhcp_en">Enable DHCP Server</label>
+          </div>
+          <div id="li_dhcp_grid" class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">DHCP Range Start</label>
+              <input id="li_dhcp_start" class="form-control" placeholder="192.168.1.2">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">DHCP Range End</label>
+              <input id="li_dhcp_end" class="form-control" placeholder="192.168.1.254">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">DNS <span class="text-muted">(comma sep)</span></label>
+              <input id="li_dns" class="form-control" placeholder="8.8.8.8,1.1.1.1">
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -608,6 +634,64 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+  // __PHASE19_5__  Friendly UX for TR-069 RPC failures: replace cryptic
+  // 'not_registered' with actionable guidance + "Run Diagnostic" link.
+  window.spExplainRpcErr = function(j, label){
+    if (!j || j.ok !== false) return null;
+    const err = (j.error || j.skip || '').toLowerCase();
+    let head, body;
+    if (err === 'not_registered'){
+      head = label + ' — ONU not yet in GenieACS';
+      body = "This ONU has never sent a CWMP Inform packet to the ACS, so " +
+             "TR-069 RPCs cannot reach it yet.\n\n" +
+             "What to do:\n" +
+             "  1. Verify the ONU is online (LOS off, link up).\n" +
+             "  2. Open the 3-dot menu and click 'TR-069 Diagnostic' \u2014 " +
+                 "it will tell you whether the ACS URL is set on the ONU.\n" +
+             "  3. If diagnostic says 'ACS URL not set', click " +
+                 "'Push TR-069 via OLT' \u2014 this bootstraps the ACS URL " +
+                 "over OMCI/OAM (no internet required on the ONU).\n" +
+             "  4. Wait 5\u201310 min (inform_interval) and retry.";
+    } else if (err === 'acs_not_configured'){
+      head = label + ' \u2014 ACS not configured';
+      body = "GenieACS URL / credentials are missing in System Config. " +
+             "Go to Settings \u2192 System Config \u2192 TR-069 / ACS and fill " +
+             "the ACS URL + NBI username + password, then retry.";
+    } else if (err === 'no_device_id'){
+      head = label + ' \u2014 ACS lookup miss';
+      body = "GenieACS responded but the device record has no _id. The ONU " +
+             "may be in the middle of a re-register cycle. Retry in 1\u20132 min.";
+    } else {
+      return null;
+    }
+    alert(head + "\n\n" + body);
+    return true;
+  };
+
+  // __PHASE19_5__  Friendly RPC error globalizer
+  (function(){
+    const _origFetch = window.fetch;
+    window.fetch = async function(input, init){
+      const resp = await _origFetch.apply(this, arguments);
+      const url = (typeof input === 'string') ? input : (input && input.url) || '';
+      const isRPC = /\/api\/admin\/olt\/onus\/\d+\/rpc\/(connected-devices|speedtest|refresh-params|lan-ip)/.test(url);
+      if (!isRPC) return resp;
+      // Clone so callers can still json() it.
+      const clone = resp.clone();
+      try {
+        const j = await clone.json();
+        if (j && j.ok === false) {
+          const label = url.includes('connected-devices') ? 'Connected Devices' :
+                        url.includes('speedtest')         ? 'Speed Test'        :
+                        url.includes('refresh-params')    ? 'Refresh Parameters': 'LAN IP Push';
+          // Schedule alert AFTER caller's own UI render so it overlays.
+          setTimeout(() => { try { if (typeof window.spExplainRpcErr === 'function') window.spExplainRpcErr(j, label); } catch(e){} }, 50);
+        }
+      } catch(e){ /* not JSON or already consumed — ignore */ }
+      return resp;
+    };
+  })();
+
 window.ONU_ID = {{ onu_id }};
 const ONU_ID = window.ONU_ID;
 
@@ -1311,18 +1395,39 @@ async function saveWan(){
 
 // — LAN IP modal ———————————————————————————————————————————————
 function openLanIpModal(){
-  document.getElementById('li_ip').value   = '';
-  document.getElementById('li_mask').value = '255.255.255.0';
+  document.getElementById('li_ip').value         = '192.168.1.1';
+  document.getElementById('li_mask').value       = '255.255.255.0';
+  document.getElementById('li_dhcp_start').value = '192.168.1.2';
+  document.getElementById('li_dhcp_end').value   = '192.168.1.254';
+  document.getElementById('li_dns').value        = '';
+  document.getElementById('li_dhcp_en').checked  = true;
+  // Auto-derive DHCP range from LAN IP if user edits IP later.
+  document.getElementById('li_ip').oninput = function(){
+    const parts = (this.value || '').split('.');
+    if (parts.length === 4){
+      const pfx = parts.slice(0,3).join('.');
+      document.getElementById('li_dhcp_start').value = pfx + '.2';
+      document.getElementById('li_dhcp_end').value   = pfx + '.254';
+    }
+  };
+  document.getElementById('li_dhcp_en').onchange = function(){
+    document.getElementById('li_dhcp_grid').style.display = this.checked ? '' : 'none';
+  };
   new bootstrap.Modal(document.getElementById('lanIpModal')).show();
 }
 async function saveLanIp(){
-  // _S58D_FIELDFIX_  endpoint expects lan_ip + lan_netmask.
-  const lan_ip      = document.getElementById('li_ip').value.trim();
-  const lan_netmask = document.getElementById('li_mask').value.trim() || '255.255.255.0';
-  if (!lan_ip){ alert('LAN IP is required'); return; }
+  // __PHASE19_5__  Send full LAN config: gateway + mask + DHCP range + DNS + enable.
+  const lan_ip       = document.getElementById('li_ip').value.trim();
+  const lan_netmask  = document.getElementById('li_mask').value.trim() || '255.255.255.0';
+  const dhcp_enabled = document.getElementById('li_dhcp_en').checked ? 1 : 0;
+  const dhcp_start   = document.getElementById('li_dhcp_start').value.trim() || undefined;
+  const dhcp_end     = document.getElementById('li_dhcp_end').value.trim() || undefined;
+  const dns          = document.getElementById('li_dns').value.trim() || undefined;
+  if (!lan_ip){ alert('LAN Gateway IP is required'); return; }
   bootstrap.Modal.getInstance(document.getElementById('lanIpModal')).hide();
-  _show('Changing LAN IP via TR-069…');
-  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/rpc/lan-ip`, {lan_ip, lan_netmask}));
+  _show('Changing LAN config via TR-069…');
+  _show(await _do('POST', `/api/admin/olt/onus/${ONU_ID}/rpc/lan-ip`,
+                  {lan_ip, lan_netmask, dhcp_enabled, dhcp_start, dhcp_end, dns}));
 }
 
 // ── Init.

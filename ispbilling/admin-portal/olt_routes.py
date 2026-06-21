@@ -4900,6 +4900,11 @@ def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
             params[f"{LHC}.MaxAddress"] = str(dhcp_end)
         if dhcp_en is not None and lan_mask:
             params[f"{LHC}.SubnetMask"] = str(lan_mask)
+        # __PHASE19_5__  DHCP DNS — re-use wan_dns column as the LAN DNS too
+        # since most ONU stacks share a single DNS pool for both LAN clients
+        # and the DHCP server option-6.
+        if wan_dns_v:
+            params[f"{LHC}.DNSServers"] = str(wan_dns_v)
         if not params:
             _log_acs_push(cid, onu_id=onu_id, serial=serial,
                           customer_id=cust_id, reason=reason,
@@ -7345,14 +7350,25 @@ def api_onu_lan_ip(request: Request, onu_id: int, body: dict = Body(...)):
         dev_id = (rr.json() or [{}])[0].get("_id") or ""
         if not dev_id:
             return {"ok": False, "error": "no_device_id"}
-        # Queue a setParameterValues task
-        payload = {"name": "setParameterValues",
-                   "parameterValues": [
-                       ["InternetGatewayDevice.LANDevice.1.LANHostConfigManagement.IPInterface.1.IPInterfaceIPAddress",
-                        lan_ip, "xsd:string"],
-                       ["InternetGatewayDevice.LANDevice.1.LANHostConfigManagement.IPInterface.1.IPInterfaceSubnetMask",
-                        netmask, "xsd:string"],
-                   ]}
+        # __PHASE19_5__  Full LAN config: gateway IP + netmask + DHCP range + DNS + enable
+        LHC = "InternetGatewayDevice.LANDevice.1.LANHostConfigManagement"
+        pv = [
+            [f"{LHC}.IPInterface.1.IPInterfaceIPAddress", lan_ip, "xsd:string"],
+            [f"{LHC}.IPInterface.1.IPInterfaceSubnetMask", netmask, "xsd:string"],
+            [f"{LHC}.SubnetMask", netmask, "xsd:string"],
+        ]
+        # Optional dhcp_enabled toggle
+        _dhe = body.get("dhcp_enabled")
+        if _dhe is not None:
+            pv.append([f"{LHC}.DHCPServerEnable",
+                       "true" if int(_dhe) else "false", "xsd:boolean"])
+        _ds = (body.get("dhcp_start") or "").strip()
+        _de = (body.get("dhcp_end") or "").strip()
+        if _ds: pv.append([f"{LHC}.MinAddress", _ds, "xsd:string"])
+        if _de: pv.append([f"{LHC}.MaxAddress", _de, "xsd:string"])
+        _dns = (body.get("dns") or "").strip()
+        if _dns: pv.append([f"{LHC}.DNSServers", _dns, "xsd:string"])
+        payload = {"name": "setParameterValues", "parameterValues": pv}
         from urllib.parse import quote
         rt = requests.post(f"{base}/devices/{quote(dev_id, safe='')}/tasks?connection_request",
                            json=payload,
@@ -7363,6 +7379,22 @@ def api_onu_lan_ip(request: Request, onu_id: int, body: dict = Body(...)):
 
     result = _s56az_with_timeout(_push, timeout=12.0,
                                   fallback_msg="ACS task queue timed out")
+    # __PHASE19_5__  Persist full LAN config onto the ONU row.
+    try:
+        _persist = {"lan_ip": lan_ip, "lan_netmask": netmask}
+        if body.get("dhcp_enabled") is not None:
+            _persist["dhcp_enabled"] = int(body.get("dhcp_enabled"))
+        if body.get("dhcp_start"): _persist["dhcp_start"] = body["dhcp_start"]
+        if body.get("dhcp_end"):   _persist["dhcp_end"]   = body["dhcp_end"]
+        if body.get("dns"):        _persist["wan_dns"]    = body["dns"]  # reuse wan_dns col
+        if _persist:
+            _flds = ", ".join([f"{k}=%s" for k in _persist.keys()])
+            with engine.begin() as _c:
+                _c.exec_driver_sql(
+                    f"UPDATE onus SET {_flds} WHERE id=%s AND company_id=%s",
+                    tuple(_persist.values()) + (onu_id, cid))
+    except Exception:
+        pass
     _emit_alert(cid, olt_id=row[1], onu_id=onu_id, kind="info", level="info",
                 title=f"LAN IP push by {actor}",
                 message=f"target={lan_ip}/{netmask}; result={result.get('ok')}")

@@ -67,7 +67,65 @@
 {% block title %}ONU / ONT Manager · AutoISP Billing{% endblock %}
 
 {% block content %}
-<script>window.OLT_PORTAL_PREFIX = "{{ olt_url_prefix or '/admin/olt' }}";</script>
+<script>
+  // __PHASE19_5__  Friendly RPC error globalizer
+  (function(){
+    const _origFetch = window.fetch;
+    window.fetch = async function(input, init){
+      const resp = await _origFetch.apply(this, arguments);
+      const url = (typeof input === 'string') ? input : (input && input.url) || '';
+      const isRPC = /\/api\/admin\/olt\/onus\/\d+\/rpc\/(connected-devices|speedtest|refresh-params|lan-ip)/.test(url);
+      if (!isRPC) return resp;
+      // Clone so callers can still json() it.
+      const clone = resp.clone();
+      try {
+        const j = await clone.json();
+        if (j && j.ok === false) {
+          const label = url.includes('connected-devices') ? 'Connected Devices' :
+                        url.includes('speedtest')         ? 'Speed Test'        :
+                        url.includes('refresh-params')    ? 'Refresh Parameters': 'LAN IP Push';
+          // Schedule alert AFTER caller's own UI render so it overlays.
+          setTimeout(() => { try { if (typeof window.spExplainRpcErr === 'function') window.spExplainRpcErr(j, label); } catch(e){} }, 50);
+        }
+      } catch(e){ /* not JSON or already consumed — ignore */ }
+      return resp;
+    };
+  })();
+
+  // __PHASE19_5__  Friendly UX for TR-069 RPC failures: replace cryptic
+  // 'not_registered' with actionable guidance + "Run Diagnostic" link.
+  window.spExplainRpcErr = function(j, label){
+    if (!j || j.ok !== false) return null;
+    const err = (j.error || j.skip || '').toLowerCase();
+    let head, body;
+    if (err === 'not_registered'){
+      head = label + ' — ONU not yet in GenieACS';
+      body = "This ONU has never sent a CWMP Inform packet to the ACS, so " +
+             "TR-069 RPCs cannot reach it yet.\n\n" +
+             "What to do:\n" +
+             "  1. Verify the ONU is online (LOS off, link up).\n" +
+             "  2. Open the 3-dot menu and click 'TR-069 Diagnostic' \u2014 " +
+                 "it will tell you whether the ACS URL is set on the ONU.\n" +
+             "  3. If diagnostic says 'ACS URL not set', click " +
+                 "'Push TR-069 via OLT' \u2014 this bootstraps the ACS URL " +
+                 "over OMCI/OAM (no internet required on the ONU).\n" +
+             "  4. Wait 5\u201310 min (inform_interval) and retry.";
+    } else if (err === 'acs_not_configured'){
+      head = label + ' \u2014 ACS not configured';
+      body = "GenieACS URL / credentials are missing in System Config. " +
+             "Go to Settings \u2192 System Config \u2192 TR-069 / ACS and fill " +
+             "the ACS URL + NBI username + password, then retry.";
+    } else if (err === 'no_device_id'){
+      head = label + ' \u2014 ACS lookup miss';
+      body = "GenieACS responded but the device record has no _id. The ONU " +
+             "may be in the middle of a re-register cycle. Retry in 1\u20132 min.";
+    } else {
+      return null;
+    }
+    alert(head + "\n\n" + body);
+    return true;
+  };
+window.OLT_PORTAL_PREFIX = "{{ olt_url_prefix or '/admin/olt' }}";</script>
 <style>
 /* _S52_MENU_ZINDEX — popup menus must float ABOVE sticky admin header (z=100). */
 [id$="_menu"], .more-menu, .onu-action-menu, .ctx-menu, .popup-menu, .modal-back { z-index: 10000 !important; }
