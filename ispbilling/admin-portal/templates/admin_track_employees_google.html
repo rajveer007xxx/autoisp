@@ -49,7 +49,67 @@ if (typeof _origLoad === 'function') {
 }
 </script>
 
+
+<script>
+  // __PHASE19_8__  Drop-in Leaflet/OSM shim — replaces the broken Google Maps
+  // (paid-API quota exceeded) used previously on the Track Employee page.
+  (function(){
+    if (window.google && window.google.maps) return; // real Google loaded
+    window.google = window.google || {};
+    google.maps = {
+      Map: function(el, opts){
+        opts = opts || {};
+        var c = (opts.center && [opts.center.lat, opts.center.lng]) || [23.7, 78.7];
+        var z = opts.zoom || 13;
+        this._map = L.map(el, {zoomControl:true}).setView(c, z);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '&copy; OpenStreetMap'
+        }).addTo(this._map);
+        this.panTo = (p)=> this._map.panTo([p.lat, p.lng]);
+        this.setCenter = (p)=> this._map.setView([p.lat, p.lng], this._map.getZoom());
+        this.setZoom = (z)=> this._map.setZoom(z);
+        this.fitBounds = (b)=> {
+          if (b && b.length){ this._map.fitBounds(b.map(p=>[p.lat,p.lng])); }
+        };
+      },
+      Marker: function(opts){
+        opts = opts || {};
+        var p = opts.position || {lat:0,lng:0};
+        var m = L.marker([p.lat, p.lng]).addTo(opts.map._map);
+        if (opts.title) m.bindTooltip(opts.title);
+        this.setMap = (mp)=> { if (!mp) opts.map._map.removeLayer(m); };
+        this.setPosition = (p)=> m.setLatLng([p.lat, p.lng]);
+        this.addListener = (ev, fn)=> m.on(ev, fn);
+        this._leaflet = m;
+      },
+      InfoWindow: function(opts){
+        opts = opts || {};
+        var popup = L.popup().setContent(opts.content || '');
+        this.open = (m, mk)=> { mk._leaflet.bindPopup(popup).openPopup(); };
+        this.close = ()=> { popup.close && popup.close(); };
+        this.setContent = (c)=> popup.setContent(c);
+      },
+      LatLng: function(lat,lng){ this.lat = lat; this.lng = lng; },
+      LatLngBounds: function(){
+        var pts = [];
+        this.extend = (p)=> { pts.push(p); return this; };
+        this.toJSON = ()=> pts;
+      },
+      MapTypeId: {ROADMAP:'roadmap', SATELLITE:'satellite'},
+      event: { addListener: function(){}, clearListeners: function(){} },
+    };
+    // initMap callback used by the original Google-Maps async loader.
+    if (typeof window.initMap === 'function') {
+      try { window.initMap(); } catch(e){}
+    }
+  })();
+</script>
+
 {% endblock %}
+
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 {% block content %}
 <div class="content-wrapper" style="margin-left: 0; padding: 20px;">
@@ -265,7 +325,7 @@ if (typeof _origLoad === 'function') {
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBBbCSJ47XNocbZLJu6GkOcLh8OQUf6r3A&loading=async&callback=__s39c_gmaps_ready"></script>
+
 
 <script>
 var __s39c_init_done = false;

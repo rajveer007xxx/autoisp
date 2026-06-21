@@ -127,6 +127,15 @@ def _vsol_wifi_one(ts, oid: int, slot: int, ssid: Optional[str],
             f"auth_mode wpapsk/wpa2psk encrypt_type tkipaes "
             f"shared_key 12345678 rekey_interval 86400",
             wait=0.9, iters=5))
+    # __PHASE19_8__  Netlink ONUs default to wifi_ssid=disable after a
+    # rename. Always emit the explicit per-SSID enable AND the global
+    # wifi_switch enable so the radio actually comes up.
+    # __PHASE19_8B__  Use the GLOBAL wifi_switch form (no slot suffix);
+    # the Netlink V1600D firmware rejects slot-suffixed enables.
+    if radio_on and (ssid or password):
+        out.append(ts.send(
+            f"onu {oid} pri wifi_switch enable world-wide",
+            wait=0.5, iters=4))
     if not radio_on:
         out.append(ts.send(f"onu {oid} pri wifi_ssid {slot} disable",
                             wait=0.4, iters=3))
@@ -287,8 +296,10 @@ def push_wan(olt: dict, pon: int, onu_idx: int, *,
             # The `mtu 1492` set on the route mode is needed for PPPoE.
             # `mode auto nat enable` is the REQUIRED trailer — without it
             # the firmware rejects with `% Command incomplete.`
+            # __PHASE19_8__  Use tr069_internet so ACS reaches the ONU
+            # over the same PPPoE session (rather than blocked by plain internet).
             out_buf.append(ts.send(
-                f"onu {oid} pri wan_adv index {idx} route mode internet "
+                f"onu {oid} pri wan_adv index {idx} route mode tr069_internet "
                 f"mtu 1492", wait=0.6, iters=4))
             cmd = (f"onu {oid} pri wan_adv index {idx} route ipv4 pppoe "
                    f"proxy disable user {username or ''} "
@@ -777,9 +788,10 @@ def zero_touch_provision_vsol(olt: dict, pon: int, onu_idx: int, *,
                 buf.append(ts.send(f"onu {oid} pri wan_adv add route",
                                     wait=0.6, iters=4))
             if mode == "pppoe":
+                # __PHASE19_8B__  tr069_internet so ACS can reach the ONU
                 buf.append(ts.send(
                     f"onu {oid} pri wan_adv index {idx} route mode "
-                    f"internet mtu 1492", wait=0.6, iters=4))
+                    f"tr069_internet mtu 1492", wait=0.6, iters=4))
                 buf.append(ts.send(
                     f"onu {oid} pri wan_adv index {idx} route ipv4 pppoe "
                     f"proxy disable user {wan.get('username','')} "
