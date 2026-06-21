@@ -2904,11 +2904,18 @@ def register_network_routes(app, templates, require_admin, require_auth, get_adm
             import datetime as _dt
             for row in _rp_fetch(db, company_id, limit=500):
                 authdate = row["authdate"]
-                try:
-                    ts_obj = _dt.datetime.strptime(
-                        (authdate or "").split(".")[0], "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    ts_obj = None
+                # __PHASE19_1_TS_FIX__  authdate may be a datetime (PG
+                # `timestamptz`) or a string (legacy SQLite path). Handle both
+                # so RADIUS rows participate in the newest-first sort.
+                if isinstance(authdate, _dt.datetime):
+                    ts_obj = authdate
+                else:
+                    try:
+                        ts_obj = _dt.datetime.strptime(
+                            (authdate or "").split(".")[0],
+                            "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        ts_obj = None
                 status = ("Accept"
                           if (row["reply"] or "").lower().startswith("access-accept")
                           else "Reject")
@@ -2929,17 +2936,34 @@ def register_network_routes(app, templates, require_admin, require_auth, get_adm
             pass
 
         # Sort newest first
-        # _S58P_TZ_SORT_FIX_  Postgres rows are tz-aware; SQLite were
-        # tz-naive. Use ISO-string fallback so all entries compare
-        # safely regardless of source.
+        # _PHASE19_1_SORT_FIX_  Mixed tz-aware (PG radpostauth) + tz-naive
+        # (legacy AccessRequestLog SQLite rows) datetimes can't be compared
+        # with `<` directly. Normalise everything to a float epoch second
+        # so the comparison is total and the latest entry truly wins.
+        from datetime import timezone as _tz_loc, timedelta as _td_loc
+        _IST_LOCAL = _tz_loc(_td_loc(hours=5, minutes=30))
         def _sort_key(e):
             t = e.get("ts")
             if t is None:
-                return ""
+                return 0.0
+            if isinstance(t, _dt.datetime):
+                try:
+                    if t.tzinfo is None:
+                        # Treat naive timestamps as IST (server local) to
+                        # align with how AccessRequestLog rows are stored.
+                        t = t.replace(tzinfo=_IST_LOCAL)
+                    return t.astimezone(_tz_loc.utc).timestamp()
+                except Exception:
+                    return 0.0
             try:
-                return t.isoformat() if hasattr(t, "isoformat") else str(t)
+                # Fallback: parse ISO-ish string -> float epoch.
+                s = str(t)
+                _p = _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+                if _p.tzinfo is None:
+                    _p = _p.replace(tzinfo=_IST_LOCAL)
+                return _p.astimezone(_tz_loc.utc).timestamp()
             except Exception:
-                return str(t)
+                return 0.0
         merged.sort(key=_sort_key, reverse=True)
         context["access_logs"] = merged[:500]
         return templates.TemplateResponse("admin_access_logs.html", context)
