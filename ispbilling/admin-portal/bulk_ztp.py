@@ -19,6 +19,7 @@ returns immediately with the push results so the UI can render the modal
 without waiting for the ACS recheck.
 """
 from __future__ import annotations
+import os  # __PHASE_B2_ENV_REFACTOR__
 from fastapi import APIRouter, Request, Body
 from sqlalchemy import text as _text
 from typing import Any, Dict, List
@@ -42,7 +43,7 @@ def _genieacs_seen(mac: str) -> bool:
             '{"$or":[{"_deviceId._SerialNumber":"%s"},{"DeviceID.SerialNumber":"%s"}]}'
             % (mac, mac)
         )
-        url = f"http://127.0.0.1:7557/devices?query={q}&projection=_id"
+        url = f"{os.environ.get('GENIEACS_NBI_URL', os.environ.get('GENIEACS_NBI_URL', 'http://127.0.0.1:7557'))}/devices?query={q}&projection=_id"
         with urllib.request.urlopen(url, timeout=2.5) as r:
             j = json.loads(r.read().decode("utf-8"))
             return isinstance(j, list) and len(j) > 0
@@ -126,7 +127,7 @@ def api_bulk_ztp(olt_id: int, request: Request,
                 # Last-resort: call the per-ONU endpoint over HTTP
                 import urllib.request, json as _json
                 req = urllib.request.Request(
-                    f"http://127.0.0.1:8001/api/admin/olt/onus/{onu_id}/zero-touch-provision",
+                    f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/admin/olt/onus/{onu_id}/zero-touch-provision",
                     method="POST",
                     headers={"Content-Type": "application/json",
                               "Cookie": request.headers.get("cookie", "")},

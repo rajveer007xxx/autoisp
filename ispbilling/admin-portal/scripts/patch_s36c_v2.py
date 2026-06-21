@@ -753,7 +753,7 @@ def test_upload_file_sftp_unreachable_returns_error():
 
 def test_push_to_nas_endpoint_survives_unreachable():
     import requests
-    BASE = os.environ.get("ISP_ADMIN_URL", "http://127.0.0.1:8001")
+    BASE = os.environ.get("ISP_ADMIN_URL", os.environ.get("ISP_ADMIN_URL", os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001')))
     s = requests.Session()
     r = s.post(f"{BASE}/api/auth/login", data={
         "userType": "admin", "companyId": "14150129",

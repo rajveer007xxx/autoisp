@@ -3816,7 +3816,7 @@ def api_onu_factory_reset_and_provision(request: Request, onu_id: int,
         # Fallback: in-process Timer (loses on uvicorn restart).
         try:
             import threading, requests as _rq
-            api_url = "http://127.0.0.1:8001"
+            api_url = os.environ.get("ISP_ADMIN_URL", "http://127.0.0.1:8001")
             def _run():
                 try:
                     _rq.post(

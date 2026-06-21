@@ -1,3 +1,12 @@
+# __PHASE4_INACTIVE__  main_full.py is a stale 'all-in-one' snapshot kept
+# only for reference. Loading it would re-import the live app twice and
+# bypass db_compat. Phase-4 hard-disables it.
+import os
+if not os.environ.get('ISP_ALLOW_MAIN_FULL'):
+    raise RuntimeError(
+        'main_full.py is disabled in Phase-4. Use the live main.py instead.'
+    )
+
 from fastapi import FastAPI, Request, Depends, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles

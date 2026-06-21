@@ -11,7 +11,14 @@ import os, sys as _sys
 _sys.path.insert(0, '/opt/ispbilling')
 
 DB_PATH = os.getenv('AUTOISPBILLING_DB_PATH', '/var/lib/autoispbilling/autoispbilling.db')
-SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
+SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL") or ""
+# Phase-4: SQLite no longer supported as a fallback. The db_compat
+# shim will RuntimeError() if DATABASE_URL is missing or non-PG.
+if not SQLALCHEMY_DATABASE_URL.startswith(("postgres:", "postgresql:", "postgresql+")):
+    raise RuntimeError(
+        "Phase-4: DATABASE_URL env var must be a PostgreSQL DSN. "
+        f"Got {SQLALCHEMY_DATABASE_URL!r}"
+    )
 
 _engine_kwargs = {"pool_pre_ping": True}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
@@ -621,6 +628,10 @@ class PasswordReset(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 def migrate_db():
+    # __PHASE4_NOOP__  This helper introspects/ALTERs the legacy
+    # SQLite file (now quarantined). All target columns already
+    # exist in PostgreSQL; the helper is a dead-code no-op.
+    return
     """Run database migrations for schema changes"""
     import sqlite3
     from datetime import datetime

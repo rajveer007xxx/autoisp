@@ -80,6 +80,14 @@ app.include_router(geofences.router)  # _S39R5B_GEOFENCES_WIRED
 app.include_router(olt_routes.router)  # _OLT_WIRED
 app.include_router(network_map_routes.router)  # _S40j_NETMAP_WIRED
 app.include_router(olt_stream_routes.router)  # _S40r_SSE_WIRED
+# __PHASE_C_ACS_ACTIVITY_STREAM__
+try:
+    import acs_activity_stream as _acs_activity_mod  # Phase-C
+    app.include_router(_acs_activity_mod.router)
+    print('[main] acs_activity_stream router wired')
+except Exception as _e:
+    print(f'[main] acs_activity_stream wire failed: {_e}')
+
 # _S60K_ZTP_WIRED — SmartOLT-style ZTP + GenieACS auto-provision
 try:
     import ztp_routes as _ztp_routes_mod

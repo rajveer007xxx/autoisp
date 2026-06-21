@@ -9,7 +9,7 @@ import os
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+REDIS_URL = os.environ.get("REDIS_URL", os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"))
 NAMESPACE = "isp"
 
 # Shared instance — import this from worker.py AND from any code that

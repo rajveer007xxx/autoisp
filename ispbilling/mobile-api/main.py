@@ -1654,7 +1654,7 @@ def subscriber_usage(cust_pk: int, authorization: Optional[str] = Header(None)):
 # using the internal token, but FIRST enforce the caller's role scope here
 # (admin-portal can't see the mobile session's user_type when called via
 # internal token).
-_ADMIN_PORTAL_URL = os.environ.get("ADMIN_PORTAL_URL", "http://127.0.0.1:8001")
+_ADMIN_PORTAL_URL = os.environ.get("ADMIN_PORTAL_URL", os.environ.get("ISP_ADMIN_URL", os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001')))
 _ADMIN_INTERNAL_TOKEN = os.environ.get(
     "ISP_INTERNAL_TOKEN", "isp-bill-internal-sa-token-v1")
 
@@ -3611,7 +3611,7 @@ def me_payment_pdf(pay_id: int, authorization: Optional[str] = Header(None)):
         if not ok:
             raise HTTPException(404, "not_found")
     return _v4719_fetch_pdf(
-        f"http://127.0.0.1:8001/api/internal/payments/{pay_id}/receipt-pdf"
+        f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/payments/{pay_id}/receipt-pdf"
         f"?company_id={cid}")
 
 @app.get("/api/mobile/v1/me/invoices/{inv_id}/pdf")
@@ -3647,7 +3647,7 @@ def me_invoice_pdf(inv_id: int, authorization: Optional[str] = Header(None)):
         if not ok:
             raise HTTPException(404, "not_found")
     return _v4719_fetch_pdf(
-        f"http://127.0.0.1:8001/api/internal/invoices/{inv_id}/pdf"
+        f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/invoices/{inv_id}/pdf"
         f"?company_id={cid}")
 
 
@@ -6051,7 +6051,7 @@ def _ap_push_tr069(cid: str, onu_id: int, *, reason: str = "") -> dict:
     import urllib.request, json as _j
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001/api/internal/onus/{onu_id}/push-tr069",
+            f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/onus/{onu_id}/push-tr069",
             data=_j.dumps({"reason": reason}).encode(),
             headers={"Content-Type": "application/json",
                      "X-Internal-Token": os.environ.get("ISP_INTERNAL_TOKEN",
@@ -6149,7 +6149,7 @@ def s58av_onu_reboot(onu_id: int,
     import urllib.request, json as _j
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001/api/internal/onus/{onu_id}/reboot",
+            f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/onus/{onu_id}/reboot",
             data=b"{}",
             headers={"Content-Type": "application/json",
                      "X-Internal-Token": os.environ.get("ISP_INTERNAL_TOKEN",
@@ -6361,7 +6361,7 @@ def s58aw_onu_factory_reset(onu_id: int,
     import urllib.request, json as _j
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001/api/internal/onus/{onu_id}/factory-reset",
+            f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/onus/{onu_id}/factory-reset",
             data=b"{}",
             headers={"Content-Type": "application/json",
                      "X-Internal-Token": os.environ.get("ISP_INTERNAL_TOKEN",
@@ -6433,7 +6433,7 @@ def s58aw_customers_bulk_action(body: _BulkActionIn,
                         "nas_id":  body.nas_id}).encode()
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001/api/internal/customers/bulk-action",
+            f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/customers/bulk-action",
             data=payload,
             headers={"Content-Type": "application/json",
                      "X-Internal-Token": os.environ.get("ISP_INTERNAL_TOKEN",
@@ -6587,7 +6587,7 @@ def _ap_kick_via_admin(cust_pk: int, cid: str, un: str):
     nasd = dict(nas)
     try:
         req = urllib.request.Request(
-            "http://127.0.0.1:8001/api/online-users/kick",
+            os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001') + "/api/online-users/kick",
             data=_json.dumps({"username": un,
                               "nas_ip": nasd["ip_address"],
                               "secret": nasd["secret"]}).encode(),
@@ -6618,7 +6618,7 @@ def _ap_enforce_customer_state(customer_id: str, cid: str):
     import urllib.request, json as _json
     try:
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001/api/internal/customer/{customer_id}/enforce-state",
+            f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/customer/{customer_id}/enforce-state",
             data=b"{}",
             headers={"Content-Type": "application/json",
                      "X-Internal-Token": os.environ.get("ISP_INTERNAL_TOKEN",

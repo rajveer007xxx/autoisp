@@ -2614,7 +2614,7 @@ async def api_payments_create(request: Request, db: Session = Depends(get_db)):
         try:
             import httpx as _httpx_R
             _httpx_R.post(
-                f"http://127.0.0.1:8001/api/internal/payments/{pay.id}/send-receipt-email",
+                f"{os.environ.get('ISP_ADMIN_URL', os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001'))}/api/internal/payments/{pay.id}/send-receipt-email",
                 params={"company_id": company_id}, timeout=8,
             )
         except Exception as _eR:

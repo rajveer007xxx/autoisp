@@ -5869,7 +5869,7 @@ async def change_superadmin_password(request: Request, db: Session = Depends(get
 # =====================================================================
 import httpx as _httpx_sa   # httpx is already a FastAPI dep
 
-_ADMIN_API = os.environ.get("ISP_ADMIN_API", "http://127.0.0.1:8001")
+_ADMIN_API = os.environ.get("ISP_ADMIN_API", os.environ.get("ISP_ADMIN_URL", os.environ.get('ISP_ADMIN_URL', 'http://127.0.0.1:8001')))
 _INTERNAL_TOKEN_SA = os.environ.get("ISP_INTERNAL_TOKEN", "isp-bill-internal-sa-token-v1")
 
 

@@ -21,7 +21,7 @@ def _client():
     if _REDIS is None:
         import redis
         _REDIS = redis.Redis.from_url(
-            os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"),
+            os.environ.get("REDIS_URL", os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")),
             socket_timeout=0.05,          # 50 ms — fail-fast
             socket_connect_timeout=0.05,
             decode_responses=True,

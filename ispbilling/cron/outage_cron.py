@@ -68,7 +68,7 @@ for r in rows:
         continue
     cur.execute(
         "SELECT id FROM outage_events WHERE company_id=? AND olt_id=? "
-        "AND pon_port_index=? AND status='open'",
+        "AND pon_port=? AND status='open'",
         (company_id, olt_id, pon_port),
     )
     existing = cur.fetchone()
@@ -80,7 +80,7 @@ for r in rows:
         continue
     cur.execute(
         "INSERT INTO outage_events "
-        "(company_id, olt_id, pon_port_index, onu_count, affected_ids, status) "
+        "(company_id, olt_id, pon_port, onu_count, affected_ids, status) "
         "VALUES (?, ?, ?, ?, ?, 'open')",
         (company_id, olt_id, pon_port, n, json.dumps((ids or "").split(","))),
     )

@@ -15,6 +15,7 @@ the system can fall back to OLT-side push when GenieACS NBI is unavailable:
   - Syrotech SY-GPON
 """
 from __future__ import annotations
+import os  # __PHASE_B_ENV_REFACTOR__
 
 import json, os, urllib.parse, urllib.request, urllib.error
 from typing import Any, Dict, List, Optional
@@ -59,7 +60,7 @@ def _nbi_base(cid: str) -> str:
             return base.replace(":7547", ":7557")
     except Exception:
         pass
-    return os.environ.get("GENIEACS_NBI_URL", "http://127.0.0.1:7557")
+    return os.environ.get("GENIEACS_NBI_URL", os.environ.get("GENIEACS_NBI_URL", os.environ.get('GENIEACS_NBI_URL', 'http://127.0.0.1:7557')))
 
 
 def _nbi(method: str, path: str, body: Optional[Dict] = None,
