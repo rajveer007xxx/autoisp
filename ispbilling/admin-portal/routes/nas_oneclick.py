@@ -484,18 +484,18 @@ def register(app, *, get_db, require_admin):
             pass
         latest_pass: Dict[str, Dict[str, Any]] = {}
         try:
-            con = sqlite3.connect(f"file:{radacct_path}?mode=ro", uri=True, timeout=5)
+            con = __import__("db_compat").get_raw_conn(timeout=5)  # __PHASE_PG__ (radpostauth lives in PG now)
             cur = con.cursor()
             chunk = 400  # SQLite max IN list
             for i in range(0, len(usernames), chunk):
                 batch = usernames[i:i+chunk]
                 placeholders = ",".join(["?"] * len(batch))
-                bind = [str(company_id)] + list(batch) + [f"-{int(max_age_hours)} hours"]
+                bind = [str(company_id)] + list(batch) + [(__import__('datetime').datetime.utcnow() - __import__('datetime').timedelta(hours=int(max_age_hours))).isoformat()]
                 q = (f"SELECT username, pass, reply, authdate FROM radpostauth "
                      f"WHERE company_id = ? "
                      f"  AND username IN ({placeholders}) "
                      f"  AND IFNULL(pass, '') <> '' "
-                     f"  AND authdate >= datetime('now', ?) "
+                     f"  AND authdate >= ? "
                      f"ORDER BY authdate DESC")
                 for un, pw, rep, ad in cur.execute(q, bind).fetchall():
                     if un not in latest_pass:
@@ -602,18 +602,18 @@ def register(app, *, get_db, require_admin):
             pass
         latest_pass: Dict[str, str] = {}
         try:
-            con = sqlite3.connect(f"file:{radacct_path}?mode=ro", uri=True, timeout=5)
+            con = __import__("db_compat").get_raw_conn(timeout=5)  # __PHASE_PG__ (radpostauth lives in PG now)
             cur = con.cursor()
             chunk = 400
             for i in range(0, len(names), chunk):
                 batch = names[i:i+chunk]
                 placeholders = ",".join(["?"] * len(batch))
-                bind = [str(company_id)] + list(batch) + [f"-{int(max_age_hours)} hours"]
+                bind = [str(company_id)] + list(batch) + [(__import__('datetime').datetime.utcnow() - __import__('datetime').timedelta(hours=int(max_age_hours))).isoformat()]
                 q = (f"SELECT username, pass FROM radpostauth "
                      f"WHERE company_id = ? "
                      f"  AND username IN ({placeholders}) "
                      f"  AND IFNULL(pass, '') <> '' "
-                     f"  AND authdate >= datetime('now', ?) "
+                     f"  AND authdate >= ? "
                      f"ORDER BY authdate DESC")
                 for un, pw in cur.execute(q, bind).fetchall():
                     if un not in latest_pass:
