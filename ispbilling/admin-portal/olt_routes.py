@@ -3511,6 +3511,42 @@ def _apply_service_profile(conn, cid: str, onu_id: int,
 @router.post("/api/admin/olt/onus/{onu_id}/zero-touch-provision")
 def api_onu_zero_touch_provision(request: Request, onu_id: int,
                                   body: dict = Body(default={})):
+    """__PHASE19_2_SMART__  Resolve smart defaults from the customer +
+    selected profile, merge any operator-supplied overrides from `body`,
+    persist onto the ONU row, then run the existing OLT-CLI push path so
+    WAN + dual-band Wi-Fi + LAN + DHCP + ACS all land in one transaction.
+    """
+    try:
+        from smart_provision import (
+            build_smart_defaults, fetch_customer_for_onu,
+            merge_with_overrides, persist_to_onu)
+        sc0 = _require_scope(request)
+        _enforce_onu_scope(request, sc0, onu_id)
+        cust = fetch_customer_for_onu(
+            sc0["company_id"],
+            (body or {}).get("customer_id"),
+            onu_id=onu_id)
+        defaults = build_smart_defaults(
+            sc0["company_id"], cust,
+            profile_id=(body or {}).get("profile_id"))
+        resolved = merge_with_overrides(defaults, body or {})
+        persist_to_onu(sc0["company_id"], onu_id, resolved)
+        # When the operator picked a different profile, mirror it onto the row.
+        if (body or {}).get("profile_id"):
+            try:
+                from database import engine as _eng
+                with _eng.begin() as _c:
+                    _c.exec_driver_sql(
+                        "UPDATE onus SET service_profile_id=%s "
+                        "WHERE id=%s AND company_id=%s",
+                        (int(body["profile_id"]), onu_id, sc0["company_id"]))
+            except Exception:
+                pass
+        # Surface resolved values into the body so the existing flow uses them.
+        if isinstance(body, dict):
+            body.setdefault("inform_interval", resolved["inform_interval"])
+    except Exception as _e_smart:
+        print(f"[smart_provision] {_e_smart}")
     """_S57_ZTP_  ONE-CLICK Zero-Touch Provisioning.
 
     Workflow for a freshly factory-reset (or brand-new) ONU:
@@ -3549,6 +3585,10 @@ def api_onu_zero_touch_provision(request: Request, onu_id: int,
     if (vendor or "").lower() not in {"vsol","vsol_epon","netlink","netlink_epon","syrotech","syrotech_epon","cdata","cdata_epon","optilink","optilink_epon","raisecom","raisecom_epon","khawahis","khawahis_epon","huawei","huawei_gpon","zte","zte_gpon","zte_c300","zte_c320","fiberhome","fiberhome_gpon","nokia","nokia_isam","alcatel","bdcom","bdcom_gpon"}:
         raise HTTPException(400,
             f"OLT vendor '{vendor}' does not support zero-touch provisioning.")
+    # __PHASE19_2_PRE_INIT__  wan/wifi/tr069 will be re-derived below from
+    # the ONU row (which smart_provision has just freshly persisted). Initialize
+    # to empty dicts so _apply_service_profile() has something to merge against.
+    wan, wifi, tr069 = {}, {}, {}
     with engine.begin() as _c_sp:
         _sp = _apply_service_profile(_c_sp, cid, onu_id, wan, wifi, tr069)
     wan, wifi, tr069 = _sp["wan"], _sp["wifi"], _sp["tr069"]
@@ -4653,14 +4693,17 @@ def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
                 "wifi_band_split, wifi_ssid_5g, wifi_password_5g, "
                 "wifi_radio_24_enabled, wifi_radio_5_enabled, "
                 "wifi_auto_24, wifi_auto_5, wifi_channel_24, wifi_channel_5, "
-                "wifi_bw_24, wifi_bw_5 "
+                "wifi_bw_24, wifi_bw_5, "
+                # __PHASE19_2_LAN__ — LAN/DHCP columns
+                "lan_ip, lan_netmask, dhcp_enabled, dhcp_start, dhcp_end "
                 "FROM onus WHERE id=? AND company_id=?",
                 (onu_id, cid)).fetchone()
         if not row:
             return {"ok": False, "skip": "onu_not_found"}
         (serial, wifi_ssid, wifi_pw, wan_mode, wan_user, wan_pw, wan_vlan,
          cust_id, band_split, ssid_5g, pw_5g, r24_en, r5_en,
-         auto_24, auto_5, ch_24, ch_5, bw_24, bw_5) = row
+         auto_24, auto_5, ch_24, ch_5, bw_24, bw_5,
+         lan_ip, lan_mask, dhcp_en, dhcp_start, dhcp_end) = row
         if not (serial or "").strip():
             return {"ok": False, "skip": "onu_has_no_serial"}
         # _S60K_CUST_CREDS_PRIORITY — When linked to a customer, the
@@ -4741,6 +4784,20 @@ def _genieacs_auto_push(cid: str, onu_id: int, *, reason: str = "") -> dict:
             params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Username"] = wan_user
             if wan_pw:
                 params["InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1.Password"] = wan_pw
+        # __PHASE19_2_LAN__ — LAN gateway + DHCP server config
+        LHC = "InternetGatewayDevice.LANDevice.1.LANHostConfigManagement"
+        if lan_ip:
+            params[f"{LHC}.IPInterface.1.IPInterfaceIPAddress"] = str(lan_ip)
+        if lan_mask:
+            params[f"{LHC}.IPInterface.1.IPInterfaceSubnetMask"] = str(lan_mask)
+        if dhcp_en is not None:
+            params[f"{LHC}.DHCPServerEnable"] = "true" if dhcp_en else "false"
+        if dhcp_start:
+            params[f"{LHC}.MinAddress"] = str(dhcp_start)
+        if dhcp_end:
+            params[f"{LHC}.MaxAddress"] = str(dhcp_end)
+        if dhcp_en is not None and lan_mask:
+            params[f"{LHC}.SubnetMask"] = str(lan_mask)
         if not params:
             _log_acs_push(cid, onu_id=onu_id, serial=serial,
                           customer_id=cust_id, reason=reason,
@@ -8035,3 +8092,117 @@ def api_onu_rpc_factory_reset(request: Request, onu_id: int):
     except Exception:
         pass
     return res
+
+
+# ── __PHASE19_2_PROFILES_CRUD__ ─────────────────────────────────────
+# Tenant-scoped CRUD for Smart OLT Provision Profiles.
+from fastapi import Body as _PB19_2_Body
+
+
+@router.get("/api/admin/provision-profiles")
+def api_provision_profiles_list(request: Request):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT id, name, connection_type, vlan, "
+            " wifi_ssid_tpl, wifi_pw_tpl, wifi_band_split, "
+            " wifi_ssid_5g_tpl, wifi_pw_5g_tpl, "
+            " wifi_channel_24, wifi_channel_5, wifi_bw_24, wifi_bw_5, "
+            " wifi_auto_24, wifi_auto_5, wifi_radio_24, wifi_radio_5, "
+            " lan_ip_tpl, lan_netmask_tpl, "
+            " dhcp_enabled, dhcp_start_tpl, dhcp_end_tpl, "
+            " acs_inform_int, factory_reset_on_push, is_default "
+            "FROM onu_service_profiles WHERE company_id=%s "
+            "ORDER BY is_default DESC, name",
+            (cid,)).fetchall()
+    cols = ["id","name","connection_type","vlan",
+            "wifi_ssid_tpl","wifi_pw_tpl","wifi_band_split",
+            "wifi_ssid_5g_tpl","wifi_pw_5g_tpl",
+            "wifi_channel_24","wifi_channel_5","wifi_bw_24","wifi_bw_5",
+            "wifi_auto_24","wifi_auto_5","wifi_radio_24","wifi_radio_5",
+            "lan_ip_tpl","lan_netmask_tpl",
+            "dhcp_enabled","dhcp_start_tpl","dhcp_end_tpl",
+            "acs_inform_int","factory_reset_on_push","is_default"]
+    return {"ok": True, "profiles": [dict(zip(cols, r)) for r in rows]}
+
+
+@router.post("/api/admin/provision-profiles")
+def api_provision_profiles_upsert(request: Request, body: dict = _PB19_2_Body(...)):
+    sc = _require_scope(request); cid = sc["company_id"]
+    pid = body.get("id")
+    fields = {
+        "name": (body.get("name") or "").strip(),
+        "connection_type": (body.get("connection_type") or "pppoe"),
+        "vlan": body.get("vlan"),
+        "wifi_ssid_tpl": body.get("wifi_ssid_tpl"),
+        "wifi_pw_tpl": body.get("wifi_pw_tpl"),
+        "wifi_band_split": int(body.get("wifi_band_split") or 0),
+        "wifi_ssid_5g_tpl": body.get("wifi_ssid_5g_tpl"),
+        "wifi_pw_5g_tpl": body.get("wifi_pw_5g_tpl"),
+        "wifi_channel_24": body.get("wifi_channel_24") or None,
+        "wifi_channel_5":  body.get("wifi_channel_5") or None,
+        "wifi_bw_24": body.get("wifi_bw_24") or "Auto",
+        "wifi_bw_5":  body.get("wifi_bw_5") or "Auto",
+        "wifi_auto_24": int(body.get("wifi_auto_24") or 1),
+        "wifi_auto_5":  int(body.get("wifi_auto_5") or 1),
+        "wifi_radio_24": int(body.get("wifi_radio_24") or 1),
+        "wifi_radio_5":  int(body.get("wifi_radio_5") or 1),
+        "lan_ip_tpl": body.get("lan_ip_tpl") or "192.168.1.1",
+        "lan_netmask_tpl": body.get("lan_netmask_tpl") or "255.255.255.0",
+        "dhcp_enabled": int(body.get("dhcp_enabled") or 1),
+        "dhcp_start_tpl": body.get("dhcp_start_tpl") or "192.168.1.2",
+        "dhcp_end_tpl":   body.get("dhcp_end_tpl") or "192.168.1.254",
+        "acs_inform_int": max(5, min(60, int(body.get("acs_inform_int") or 60))),
+        "factory_reset_on_push": int(body.get("factory_reset_on_push") or 0),
+        "is_default": int(body.get("is_default") or 0),
+    }
+    if not fields["name"]:
+        raise HTTPException(400, "Profile name is required")
+    cols = list(fields.keys())
+    vals = list(fields.values())
+    with engine.begin() as conn:
+        if fields["is_default"]:
+            conn.exec_driver_sql(
+                "UPDATE onu_service_profiles SET is_default=0 "
+                "WHERE company_id=%s", (cid,))
+        if pid:
+            placeholders = ", ".join([f"{c}=%s" for c in cols])
+            conn.exec_driver_sql(
+                f"UPDATE onu_service_profiles SET {placeholders}, "
+                "updated_at=NOW() WHERE id=%s AND company_id=%s",
+                tuple(vals) + (int(pid), cid))
+            return {"ok": True, "id": int(pid), "updated": True}
+        else:
+            ph = ", ".join(["%s"] * (len(cols) + 1))
+            r = conn.exec_driver_sql(
+                f"INSERT INTO onu_service_profiles "
+                f"(company_id, {', '.join(cols)}) VALUES ({ph}) "
+                "RETURNING id",
+                (cid,) + tuple(vals)).fetchone()
+            return {"ok": True, "id": r[0], "created": True}
+
+
+@router.delete("/api/admin/provision-profiles/{pid}")
+def api_provision_profiles_delete(request: Request, pid: int):
+    sc = _require_scope(request); cid = sc["company_id"]
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DELETE FROM onu_service_profiles WHERE id=%s AND company_id=%s",
+            (int(pid), cid))
+    return {"ok": True, "deleted": int(pid)}
+
+
+@router.get("/api/admin/provision-profiles/preview")
+def api_provision_profiles_preview(request: Request,
+                                    customer_id: str = "",
+                                    profile_id: int = 0):
+    """Preview what defaults a given customer + profile would resolve to."""
+    from smart_provision import build_smart_defaults, fetch_customer_for_onu
+    sc = _require_scope(request); cid = sc["company_id"]
+    cust = fetch_customer_for_onu(cid, customer_id or None)
+    if not cust["customer_id"]:
+        cust = {"customer_id": "demo", "name": "Demo User", "phone": "9876543210"}
+    return {"ok": True, "customer": cust,
+            "resolved": build_smart_defaults(cid, cust,
+                                             profile_id=profile_id or None)}
+# ── /__PHASE19_2_PROFILES_CRUD__ ────────────────────────────────────

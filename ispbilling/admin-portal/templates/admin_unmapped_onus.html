@@ -103,114 +103,18 @@ loadList();
 </script>
 
 <!-- _S57C_QUICK_PROV_  Phase 2 — Quick Provision wizard -->
-<div class="modal fade" id="quickProvModal" tabindex="-1" role="dialog" data-testid="quick-prov-modal">
-  <div class="modal-dialog" role="document">
-    <div class="modal-content">
-      <div class="modal-header" style="background:linear-gradient(135deg,#10b981,#0ea5e9);color:#fff;">
-        <h5 class="modal-title"><i class="bi bi-lightning-charge-fill"></i> Quick Provision (≤10 s)</h5>
-        <button type="button" class="close text-white" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
-          <span aria-hidden="true">&times;</span>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="alert alert-info" style="font-size:13px;">
-          <i class="bi bi-info-circle"></i>
-          <strong>Zero-Touch Provisioning</strong> auto-pushes WAN + Wi-Fi + ACS URL
-          to the ONU via OLT CLI. Currently supported on
-          <strong>VSOL / Netlink / Syrotech / CDATA</strong> EPON family.
-        </div>
-        <input type="hidden" id="qp_onu_id" />
-        <div class="form-group">
-          <label>ONU Serial / MAC</label>
-          <input type="text" class="form-control" id="qp_onu_label" data-testid="qp-onu-label" readonly />
-        </div>
-        <div class="form-group">
-          <label>OLT</label>
-          <input type="text" class="form-control" id="qp_olt_label" data-testid="qp-olt-label" readonly />
-        </div>
-        <div class="form-group">
-          <label>Customer (optional — leave blank for trial)</label>
-          <input type="text" class="form-control" id="qp_customer_id"
-                 placeholder="Customer ID (or leave blank)" data-testid="qp-customer-id" />
-        </div>
-        <div class="form-group">
-          <label>Wi-Fi SSID</label>
-          <input type="text" class="form-control" id="qp_ssid"
-                 placeholder="FIBERNET-XXXX" data-testid="qp-ssid" />
-        </div>
-        <div class="form-group">
-          <label>Wi-Fi Password</label>
-          <input type="text" class="form-control" id="qp_password"
-                 placeholder="12345678" data-testid="qp-password" />
-        </div>
-        <pre id="qp_output" data-testid="qp-output" style="display:none;background:#0f172a;color:#a5f3fc;padding:10px;border-radius:6px;font-size:11px;max-height:240px;overflow:auto;"></pre>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" id="qp_submit_btn" data-testid="qp-submit" onclick="runQuickProvision()">
-          <i class="bi bi-lightning-charge-fill"></i> Provision Now
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
+{% include "_smart_provision_modal.html" %}
 <script>
+// __PHASE19_2_LEGACY_BRIDGE__ — keep existing call sites alive.
 window.openQuickProvision = function(arg, label, oltLabel){
-  // _S57E_QP_FIX_  Accept either (onuId, label, oltLabel) OR (buttonEl).
   let onuId = arg, _label = label, _olt = oltLabel;
-  if (arg && arg.tagName === 'BUTTON'){
+  if (arg && arg.tagName === "BUTTON"){
     onuId  = parseInt(arg.dataset.onuId, 10);
-    _label = arg.dataset.onuSerial || ('#'+onuId);
-    _olt   = arg.dataset.oltLabel || '';
+    _label = arg.dataset.onuSerial || ("#"+onuId);
+    _olt   = arg.dataset.oltLabel || "";
   }
-  label = _label; oltLabel = _olt;
-  $('#qp_onu_id').val(onuId);
-  $('#qp_onu_label').val(label || ('#' + onuId));
-  $('#qp_olt_label').val(oltLabel || '');
-  $('#qp_customer_id').val('');
-  $('#qp_ssid').val('');
-  $('#qp_password').val('');
-  $('#qp_output').hide().text('');
-  try { $('#quickProvModal').modal('show'); }
-  catch(e){
-    const el = document.getElementById('quickProvModal');
-    if (el && window.bootstrap && bootstrap.Modal){
-      bootstrap.Modal.getOrCreateInstance(el).show();
-    }
-  }
+  window.openSmartProvision({onu_id: onuId, label: _label, olt_label: _olt});
 };
-async function runQuickProvision(){
-  const id = $('#qp_onu_id').val();
-  const out = document.getElementById('qp_output');
-  const btn = document.getElementById('qp_submit_btn');
-  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Provisioning…';
-  out.style.display = 'block'; out.textContent = 'Working…';
-  try {
-    const r = await fetch('/api/admin/olt/onus/' + id + '/zero-touch-provision', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        customer_id: ($('#qp_customer_id').val()||'').trim() || null,
-        wifi_ssid:   ($('#qp_ssid').val()||'').trim() || null,
-        wifi_password:($('#qp_password').val()||'').trim() || null,
-      })
-    });
-    const j = await r.json();
-    out.textContent = JSON.stringify(j, null, 2);
-    if (r.ok && (j.ok || j.success)){
-      out.style.color = '#a7f3d0';
-      btn.innerHTML = '<i class="bi bi-check-circle"></i> Provisioned';
-      setTimeout(()=>{ try { $('#quickProvModal').modal('hide'); } catch(e){} location.reload(); }, 1600);
-    } else {
-      out.style.color = '#fda4af';
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
-    }
-  } catch(e){
-    out.textContent = 'Network error: ' + e.message;
-    out.style.color = '#fda4af';
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
-  }
-}
 </script>
 
 {% endblock %}

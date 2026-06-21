@@ -1207,31 +1207,17 @@ async function onuDelete(id, serial, status){
 /* _S57_ZTP_ — One-click zero-touch provisioning via OLT CLI (no WAN/internet needed on ONU). */
 async function ztpProvision(id){
   closeAnyCtxMenus();
-  if (!confirm("Zero-Touch Provision this ONU?\n\nThis will:\n  1) Push WAN config via OLT CLI\n  2) Push Wi-Fi SSID/password via OLT CLI\n  3) Push TR-069 ACS URL via OLT CLI\n\nWorks even on factory-reset ONUs with no internet.\n\nMake sure ONU's Wi-Fi and WAN are set in 'Edit ONU' first.")) return;
-  try{
-    const r = await fetch(`/api/admin/olt/onus/${id}/zero-touch-provision`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({})
-    });
-    const j = await r.json();
-    const head = j.ok ? '\u2705 Zero-Touch Provision complete' : '\u26A0 Provisioning had errors';
-    let body = (j.summary || '');
-    if (j.details){
-      body += "\n\n" + Object.entries(j.details).map(([k,v]) => {
-        const st = v.skip ? `skipped: ${v.skip}` :
-                   v.ok ? `OK${v.note ? ' (' + v.note + ')' : ''}` :
-                   `FAIL: ${v.error || 'unknown'}`;
-        return `  - ${k.toUpperCase()}: ${st}`;
-      }).join("\n");
-    }
-    alert(`${head}\n\n${body}`);
-    if (typeof window.refreshOnus === 'function') window.refreshOnus();
-  }catch(e){
-    alert("Network error: " + e.message);
+  // __PHASE19_2_  Delegate to Smart Provision popup.
+  const btn = (typeof event !== "undefined" && event.target) ? event.target.closest("button,a") : null;
+  const row = btn ? btn.closest("tr") : null;
+  const label = row ? (row.dataset.serial || row.dataset.onuLabel || ("#"+id)) : ("#"+id);
+  const oltLabel = row ? (row.dataset.oltLabel || "") : "";
+  if (typeof window.openSmartProvision === "function"){
+    window.openSmartProvision({onu_id: id, label, olt_label: oltLabel});
+  } else {
+    alert("Smart Provision UI not loaded");
   }
 }
-
 /* _S57_ZTP_BULK_ — Kick off async bulk TR-069 push for the OLT this
    ONU table is filtered to. Polls every 2 s until done. */
 async function bulkOltCliPush(){
@@ -1852,4 +1838,6 @@ body.modal-open{ overflow: hidden !important; padding-right: 0 !important; }
 </script>
 <!-- ═════ /S55O ═════ -->
 
+
+{% include "_smart_provision_modal.html" %}
 {% endblock %}

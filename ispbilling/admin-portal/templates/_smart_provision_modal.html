@@ -1,0 +1,486 @@
+{# Phase 19.2 — Smart OLT Provision Modal (reusable partial)
+   Usage: include this once in any page that has ONUs, then call
+   window.openSmartProvision({onu_id, label, olt_label, customer_id})
+   from any "Provision" button.
+#}
+<div class="modal fade" id="smartProvisionModal" tabindex="-1"
+     role="dialog" data-testid="smart-prov-modal" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header"
+           style="background:linear-gradient(135deg,#0ea5e9,#10b981);color:#fff;">
+        <h5 class="modal-title">
+          <i class="bi bi-lightning-charge-fill"></i>
+          Smart OLT Provision
+          <small style="opacity:.85" id="sp_subtitle"></small>
+        </h5>
+        <button type="button" class="close text-white"
+                data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="alert alert-info" style="font-size:13px;margin-bottom:10px;">
+          <i class="bi bi-info-circle"></i>
+          <b>Zero-Touch Provisioning</b> — pushes WAN + dual-band Wi-Fi + LAN
+          + DHCP + TR-069 ACS in ONE OLT-CLI transaction. Smart defaults are
+          derived from the linked customer's name + mobile.
+        </div>
+
+        <input type="hidden" id="sp_onu_id" />
+
+        {# ── Identity row ───────────────────────────────────────── #}
+        <div class="row">
+          <div class="col-md-6 form-group">
+            <label class="small text-muted">ONU Serial / MAC</label>
+            <input type="text" class="form-control form-control-sm"
+                   id="sp_onu_label" data-testid="sp-onu-label" readonly />
+          </div>
+          <div class="col-md-6 form-group">
+            <label class="small text-muted">OLT</label>
+            <input type="text" class="form-control form-control-sm"
+                   id="sp_olt_label" data-testid="sp-olt-label" readonly />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-md-6 form-group">
+            <label class="small text-muted">Customer (optional)</label>
+            <input type="text" class="form-control form-control-sm"
+                   id="sp_customer_id" data-testid="sp-customer-id"
+                   placeholder="Customer ID / Username" />
+          </div>
+          <div class="col-md-6 form-group">
+            <label class="small text-muted">Provision Profile</label>
+            <select class="form-control form-control-sm" id="sp_profile_id"
+                    data-testid="sp-profile-id">
+              <option value="">— pick a profile —</option>
+            </select>
+          </div>
+        </div>
+
+        {# ── Tabs ─────────────────────────────────────────────── #}
+        <ul class="nav nav-tabs nav-tabs-sm" id="spTabs" role="tablist"
+            style="margin-top:8px;">
+          <li class="nav-item">
+            <a class="nav-link active" data-toggle="tab" data-bs-toggle="tab"
+               href="#sp-tab-24" role="tab">2.4 GHz</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" data-bs-toggle="tab"
+               href="#sp-tab-5" role="tab">5 GHz</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" data-bs-toggle="tab"
+               href="#sp-tab-lan" role="tab">LAN / DHCP</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" data-bs-toggle="tab"
+               href="#sp-tab-adv" role="tab">Advanced</a>
+          </li>
+        </ul>
+
+        <div class="tab-content" style="padding-top:10px;">
+          {# ─ 2.4 GHz tab ─ #}
+          <div class="tab-pane fade show active" id="sp-tab-24" role="tabpanel">
+            <div class="row">
+              <div class="col-md-6 form-group">
+                <label class="small">SSID</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_ssid_24" data-testid="sp-ssid-24" />
+              </div>
+              <div class="col-md-6 form-group">
+                <label class="small">Password</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_pw_24" data-testid="sp-pw-24" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-3 form-group">
+                <label class="small d-block">Radio</label>
+                <label class="switch">
+                  <input type="checkbox" id="sp_radio_24" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small d-block">Auto-Channel</label>
+                <label class="switch">
+                  <input type="checkbox" id="sp_auto_24" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Channel</label>
+                <select class="form-control form-control-sm" id="sp_ch_24">
+                  <option value="">Auto</option>
+                  {% for c in [1,2,3,4,5,6,7,8,9,10,11,12,13] %}
+                  <option>{{ c }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Bandwidth</label>
+                <select class="form-control form-control-sm" id="sp_bw_24">
+                  <option>Auto</option>
+                  <option>20MHz</option>
+                  <option>40MHz</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {# ─ 5 GHz tab ─ #}
+          <div class="tab-pane fade" id="sp-tab-5" role="tabpanel">
+            <div class="form-group">
+              <label class="switch">
+                <input type="checkbox" id="sp_band_split" />
+                <span class="slider"></span>
+              </label>
+              <span style="margin-left:8px;font-size:13px;">
+                Band-Split — use different SSID/password for 5 GHz
+                <small class="text-muted">(off = mirror 2.4 GHz creds)</small>
+              </span>
+            </div>
+            <div id="sp_5g_creds">
+              <div class="row">
+                <div class="col-md-6 form-group">
+                  <label class="small">SSID</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="sp_ssid_5" data-testid="sp-ssid-5" />
+                </div>
+                <div class="col-md-6 form-group">
+                  <label class="small">Password</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="sp_pw_5" data-testid="sp-pw-5" />
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-3 form-group">
+                <label class="small d-block">Radio</label>
+                <label class="switch">
+                  <input type="checkbox" id="sp_radio_5" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small d-block">Auto-Channel</label>
+                <label class="switch">
+                  <input type="checkbox" id="sp_auto_5" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Channel</label>
+                <select class="form-control form-control-sm" id="sp_ch_5">
+                  <option value="">Auto</option>
+                  {% for c in [36,40,44,48,149,153,157,161,165] %}
+                  <option>{{ c }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3 form-group">
+                <label class="small">Bandwidth</label>
+                <select class="form-control form-control-sm" id="sp_bw_5">
+                  <option>Auto</option>
+                  <option>20MHz</option>
+                  <option>40MHz</option>
+                  <option>80MHz</option>
+                  <option>160MHz</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {# ─ LAN / DHCP tab ─ #}
+          <div class="tab-pane fade" id="sp-tab-lan" role="tabpanel">
+            <div class="row">
+              <div class="col-md-6 form-group">
+                <label class="small">LAN Gateway IP</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_lan_ip" data-testid="sp-lan-ip"
+                       placeholder="192.168.1.1" />
+              </div>
+              <div class="col-md-6 form-group">
+                <label class="small">Subnet Mask</label>
+                <input type="text" class="form-control form-control-sm"
+                       id="sp_lan_mask" data-testid="sp-lan-mask"
+                       placeholder="255.255.255.0" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="switch">
+                <input type="checkbox" id="sp_dhcp_en" checked />
+                <span class="slider"></span>
+              </label>
+              <span style="margin-left:8px;">Enable DHCP Server</span>
+            </div>
+            <div id="sp_dhcp_range">
+              <div class="row">
+                <div class="col-md-6 form-group">
+                  <label class="small">DHCP Range Start</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="sp_dhcp_start" placeholder="192.168.1.2" />
+                </div>
+                <div class="col-md-6 form-group">
+                  <label class="small">DHCP Range End</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="sp_dhcp_end" placeholder="192.168.1.254" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ─ Advanced tab ─ #}
+          <div class="tab-pane fade" id="sp-tab-adv" role="tabpanel">
+            <div class="row">
+              <div class="col-md-6 form-group">
+                <label class="small">TR-069 Inform Interval (sec, max 60)</label>
+                <input type="number" min="5" max="60" step="5"
+                       class="form-control form-control-sm"
+                       id="sp_inform_int" data-testid="sp-inform-int"
+                       value="60" />
+              </div>
+              <div class="col-md-6 form-group">
+                <label class="small d-block">Factory-Reset on push</label>
+                <label class="switch">
+                  <input type="checkbox" id="sp_factory_reset" />
+                  <span class="slider"></span>
+                </label>
+                <small class="text-muted d-block">Use for re-provisioning a
+                  used ONU — clears any residual user config.</small>
+              </div>
+            </div>
+            <div class="alert alert-warning" style="font-size:12px;">
+              <i class="bi bi-shield-exclamation"></i>
+              Some vendors (VSOL/Netlink) require WAN service-mode
+              <code>tr069_internet</code> to bridge ACS traffic; this is auto-applied
+              when WAN mode is PPPoE.
+            </div>
+          </div>
+        </div>
+
+        <pre id="sp_output" data-testid="sp-output"
+             style="display:none;background:#0f172a;color:#a5f3fc;padding:10px;
+             border-radius:6px;font-size:11px;max-height:240px;overflow:auto;
+             margin-top:10px;"></pre>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm"
+                data-dismiss="modal" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-outline-info btn-sm"
+                id="sp_preview_btn" data-testid="sp-preview">
+          <i class="bi bi-eye"></i> Preview Smart Defaults
+        </button>
+        <button type="button" class="btn btn-success btn-sm" id="sp_submit_btn"
+                data-testid="sp-submit">
+          <i class="bi bi-lightning-charge-fill"></i> Provision Now
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+#smartProvisionModal .modal-content{background:#1e293b;color:#e2e8f0;}
+#smartProvisionModal label{color:#cbd5e1;}
+#smartProvisionModal .form-control{background:#0f172a;color:#e2e8f0;border:1px solid #334155;}
+#smartProvisionModal .form-control:focus{background:#0f172a;color:#fff;border-color:#0ea5e9;box-shadow:0 0 0 .15rem rgba(14,165,233,.25);}
+#smartProvisionModal .form-control[readonly]{background:#0b1220;color:#94a3b8;}
+#smartProvisionModal .nav-tabs{border-bottom:1px solid #334155;}
+#smartProvisionModal .nav-tabs .nav-link{color:#94a3b8;border:0;}
+#smartProvisionModal .nav-tabs .nav-link.active{color:#fff;background:#0ea5e9;border-radius:6px 6px 0 0;}
+#smartProvisionModal .tab-content{min-height:230px;background:#0b1220;border-radius:0 6px 6px 6px;padding:14px;border:1px solid #334155;border-top:0;}
+#smartProvisionModal .tab-pane{display:none;}
+#smartProvisionModal .tab-pane.active{display:block;opacity:1;}
+#smartProvisionModal .form-group{margin-bottom:10px;}
+#smartProvisionModal .small{font-size:11px;color:#94a3b8;}
+#smartProvisionModal .modal-header{border-bottom:0;}
+#smartProvisionModal .modal-footer{border-top:1px solid #334155;background:#0b1220;}
+#smartProvisionModal .alert{margin-bottom:8px;}
+.switch{position:relative;display:inline-block;width:36px;height:18px;vertical-align:middle;}
+.switch input{opacity:0;width:0;height:0;}
+.switch .slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+                background:#cbd5e1;border-radius:18px;transition:.3s;}
+.switch .slider:before{position:absolute;content:"";height:14px;width:14px;
+                        left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.3s;}
+.switch input:checked + .slider{background:#10b981;}
+.switch input:checked + .slider:before{transform:translateX(18px);}
+.nav-tabs-sm .nav-link{padding:4px 10px;font-size:13px;}
+</style>
+
+<script>
+(function(){
+  let _loadedProfiles = null;
+
+  async function _loadProfiles(){
+    if (_loadedProfiles) return _loadedProfiles;
+    try {
+      const r = await fetch('/api/admin/provision-profiles');
+      const j = await r.json();
+      _loadedProfiles = (j && j.profiles) || [];
+    } catch(e){ _loadedProfiles = []; }
+    return _loadedProfiles;
+  }
+
+  function _setVal(id, v){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') { el.checked = !!(v && +v !== 0); }
+    else { el.value = (v === null || v === undefined) ? '' : v; }
+  }
+
+  function _applyResolved(R){
+    _setVal('sp_ssid_24', R.wifi_ssid);
+    _setVal('sp_pw_24',   R.wifi_password);
+    _setVal('sp_radio_24', R.wifi_radio_24_enabled);
+    _setVal('sp_auto_24',  R.wifi_auto_24);
+    _setVal('sp_ch_24',    R.wifi_channel_24);
+    _setVal('sp_bw_24',    R.wifi_bw_24);
+    _setVal('sp_band_split', R.wifi_band_split);
+    _setVal('sp_ssid_5',  R.wifi_ssid_5g || R.wifi_ssid);
+    _setVal('sp_pw_5',    R.wifi_password_5g || R.wifi_password);
+    _setVal('sp_radio_5', R.wifi_radio_5_enabled);
+    _setVal('sp_auto_5',  R.wifi_auto_5);
+    _setVal('sp_ch_5',    R.wifi_channel_5);
+    _setVal('sp_bw_5',    R.wifi_bw_5);
+    _setVal('sp_lan_ip',  R.lan_ip);
+    _setVal('sp_lan_mask',R.lan_netmask);
+    _setVal('sp_dhcp_en', R.dhcp_enabled);
+    _setVal('sp_dhcp_start', R.dhcp_start);
+    _setVal('sp_dhcp_end',   R.dhcp_end);
+    _setVal('sp_inform_int', R.inform_interval);
+    _setVal('sp_factory_reset', R.factory_reset_on_push);
+  }
+
+  async function _refreshPreview(){
+    const cust = ($('#sp_customer_id').val() || '').trim();
+    const pid  = ($('#sp_profile_id').val() || '').trim();
+    if (!cust && !pid) return;
+    try {
+      const qs = new URLSearchParams();
+      if (cust) qs.set('customer_id', cust);
+      if (pid)  qs.set('profile_id', pid);
+      const r = await fetch('/api/admin/provision-profiles/preview?' + qs.toString());
+      const j = await r.json();
+      if (j && j.resolved) _applyResolved(j.resolved);
+    } catch(e){}
+  }
+
+  window.openSmartProvision = async function(opts){
+    opts = opts || {};
+    $('#sp_onu_id').val(opts.onu_id || '');
+    $('#sp_onu_label').val(opts.label || ('#' + (opts.onu_id || '')));
+    $('#sp_olt_label').val(opts.olt_label || '');
+    $('#sp_customer_id').val(opts.customer_id || '');
+    $('#sp_subtitle').text(opts.label ? (' — ' + opts.label) : '');
+    $('#sp_output').hide().text('');
+
+    // Populate profile dropdown
+    const profiles = await _loadProfiles();
+    const sel = document.getElementById('sp_profile_id');
+    sel.innerHTML = '<option value="">— pick a profile —</option>';
+    let defaultId = '';
+    profiles.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = p.name + (p.is_default ? ' (default)' : '');
+      if (p.is_default) defaultId = p.id;
+      sel.appendChild(opt);
+    });
+    if (defaultId) sel.value = defaultId;
+
+    // Auto-preview when modal opens
+    await _refreshPreview();
+
+    try { $('#smartProvisionModal').modal('show'); }
+    catch(e){
+      const el = document.getElementById('smartProvisionModal');
+      if (el && window.bootstrap && bootstrap.Modal){
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }
+    }
+  };
+
+  // Live update when customer or profile changes (change + debounced input).
+  $(document).on('change', '#sp_profile_id, #sp_customer_id', _refreshPreview);
+  let _spDebounce = null;
+  $(document).on('input', '#sp_customer_id', function(){
+    clearTimeout(_spDebounce);
+    _spDebounce = setTimeout(_refreshPreview, 500);
+  });
+
+  $(document).on('click', '#sp_preview_btn', _refreshPreview);
+
+  $(document).on('click', '#sp_submit_btn', async function(){
+    const id = $('#sp_onu_id').val();
+    if (!id){ alert('No ONU id'); return; }
+    const out = document.getElementById('sp_output');
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Provisioning…';
+    out.style.display = 'block'; out.textContent = 'Working…';
+    const payload = {
+      customer_id: ($('#sp_customer_id').val()||'').trim() || null,
+      profile_id:  parseInt($('#sp_profile_id').val()||'0', 10) || null,
+      wifi_ssid:        ($('#sp_ssid_24').val()||'').trim() || null,
+      wifi_password:    ($('#sp_pw_24').val()||'').trim() || null,
+      wifi_radio_24_enabled: $('#sp_radio_24').is(':checked') ? 1 : 0,
+      wifi_auto_24:     $('#sp_auto_24').is(':checked') ? 1 : 0,
+      wifi_channel_24:  parseInt($('#sp_ch_24').val()||'0', 10) || null,
+      wifi_bw_24:       $('#sp_bw_24').val() || null,
+      wifi_band_split:  $('#sp_band_split').is(':checked') ? 1 : 0,
+      wifi_ssid_5g:     ($('#sp_ssid_5').val()||'').trim() || null,
+      wifi_password_5g: ($('#sp_pw_5').val()||'').trim() || null,
+      wifi_radio_5_enabled: $('#sp_radio_5').is(':checked') ? 1 : 0,
+      wifi_auto_5:      $('#sp_auto_5').is(':checked') ? 1 : 0,
+      wifi_channel_5:   parseInt($('#sp_ch_5').val()||'0', 10) || null,
+      wifi_bw_5:        $('#sp_bw_5').val() || null,
+      lan_ip:      ($('#sp_lan_ip').val()||'').trim() || null,
+      lan_netmask: ($('#sp_lan_mask').val()||'').trim() || null,
+      dhcp_enabled: $('#sp_dhcp_en').is(':checked') ? 1 : 0,
+      dhcp_start:  ($('#sp_dhcp_start').val()||'').trim() || null,
+      dhcp_end:    ($('#sp_dhcp_end').val()||'').trim() || null,
+      inform_interval: parseInt($('#sp_inform_int').val()||'60', 10),
+      factory_reset_on_push: $('#sp_factory_reset').is(':checked') ? 1 : 0,
+    };
+    try {
+      const r = await fetch('/api/admin/olt/onus/' + id + '/zero-touch-provision', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json();
+      out.textContent = JSON.stringify(j, null, 2);
+      if (r.ok && (j.ok || j.success)){
+        out.style.color = '#a7f3d0';
+        btn.innerHTML = '<i class="bi bi-check-circle"></i> Provisioned';
+        setTimeout(()=>{
+          try { $('#smartProvisionModal').modal('hide'); } catch(e){}
+          if (typeof window.refreshOnus === 'function') window.refreshOnus();
+          else if (typeof window.loadOnus === 'function') window.loadOnus();
+        }, 1500);
+      } else {
+        out.style.color = '#fda4af';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
+      }
+    } catch(e){
+      out.textContent = 'Network error: ' + e.message;
+      out.style.color = '#fda4af';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Provision Now';
+    }
+  });
+
+  // Backwards-compat alias: legacy `openQuickProvision` -> openSmartProvision.
+  window.openQuickProvision = function(arg, label, oltLabel){
+    let onuId = arg, _label = label, _olt = oltLabel;
+    if (arg && arg.tagName === 'BUTTON'){
+      onuId  = parseInt(arg.dataset.onuId, 10);
+      _label = arg.dataset.onuSerial || ('#'+onuId);
+      _olt   = arg.dataset.oltLabel || '';
+    }
+    window.openSmartProvision({onu_id: onuId, label: _label, olt_label: _olt});
+  };
+})();
+</script>
