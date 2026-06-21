@@ -56,7 +56,7 @@ function s36b8Page(d){
             </div>
         </div>
         <div class="box-body">
-            <table class="table table-hover" data-testid="activity-table">
+            <table class="table table-hover no-dt" data-dt-skip="1" data-testid="activity-table">
                 <thead>
                     <tr style="background:#f1f5f9;">
                         <th style="width:160px;">When</th>
@@ -84,9 +84,7 @@ function s36b8Page(d){
 </style>
 
 <script>
-function s36b8Fmt(s){ return (window._aisp_fmt_date ? window._aisp_fmt_date(s) : (s||'—')); }
-catch(e){ return '—'; }
-}
+function s36b8Fmt(s){ return (window._aisp_fmt_date ? window._aisp_fmt_date(s) : (s||"—")); }
 function s36b8Escape(s){ return (s||'').replace(/</g,'&lt;'); }
 function s36b8Load(){
     var f = document.getElementById('s36b8-filter').value;

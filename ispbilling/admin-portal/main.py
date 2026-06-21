@@ -3974,7 +3974,7 @@ async def admin_track_employee(request: Request, db: Session = Depends(get_db)):
         return auth_check
     
     context = get_admin_context(request, db, "employees")
-    return templates.TemplateResponse("admin_track_employees_google.html", context)
+    return templates.TemplateResponse("admin_track_employees.html", context)
 
 # Helpers for extended Plan fields --------------------------------------------
 def _to_bool(v):
@@ -13057,7 +13057,7 @@ async def admin_track_employee(request: Request, db: Session = Depends(get_db)):
     
     context = get_admin_context(request, db, active_page="track-employee")
     # _S39R4_TRACK_LIVE — use the live Google-Maps template (was placeholder)
-    return templates.TemplateResponse("admin_track_employees_google.html", context)
+    return templates.TemplateResponse("admin_track_employees.html", context)
 
 @app.get("/admin/data-management", response_class=HTMLResponse)
 async def admin_data_management(request: Request, db: Session = Depends(get_db)):
@@ -21376,7 +21376,7 @@ async def employee_edit_employee_page(request: Request, db: Session = Depends(ge
 async def employee_track_employee(request: Request, db: Session = Depends(get_db)):
     auth_check = require_employee(request)
     if auth_check: return auth_check
-    return templates.TemplateResponse("admin_track_employees_google.html",
+    return templates.TemplateResponse("admin_track_employees.html",
         _emp_admin_context(request, db, "track_employee"))
 
 
