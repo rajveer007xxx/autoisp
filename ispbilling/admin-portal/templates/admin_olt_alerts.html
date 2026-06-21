@@ -117,7 +117,7 @@ async function loadAlerts(){
       <td><span class="pill ${a.level}">${a.level}</span></td>
       <td><b>${a.title}</b><br><span style="color:#8A93A6;font-size:11px">${a.message||''}</span></td>
       <td>${a.olt_name||('#'+(a.olt_id||'-'))}</td>
-      <td style="color:#8A93A6;font-size:11px" data-testid="alert-created-at">${_olaFmtDate(a.created_at)}</td>
+      <td style="color:#8A93A6;font-size:11px" data-testid="alert-created-at">${window._aisp_fmt_date(a.created_at)}</td>
       <td>${a.acked
           ? `<span class="pill acked">acked</span><br><span style="color:#8A93A6;font-size:10px">${a.acked_by||''} ${a.acked_at||''}</span>`
           : '<span class="pill warn">open</span>'}</td>

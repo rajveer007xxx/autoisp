@@ -165,7 +165,7 @@ $(document).ready(function() {
                 allPermissions = response.permissions;
                 
                 allPermissions.feature.forEach(function(perm) {
-                    $('#featurePermissions').append(`
+                    $('#featurePermissions').empty().append(`
                         <div style="display: flex; align-items: center;">
                             <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
                             <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
@@ -174,7 +174,7 @@ $(document).ready(function() {
                 });
                 
                 allPermissions.app.forEach(function(perm) {
-                    $('#appPermissions').append(`
+                    $('#appPermissions').empty().append(`
                         <div style="display: flex; align-items: center;">
                             <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
                             <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>
@@ -183,7 +183,7 @@ $(document).ready(function() {
                 });
                 
                 allPermissions.report.forEach(function(perm) {
-                    $('#reportPermissions').append(`
+                    $('#reportPermissions').empty().append(`
                         <div style="display: flex; align-items: center;">
                             <input type="checkbox" id="perm_${perm.id}" name="permissions" value="${perm.id}" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
                             <label for="perm_${perm.id}" style="margin: 0; cursor: pointer; font-size: 14px;">${perm.label}</label>

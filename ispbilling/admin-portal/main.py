@@ -1051,6 +1051,7 @@ def get_admin_context(request: Request, db: Session, active_page: str = ""):
         "company_name": company_name,
         "company_logo": company_logo,
         "company": company,           # Session 25.6 - for feature-flag checks in templates
+        "company_country": (company.country if company and getattr(company, 'country', None) else ''),  # __PHASE19_7__
         "active_page": active_page,
         "mfa_state": _ctx_s36g_mfa,  # s36g MFA enforcement banner
     }

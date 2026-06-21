@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="aisp-country" content="{{ (company_country|default(0, true)) or "IN" }}">
     <!-- E1_MODERN_OVERLAY_BOOT --><script>(function(){try{document.documentElement.classList.add("e1-dark");document.documentElement.setAttribute("data-e1-theme","dark");localStorage.setItem("e1-theme","dark");}catch(e){}})();</script>
     <link rel="icon" type="image/png" href="/static/favicon.png">
     <link rel="apple-touch-icon" href="/static/favicon.png">
@@ -1183,6 +1184,48 @@
 </script>
 <!-- /__S55C_PWA_INSTALL__ -->
 
+
+<script>
+  // __PHASE19_7__  Universal date/time formatter.
+  // DD-MM-YYYY HH:MM for India tenants; toLocaleString for everyone else.
+  // Reads the country off the company context that the server injects via
+  // <meta name="aisp-country" content="India">.
+  (function(){
+    function _country(){
+      var c = '';
+      try {
+        var m = document.querySelector('meta[name="aisp-country"]');
+        if (m && m.content) c = String(m.content).toLowerCase().trim();
+      } catch(e){}
+      if (!c){
+        try {
+          var lc = (navigator.language || '').toLowerCase();
+          if (lc === 'en-in' || lc === 'hi-in' || lc.endsWith('-in')) c = 'india';
+        } catch(e){}
+      }
+      if (c === 'in' || c === 'ind' || c === 'india') return 'india';
+      if (!c || c === 'none') return 'india';
+      return c;
+    }
+    window.AISP_COUNTRY = _country();
+
+    window._aisp_fmt_date = function(s){
+      if (!s) return '—';
+      try {
+        var iso = String(s).replace(' ', 'T');
+        if (!/[Zz]|[+\-]\d\d:?\d\d$/.test(iso)) iso += 'Z';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return '—';
+        if (window.AISP_COUNTRY === 'india'){
+          var pad = function(n){ return n < 10 ? '0'+n : ''+n; };
+          return pad(d.getDate()) + '-' + pad(d.getMonth()+1) + '-' + d.getFullYear()
+                 + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+        return d.toLocaleString();
+      } catch(e){ return '—'; }
+    };
+  })();
+</script>
 </head>
 <body class="hold-transition sidebar-mini">
     <!-- Hidden input for current user ID (used in payment popup) -->
